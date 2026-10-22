@@ -3,8 +3,9 @@
  *
  * Every identifier answer is stored as AES-256-GCM ciphertext (`SSN_ENCRYPTION_KEY`)
  * and decrypted only inside server routes. Legacy plaintext values are read as-is.
- * Reads do not rewrite them. Free text is stored as typed and masked only on the
- * owner response.
+ * Reads do not rewrite stored records. A separated 3-2-4 number whose digits are
+ * not already in that free-text field is rejected on save. A standalone 9-digit
+ * run is kept. Masking happens only on the owner response.
  */
 import { decryptSensitive, encryptSensitive, isEncrypted, maskSSN } from '@/lib/security/utils';
 
@@ -14,9 +15,6 @@ export type OrganizerIdentifierKind = 'ssn' | 'bankAccount' | 'bankRouting' | 'i
 export const ORGANIZER_IDENTIFIER_FIELDS: Readonly<Record<string, OrganizerIdentifierKind>> = {
   taxpayerSSN: 'ssn', spouseSSN: 'ssn', bankAccount: 'bankAccount', bankRouting: 'bankRouting', ipPin: 'ipPin', ein: 'ein',
 };
-
-/** Free-text organizer answers that must never carry identifier digits. */
-export const ORGANIZER_REDACTED_TEXT_FIELDS = ['dependentDetails'] as const;
 
 const IDENTIFIER_RULES: Record<OrganizerIdentifierKind, { pattern: RegExp; label: string }> = {
   ssn: { pattern: /^\d{9}$/, label: 'Social Security number' },
@@ -60,17 +58,14 @@ export function normalizeOrganizerIdentifier(kind: OrganizerIdentifierKind, valu
 export interface OrganizerIdentifierRead {
   /** Decrypted (or legacy plaintext) identifier values merged over the record; server use only. */
   organizer: Record<string, unknown>;
-  /** Identifier answers found unencrypted; the caller re-encrypts them on this read. */
+  /** Identifier answers still stored without ciphertext. This read does not rewrite them. */
   legacyPlaintextFields: string[];
-  /** Free-text answers that still contained identifier digits; the caller stores the redacted text. */
-  redactedTextFields: string[];
 }
 
-/** Decrypts identifier answers for a server route; legacy plaintext is passed through and reported. */
+/** Decrypts identifier answers for a server route. Legacy plaintext is passed through and reported. */
 export function readOrganizerIdentifiers(data: Record<string, unknown>): OrganizerIdentifierRead {
   const organizer: Record<string, unknown> = { ...data };
   const legacyPlaintextFields: string[] = [];
-  const redactedTextFields: string[] = [];
   for (const [field, value] of Object.entries(data)) {
     if (typeof value !== 'string' || !value) continue;
     if (organizerIdentifierKind(field)) {
@@ -78,31 +73,15 @@ export function readOrganizerIdentifiers(data: Record<string, unknown>): Organiz
       else legacyPlaintextFields.push(field);
     }
   }
-  return { organizer, legacyPlaintextFields, redactedTextFields };
-}
-
-/** Firestore patch that encrypts legacy plaintext identifiers and stores redacted text (write-on-read migration). */
-export function legacyIdentifierPatch(read: OrganizerIdentifierRead): Record<string, string> {
-  const patch: Record<string, string> = {};
-  for (const field of read.legacyPlaintextFields) {
-    const value = read.organizer[field];
-    if (typeof value === 'string' && value) patch[field] = encryptSensitive(value);
-  }
-  for (const field of read.redactedTextFields) {
-    const value = read.organizer[field];
-    if (typeof value === 'string') patch[field] = value;
-  }
-  return patch;
+  return { organizer, legacyPlaintextFields };
 }
 
 export interface OrganizerIdentifierWrite {
   answers: Record<string, string>;
-  /** Free-text answers whose identifier digits were removed before saving. */
-  redactedTextFields: string[];
 }
 
 /**
- * Encrypts identifier answers. Free text is copied through unchanged.
+ * Encrypts identifier answers. Free text is copied through.
  * Ciphertext that matches the stored value is kept (a tab opened before an update
  * may still hold it); every other identifier is validated and re-encrypted.
  */
@@ -125,7 +104,7 @@ export function encryptOrganizerIdentifiers(
     if ('error' in normalized) return normalized;
     encrypted[field] = encryptSensitive(normalized.digits);
   }
-  return { answers: encrypted, redactedTextFields: [] };
+  return { answers: encrypted };
 }
 
 /**
@@ -144,24 +123,55 @@ export function ssnShapedExpression(): RegExp {
   return /(?<!\w)(?:\d{3}[- ]\d{2}[- ]\d{4}|\d{9})(?!\w)/g;
 }
 
+/** Separated 3-2-4 groups only, with the same boundaries as `ssnShapedExpression`. Bare 9-digit runs are excluded. */
+export function separatedSsnExpression(): RegExp {
+  return /(?<!\w)\d{3}[- ]\d{2}[- ]\d{4}(?!\w)/g;
+}
+
 const MASKED_FREE_TEXT_TOKEN = /\*\*\*-\*\*-(\d{4})/g;
 export const MASKED_NUMBER_EDIT_ERROR = "Please don't edit the hidden number in this field";
 
-/** Puts stored originals back into masked free-text tokens. Text with no tokens is returned as typed. */
+const numberDigits = (value: string) => value.replace(/\D/g, '');
+
+/**
+ * Puts each masked token back to the stored text at that position.
+ * The same digits in different punctuation count as one number, so each token
+ * keeps the original characters at its own position. Two different digit strings
+ * that share a last 4 are rejected.
+ */
 export function restoreMaskedFreeText(incoming: string, stored: string): { text: string } | { error: string } {
-  const tokens = [...incoming.matchAll(MASKED_FREE_TEXT_TOKEN)];
+  const tokens = [...incoming.matchAll(new RegExp(MASKED_FREE_TEXT_TOKEN.source, 'g'))];
   if (tokens.length === 0) return { text: incoming };
-  const storedValues = [...stored.matchAll(ssnShapedExpression())].map(match => match[0]);
-  if (tokens.length > storedValues.length) return { error: MASKED_NUMBER_EDIT_ERROR };
-  const byLast4 = new Map<string, string[]>();
-  for (const value of storedValues) {
-    const last4 = value.replace(/\D/g, '').slice(-4);
-    byLast4.set(last4, [...(byLast4.get(last4) ?? []), value]);
+  const storedMatches = [...stored.matchAll(ssnShapedExpression())];
+  if (tokens.length > storedMatches.length) return { error: MASKED_NUMBER_EDIT_ERROR };
+  const digitsByLast4 = new Map<string, Set<string>>();
+  for (const match of storedMatches) {
+    const digits = numberDigits(match[0]);
+    const seen = digitsByLast4.get(digits.slice(-4)) ?? new Set<string>();
+    seen.add(digits);
+    digitsByLast4.set(digits.slice(-4), seen);
   }
   for (const token of tokens) {
-    if ((byLast4.get(token[1]) ?? []).length !== 1) return { error: MASKED_NUMBER_EDIT_ERROR };
+    const seen = digitsByLast4.get(token[1]);
+    if (!seen || seen.size !== 1) return { error: MASKED_NUMBER_EDIT_ERROR };
   }
-  return { text: incoming.replace(MASKED_FREE_TEXT_TOKEN, (_match, last4: string) => byLast4.get(last4)![0]) };
+  let cursor = 0;
+  let missing = false;
+  const text = incoming.replace(new RegExp(MASKED_FREE_TEXT_TOKEN.source, 'g'), (_match, last4: string) => {
+    while (cursor < storedMatches.length && numberDigits(storedMatches[cursor][0]).slice(-4) !== last4) cursor += 1;
+    if (cursor >= storedMatches.length) { missing = true; return _match; }
+    return storedMatches[cursor++][0];
+  });
+  return missing ? { error: MASKED_NUMBER_EDIT_ERROR } : { text };
+}
+
+/** A separated 3-2-4 number is new when its digits are not already in an SSN-shaped value in the stored field. */
+export function newSeparatedNumberError(text: string, stored: string): { error: string } | null {
+  const storedDigits = new Set([...stored.matchAll(ssnShapedExpression())].map(match => numberDigits(match[0])));
+  for (const match of text.matchAll(separatedSsnExpression())) {
+    if (!storedDigits.has(numberDigits(match[0]))) return { error: SSN_NOT_ACCEPTED_ERROR };
+  }
+  return null;
 }
 
 export function restoreOrganizerFreeText(
@@ -170,8 +180,11 @@ export function restoreOrganizerFreeText(
   const next: Record<string, string> = {};
   for (const [field, value] of Object.entries(answers)) {
     if (organizerIdentifierKind(field)) { next[field] = value; continue; }
-    const restored = restoreMaskedFreeText(value, typeof previous[field] === 'string' ? previous[field] : '');
+    const stored = typeof previous[field] === 'string' ? previous[field] : '';
+    const restored = restoreMaskedFreeText(value, stored);
     if ('error' in restored) return restored;
+    const rejected = newSeparatedNumberError(restored.text, stored);
+    if (rejected) return rejected;
     next[field] = restored.text;
   }
   return { answers: next };
@@ -197,7 +210,7 @@ export function withoutUneditedMaskedText(answers: Record<string, string>, previ
 }
 
 export const IDENTIFIER_PROVIDED_SEPARATELY = 'Provided to preparer separately';
-export const DEPENDENT_IDENTIFIERS_REMOVED_WARNING = 'Social Security or taxpayer identification numbers were removed from the dependent details before saving. Give dependent SSNs to your tax preparer directly; WriteOff does not store them.';
+export const SSN_NOT_ACCEPTED_ERROR = "Please don't enter Social Security numbers here. We don't need them.";
 
 /** True when a save is echoing a masked read, the last four digits, or the same full number. */
 export function echoesStoredIdentifier(kind: OrganizerIdentifierKind, incoming: string, storedPlain: string): boolean {

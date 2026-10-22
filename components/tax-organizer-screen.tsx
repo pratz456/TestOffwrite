@@ -148,7 +148,6 @@ export function TaxOrganizerScreen({ user }: Props) {
   const [switchingYear, setSwitchingYear] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const revision = useRef(0);
   const loadedKey = useRef<string | null>(null);
   const baseline = useRef('');
@@ -187,22 +186,14 @@ export function TaxOrganizerScreen({ user }: Props) {
 
   const save = async (): Promise<boolean> => {
     if (savePending.current || loading || loadFailed || loadedKey.current !== `${user.id}:${year}`) return false;
-    savePending.current = true; setSaving(true); setError(null); setNotice(null);
+    savePending.current = true; setSaving(true); setError(null);
     const operation = revision.current;
-    let savedAnswers = answers;
     try {
       const res = await makeAuthenticatedRequest('/api/tax/organizer', { method: 'POST', body: JSON.stringify(organizerSaveBody(answers, year)) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Could not save the organizer. Your edits remain on this page.');
       if (revision.current !== operation || currentOwner.current !== user.id) return false;
-      // The server removes identifier digits from free text; keep the saved (redacted) copy so they are not resent.
-      if (data.redacted && typeof data.redacted === 'object') {
-        const redacted = Object.fromEntries(Object.entries(data.redacted).filter(([key, value]) => key in EMPTY && typeof value === 'string'));
-        savedAnswers = { ...answers, ...redacted };
-        setAnswers(p => ({ ...p, ...redacted }));
-        if (typeof data.warning === 'string') setNotice(data.warning);
-      }
-      baseline.current = JSON.stringify(savedAnswers); setSaved(true); return true;
+      baseline.current = JSON.stringify(answers); setSaved(true); return true;
     } catch (err) {
       if (revision.current === operation) setError(err instanceof Error ? err.message : 'Could not save the organizer. Your edits remain on this page.');
       return false;
@@ -294,7 +285,6 @@ export function TaxOrganizerScreen({ user }: Props) {
 
       <div className="mx-auto max-w-2xl space-y-3 px-4 py-3 sm:px-6">
         {error && <div role="alert" className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>}
-        {notice && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">{notice}</div>}
         <div className="flex items-center gap-3">
           <select aria-label="Organizer section" value={step} disabled={saving || switchingYear}
             onChange={event => setStep(Number(event.target.value))}

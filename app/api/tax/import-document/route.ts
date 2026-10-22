@@ -305,6 +305,12 @@ async function extractDocument(source: DocumentSource, docType: string, payload:
   return parseModelJson(rawText);
 }
 
+/** A labeled employer or payer number, with or without a dash. Bare runs that are not labeled stay out. */
+function labeledPayerNumbers(text: string): string[] {
+  const pattern = /(?:\bEIN\b|identification number|payer(?:'s)? TIN)[^\d]{0,40}(\d{2}-\d{7}|\d{9})(?!\d)/gi;
+  return [...text.matchAll(pattern)].map(match => match[1]);
+}
+
 /** Formats a locally captured EIN as XX-XXXXXXX; the model never sees it. */
 function formatEIN(ein: string): string {
   const digits = ein.replace(/\D/g, '');
@@ -355,6 +361,8 @@ const AUTO_PUBLIC_FIELDS = ['docType', 'formVariant', 'platform', 'taxYear', 'pr
 const BREAKDOWN_FIELDS = ['baseEarnings', 'tips', 'bonuses', 'promotions', 'otherIncome'] as const;
 const FIELD_CONFIDENCE_FIELDS = ['box1Wages', 'box2FederalWithheld', 'box3SocialSecurityWages', 'box5MedicareWages'] as const;
 
+const PAYER_NUMBER_FIELDS = new Set(['employerEIN', 'payerEIN']);
+
 function scrubImportText(value: string): string {
   return value.replace(ssnShapedExpression(), '');
 }
@@ -393,7 +401,7 @@ function publicDocument(data: Record<string, unknown>): Record<string, unknown> 
       out[field] = value.filter((item): item is string => typeof item === 'string').map(scrubImportText);
       continue;
     }
-    if (typeof value === 'string') { out[field] = scrubImportText(value); continue; }
+    if (typeof value === 'string') { out[field] = PAYER_NUMBER_FIELDS.has(field) ? value : scrubImportText(value); continue; }
     if (typeof value === 'number' || value === null || typeof value === 'boolean') out[field] = value;
   }
   return out;
@@ -409,6 +417,7 @@ function dropDocumentIdentifiers<T>(value: T): T {
     const cleaned: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
       if (DOCUMENT_IDENTIFIER_KEYS.has(key.toLowerCase().replace(/[^a-z0-9]/g, ''))) continue;
+      if (PAYER_NUMBER_FIELDS.has(key) && typeof entry === 'string') { cleaned[key] = entry; continue; }
       cleaned[key] = dropDocumentIdentifiers(entry);
     }
     return cleaned as T;
@@ -490,6 +499,10 @@ export async function POST(request: NextRequest) {
       const redaction = redactIdentifierText(ocr!.text, { keepPrimarySSNLast4: true });
       ssnLast4 = redaction.ssnLast4;
       localEINs = redaction.eins.map(formatEIN);
+      for (const value of labeledPayerNumbers(ocr!.text)) {
+        const digits = value.replace(/\D/g, '');
+        if (!localEINs.some(existing => existing.replace(/\D/g, '') === digits)) localEINs.push(value);
+      }
       // The no-consent path also keeps the account holder's name and postal addresses on this server;
       // the boxes the model extracts are numeric and the employer name stays for labeling.
       const personal = redactPersonalDetails(redaction.text, await accountHolderNames(user.uid));

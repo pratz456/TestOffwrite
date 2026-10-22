@@ -17,7 +17,7 @@ vi.mock('@/lib/firebase/admin', () => {
   return { adminDb: { collection: (path: string) => query(path), collectionGroup: (path: string) => query(path, true) } };
 });
 import { readOwnedTransactions, ExportDataUnavailableError } from '@/lib/reports/export-records';
-import { generateUserDataExport, generateDataPackage } from '@/lib/reports/data-export';
+import { generateUserDataExport, generateDataPackage, sanitizeExportValue } from '@/lib/reports/data-export';
 import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 function seed(path: string, data: Record<string, unknown>) { state.rows.set(path, data); }
 beforeEach(() => {
@@ -84,6 +84,13 @@ describe('owner export source completeness and privacy', () => {
   ] as const)('rejects conflicting ownership at %s', async (path, data) => {
     seed(path, { ...data, date: '2026-01-01', amount: 1 });
     await expect(readOwnedTransactions('owner')).rejects.toBeInstanceOf(ExportDataUnavailableError);
+  });
+  it('keeps an archive note without a separated number and drops stored identity keys', () => {
+    const exported = sanitizeExportValue({ id: 'org', taxYear: 2026, spouseSSN: 'SECRET_CIPHERTEXT', dependentDetails: 'Emma Shah, 123-45-6789, Daughter', filingStatus: 'single' }) as Record<string, unknown>;
+    expect(exported.dependentDetails).toBe('Emma Shah, [redacted-id], Daughter');
+    expect(exported.spouseSSN).toBeUndefined();
+    expect(JSON.stringify(exported)).not.toContain('123-45-6789');
+    expect(JSON.stringify(exported)).not.toContain('SECRET_CIPHERTEXT');
   });
   it('exports all saved tax datasets with counts and preserves false/zero, never credential or receipt bytes', async () => {
     const data = await generateUserDataExport('owner'); const pack = generateDataPackage(data);

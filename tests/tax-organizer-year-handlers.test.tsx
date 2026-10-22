@@ -117,6 +117,12 @@ describe('organizer personal facts and safe tax-year changes', () => {
     button(failed, 'Retry organizer').props.onClick(); await tick();
     expect(personal(render())).toBeDefined();
   });
+  it('shows the save rejection on the page', async () => {
+    await load();
+    harness.request.mockResolvedValueOnce(response({ error: "Please don't enter Social Security numbers here. We don't need them." }, 400));
+    await button(render(), 'Save').props.onClick();
+    expect(text(render())).toContain("Please don't enter Social Security numbers here. We don't need them.");
+  });
   it('does not advance Next when saving fails', async () => {
     await load(); harness.request.mockResolvedValueOnce(response({ error: 'Could not save' }, 503));
     await button(render(), 'Next').props.onClick();
