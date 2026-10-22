@@ -11,6 +11,7 @@ import { assertBankHistoryReadyForNewConnection, BANK_HISTORY_REVIEW_REQUIRED, B
 import { ACCOUNT_DELETION_IN_PROGRESS, beginPlaidLinkOperation, retainPlaidLinkRecovery, finishPlaidLinkOperation,
   markPlaidLinkOperationUnresolved, existingPlaidLinkOwner, quarantinePlaidLinkRecovery } from '@/lib/plaid/link-operations';
 import { hasCurrentBankConsent } from '@/lib/onboarding/bank-consent';
+import { BANK_CONSENT_LOOKUP_ERROR, BANK_CONSENT_REQUIRED_ERROR } from '@/lib/onboarding/bank-consent-copy';
 
 export async function POST(req: Request) {
   let uid: string;
@@ -26,9 +27,9 @@ export async function POST(req: Request) {
   if (typeof public_token !== 'string' || !public_token || public_token.length > 2048) return NextResponse.json({ error: 'Missing public_token' }, { status: 400 });
   let bankAcknowledged = false;
   try { bankAcknowledged = await hasCurrentBankConsent(uid); }
-  catch { return NextResponse.json({ error: 'Bank connection could not be checked. Please retry.' }, { status: 503 }); }
+  catch { return NextResponse.json({ error: BANK_CONSENT_LOOKUP_ERROR }, { status: 503 }); }
   if (!bankAcknowledged) {
-    return NextResponse.json({ error: 'Acknowledge how WriteOff uses bank transactions before connecting a bank.' }, { status: 403 });
+    return NextResponse.json({ error: BANK_CONSENT_REQUIRED_ERROR }, { status: 403 });
   }
   try {
     assertPlaidTokenEncryptionConfigured();

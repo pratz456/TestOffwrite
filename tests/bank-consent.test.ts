@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import { BANK_CONSENT_TEXT, BANK_CONSENT_VERSION } from '@/lib/onboarding/bank-consent-copy';
+import {
+  BANK_CONSENT_CLOCK_ERROR, BANK_CONSENT_LOOKUP_ERROR, BANK_CONSENT_OUT_OF_DATE_ERROR, BANK_CONSENT_SAVE_ERROR,
+  BANK_CONSENT_TEXT, BANK_CONSENT_VERSION,
+} from '@/lib/onboarding/bank-consent-copy';
+import { ACCEPT_LEGACY_BANK_DATA_CONSENT, legacyBankDataConsentStillCounts } from '@/lib/onboarding/bank-consent';
 
 const hash = createHash('sha256').update(BANK_CONSENT_TEXT, 'utf8').digest('hex');
 const store = vi.hoisted(() => ({
@@ -96,6 +100,22 @@ describe('bank acknowledgment records', () => {
     expect((await saveBankConsent(saveBody({ version: BANK_CONSENT_VERSION, accepted_at: '2026-10-22T15:04:00.000Z' }))).status).toBe(401);
     expect(store.bankConsents).toHaveLength(0);
   });
+
+  it('uses one save sentence for a rejected acknowledgment, and the clock sentence when the device time is ahead', async () => {
+    const extra = await saveBankConsent(saveBody({ version: BANK_CONSENT_VERSION, accepted_at: '2026-10-22T15:04:00.000Z', extra: true }));
+    expect(extra.status).toBe(400);
+    expect(await extra.json()).toEqual({ error: BANK_CONSENT_SAVE_ERROR });
+    const missingTime = await saveBankConsent(saveBody({ version: BANK_CONSENT_VERSION, accepted_at: 'not-a-time' }));
+    expect(missingTime.status).toBe(400);
+    expect(await missingTime.json()).toEqual({ error: BANK_CONSENT_SAVE_ERROR });
+    const stale = await saveBankConsent(saveBody({ version: '2026-10-22', accepted_at: '2026-10-22T15:04:00.000Z' }));
+    expect(stale.status).toBe(400);
+    expect(await stale.json()).toEqual({ error: BANK_CONSENT_OUT_OF_DATE_ERROR });
+    const clock = await saveBankConsent(saveBody({ version: BANK_CONSENT_VERSION, accepted_at: '2999-01-01T00:00:00.000Z' }));
+    expect(clock.status).toBe(400);
+    expect(await clock.json()).toEqual({ error: BANK_CONSENT_CLOCK_ERROR });
+    expect(store.bankConsents).toHaveLength(0);
+  });
 });
 
 describe('Plaid exchange requires a bank acknowledgment', () => {
@@ -119,6 +139,22 @@ describe('Plaid exchange requires a bank acknowledgment', () => {
     }));
     expect(response.status).toBe(200);
     expect(m.exchange).toHaveBeenCalledOnce();
+  });
+
+  it('uses the lookup sentence only when the stored acknowledgment cannot be read', async () => {
+    store.failRead = true;
+    const response = await exchangePublicToken(exchangeBody({ public_token: 'public-sandbox-test' }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: BANK_CONSENT_LOOKUP_ERROR });
+    expect(m.exchange).not.toHaveBeenCalled();
+  });
+
+  it('keeps an older bank_data acknowledgment behind one switch', () => {
+    expect(ACCEPT_LEGACY_BANK_DATA_CONSENT).toBe(true);
+    expect(legacyBankDataConsentStillCounts({ bank_data: true })).toBe(true);
+    expect(legacyBankDataConsentStillCounts({ bank_data: true }, false)).toBe(false);
+    expect(legacyBankDataConsentStillCounts({ bank_data: false })).toBe(false);
+    expect(legacyBankDataConsentStillCounts(undefined)).toBe(false);
   });
 
   it('does not treat bank_data false or a different wording hash as a current acknowledgment', async () => {
