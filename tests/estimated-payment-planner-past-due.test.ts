@@ -14,7 +14,7 @@ import {
   PLANNER_ADD_INCOME_PAY_LESS, PLANNER_ALREADY_COVERED, PLANNER_APPLIED_AMOUNT_LABEL, PLANNER_APPLIED_FILED_LABEL,
   PLANNER_APPLIED_PENDING, PLANNER_COULD_BE_SMALLER, PLANNER_DE_MINIMIS, PLANNER_DISMISSED, PLANNER_E1_MESSAGE,
   PLANNER_EMPTY, PLANNER_ERROR_LOAD, PLANNER_ERROR_NEGATIVE, PLANNER_ERROR_NOT_A_NUMBER, PLANNER_ERROR_PAYMENT_DATE,
-  PLANNER_ERROR_SAVE, PLANNER_FILING_STATUS_LABEL, PLANNER_MISSING_FACTS, PLANNER_PENALTY_SENTENCE,
+  PLANNER_ERROR_SAVE, PLANNER_FILING_STATUS_LABEL, PLANNER_MISSING_FACTS, PLANNER_NEXT_PAYMENT, PLANNER_PENALTY_SENTENCE,
   PLANNER_ZERO_TARGET_CASE1, PLANNER_ZERO_TARGET_CASE2, Q4_FILE_AND_PAY_SENTENCE, SHOW_AFTER_PENALTY_END_NOTE,
   SHOW_ANNUALIZED_PAST_DUE_NOTE, plannerFill,
 } from '@/lib/planner/planner-copy';
@@ -83,6 +83,19 @@ function card(plan: QuarterlyPlan, options: Partial<Pick<PlannerResultFacts, 'ba
 function asPlan(view: PlannerCardView) {
   if (view.kind !== 'plan') throw new Error(`expected a plan, got ${view.kind}`);
   return view;
+}
+
+function renderForm(props: { asOf: string; initialPayments: PlannerFormInput['payments'] }): string {
+  const previous = process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER;
+  process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER = 'true';
+  try {
+    return decode(renderToStaticMarkup(createElement(EstimatedPaymentPlannerCard, {
+      profile: {}, onNavigate() {}, taxYear: YEAR, asOf: props.asOf, initialPhase: 'form', initialPayments: props.initialPayments,
+    })));
+  } finally {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER;
+    else process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER = previous;
+  }
 }
 
 function expectNoPastDueCopy(html: string) {
@@ -465,77 +478,139 @@ describe('v1.8 past-due planner', () => {
     expect(html).toContain(plannerFill(PLANNER_ALREADY_COVERED, { nextDueDate: formatPlannerDueDate(plan.nextDue!.dueDate) }));
   });
 
-  it('PD17 and PD17b lock an applied credit to April 15 and count it once the return is filed', () => {
-    const parts = partsOf(planAt('2026-04-20'));
-    const lateDate = planAt('2026-04-20', [pay(parts[0], '2026-06-01', 3, { paymentType: 'prior_year_overpayment', priorReturnFiled: true })]);
+  it('PD17 locks a filed applied credit to April 15 and clears Q1', () => {
+    const asOf = '2026-04-20';
+    const parts = partsOf(planAt(asOf));
+    const lateDate = planAt(asOf, [pay(parts[0], '2026-06-01', 3, { paymentType: 'prior_year_overpayment', priorReturnFiled: true })]);
     const row = lateDate.pastDue!.installments[0];
     expect(row.shortAtDue).toBe(0);
     expect(row.paidLate).toBe(false);
     expect(row.balance).toBe(0);
     expect(lateDate.pastDue?.amount).toBe(0);
-    const accepted = validatePlannerForm(form({
-      asOf: '2026-03-01',
-      payments: [{ clientId: 'credit', date: '2026-01-02', amount: String(parts[0]), kind: 'prior_year_overpayment', priorReturnFiled: 'yes' }],
-    }));
-    expect(accepted.errors).toEqual([]);
-    expect(accepted.parsed?.payments[0]).toMatchObject({ date: '2026-04-15', amount: parts[0], kind: 'prior_year_overpayment' });
-    const tooEarly = validatePlannerForm(form({ asOf: '2026-03-01', payments: [{ clientId: 'cash', date: '2026-04-15', amount: String(parts[0]) }] }));
-    expect(tooEarly.errors.map(error => error.message)).toContain(dateError);
-    const beforeDue = planAt('2026-03-01', [pay(parts[0], '2026-03-01', 1, { paymentType: 'prior_year_overpayment', priorReturnFiled: true })]);
-    expect(beforeDue.pastDue).toBeNull();
-    expect(beforeDue.installments[0].paymentsMatchedTotal).toBeCloseTo(parts[0], 2);
-    expect(beforeDue.nextDue?.amountToPay).toBe(0);
-    expect(markup(card(beforeDue))).not.toContain(PAST_DUE_LABEL);
-    const previous = process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER;
-    process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER = 'true';
-    try {
-      const html = decode(renderToStaticMarkup(createElement(EstimatedPaymentPlannerCard, {
-        profile: {}, onNavigate() {}, taxYear: YEAR, asOf: '2026-03-01', initialPhase: 'form',
-        initialPayments: [{ clientId: 'credit', date: '2026-03-01', amount: '500', kind: 'prior_year_overpayment', priorReturnFiled: '' }],
-      })));
-      expect(html).toContain(PAYMENT_TYPE_PRIOR_YEAR_OVERPAYMENT_LABEL);
-      expect(html).toContain(plannerFill(PLANNER_APPLIED_AMOUNT_LABEL, { priorYear: 2025 }));
-      expect(html).toContain(plannerFill(PLANNER_APPLIED_FILED_LABEL, { priorYear: 2025 }));
-      expect(html).toContain('value="2026-04-15"');
-      expect(html).toMatch(/disabled(?:=|\s|>)/);
-      expect(html).not.toContain(PAYMENT_TAX_YEAR_PICKER_LABEL);
-    } finally {
-      if (previous === undefined) delete process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER;
-      else process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER = previous;
-    }
+    expect(lateDate.installments[0].paymentsMatched[0]?.effectiveDate).toBe('2026-04-15');
+    const html = renderForm({
+      asOf, initialPayments: [{ clientId: 'credit', date: '2026-06-01', amount: String(parts[0]), kind: 'prior_year_overpayment', priorReturnFiled: 'yes' }],
+    });
+    expect(html).toContain(PAYMENT_TYPE_PRIOR_YEAR_OVERPAYMENT_LABEL);
+    expect(html).toContain('value="2026-04-15"');
+    expect(html).toMatch(/disabled(?:=|\s|>)/);
+    expect(html).not.toContain(PAYMENT_TAX_YEAR_PICKER_LABEL);
   });
 
-  it('PD17c ignores an unfiled credit and PD17d counts the lowered line 36 amount', () => {
-    const parts = partsOf(planAt('2026-04-20'));
-    const bare = planAt('2026-04-20');
-    for (const filed of [false, null] as const) {
-      const ignored = planAt('2026-04-20', [pay(parts[0], '2026-04-15', 1, { paymentType: 'prior_year_overpayment', priorReturnFiled: filed })]);
-      expect(cents(ignored.pastDue!.installments[0].balance)).toBe(cents(bare.pastDue!.installments[0].balance));
-      expect(ignored.pastDue!.installments[0].balance).toBeGreaterThan(0);
-      expect(ignored.pastDue!.amount).toBeGreaterThan(0);
-    }
-    for (const answer of ['no', ''] as const) {
-      const parsed = validatePlannerForm(form({
-        asOf: '2026-04-20',
-        payments: [{ clientId: 'credit', date: '2026-04-15', amount: String(parts[0]), kind: 'prior_year_overpayment', priorReturnFiled: answer }],
-      }));
-      expect(parsed.errors).toEqual([]);
-      expect(parsed.parsed?.payments).toEqual([]);
-      expect(parsed.parsed?.pendingApplied).toBe(true);
-    }
-    const pending = asPlan(card(bare, { appliedCreditPending: true }));
-    expect(markup(pending)).toContain(PLANNER_APPLIED_PENDING);
-    expect(pending.pastDueLine).toContain(PAST_DUE_LABEL);
-    const lower = 1000;
-    expect(lower).toBeLessThan(parts[0]);
-    const edited = validatePlannerForm(form({
-      asOf: '2026-04-20',
-      payments: [{ clientId: 'credit', date: '2026-06-01', amount: String(lower), kind: 'prior_year_overpayment', priorReturnFiled: 'yes' }],
+  it('PD17b saves an applied credit before April 15 and leaves Q1 due at the installment minus the credit', () => {
+    const asOf = '2026-03-01';
+    const parts = partsOf(planAt(asOf));
+    const credit = 500;
+    expect(credit).toBeGreaterThan(0);
+    expect(credit).toBeLessThan(parts[0]);
+    const accepted = validatePlannerForm(form({
+      asOf,
+      payments: [{ clientId: 'credit', date: '2026-04-15', amount: String(credit), kind: 'prior_year_overpayment', priorReturnFiled: 'yes' }],
     }));
-    expect(edited.parsed?.payments[0]).toMatchObject({ amount: lower, date: '2026-04-15' });
-    const noticed = planAt('2026-04-20', [pay(lower, '2026-10-01', 1, { paymentType: 'prior_year_overpayment', priorReturnFiled: true })]);
-    expect(cents(noticed.pastDue!.installments[0].balance)).toBe(cents(parts[0] - lower));
-    expect(noticed.installments[0].paymentsMatchedTotal).toBeCloseTo(lower, 2);
+    expect(accepted.errors.map(error => error.message)).not.toContain(dateError);
+    expect(accepted.errors).toEqual([]);
+    const saved = accepted.parsed?.payments[0];
+    expect(saved).toMatchObject({ date: '2026-04-15', amount: credit, kind: 'prior_year_overpayment' });
+    const rejected = validatePlannerForm(form({
+      asOf, payments: [{ clientId: 'cash', date: '2026-04-15', amount: String(credit), kind: 'estimated' }],
+    }));
+    expect(rejected.errors.map(error => error.message)).toContain(dateError);
+    const plan = planAt(asOf, [pay(saved!.amount, saved!.date, 1, { paymentType: 'prior_year_overpayment', priorReturnFiled: true })]);
+    expect(plan.pastDue).toBeNull();
+    expect(plan.installments[0].paymentsMatchedTotal).toBeCloseTo(credit, 2);
+    expect(plan.installments[0].paymentsMatched[0]?.effectiveDate).toBe('2026-04-15');
+    expect(plan.nextDue?.dueDate).toBe('2026-04-15');
+    expect(cents(plan.nextDue!.amountToPay)).toBe(cents(parts[0] - credit));
+    const view = asPlan(card(plan));
+    expect(view.mode).toBe('standard');
+    expect(view.next).toBe(plannerFill(PLANNER_NEXT_PAYMENT, { nextAmount: formatPlannerMoney(parts[0] - credit), nextDueDate: 'April 15, 2026' }));
+    expect(view.pastDueLine).toBeNull();
+    expect(view.paidLate).toBeNull();
+    expect(view.q4FileAndPay).toBeNull();
+    expect(markup(view)).not.toContain('§6654(h)');
+    const extra = 400;
+    const larger = parts[0] + extra;
+    const covered = planAt(asOf, [pay(larger, '2026-04-15', 1, { paymentType: 'prior_year_overpayment', priorReturnFiled: true })]);
+    expect(covered.nextDue?.amountToPay).toBe(0);
+    expect(cents(covered.installments[0].overpaymentCarriedOut)).toBe(cents(extra));
+    expect(cents(covered.installments[1].overpaymentCarriedIn)).toBe(cents(extra));
+    expect(markup(card(covered))).not.toContain(PAST_DUE_LABEL);
+  });
+
+  it('PD17c keeps an unfiled credit pending and clears Q1 once the return is filed', () => {
+    const asOf = '2026-05-01';
+    const parts = partsOf(planAt(asOf));
+    const unfiled = validatePlannerForm(form({
+      asOf,
+      payments: [{ clientId: 'credit', date: '2026-04-15', amount: String(parts[0]), kind: 'prior_year_overpayment', priorReturnFiled: 'no' }],
+    }));
+    expect(unfiled.errors).toEqual([]);
+    expect(unfiled.parsed?.payments).toEqual([]);
+    expect(unfiled.parsed?.pendingApplied).toBe(true);
+    const blank = validatePlannerForm(form({
+      asOf,
+      payments: [{ clientId: 'credit', date: '2026-04-15', amount: String(parts[0]), kind: 'prior_year_overpayment', priorReturnFiled: '' }],
+    }));
+    expect(blank.parsed?.payments).toEqual([]);
+    expect(blank.parsed?.pendingApplied).toBe(true);
+    const pendingPlan = planAt(asOf, [pay(parts[0], '2026-04-15', 1, { paymentType: 'prior_year_overpayment', priorReturnFiled: false })]);
+    expect(cents(pendingPlan.pastDue!.installments[0].shortAtDue)).toBe(cents(parts[0]));
+    expect(cents(pendingPlan.pastDue!.amount)).toBe(cents(parts[0]));
+    const pending = asPlan(card(pendingPlan, { appliedCreditPending: true }));
+    expect(pending.appliedPending).toBe(PLANNER_APPLIED_PENDING);
+    expect(pending.pastDueLine).toBe(`${PAST_DUE_LABEL}: ${formatPlannerMoney(parts[0])}`);
+    expect(markup(pending)).toContain(PLANNER_APPLIED_PENDING);
+    const filed = validatePlannerForm(form({
+      asOf,
+      payments: [{ clientId: 'credit', date: '2026-04-15', amount: String(parts[0]), kind: 'prior_year_overpayment', priorReturnFiled: 'yes' }],
+    }));
+    expect(filed.parsed?.pendingApplied).toBe(false);
+    const saved = filed.parsed!.payments[0];
+    const cleared = planAt(asOf, [pay(saved.amount, saved.date, 1, { paymentType: 'prior_year_overpayment', priorReturnFiled: true })]);
+    expect(cents(cleared.pastDue!.installments[0].shortAtDue)).toBe(0);
+    expect(cleared.pastDue!.installments[0].paidLate).toBe(false);
+    const clearedView = asPlan(card(cleared));
+    expect(clearedView.pastDueLine).toBeNull();
+    expect(markup(clearedView)).not.toContain(PAST_DUE_LABEL);
+    expect(markup(clearedView)).not.toContain(PLANNER_APPLIED_PENDING);
+  });
+
+  it('PD17d uses the lowered notice amount for Q1 and does not keep the original', () => {
+    const asOf = '2026-04-20';
+    const parts = partsOf(planAt(asOf));
+    const lowered = 1000;
+    expect(lowered).toBeGreaterThan(0);
+    expect(lowered).toBeLessThan(parts[0]);
+    const first = validatePlannerForm(form({
+      asOf,
+      payments: [{ clientId: 'credit', date: '2026-04-15', amount: String(parts[0]), kind: 'prior_year_overpayment', priorReturnFiled: 'yes' }],
+    }));
+    expect(first.parsed?.payments).toHaveLength(1);
+    expect(first.parsed?.payments[0].amount).toBe(parts[0]);
+    const edited = validatePlannerForm(form({
+      asOf,
+      payments: [{ clientId: 'credit', date: '2026-06-01', amount: String(lowered), kind: 'prior_year_overpayment', priorReturnFiled: 'yes' }],
+    }));
+    expect(edited.parsed?.payments).toHaveLength(1);
+    expect(edited.parsed?.payments[0]).toMatchObject({ amount: lowered, date: '2026-04-15' });
+    expect(edited.parsed?.payments[0].amount).not.toBe(parts[0]);
+    const noticed = planAt(asOf, [pay(lowered, '2026-10-01', 1, { paymentType: 'prior_year_overpayment', priorReturnFiled: true })]);
+    expect(cents(noticed.installments[0].paymentsMatchedTotal)).toBe(cents(lowered));
+    expect(cents(noticed.pastDue!.installments[0].shortAtDue)).toBe(cents(parts[0] - lowered));
+    expect(cents(noticed.pastDue!.amount)).toBe(cents(parts[0] - lowered));
+    const view = asPlan(card(noticed));
+    expect(view.pastDueLine).toBe(`${PAST_DUE_LABEL}: ${formatPlannerMoney(parts[0] - lowered)}`);
+    const amountLabel = plannerFill(PLANNER_APPLIED_AMOUNT_LABEL, { priorYear: 2025 });
+    const html = renderForm({
+      asOf, initialPayments: [{ clientId: 'credit', date: '2026-04-15', amount: String(lowered), kind: 'prior_year_overpayment', priorReturnFiled: 'yes' }],
+    });
+    expect(html.split(amountLabel).length).toBe(2);
+    expect(html).toContain(`value="${lowered}"`);
+    expect(html).not.toContain(String(parts[0]));
+    expect(html.toLowerCase()).not.toContain('notice');
+    const inputs = html.match(/<input\b[^>]*>/g) ?? [];
+    expect(inputs.filter(input => input.includes('inputMode="decimal"'))).toHaveLength(6);
+    expect(inputs.filter(input => input.includes('type="date"'))).toHaveLength(1);
   });
 
   it('DR1 to DR5 accept January 1 through April 15 of the next year, and never a later day', () => {
