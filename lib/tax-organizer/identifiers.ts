@@ -64,11 +64,23 @@ export function storedDependentIdKinds(data: Record<string, unknown>): Record<st
   return kinds;
 }
 
-function enteredDependentKind(field: string, data: Record<string, unknown>): DependentIdKind | null {
-  const stored = storedDependentIdKinds(data)[field];
-  if (stored) return stored;
+/** A choice sent with this save. A stored label is not a new choice. */
+function freshDependentKind(field: string, data: Record<string, unknown>): DependentIdKind | null {
   const stem = field.replace(/(?:SSN|ITIN|ATIN|Number|Identifier)$/i, '');
-  return explicitDependentKind(data[`${stem}IdKind`]) ?? explicitDependentKind(data[`${field}IdKind`]) ?? explicitDependentKind(data.idKind);
+  const sibling = explicitDependentKind(data[`${stem}IdKind`]) ?? explicitDependentKind(data[`${field}IdKind`]);
+  if (sibling) return sibling;
+  return typeof data.idKind === 'string' ? explicitDependentKind(data.idKind) : null;
+}
+
+/** Review flags keyed by field. Only a boolean true is kept, so the map never holds digits. */
+export function storedIdKindNeedsReview(data: Record<string, unknown>): Record<string, true> {
+  const raw = data.idKindNeedsReview;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const flags: Record<string, true> = {};
+  for (const [field, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (value === true && isDependentIdentifierField(field)) flags[field] = true;
+  }
+  return flags;
 }
 
 function dependentKindFromFieldName(field: string): DependentIdKind | null {
@@ -76,7 +88,7 @@ function dependentKindFromFieldName(field: string): DependentIdKind | null {
   return match ? match[1].toLowerCase() as DependentIdKind : null;
 }
 
-/** Digit groups are used only when the field name does not say the kind. */
+/** A leading 9 uses the 4th and 5th digits: 93 is atin, and the itin ranges are itin. Anything else is ssn. */
 export function dependentKindFromDigits(value: string): DependentIdKind {
   const digits = value.replace(/\D/g, '');
   if (digits.length >= 5 && digits[0] === '9') {
@@ -87,12 +99,37 @@ export function dependentKindFromDigits(value: string): DependentIdKind {
   return 'ssn';
 }
 
-/** Entered choice, otherwise the field name, otherwise the digit pattern. The result is never taken from the value's digits. */
+/**
+ * A fresh ssn choice on a leading 9 follows the digit pattern and is stored as itin, atin, or none.
+ * Otherwise an entered choice, then a stored label, then the field name, then the digit pattern.
+ * A leading 9 on an ssn field name follows the digit pattern when nothing was chosen.
+ * The kind is a label only, and no digits are ever copied into it.
+ */
 export function dependentIdKind(field: string, value: string, data: Record<string, unknown>): DependentIdKind | null {
   if (!isDependentIdentifierField(field)) return null;
-  const entered = enteredDependentKind(field, data);
-  if (entered) return entered;
-  return dependentKindFromFieldName(field) ?? dependentKindFromDigits(value);
+  const digits = value.replace(/\D/g, '');
+  const leadingNine = digits[0] === '9';
+  const fresh = freshDependentKind(field, data);
+  if (fresh === 'ssn' && leadingNine) {
+    const fromDigits = dependentKindFromDigits(value);
+    return fromDigits === 'ssn' ? 'none' : fromDigits;
+  }
+  if (fresh) return fresh;
+  const stored = storedDependentIdKinds(data)[field];
+  if (stored) return stored;
+  const named = dependentKindFromFieldName(field);
+  if (named === 'itin' || named === 'atin') return named;
+  if (named === 'ssn' && leadingNine) return dependentKindFromDigits(value);
+  return named ?? dependentKindFromDigits(value);
+}
+
+/** Set when a fresh ssn choice sits on a leading 9. A fresh itin or atin choice clears it. */
+export function dependentIdReview(field: string, value: string, data: Record<string, unknown>): 'set' | 'clear' | null {
+  if (!isDependentIdentifierField(field)) return null;
+  const fresh = freshDependentKind(field, data);
+  if (fresh === 'ssn' && value.replace(/\D/g, '')[0] === '9') return 'set';
+  if (fresh === 'itin' || fresh === 'atin') return 'clear';
+  return null;
 }
 
 export function dependentKindHints(answers: Record<string, unknown>): Record<string, unknown> {
@@ -105,7 +142,7 @@ export function dependentKindHints(answers: Record<string, unknown>): Record<str
 }
 
 export function withoutDependentKindHints<T>(answers: Record<string, T>): Record<string, T> {
-  return Object.fromEntries(Object.entries(answers).filter(([field]) => field !== 'idKind' && !/IdKind$/.test(field)));
+  return Object.fromEntries(Object.entries(answers).filter(([field]) => field !== 'idKind' && field !== 'idKindNeedsReview' && !/IdKind$/.test(field)));
 }
 
 /** Taxpayer, spouse, dependent, PIN and bank answers are no longer accepted. EIN stays. */
@@ -351,7 +388,7 @@ export function maskSsnShapedFreeText(value: string): string {
 export function toOrganizerClientView(organizer: Record<string, unknown>): Record<string, unknown> {
   const view: Record<string, unknown> = {};
   for (const [field, value] of Object.entries(organizer)) {
-    if (field === 'idKind') continue;
+    if (field === 'idKind' || field === 'idKindNeedsReview') continue;
     if (typeof value === 'string') {
       if (organizerIdentifierKind(field)) {
         if (!value) continue;
