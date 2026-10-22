@@ -91,7 +91,7 @@ describe('Form1040 API integration', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     const data = await response.json();
-    expect(data.payments).toEqual({ estimatedPayments: 750, w2FederalWithheld: 5000, socialSecurityFederalWithheld: 0, totalFederalWithheld: 5000 });
+    expect(data.payments).toEqual({ estimatedPayments: 750, w2FederalWithheld: 5000, additionalMedicareWithheld: 0, socialSecurityFederalWithheld: 0, totalFederalWithheld: 5000 });
     expect(data.form1040.standardDeduction).toBe(16100);
     expect(data.form1040.incomeTax).toBe(13170);
     expect(state.reads).toContain('user_profiles/owner-a/quarterly_payments/Q1_2026');

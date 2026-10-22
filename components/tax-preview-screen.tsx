@@ -400,6 +400,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                     { section: "PAYMENTS", lines: [
                       { num: "25a", label: "W-2 federal withholding", value: f1040.w2FederalWithheld, negative: true },
                       { num: "25b", label: "Social Security / RRB withholding", value: f1040.socialSecurityFederalWithheld, negative: true },
+                      { num: "25c", label: "Additional Medicare Tax withholding (Form 8959)", value: f1040.additionalMedicareWithheld || undefined, negative: true },
                       { num: "26", label: "Estimated tax payments", value: f1040.estimatedPayments, negative: true },
                       { num: "32", label: "Refundable credits (EITC / additional child tax credit)", value: f1040.totalRefundableCredits, negative: true },
                       { num: "33", label: "Total payments", value: f1040.totalPayments, bold: true, negative: true },

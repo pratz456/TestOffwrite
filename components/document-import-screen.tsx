@@ -127,7 +127,7 @@ const W2_FIELDS: FieldDef[] = [
     label: "Box 6 - Medicare Tax Withheld",
     irsLabel: "Box 6",
     location: "Directly to the right of Box 5",
-    flowsTo: "Not deducted from income - already paid through payroll",
+    flowsTo: "Form 8959 Part V. Withholding above 1.45% of Box 5 is Form 1040 line 25c, separate from Box 2",
     isMonetary: true,
     isCritical: false,
   },
