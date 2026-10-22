@@ -53,12 +53,12 @@ import { POST as saveOrganizer, GET as getOrganizer } from '../app/api/tax/organ
 import { GET as getQuarterlySummary } from '../app/api/tax/quarterly-reminders/route';
 import { GET as getEstimate } from '../app/api/tax/compute-1040/route';
 import { POST as exportPdf } from '../app/api/tax/form-1040/route';
+import { decryptSensitive, isEncrypted } from '../lib/security/utils';
 import { assertSocialSecurityBenefitsSupported, SocialSecurityReviewRequiredError } from '../lib/tax-rules/social-security';
 import { EMPTY_ORGANIZER_ANSWERS } from '../components/tax-organizer-screen';
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
 import { eligibilityOrganizer, hsaFacts } from './fixtures/eligibility';
 import { KpiGrid } from '../components/dashboard/KpiGrid';
-import { decryptSensitive, isEncrypted } from '../lib/security/utils';
 
 const jsonRequest = (year = 2026) => new NextRequest(`http://localhost/api/tax/compute-1040?year=${year}`);
 const pdfRequest = (year = 2026) => new NextRequest('http://localhost/api/tax/form-1040', { method: 'POST', body: JSON.stringify({ year }) });
@@ -332,7 +332,7 @@ describe('Form1040 preparer export completeness disclosures', () => {
   it('prints saved taxpayer/spouse identities with masked identifiers and missing-record warnings without filing authorization', async () => {
     state.profile = { filing_status: 'married_filing_jointly', name: 'Synthetic Maria Long Family Name 漢' };
     await save({ filingStatus: 'married_filing_jointly', spouseName: 'Synthetic Spouse Full Name' });
-    // A legacy spouse identifier is stored in the current format on read. The PDF box stays empty.
+    // An older spouse identifier is stored in the current format when the return is read. The box stays empty.
     state.records.tax_organizers[0].spouseSSN = '111223333';
     const draw = vi.spyOn(PDFPage.prototype, 'drawText');
     const response = await exportPdf(pdfRequest()); expect(response.status).toBe(200);
@@ -349,6 +349,7 @@ describe('Form1040 preparer export completeness disclosures', () => {
     expect(storedSpouse).not.toBe('111223333');
     expect(isEncrypted(storedSpouse)).toBe(true);
     expect(decryptSensitive(storedSpouse)).toBe('111223333');
+    expect(isEncrypted(decryptSensitive(storedSpouse))).toBe(false);
     expect(text).toContain('Synthetic Maria Long Family Name [U+6F22]');
     expect(text).toContain('SSN not filled in'); expect(text).toContain('Mailing address incomplete');
     expect(text).toContain('Do not file this export with the IRS'); expect(text).not.toContain('Under penalties of perjury'); expect(text).not.toContain('Sign Here');

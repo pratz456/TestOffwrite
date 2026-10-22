@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
-import { encryptOrganizerIdentifiers, readOrganizerIdentifiers, restoreOrganizerFreeText, toOrganizerClientView, withoutRetiredOrganizerIdentifiers, withoutUneditedMaskedText } from '@/lib/tax-organizer/identifiers';
+import { dependentKindHints, encryptOrganizerIdentifiers, readOrganizerIdentifiers, restoreOrganizerFreeText, toOrganizerClientView, withoutDependentKindHints, withoutRetiredOrganizerIdentifiers, withoutUneditedMaskedText } from '@/lib/tax-organizer/identifiers';
 import { identifierFormatPatch, readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
 import { readEligibilityFacts } from '@/lib/tax-rules/eligibility';
 import { organizerTaxInputResponse } from '@/lib/tax-rules/organizer-tax-inputs';
@@ -78,8 +78,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, id: ref.id }, { status: 201, headers: privateHeaders });
     }
     // A save stores every older identifier in the current format. Notes and other answers are not part of that patch.
-    const formatPatch = identifierFormatPatch(readOrganizerIdentifiers(previous));
-    const nextAnswers = { ...formatPatch, ...encrypted.answers };
+    const formatPatch = identifierFormatPatch(readOrganizerIdentifiers({ ...previous, ...dependentKindHints(answers as Record<string, unknown>) }));
+    const nextAnswers: Record<string, unknown> = { ...formatPatch, ...withoutDependentKindHints(encrypted.answers) };
+    if (formatPatch.idKind !== undefined) nextAnswers.idKind = formatPatch.idKind;
     // Unchanged masked read: do not merge a new timestamp over the stored bytes.
     if (Object.keys(nextAnswers).length === 0) {
       return NextResponse.json({ success: true, id: snap.docs[0].id }, { headers: privateHeaders });

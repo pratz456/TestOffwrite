@@ -25,15 +25,87 @@ const IDENTIFIER_RULES: Record<OrganizerIdentifierKind, { pattern: RegExp; label
   ein: { pattern: /^\d{9}$/, label: 'employer identification number' },
 };
 
+export type DependentIdKind = 'ssn' | 'itin' | 'atin' | 'none';
+
+const DEPENDENT_KIND_SUFFIX = /^(?:dependent\d*)?(SSN|ITIN|ATIN)$/i;
+const UNNAMED_DEPENDENT_NUMBER = /^dependent\d*(?:Number|Identifier)$/;
+
 /**
  * Named identifier answers plus explicit dependent identifier answers (dependentSSN,
- * dependent2ITIN, ...). Yes/no eligibility answers such as taxpayerSeniorSSN or
+ * dependent2ITIN, dependentATIN, ...). Yes/no eligibility answers such as taxpayerSeniorSSN or
  * workEligibleSSN are not identifiers, so no broader suffix match is used.
  */
+export function isDependentIdentifierField(field: string): boolean {
+  return DEPENDENT_KIND_SUFFIX.test(field) || UNNAMED_DEPENDENT_NUMBER.test(field);
+}
+
 export function organizerIdentifierKind(field: string): OrganizerIdentifierKind | null {
   if (field in ORGANIZER_IDENTIFIER_FIELDS) return ORGANIZER_IDENTIFIER_FIELDS[field];
-  if (/^dependent\d*(SSN|ITIN)$/.test(field)) return 'ssn';
+  if (isDependentIdentifierField(field)) return 'ssn';
   return null;
+}
+
+function explicitDependentKind(value: unknown): DependentIdKind | null {
+  if (typeof value !== 'string') return null;
+  const kind = value.trim().toLowerCase();
+  if (kind === 'ssn' || kind === 'itin' || kind === 'atin' || kind === 'none') return kind;
+  return null;
+}
+
+/** Kind chosen on the form, keyed by field when more than one number is stored. */
+export function storedDependentIdKinds(data: Record<string, unknown>): Record<string, DependentIdKind> {
+  const idKind = data.idKind;
+  if (!idKind || typeof idKind !== 'object' || Array.isArray(idKind)) return {};
+  const kinds: Record<string, DependentIdKind> = {};
+  for (const [field, value] of Object.entries(idKind as Record<string, unknown>)) {
+    const kind = explicitDependentKind(value);
+    if (kind && isDependentIdentifierField(field)) kinds[field] = kind;
+  }
+  return kinds;
+}
+
+function enteredDependentKind(field: string, data: Record<string, unknown>): DependentIdKind | null {
+  const stored = storedDependentIdKinds(data)[field];
+  if (stored) return stored;
+  const stem = field.replace(/(?:SSN|ITIN|ATIN|Number|Identifier)$/i, '');
+  return explicitDependentKind(data[`${stem}IdKind`]) ?? explicitDependentKind(data[`${field}IdKind`]) ?? explicitDependentKind(data.idKind);
+}
+
+function dependentKindFromFieldName(field: string): DependentIdKind | null {
+  const match = DEPENDENT_KIND_SUFFIX.exec(field);
+  return match ? match[1].toLowerCase() as DependentIdKind : null;
+}
+
+/** Digit groups are used only when the field name does not say the kind. */
+export function dependentKindFromDigits(value: string): DependentIdKind {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length >= 5 && digits[0] === '9') {
+    const group = Number(digits.slice(3, 5));
+    if (group === 93) return 'atin';
+    if ((group >= 50 && group <= 65) || (group >= 70 && group <= 88) || (group >= 90 && group <= 92) || (group >= 94 && group <= 99)) return 'itin';
+  }
+  return 'ssn';
+}
+
+/** Entered choice, otherwise the field name, otherwise the digit pattern. The result is never taken from the value's digits. */
+export function dependentIdKind(field: string, value: string, data: Record<string, unknown>): DependentIdKind | null {
+  if (!isDependentIdentifierField(field)) return null;
+  const entered = enteredDependentKind(field, data);
+  if (entered) return entered;
+  return dependentKindFromFieldName(field) ?? dependentKindFromDigits(value);
+}
+
+export function dependentKindHints(answers: Record<string, unknown>): Record<string, unknown> {
+  const hints: Record<string, unknown> = {};
+  if ('idKind' in answers) hints.idKind = answers.idKind;
+  for (const [field, value] of Object.entries(answers)) {
+    if (field !== 'idKind' && /IdKind$/.test(field)) hints[field] = value;
+  }
+  return hints;
+}
+
+export function withoutDependentKindHints<T>(answers: Record<string, T>): Record<string, T> {
+  return Object.fromEntries(Object.entries(answers).filter(([field]) => field !== 'idKind' && !/IdKind$/.test(field)));
 }
 
 /** Taxpayer, spouse, dependent, PIN and bank answers are no longer accepted. EIN stays. */
@@ -279,6 +351,7 @@ export function maskSsnShapedFreeText(value: string): string {
 export function toOrganizerClientView(organizer: Record<string, unknown>): Record<string, unknown> {
   const view: Record<string, unknown> = {};
   for (const [field, value] of Object.entries(organizer)) {
+    if (field === 'idKind') continue;
     if (typeof value === 'string') {
       if (organizerIdentifierKind(field)) {
         if (!value) continue;

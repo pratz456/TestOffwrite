@@ -1,21 +1,32 @@
-import { encryptSensitive } from '@/lib/security/utils';
+import { encryptSensitive, isEncrypted } from '@/lib/security/utils';
 import {
-  normalizeOrganizerIdentifier, organizerIdentifierKind,
-  readOrganizerIdentifiers, type OrganizerIdentifierRead,
+  dependentIdKind, isDependentIdentifierField, normalizeOrganizerIdentifier, organizerIdentifierKind,
+  readOrganizerIdentifiers, storedDependentIdKinds, type DependentIdKind, type OrganizerIdentifierRead,
 } from './identifiers';
 
 interface OrganizerDocumentRef { set(data: Record<string, unknown>, options: { merge: boolean }): Promise<unknown> }
 interface OrganizerDocument { data(): Record<string, unknown>; ref?: OrganizerDocumentRef }
 
 /** Every identifier field, including ones the screen no longer asks for. Notes and other answers stay as stored. */
-export function identifierFormatPatch(read: OrganizerIdentifierRead): Record<string, string> {
-  const patch: Record<string, string> = {};
+export function identifierFormatPatch(read: OrganizerIdentifierRead): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  const idKind: Record<string, DependentIdKind> = { ...storedDependentIdKinds(read.organizer) };
+  let kindChanged = false;
+  for (const [field, value] of Object.entries(read.organizer)) {
+    if (!isDependentIdentifierField(field) || typeof value !== 'string' || !value.trim() || isEncrypted(value)) continue;
+    const kind = dependentIdKind(field, value, read.organizer);
+    if (!kind || idKind[field] === kind) continue;
+    idKind[field] = kind;
+    kindChanged = true;
+  }
+  if (kindChanged) patch.idKind = idKind;
   for (const field of read.legacyPlaintextFields) {
     const kind = organizerIdentifierKind(field);
     const value = read.organizer[field];
     if (!kind || typeof value !== 'string') continue;
     const trimmed = value.trim();
-    if (!trimmed) continue;
+    // The current-format envelope decides. A shape mismatch still stores the trimmed value.
+    if (!trimmed || isEncrypted(trimmed)) continue;
     const normalized = normalizeOrganizerIdentifier(kind, trimmed);
     patch[field] = encryptSensitive('error' in normalized ? trimmed : normalized.digits);
   }
