@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Calculator, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LandingHeader } from "@/components/landing/landing-header";
+import { publicShareImage } from "@/lib/public-share-image";
 
 export const metadata: Metadata = {
   title: "Free Tax Tools & Calculators",
@@ -15,12 +16,14 @@ export const metadata: Metadata = {
       "Free tax calculators for freelancers  - self-employment tax, quarterly estimates, and more.",
     type: "website",
     url: "/tools",
+    images: [publicShareImage],
   },
   twitter: {
     card: "summary_large_image",
     title: "Free Tax Tools & Calculators | WriteOff",
     description:
       "Free tax calculators for freelancers and self-employed professionals.",
+    images: [publicShareImage.url],
   },
 };
 

@@ -52,6 +52,11 @@ const nextConfig: NextConfig = {
       './node_modules/tesseract.js/src/**/*',
       './node_modules/tesseract.js-core/*',
     ],
+    // The dynamic sitemap and blog routes read these files with fs. Next does
+    // not trace that directory into the Firebase server bundle on its own.
+    '/sitemap.xml': ['./content/blog/**/*'],
+    '/blog': ['./content/blog/**/*'],
+    '/blog/[slug]': ['./content/blog/**/*'],
   },
 
   // Compiler optimizations
