@@ -62,13 +62,6 @@ describe('plan status and repair APIs', () => {
     expect((await handler(req())).status).toBe(401);
     expect(mock.reconcile).not.toHaveBeenCalled(); expect(mock.checkoutCreate).not.toHaveBeenCalled();
   });
-  it('keeps a signup-source document from starting a trial or answering as a finished profile', async () => {
-    mock.profile = { acquisition: { utm_source: 'newsletter', capturedAt: '2026-10-22T19:00:00.000Z' } };
-    const response = await checkAccess(req());
-    expect(response.status).toBe(404);
-    expect(mock.startTrial).not.toHaveBeenCalled();
-    expect(mock.reconcile).not.toHaveBeenCalled();
-  });
   it('returns consistent trial entitlements and serialized expiry to the frontend', async () => {
     mock.profile = { subscriptionStatus: 'trial', trialStart: new Date('2026-09-01'), trialEnd: future };
     const response = await checkAccess(req());

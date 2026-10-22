@@ -8,7 +8,7 @@ import { waitForAuth } from "./auth";
 import { makeAuthenticatedRequest } from "./api-client";
 import type { ConsentRecord } from "@/lib/onboarding/consents";
 import { EDITABLE_PROFILE_FIELDS } from "./profile-fields";
-import { acquisitionFromUnknown, type Acquisition } from "@/lib/analytics/acquisition";
+import { acquisitionForProfileWrite, acquisitionFromUnknown, type Acquisition } from "@/lib/analytics/acquisition";
 
 function storedAcquisition(value: unknown): Acquisition | undefined {
   return acquisitionFromUnknown(value) ?? undefined;
@@ -328,9 +328,12 @@ export async function upsertUserProfile(
       }
       return value;
     };
-    const payload = Object.fromEntries(Object.entries(profileData)
-      .filter(([key, value]) => EDITABLE_PROFILE_FIELDS.has(key) && value !== undefined)
-      .map(([key, value]) => [key, withoutUndefined(value)]));
+    const payload = {
+      ...Object.fromEntries(Object.entries(profileData)
+        .filter(([key, value]) => EDITABLE_PROFILE_FIELDS.has(key) && value !== undefined)
+        .map(([key, value]) => [key, withoutUndefined(value)])),
+      ...acquisitionForProfileWrite(),
+    };
     const response = await makeAuthenticatedRequest('/api/database/profiles', {
       method: 'POST',
       body: JSON.stringify(payload),

@@ -24,8 +24,6 @@ export interface SignUpTrackingOptions {
   storage?: KeyValueStorage | null;
   env?: AnalyticsEnv;
   gtag?: Gtag | null;
-  fetch?: typeof fetch;
-  signal?: AbortSignal;
 }
 
 function pageGtag(): Gtag | undefined {
@@ -74,7 +72,7 @@ export function trackSignUp(
   }
 }
 
-/** Sends sign_up when the tag is loaded, and posts a captured source for the server to store once. */
+/** Sends sign_up when the tag is loaded. The profile document is not created here. */
 export async function attributeSignup(
   method: SignupMethod,
   user: SignupIdentity,
@@ -85,17 +83,6 @@ export async function attributeSignup(
     const storage = options.storage === undefined ? browserStorage() : options.storage;
     const acquisition = storage ? readStoredAcquisition(storage, now) : null;
     trackSignUp(method, user.uid, acquisition, { ...options, storage });
-    if (!acquisition) return;
-    const idToken = await user.getIdToken();
-    const fetchImpl = options.fetch ?? fetch;
-    await fetchImpl('/api/account/acquisition', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({ acquisition }),
-      keepalive: true,
-      signal: options.signal ?? AbortSignal.timeout(4000),
-    });
   } catch {
     // Campaign attribution must not block account creation.
   }

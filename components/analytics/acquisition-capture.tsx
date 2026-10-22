@@ -9,9 +9,8 @@ import { attributeSignup, type SignupMethod } from '@/lib/analytics/sign-up';
 const RECENT_ACCOUNT_MS = 15 * 60 * 1000;
 
 /**
- * Captures the landing source on every page load. Email account creation records
- * it from signUpUser. Google account creation shares the sign-in function, so a
- * brand-new Google user is recorded from here instead of that shared function.
+ * Captures the landing source on every page load and sends sign_up for a new
+ * account. The source stays in the browser until the first profile save.
  */
 export function AcquisitionCapture() {
   useEffect(() => {

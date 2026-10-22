@@ -45,6 +45,9 @@ export default function PrivacyPolicyPage() {
                 <li><strong>Transaction Data:</strong> including purchase history, expenses, and uploaded receipts.</li>
                 <li><strong>Usage Data:</strong> such as device information, app interactions, and preferences.</li>
               </ul>
+              <p>
+                When you sign up, we save where you came from: the name of the site or partner that sent you, the campaign or creator code on the link, and the first WriteOff page you visited. We use this only to see which places bring people to WriteOff and to pay partners correctly. We do not save ad click IDs, your IP address, or the full address of the page you came from.
+              </p>
             </div>
 
             <div>

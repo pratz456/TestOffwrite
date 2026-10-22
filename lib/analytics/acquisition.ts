@@ -235,6 +235,22 @@ export function readStoredAcquisition(storage: KeyValueStorage, now = Date.now()
   return stored ? withoutExpiry(stored) : null;
 }
 
+function browserStorage(): KeyValueStorage | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    return localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** The captured source to send with a profile save. Empty when nothing was stored. */
+export function acquisitionForProfileWrite(storage?: KeyValueStorage | null, now = Date.now()): { acquisition: Acquisition } | Record<string, never> {
+  const source = storage === undefined ? browserStorage() : storage;
+  const acquisition = source ? readStoredAcquisition(source, now) : null;
+  return acquisition ? { acquisition } : {};
+}
+
 function captureFromSource(source: CaptureSource, now: number): Acquisition | null {
   const params = new URLSearchParams(source.search.startsWith('?') ? source.search.slice(1) : source.search);
   const record: Record<string, unknown> = {

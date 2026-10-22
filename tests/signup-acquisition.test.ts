@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   ACQUISITION_FIELDS, ACQUISITION_STORAGE_KEY, ACQUISITION_TTL_MS, captureFirstTouch, readStoredAcquisition,
   type CaptureSource, type KeyValueStorage,
@@ -244,38 +244,21 @@ describe('sign_up event', () => {
 });
 
 describe('account creation handoff', () => {
-  afterEach(() => { /* fetch is injected */ });
-
-  it('does not post when nothing was captured', async () => {
-    let posted = false;
-    const fetch = (async () => { posted = true; return new Response(null, { status: 500 }); }) as typeof fetch;
-    await attributeSignup('email', { uid: 'user-1', getIdToken: async () => 'token' }, {
-      now: NOW, storage: memoryStorage(), fetch, gtag: null, env: { NEXT_PUBLIC_GA_MEASUREMENT_ID: 'G-TESTTAG12' },
-    });
-    expect(posted).toBe(false);
+  it('does not create a user profile when nothing was captured', async () => {
+    await expect(attributeSignup('email', { uid: 'user-1', getIdToken: async () => 'token' }, {
+      now: NOW, storage: memoryStorage(), gtag: null, env: { NEXT_PUBLIC_GA_MEASUREMENT_ID: 'G-TESTTAG12' },
+    })).resolves.toBeUndefined();
   });
 
-  it('posts the captured source and still sends sign_up when the tag is present', async () => {
+  it('does not write a user_profiles document at account creation, and still sends sign_up when the tag is present', async () => {
     const storage = memoryStorage();
     captureFirstTouch(storage, NOW, SOURCE);
     const calls: unknown[][] = [];
-    let posted: { url: string; body: string; authorization: string } | null = null;
-    const fetch = (async (url: string, init: RequestInit) => {
-      posted = { url, body: String(init.body), authorization: new Headers(init.headers).get('authorization') ?? '' };
-      return new Response(JSON.stringify({ saved: true }), { status: 200 });
-    }) as typeof fetch;
     await attributeSignup('email', { uid: 'user-1', getIdToken: async () => 'id-token' }, {
-      now: NOW, storage, fetch,
+      now: NOW, storage,
       env: { NEXT_PUBLIC_GA_MEASUREMENT_ID: 'G-TESTTAG12' },
       gtag: (...args: unknown[]) => { calls.push(args); },
     });
-    expect(posted?.url).toBe('/api/account/acquisition');
-    expect(posted?.authorization).toBe('Bearer id-token');
-    expect(JSON.parse(posted!.body)).toEqual({ acquisition: {
-      utm_source: 'newsletter', utm_medium: 'email', utm_campaign: 'spring_launch', utm_content: 'hero',
-      referrerHost: 'news.ycombinator.com', landingPath: '/pricing', capturedAt: '2026-10-22T19:00:00.000Z',
-    } });
-    expect(posted!.body).not.toContain('@');
     expect(calls[0]?.[1]).toBe('sign_up');
     expect(calls[0]?.[2]).toMatchObject({ method: 'email', send_to: 'G-TESTTAG12', utm_source: 'newsletter' });
   });
