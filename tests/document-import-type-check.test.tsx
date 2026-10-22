@@ -60,7 +60,8 @@ describe('W-2 or 1099 question on the verify panel', () => {
     expect(html).toContain('flex flex-col gap-2 sm:flex-row');
     expect(html).not.toMatch(/audit-proof|IRS-ready|guaranteed/i);
     expect(html).not.toMatch(/\d{2}-\d{7}|\b\d{9}\b/);
-    const question = html.slice(questionAt, html.indexOf('>W-2<'));
-    expect(question).not.toMatch(/\d/);
+    const question = html.slice(questionAt, html.indexOf('</p>', questionAt));
+    expect(question).toBe('This looks like it could be a 1099. Which form is it?');
+    expect(question).not.toMatch(/\d{2}-\d{7}|\d{3}-\d{2}-\d{4}|\b\d{9}\b/);
   });
 });

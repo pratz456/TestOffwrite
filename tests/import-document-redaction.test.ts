@@ -374,6 +374,8 @@ describe('redact-first W-2/1099 import: text path', () => {
     expect(body.success).toBe(true);
     expect(state.records.income_1099).toHaveLength(1);
     expect(state.records.w2_income).toBeUndefined();
+    expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    expect(state.records.income_1099[0].payerEIN).toBe('');
   });
 
   it('asks to check the employer number when an auto request saves an untyped W-2 with no employer number', async () => {
@@ -721,7 +723,10 @@ describe('W-2 save that looks like a 1099 asks which form it is', () => {
     return { logs, restore: () => spies.forEach(spy => spy.mockRestore()) };
   };
   const stable = (record: Record<string, unknown>) => {
-    const { importedAt, updatedAt, createdAt, ...rest } = record;
+    const rest = { ...record };
+    delete rest.importedAt;
+    delete rest.updatedAt;
+    delete rest.createdAt;
     return rest;
   };
   const freshRecords = () => { state.records = { tax_organizers: state.records.tax_organizers }; };

@@ -200,11 +200,10 @@ function modelReturned1099OnlyField(data: Record<string, unknown>): boolean {
 }
 
 /** Point a confirmed 1099 at the same fields a native 1099 import saves. */
-function applyConfirmed1099(data: Record<string, any>): void {
+function applyConfirmed1099(data: Record<string, unknown>): void {
   if (!data.payerName && data.employerName) data.payerName = data.employerName;
   if (!data.payerEIN && data.employerEIN) data.payerEIN = data.employerEIN;
   if ((data.box1Amount === null || data.box1Amount === undefined) && data.box1Wages != null) data.box1Amount = data.box1Wages;
-  if ((data.grossAmount === null || data.grossAmount === undefined) && data.box1Amount != null) data.grossAmount = data.box1Amount;
   if ((data.box4FederalWithheld === null || data.box4FederalWithheld === undefined) && data.box2FederalWithheld != null) data.box4FederalWithheld = data.box2FederalWithheld;
   if (!data.formVariant) data.formVariant = 'NEC';
   data.docType = '1099';
