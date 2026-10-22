@@ -26,6 +26,18 @@ describe('federal calculation audit: independently worked 2026 reference cases',
     expect(calculateEffectiveTaxRate({ income: 300000, filing_status: 'single' }, 2026)).toBeCloseTo(20.9081898333, 8);
   });
 
+  it('reduces Additional Medicare by W-2 Medicare wages for $100,000 profit and $150,000 in both boxes', () => {
+    // Net earnings $92,350. Single threshold $200,000 − $150,000 = $50,000.
+    // Additional Medicare = ($92,350 − $50,000) × 0.9% = $381.15.
+    // Those thresholds are statutory, so 2027 produces the same Additional Medicare amount.
+    // A complete 2027 estimate is unsupported here; 2026 rules carry this assertion.
+    const result = calcCombinedSERate(100000, 'single', 0, 2026, 150000, 150000);
+    expect(result.additionalMedicareTaxDollars).toBe(381.15);
+    expect(result.seTaxDollars).toBe(6956.15);
+    expect(result.totalTaxDollars).toBeCloseTo(result.seTaxDollars + result.incomeTaxDollars + 381.15, 2);
+    expect(calcCombinedSERate(100000, 'single', 0, 2026, 150000, 0).additionalMedicareTaxDollars).toBe(0);
+  });
+
   it('does not charge regular SE below $400 net earnings or fabricate income tax below the standard deduction', () => {
     expect(calcCombinedSERate(400, 'single', 0, 2026)).toMatchObject({ seTaxDollars: 0, totalTaxDollars: 0, combinedMarginalRate: 0 });
     expect(calcCombinedSERate(500, 'single', 0, 2026)).toMatchObject({ seTaxDollars: 70.65, totalTaxDollars: 70.65, combinedMarginalRate: 14.1 });

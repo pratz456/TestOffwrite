@@ -33,17 +33,21 @@ export function calcScheduleCNetProfit(
  * The real effective rate a self-employed person pays on their last dollar of SE income.
  * = Income tax marginal rate + SE tax rate on that income
  *
- * Owner-only estimate with no W-2 wages. Regular SE applies the annual Social Security
- * wage base and the $400 net-earnings threshold. Additional Medicare is separate and
- * does not contribute to the half-SE deduction. QBI and credits are outside this helper.
+ * Regular SE applies the annual Social Security wage base, reduced by W-2 Social Security
+ * wages, and the $400 net-earnings threshold. W-2 Medicare wages reduce the Form 8959
+ * threshold (not below zero), matching the wage and self-employment portions in compute-1040.
+ * Additional Medicare is separate and does not contribute to the half-SE deduction.
+ * QBI and credits are outside this helper.
  *
- * Source: IRS Topic 554, Schedule SE instructions
+ * Source: IRS Topic 554, Schedule SE instructions, Form 8959
  */
 export function calcCombinedSERate(
   scheduleCNetProfit: number,
   filingStatus: string,
   aboveLineDeductions = 0,
   taxYear: number = LATEST_PUBLISHED_TAX_YEAR,
+  w2SocialSecurityWages = 0,
+  w2MedicareWages = 0,
 ): {
   seTaxRate: number;          // Regular Schedule SE tax as % of net profit
   incomeTaxEffectiveRate: number; // Income tax / net profit
@@ -51,18 +55,21 @@ export function calcCombinedSERate(
   combinedMarginalRate: number;   // Rate on next dollar of SE income
   seTaxDollars: number;
   incomeTaxDollars: number;
+  additionalMedicareTaxDollars: number;
   totalTaxDollars: number;
 } {
   const rules = getFederalTaxRules(taxYear);
   const status = normalizeFilingStatus(filingStatus);
-  if (!Number.isFinite(scheduleCNetProfit) || !Number.isFinite(aboveLineDeductions) || aboveLineDeductions < 0) {
-    throw new RangeError('Provide finite business profit and nonnegative deductions.');
+  if (!Number.isFinite(scheduleCNetProfit) || !Number.isFinite(aboveLineDeductions) || aboveLineDeductions < 0
+    || !Number.isFinite(w2SocialSecurityWages) || w2SocialSecurityWages < 0
+    || !Number.isFinite(w2MedicareWages) || w2MedicareWages < 0) {
+    throw new RangeError('Provide finite business profit, nonnegative deductions, and nonnegative W-2 wages.');
   }
   if (scheduleCNetProfit <= 0) {
-    return { seTaxRate: 0, incomeTaxEffectiveRate: 0, combinedEffectiveRate: 0, combinedMarginalRate: 0, seTaxDollars: 0, incomeTaxDollars: 0, totalTaxDollars: 0 };
+    return { seTaxRate: 0, incomeTaxEffectiveRate: 0, combinedEffectiveRate: 0, combinedMarginalRate: 0, seTaxDollars: 0, incomeTaxDollars: 0, additionalMedicareTaxDollars: 0, totalTaxDollars: 0 };
   }
 
-  const se = calcScheduleSE({ scheduleCNetProfit, taxYear }, status);
+  const se = calcScheduleSE({ scheduleCNetProfit, taxYear }, status, w2SocialSecurityWages, w2MedicareWages);
   const seTax = se.totalSETax;
   const halfSE = se.halfSEDeduction;
 
@@ -72,16 +79,21 @@ export function calcCombinedSERate(
   const taxableIncome = Math.max(0, agi - stdDed);
   const incomeTax = calculateFederalIncomeTax(taxableIncome, status, taxYear);
 
-  const totalTax = seTax + se.additionalMedicareTax + incomeTax;
+  // Form 8959: wage portion above the threshold, plus the SE portion after that threshold
+  // is reduced (not below zero) by W-2 Medicare wages. calcScheduleSE returns only the SE portion.
+  const medicareThreshold = status === 'married_filing_jointly' ? 250000 : status === 'married_filing_separately' ? 125000 : 200000;
+  const additionalMedicareTax = Math.round((se.additionalMedicareTax + Math.max(0, w2MedicareWages - medicareThreshold) * 0.009) * 100) / 100;
+  const totalTax = seTax + additionalMedicareTax + incomeTax;
   const seTaxRate = (seTax / scheduleCNetProfit) * 100;
   const incomeTaxEffectiveRate = (incomeTax / scheduleCNetProfit) * 100;
   const combinedEffectiveRate = (totalTax / scheduleCNetProfit) * 100;
 
-  // Local marginal rates change at the regular-SE wage cap and Medicare threshold.
+  // Local marginal rates change at the remaining Social Security wage base and Medicare threshold.
   const seBase = scheduleCNetProfit * 0.9235;
-  const seMarginal = seBase < 400 ? 0 : 0.9235 * (0.029 + (seBase < rules.socialSecurityWageBase ? 0.124 : 0));
-  const medicareThreshold = status === 'married_filing_jointly' ? 250000 : status === 'married_filing_separately' ? 125000 : 200000;
-  const additionalMedicareMarginal = seBase >= medicareThreshold ? 0.9235 * 0.009 : 0;
+  const remainingSSWageBase = Math.max(0, rules.socialSecurityWageBase - w2SocialSecurityWages);
+  const seMarginal = seBase < 400 ? 0 : 0.9235 * (0.029 + (seBase < remainingSSWageBase ? 0.124 : 0));
+  const remainingMedicareThreshold = Math.max(0, medicareThreshold - w2MedicareWages);
+  const additionalMedicareMarginal = seBase >= 400 && seBase >= remainingMedicareThreshold ? 0.9235 * 0.009 : 0;
   // Determine income tax marginal bracket
   const bkts = rules.brackets[status];
   let marginalIncomeBracket = bkts[0].rate;
@@ -102,6 +114,7 @@ export function calcCombinedSERate(
     combinedMarginalRate: Math.round(combinedMarginalRate * 10) / 10,
     seTaxDollars: Math.round(seTax * 100) / 100,
     incomeTaxDollars: Math.round(incomeTax * 100) / 100,
+    additionalMedicareTaxDollars: additionalMedicareTax,
     totalTaxDollars: Math.round(totalTax * 100) / 100,
   };
 }
