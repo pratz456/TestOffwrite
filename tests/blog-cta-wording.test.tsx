@@ -7,21 +7,18 @@ import { BlogCTA } from "@/components/blog/blog-cta";
 globalThis.React = React;
 
 const source = readFileSync(new URL("../components/blog/blog-cta.tsx", import.meta.url), "utf8");
-const INLINE = "Enter expenses, upload receipts, and review the details in WriteOff. Try WriteOff free for 30 days, no credit card needed.";
+const INLINE = "Enter expenses, upload receipts, and review the details in WriteOff. Try free for 30 days, with no bank connection required.";
 const PREVIEW = "In-app filing and AI analysis are not available in this preview.";
 
 describe("blog CTA wording", () => {
-  it("replaces the bank-connection sentence and leaves the preview sentence", () => {
+  it("keeps the original inline sentence and the preview sentence", () => {
     expect(source).toContain(INLINE);
     expect(source).not.toContain("Add expenses by hand");
     expect(source).toContain(PREVIEW);
-    expect(source.toLowerCase()).not.toContain("no bank connection");
     const inline = renderToStaticMarkup(React.createElement(BlogCTA, { variant: "inline" }));
     const full = renderToStaticMarkup(React.createElement(BlogCTA, { variant: "full" }));
     expect(inline).toContain(INLINE);
     expect(inline).not.toContain("Add expenses by hand");
-    expect(inline.toLowerCase()).not.toContain("no bank connection");
     expect(full).toContain(PREVIEW);
-    expect(full.toLowerCase()).not.toContain("no bank connection");
   });
 });
