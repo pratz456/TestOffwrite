@@ -14,7 +14,7 @@ function allPosts(): string {
     .join("\n");
 }
 
-/** The 20 WRONG-now sentences from the 2026-10-22 tax review, and the replacement copy. */
+/** Applied WRONG-now sentences from the 2026-10-22 tax review. Finding 3 is held and is not in this list. */
 const CORRECTIONS: { id: number; file: string; removed: string; added: string }[] = [
   {
     id: 1,
@@ -27,12 +27,6 @@ const CORRECTIONS: { id: number; file: string; removed: string; added: string }[
     file: "retirement-accounts-self-employed.mdx",
     removed: "If you made $80,000 as a freelancer and contributed $20,000 to a SEP-IRA, you'd only pay income tax on $60,000. At a 22% marginal rate, that's $4,400 back in your pocket this year",
     added: "On $80,000 of net profit, the maximum SEP-IRA contribution is about $14,870 (20% of $80,000 minus the $5,652 deduction for half of SE tax). At a 22% marginal rate that cuts income tax by about $3,270. A $20,000 SEP contribution is not allowed at this profit level.",
-  },
-  {
-    id: 3,
-    file: "qbi-deduction-freelancers-section-199a.mdx",
-    removed: "You are a freelance graphic designer with $80,000 in net profit. Full qualification gets you a $16,000 deduction. At a 22% tax rate, that is **$3,520 back in your pocket**",
-    added: "a QBI deduction of roughly $11,650, worth about $2,560 in federal income tax at a 22% bracket.",
   },
   {
     id: 4,
@@ -149,10 +143,10 @@ describe("2026-10-22 blog tax corrections", () => {
     expect(readPost(file)).toContain(added);
   });
 
-  it("lists Section 274(d) as travel, entertainment, gifts, and listed property", () => {
-    const post = readPost("cohan-rule-lost-receipts.mdx");
-    expect(post).toContain("travel, entertainment, gifts, and listed property");
-    expect(post).not.toContain("(travel, meals, entertainment, listed property)");
-    expect(post).not.toContain("**2. Business meals.**");
+  it("holds finding 3 unchanged for tax review v2", () => {
+    const post = readPost("qbi-deduction-freelancers-section-199a.mdx");
+    expect(post).toContain("You are a freelance graphic designer with $80,000 in net profit. Full qualification gets you a $16,000 deduction. At a 22% tax rate, that is **$3,520 back in your pocket** for knowing about a form most people skip.");
+    expect(post).not.toContain("a QBI deduction of roughly $11,650");
+    expect(post).not.toContain("worth about $2,560 in federal income tax at a 22% bracket");
   });
 });
