@@ -41,9 +41,15 @@ export const ANNUALIZED_INCOME_METHOD_NOTE = 'The annualized income installment 
 
 export const QUARTERLY_PLANNER_READY_MESSAGE = 'Planning estimate from your reviewed prior-year facts and saved records using the Pub 505 regular method. It is not a balance due and not a penalty determination; the IRS figures both when the return is filed.';
 
+/** Awaiting owner approval. Placeholder for the prior-year-only planner message shown on the quarterly screen. */
+export const PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL = 'PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL';
+
 const QUARTERS: readonly Quarter[] = [1, 2, 3, 4];
 const DAY_MS = 86_400_000;
 const DE_MINIMIS_THRESHOLD_CENTS = 100_000; // §6654(e)(1): no penalty when tax less withholding is under $1,000.
+// §6654(d)(1)(C): 110% when prior-year AGI exceeds $150,000 ($75,000 if the current-year return is MFS). Strictly greater than.
+const PRIOR_YEAR_AGI_THRESHOLD_CENTS = 150_000 * 100;
+const PRIOR_YEAR_MFS_AGI_THRESHOLD_CENTS = 75_000 * 100;
 
 // ── Money and date helpers ──────────────────────────────────────────────────
 
@@ -205,15 +211,32 @@ export interface RequiredAnnualPaymentInput {
 export interface RequiredAnnualPayment {
   taxYear: number;
   filingStatus: FederalFilingStatus;
-  currentYearTax: number;
-  ninetyPercentOfCurrentYear: number;
+  /** Null when the current-year estimate is unavailable and the plan is prior-year only. */
+  currentYearTax: number | null;
+  /** Null when the 90% current-year option is not available. */
+  ninetyPercentOfCurrentYear: number | null;
   priorYear: { totalTax: number; agi: number; agiThreshold: number; multiplier: 1 | 1.1; target: number } | null;
   requiredAnnualPayment: number;
   basis: SafeHarborBasis;
   withholding: number;
-  deMinimis: { threshold: number; taxLessWithholding: number; applies: boolean };
+  deMinimis: { threshold: number; taxLessWithholding: number | null; applies: boolean };
   /** Required annual payment less withholding, or $0 when the $1,000 rule applies. */
   estimatedPaymentsRequired: number;
+}
+
+function resolvedPriorYearTarget(filingStatus: FederalFilingStatus, priorYear: PriorYearFacts): RequiredAnnualPayment['priorYear'] {
+  if (!priorYear || typeof priorYear.available !== 'boolean') {
+    throw new QuarterlyReviewRequiredError('Confirm whether the prior-year return covered a full 12 months.');
+  }
+  if (!priorYear.available) return null;
+  if (priorYear.coveredTwelveMonths !== true) {
+    throw new QuarterlyReviewRequiredError('The prior-year method requires a return covering all 12 months of the prior year.');
+  }
+  const priorTax = requireAmount(priorYear.totalTax, 'prior-year total tax');
+  const agi = requireAmount(priorYear.agi, 'prior-year adjusted gross income', true);
+  const agiThreshold = filingStatus === 'married_filing_separately' ? PRIOR_YEAR_MFS_AGI_THRESHOLD_CENTS : PRIOR_YEAR_AGI_THRESHOLD_CENTS;
+  const multiplier: 1 | 1.1 = agi > agiThreshold ? 1.1 : 1;
+  return { totalTax: fromCents(priorTax), agi: fromCents(agi), agiThreshold: fromCents(agiThreshold), multiplier, target: fromCents(Math.round(priorTax * multiplier)) };
 }
 
 export function calculateRequiredAnnualPayment(input: RequiredAnnualPaymentInput): RequiredAnnualPayment {
@@ -222,21 +245,7 @@ export function calculateRequiredAnnualPayment(input: RequiredAnnualPaymentInput
   const currentTax = requireAmount(input.currentYearTax, 'current-year federal tax');
   const withholding = requireAmount(input.withholding, 'full-year federal withholding');
   const ninety = Math.round(currentTax * 0.9);
-  let prior: RequiredAnnualPayment['priorYear'] = null;
-  if (!input.priorYear || typeof input.priorYear.available !== 'boolean') {
-    throw new QuarterlyReviewRequiredError('Confirm whether the prior-year return covered a full 12 months.');
-  }
-  if (input.priorYear.available) {
-    if (input.priorYear.coveredTwelveMonths !== true) {
-      throw new QuarterlyReviewRequiredError('The prior-year method requires a return covering all 12 months of the prior year.');
-    }
-    const priorTax = requireAmount(input.priorYear.totalTax, 'prior-year total tax');
-    const agi = requireAmount(input.priorYear.agi, 'prior-year adjusted gross income', true);
-    // §6654(d)(1)(C): 110% when prior-year AGI exceeds $150,000 ($75,000 if the current-year return is MFS). Strictly greater than.
-    const agiThreshold = (filingStatus === 'married_filing_separately' ? 75_000 : 150_000) * 100;
-    const multiplier: 1 | 1.1 = agi > agiThreshold ? 1.1 : 1;
-    prior = { totalTax: fromCents(priorTax), agi: fromCents(agi), agiThreshold: fromCents(agiThreshold), multiplier, target: fromCents(Math.round(priorTax * multiplier)) };
-  }
+  const prior = resolvedPriorYearTarget(filingStatus, input.priorYear);
   const usePrior = prior !== null && toCents(prior.target) < ninety;
   const required = prior !== null && usePrior ? toCents(prior.target) : ninety;
   const basis: SafeHarborBasis = prior !== null && usePrior ? (prior.multiplier === 1.1 ? 'prior_year_110' : 'prior_year_100') : 'current_year_90';
@@ -248,6 +257,27 @@ export function calculateRequiredAnnualPayment(input: RequiredAnnualPaymentInput
     priorYear: prior, requiredAnnualPayment: fromCents(required), basis, withholding: fromCents(withholding),
     deMinimis: { threshold: fromCents(DE_MINIMIS_THRESHOLD_CENTS), taxLessWithholding: fromCents(taxLessWithholding), applies: deMinimisApplies },
     estimatedPaymentsRequired: deMinimisApplies ? 0 : fromCents(Math.max(0, required - withholding)),
+  };
+}
+
+/** Prior-year safe harbor only. The 90% current-year option and the $1,000 current-year test are not applied. */
+export function calculatePriorYearOnlyRequiredPayment(input: Omit<RequiredAnnualPaymentInput, 'currentYearTax'>): RequiredAnnualPayment {
+  getFederalTaxRules(input.taxYear);
+  const filingStatus = normalizeFilingStatus(input.filingStatus);
+  const withholding = requireAmount(input.withholding, 'full-year federal withholding');
+  const prior = resolvedPriorYearTarget(filingStatus, input.priorYear);
+  if (prior === null) {
+    throw new QuarterlyReviewRequiredError('The prior-year method requires a return covering all 12 months of the prior year.');
+  }
+  const required = toCents(prior.target);
+  return {
+    taxYear: input.taxYear, filingStatus,
+    currentYearTax: null, ninetyPercentOfCurrentYear: null,
+    priorYear: prior, requiredAnnualPayment: fromCents(required),
+    basis: prior.multiplier === 1.1 ? 'prior_year_110' : 'prior_year_100',
+    withholding: fromCents(withholding),
+    deMinimis: { threshold: fromCents(DE_MINIMIS_THRESHOLD_CENTS), taxLessWithholding: null, applies: false },
+    estimatedPaymentsRequired: fromCents(Math.max(0, required - withholding)),
   };
 }
 
@@ -571,15 +601,39 @@ export interface QuarterlyPlan {
   annualizedIncomeMethod: { available: false; note: string };
   assumptions: string[];
   sources: typeof QUARTERLY_PLANNER_SOURCES;
+  /** Present when the current-year 90% option was not available. */
+  priorYearOnly?: true;
+  annualStatus?: 'review_required';
+  annualStatusMessage?: string;
 }
 
 const basisLabel = (basis: SafeHarborBasis): string => basis === 'current_year_90'
   ? '90% of the current-year federal estimate'
   : basis === 'prior_year_110' ? '110% of prior-year tax (prior-year AGI above the threshold)' : '100% of prior-year tax';
 
-export function buildQuarterlyPlan(input: QuarterlyPlanInput): QuarterlyPlan {
-  if (!isIsoDate(input.asOf)) throw new RangeError('Provide the planning date as YYYY-MM-DD.');
-  const required = calculateRequiredAnnualPayment(input);
+interface PlanAssemblyInput {
+  taxYear: number;
+  withholding: number;
+  withholdingSchedule?: WithholdingSchedule;
+  payments: RecordedEstimatedPayment[];
+  asOf: IsoDate;
+  assumptions?: string[];
+  priorYearOnly?: boolean;
+  annualStatusMessage?: string;
+}
+
+function installmentAssumptions(required: RequiredAnnualPayment, input: PlanAssemblyInput, payments: MatchedPayment[]): string[] {
+  return [
+    `Installments are 25% of the required annual payment on each due date; withholding is credited ${input.withholdingSchedule?.kind === 'dated' ? 'by the period in which it was withheld' : 'in four equal parts'}; recorded payments are matched to periods by payment date.`,
+    ...(payments.some(payment => !payment.dated) ? ['One or more recorded payments have no payment date and are treated as paid on the due date of the quarter they were saved under.'] : []),
+    ...(payments.some(payment => payment.afterFinalDueDate) ? ['One or more recorded payments are dated after the final installment date and are applied as late payments.'] : []),
+    ...(required.priorYear && required.priorYear.totalTax === 0 ? ['Prior-year total tax is $0 with a 12-month return, so the prior-year method requires no annual payment; keep the prior-year return available to support this.'] : []),
+    'Federal only. State estimated taxes, special relief, farming/fishing rules and fiscal-year returns are outside this plan.',
+    ...(input.assumptions ?? []),
+  ];
+}
+
+function finishQuarterlyPlan(required: RequiredAnnualPayment, input: PlanAssemblyInput): QuarterlyPlan {
   const withholding = allocateWithholding(input.withholdingSchedule ?? { kind: 'even', total: input.withholding }, input.taxYear);
   const payments = matchPaymentsToPeriods(input.payments, input.taxYear);
   const installments = computeInstallments({
@@ -592,17 +646,14 @@ export function buildQuarterlyPlan(input: QuarterlyPlanInput): QuarterlyPlan {
   const recordedTotal = installments.reduce((sum, item) => sum + toCents(item.paymentsMatchedTotal), 0);
   const remaining = Math.max(0, requiredTotal - withholdingTotal - recordedTotal);
   const illustration = illustrateUnderpaymentInterest({ taxYear: input.taxYear, installments, withholding, payments, asOf: input.asOf, deMinimisApplies: required.deMinimis.applies });
-  const assumptions = [
+  const shared = installmentAssumptions(required, input, payments);
+  const taxLessWithholding = required.deMinimis.taxLessWithholding;
+  const assumptions = input.priorYearOnly || taxLessWithholding === null ? shared : [
     `Required annual payment uses the lesser of 90% of the current-year federal estimate and ${required.priorYear ? `${required.priorYear.multiplier === 1.1 ? '110%' : '100%'} of prior-year tax` : 'the prior-year method (unavailable: the prior return did not cover 12 months, so only the current-year 90% target is used)'}; basis selected: ${basisLabel(required.basis)}.`,
     required.deMinimis.applies
-      ? `Current-year tax less withholding is ${money(required.deMinimis.taxLessWithholding)}, under the $1,000 threshold; no estimated payments are required by the regular method.`
-      : `Current-year tax less withholding is ${money(required.deMinimis.taxLessWithholding)}, so the $1,000 exception does not apply.`,
-    `Installments are 25% of the required annual payment on each due date; withholding is credited ${input.withholdingSchedule?.kind === 'dated' ? 'by the period in which it was withheld' : 'in four equal parts'}; recorded payments are matched to periods by payment date.`,
-    ...(payments.some(payment => !payment.dated) ? ['One or more recorded payments have no payment date and are treated as paid on the due date of the quarter they were saved under.'] : []),
-    ...(payments.some(payment => payment.afterFinalDueDate) ? ['One or more recorded payments are dated after the final installment date and are applied as late payments.'] : []),
-    ...(required.priorYear && required.priorYear.totalTax === 0 ? ['Prior-year total tax is $0 with a 12-month return, so the prior-year method requires no annual payment; keep the prior-year return available to support this.'] : []),
-    'Federal only. State estimated taxes, special relief, farming/fishing rules and fiscal-year returns are outside this plan.',
-    ...(input.assumptions ?? []),
+      ? `Current-year tax less withholding is ${money(taxLessWithholding)}, under the $1,000 threshold; no estimated payments are required by the regular method.`
+      : `Current-year tax less withholding is ${money(taxLessWithholding)}, so the $1,000 exception does not apply.`,
+    ...shared,
   ];
   return {
     status: 'ready', taxYear: input.taxYear, filingStatus: required.filingStatus, asOf: input.asOf,
@@ -612,7 +663,18 @@ export function buildQuarterlyPlan(input: QuarterlyPlanInput): QuarterlyPlan {
     underpaymentInterestIllustration: illustration,
     annualizedIncomeMethod: { available: false, note: ANNUALIZED_INCOME_METHOD_NOTE },
     assumptions, sources: QUARTERLY_PLANNER_SOURCES,
+    ...(input.priorYearOnly ? { priorYearOnly: true as const, annualStatus: 'review_required' as const, annualStatusMessage: input.annualStatusMessage } : {}),
   };
+}
+
+export function buildQuarterlyPlan(input: QuarterlyPlanInput): QuarterlyPlan {
+  if (!isIsoDate(input.asOf)) throw new RangeError('Provide the planning date as YYYY-MM-DD.');
+  return finishQuarterlyPlan(calculateRequiredAnnualPayment(input), input);
+}
+
+export function buildPriorYearOnlyQuarterlyPlan(input: Omit<QuarterlyPlanInput, 'currentYearTax'> & { annualStatusMessage: string }): QuarterlyPlan {
+  if (!isIsoDate(input.asOf)) throw new RangeError('Provide the planning date as YYYY-MM-DD.');
+  return finishQuarterlyPlan(calculatePriorYearOnlyRequiredPayment(input), { ...input, priorYearOnly: true });
 }
 
 // ── Fact resolution from saved records ──────────────────────────────────────
@@ -668,33 +730,22 @@ function readNumber(value: unknown): number | null {
 }
 
 /**
- * Collects the planner facts from saved records without guessing. Prior-year tax
- * and AGI come from the Tax Organizer prior-year step first, then the Deductions
- * prior-year section, then the profile; the 12-month answer and the declared filing
- * status are explicit records. Missing facts are listed with where to enter them.
+ * Prior-year total tax, AGI and the 12-month answer from saved records.
+ * Tax and AGI come from the Tax Organizer prior-year step first, then the
+ * Deductions prior-year section, then the profile. Nothing is inferred.
  */
-export function resolveQuarterlyPlannerFacts(sources: PlannerFactSources): PlannerFactResolution {
-  const org = sources.organizer ?? {};
-  const ded = sources.deductions ?? {};
-  const profile = sources.profile ?? {};
+export function readSavedPriorYearFacts(input: {
+  taxYear: number;
+  organizer: Record<string, unknown> | null | undefined;
+  deductions: Record<string, unknown> | null | undefined;
+  profile: Record<string, unknown> | null | undefined;
+}): { priorYear: PriorYearFacts | null; missingFacts: MissingFact[]; assumptions: string[] } {
+  const org = input.organizer ?? {};
+  const ded = input.deductions ?? {};
+  const profile = input.profile ?? {};
+  const year = input.taxYear;
   const missing: MissingFact[] = [];
-  const notes: string[] = [];
   const assumptions: string[] = [];
-  const year = sources.taxYear;
-
-  const declaredStatus = [profile.filing_status, org.filingStatus].find(value => typeof value === 'string' && value.trim() !== '');
-  if (declaredStatus === undefined) {
-    missing.push({ key: 'filing_status', label: 'Filing status', detail: `Select your ${year} filing status; the 110% rule uses a $75,000 prior-year AGI threshold for married filing separately and $150,000 otherwise.`, enterAt: [PLANNER_FACT_SCREENS.profile, PLANNER_FACT_SCREENS.taxOrganizer] });
-  } else if (typeof profile.filing_status === 'string' && profile.filing_status.trim() && typeof org.filingStatus === 'string' && org.filingStatus.trim()) {
-    try {
-      if (normalizeFilingStatus(profile.filing_status) !== normalizeFilingStatus(org.filingStatus)) assumptions.push('Profile and Tax Organizer list different filing statuses; the Profile status used by the annual estimate was applied.');
-    } catch { /* The annual snapshot already rejected an unsupported status. */ }
-  }
-
-  if (!(sources.annual.totalIncome > 0)) {
-    missing.push({ key: 'current_year_estimate', label: `${year} federal estimate`, detail: `No ${year} income records are saved yet, so there is no current-year tax estimate to compare against the 90% test. Add or sync income first.`, enterAt: [PLANNER_FACT_SCREENS.income] });
-  }
-
   const twelveMonths = typeof org.priorReturnCoveredTwelveMonths === 'string' ? org.priorReturnCoveredTwelveMonths.trim().toLowerCase() : '';
   if (twelveMonths !== 'yes' && twelveMonths !== 'no') {
     missing.push({ key: 'prior_return_twelve_months', label: `${year - 1} return covered 12 months`, detail: `Answer whether your ${year - 1} federal return covered a full 12 months. The prior-year safe harbor is only available when it did.`, enterAt: [PLANNER_FACT_SCREENS.taxOrganizer] });
@@ -728,6 +779,40 @@ export function resolveQuarterlyPlannerFacts(sources: PlannerFactSources): Plann
     }
     if (twelveMonths === 'yes' && priorTax !== null && priorAgi !== null) priorYear = { available: true, totalTax: priorTax, agi: priorAgi, coveredTwelveMonths: true };
   }
+  return { priorYear, missingFacts: missing, assumptions };
+}
+
+/**
+ * Collects the planner facts from saved records without guessing. Prior-year tax
+ * and AGI come from the Tax Organizer prior-year step first, then the Deductions
+ * prior-year section, then the profile; the 12-month answer and the declared filing
+ * status are explicit records. Missing facts are listed with where to enter them.
+ */
+export function resolveQuarterlyPlannerFacts(sources: PlannerFactSources): PlannerFactResolution {
+  const org = sources.organizer ?? {};
+  const profile = sources.profile ?? {};
+  const missing: MissingFact[] = [];
+  const notes: string[] = [];
+  const assumptions: string[] = [];
+  const year = sources.taxYear;
+
+  const declaredStatus = [profile.filing_status, org.filingStatus].find(value => typeof value === 'string' && value.trim() !== '');
+  if (declaredStatus === undefined) {
+    missing.push({ key: 'filing_status', label: 'Filing status', detail: `Select your ${year} filing status; the 110% rule uses a $75,000 prior-year AGI threshold for married filing separately and $150,000 otherwise.`, enterAt: [PLANNER_FACT_SCREENS.profile, PLANNER_FACT_SCREENS.taxOrganizer] });
+  } else if (typeof profile.filing_status === 'string' && profile.filing_status.trim() && typeof org.filingStatus === 'string' && org.filingStatus.trim()) {
+    try {
+      if (normalizeFilingStatus(profile.filing_status) !== normalizeFilingStatus(org.filingStatus)) assumptions.push('Profile and Tax Organizer list different filing statuses; the Profile status used by the annual estimate was applied.');
+    } catch { /* The annual snapshot already rejected an unsupported status. */ }
+  }
+
+  if (!(sources.annual.totalIncome > 0)) {
+    missing.push({ key: 'current_year_estimate', label: `${year} federal estimate`, detail: `No ${year} income records are saved yet, so there is no current-year tax estimate to compare against the 90% test. Add or sync income first.`, enterAt: [PLANNER_FACT_SCREENS.income] });
+  }
+
+  const priorFacts = readSavedPriorYearFacts({ taxYear: year, organizer: sources.organizer, deductions: sources.deductions, profile: sources.profile });
+  missing.push(...priorFacts.missingFacts);
+  assumptions.push(...priorFacts.assumptions);
+  const priorYear = priorFacts.priorYear;
 
   if (missing.length || priorYear === null) {
     notes.push('Planning figures stay hidden until every listed fact is saved. Saved transactions alone do not establish an amount due.');

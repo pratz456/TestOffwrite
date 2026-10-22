@@ -1,0 +1,219 @@
+import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { NextRequest } from 'next/server';
+import { PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL } from '../lib/tax-provider/quarterly-planner';
+
+const PLACEHOLDER = PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL;
+
+const state = vi.hoisted(() => ({
+  uid: 'planner-owner' as string | null,
+  error: null as string | null,
+  records: {} as Record<string, Record<string, unknown>[]>,
+  tx: [] as Record<string, unknown>[],
+  profile: { filing_status: 'Single' } as Record<string, unknown>,
+  payments: [] as { quarter: 1 | 2 | 3 | 4; paidAmount: number; record: Record<string, unknown> | null }[],
+}));
+
+vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: state.uid ? { uid: state.uid } : null }) }));
+vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
+vi.mock('@/lib/reports/export-records', async importOriginal => ({
+  ...await importOriginal<typeof import('@/lib/reports/export-records')>(),
+  readOwnedTransactions: async () => { if (state.error) throw new Error(state.error); return state.tx; },
+}));
+vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: state.tx, error: state.error }) }));
+vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: state.profile, error: null }) }));
+vi.mock('@/lib/firebase/settings-server', () => ({
+  getAssetsSettings: async () => ({ data: [], error: null }),
+  getScheduleCSettings: async () => ({ data: { assets: [], homeOffice: null, depreciationElections: { deMinimisSafeHarborYears: [] } }, error: null }),
+}));
+vi.mock('@/lib/firebase/quarterly-payments-server', async importOriginal => ({
+  ...await importOriginal<typeof import('@/lib/firebase/quarterly-payments-server')>(),
+  getRecordedQuarterlyPayments: async () => ([1, 2, 3, 4] as const).map(quarter => state.payments.find(payment => payment.quarter === quarter) ?? { quarter, paidAmount: 0, record: null }),
+}));
+vi.mock('@/lib/firebase/admin', () => ({
+  adminDb: { collection: (name: string) => ({ where() { return this; }, limit() { return this; }, get: async () => ({ empty: !state.records[name]?.length, docs: (state.records[name] || []).map((data, id) => ({ id: String(id), data: () => data })) }) }) },
+}));
+
+import { GET as annual } from '../app/api/tax/compute-1040/route';
+import { GET as quarterly } from '../app/api/tax/quarterly-reminders/route';
+import { POST as legacy } from '../app/api/tax/quarterly-estimates/route';
+
+const PRIOR_YEAR_FACTS = { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000', priorYearAGI: '100000' };
+const WITHHOLDING = 2000;
+const req = (query = 'year=2026&asOf=2026-09-01') => new NextRequest(`http://localhost/api/tax/quarterly-reminders?${query}`);
+const post = (body: unknown) => new NextRequest('http://localhost/api/tax/quarterly-estimates', { method: 'POST', body: JSON.stringify(body) });
+const organizer = (facts: Record<string, unknown> = {}) => reviewedPersonalDeductionOrganizer(2026, {}, facts);
+
+beforeEach(() => {
+  state.uid = 'planner-owner';
+  state.error = null;
+  state.profile = { filing_status: 'Single' };
+  state.records = {
+    tax_organizers: [organizer({ ...PRIOR_YEAR_FACTS, dependents: '1' })],
+    w2_income: [{ wages: 80000, federalWithheld: WITHHOLDING }],
+  };
+  state.payments = [{ quarter: 3, paidAmount: 750, record: { paidAmount: 750, paidDate: '2026-07-01' } }];
+  state.tx = [
+    { iso_currency_code: 'USD', amount: -100000, date: '2026-02-01', category: 'income' },
+    { iso_currency_code: 'USD', amount: 1000, date: '2026-02-01', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true },
+  ];
+});
+
+describe('prior-year-only quarterly plan when dependent credit review blocks the annual estimate', () => {
+  it('gives four amounts from 100% of prior-year tax minus withholding and recorded payments', async () => {
+    const annualBody = await (await annual(req())).json();
+    expect(annualBody.code).toBe('DEPENDENT_CREDIT_REVIEW_REQUIRED');
+    const response = await quarterly(req());
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.priorYearOnly).toBe(true);
+    expect(result.annualStatus).toBe('review_required');
+    expect(result.annualStatusMessage).toBe(annualBody.error);
+    expect(result.paymentReview.message).toBe(PLACEHOLDER);
+    expect(result.planner).toMatchObject({
+      status: 'ready',
+      priorYearOnly: true,
+      annualStatus: 'review_required',
+      annualStatusMessage: annualBody.error,
+      requiredAnnualPayment: {
+        basis: 'prior_year_100',
+        requiredAnnualPayment: 10000,
+        ninetyPercentOfCurrentYear: null,
+        withholding: WITHHOLDING,
+        estimatedPaymentsRequired: 8000,
+      },
+    });
+    expect(result.safeHarborBasis).toBe('prior_year_100');
+    expect(result.safeHarborTotal).toBe(10000);
+    expect(result.usingPriorYearSafeHarbor).toBe(true);
+    expect(result.w2Withheld).toBe(WITHHOLDING);
+    expect(result.recordedEstimatedPayments).toBe(750);
+    expect(result.quarters.map((quarter: { recommended: number }) => quarter.recommended)).toEqual([2000, 2000, 2000, 2000]);
+    expect(result.quarters.map((quarter: { dueDate: string }) => quarter.dueDate)).toEqual(['2026-04-15', '2026-06-15', '2026-09-15', '2027-01-15']);
+    expect(result.quarters.map((quarter: { withholdingCredited: number; paymentsMatchedTotal: number }) => [quarter.withholdingCredited, quarter.paymentsMatchedTotal])).toEqual([
+      [500, 0], [500, 0], [500, 750], [500, 0],
+    ]);
+    expect(result.remainingTarget).toBe(7250);
+    expect(result.planner.nextDue).toMatchObject({ quarter: 3, dueDate: '2026-09-15', amountToPay: 5250, installmentOnly: 2000, includesEarlierShortfall: true });
+    expect(result).not.toHaveProperty('totalEstimatedTax');
+  });
+
+  it('uses 110% above the shared AGI threshold, 100% at $150,000, and 110% for MFS above $75,000', async () => {
+    state.records.tax_organizers = [organizer({ ...PRIOR_YEAR_FACTS, priorYearAGI: '150001', dependents: '1' })];
+    let result = await (await quarterly(req())).json();
+    expect(result.safeHarborBasis).toBe('prior_year_110');
+    expect(result.planner.requiredAnnualPayment.requiredAnnualPayment).toBe(11000);
+    expect(result.planner.requiredAnnualPayment.basis).toBe('prior_year_110');
+    expect(result.quarters.map((quarter: { recommended: number }) => quarter.recommended)).toEqual([2250, 2250, 2250, 2250]);
+
+    state.records.tax_organizers = [organizer({ ...PRIOR_YEAR_FACTS, priorYearAGI: '150000', dependents: '1' })];
+    result = await (await quarterly(req())).json();
+    expect(result.safeHarborBasis).toBe('prior_year_100');
+    expect(result.planner.requiredAnnualPayment.requiredAnnualPayment).toBe(10000);
+    expect(result.quarters.map((quarter: { recommended: number }) => quarter.recommended)).toEqual([2000, 2000, 2000, 2000]);
+
+    state.profile = { filing_status: 'married_filing_separately' };
+    state.records.tax_organizers = [organizer({ ...PRIOR_YEAR_FACTS, priorYearAGI: '75001', dependents: '1' })];
+    result = await (await quarterly(req())).json();
+    expect(result.safeHarborBasis).toBe('prior_year_110');
+    expect(result.planner.requiredAnnualPayment.requiredAnnualPayment).toBe(11000);
+    expect(result.planner.requiredAnnualPayment.priorYear.agiThreshold).toBe(75000);
+    expect(result.quarters.map((quarter: { recommended: number }) => quarter.recommended)).toEqual([2250, 2250, 2250, 2250]);
+  });
+
+  it('returns the original 422 when prior-year facts are missing', async () => {
+    state.records.tax_organizers = [organizer({ dependents: '1' })];
+    const annualResponse = await annual(req());
+    const response = await quarterly(req());
+    expect(response.status).toBe(annualResponse.status);
+    expect(await response.json()).toEqual(await annualResponse.json());
+    const body = await (await quarterly(req())).json();
+    expect(body.code).toBe('DEPENDENT_CREDIT_REVIEW_REQUIRED');
+    expect(body).not.toHaveProperty('planner');
+    expect(body).not.toHaveProperty('priorYearOnly');
+  });
+
+  it('returns the original 422 when the prior return did not cover twelve months', async () => {
+    state.records.tax_organizers = [organizer({ ...PRIOR_YEAR_FACTS, priorReturnCoveredTwelveMonths: 'no', dependents: '1' })];
+    const annualResponse = await annual(req());
+    const response = await quarterly(req());
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual(await annualResponse.json());
+  });
+
+  it('returns a different 422 unchanged', async () => {
+    state.records.tax_organizers = [organizer(PRIOR_YEAR_FACTS)];
+    state.records.gross_receipts = [{ amount: 100000 }];
+    const annualResponse = await annual(req());
+    const quarterlyResponse = await quarterly(req());
+    const legacyResponse = await legacy(post({ taxYear: 2026 }));
+    const annualBody = await annualResponse.json();
+    expect(annualBody.code).toBe('INCOME_RECONCILIATION_REQUIRED');
+    expect(quarterlyResponse.status).toBe(annualResponse.status);
+    expect(await quarterlyResponse.json()).toEqual(annualBody);
+    expect(legacyResponse.status).toBe(annualResponse.status);
+    expect(await legacyResponse.json()).toEqual(annualBody);
+  });
+
+  it('returns review-required with no amounts when W-2 federal withholding cannot be read', async () => {
+    state.records.w2_income = [{ wages: 80000 }];
+    const annualBody = await (await annual(req())).json();
+    expect(annualBody.code).toBe('DEPENDENT_CREDIT_REVIEW_REQUIRED');
+    const response = await quarterly(req());
+    expect(response.status).toBe(422);
+    const body = await response.json();
+    expect(body.code).toBe('QUARTERLY_REVIEW_REQUIRED');
+    expect(body.annualStatus).toBe('review_required');
+    expect(body.annualStatusMessage).toBe(annualBody.error);
+    expect(body.planner).toEqual({ status: 'review_required', missingFacts: [], notes: [] });
+    for (const key of ['quarters', 'safeHarborTotal', 'safeHarborPerQuarter', 'safeHarborBasis', 'perQuarterRecommended', 'remainingTarget', 'totalEstimatedTax', 'w2Withheld', 'recordedEstimatedPayments', 'priorYearOnly']) {
+      expect(body).not.toHaveProperty(key);
+    }
+  });
+
+  it('keeps today\'s response when compute-1040 succeeds', async () => {
+    state.records.tax_organizers = [organizer(PRIOR_YEAR_FACTS)];
+    state.records.w2_income = [];
+    const expected = await (await annual(req())).json();
+    const response = await quarterly(req());
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.totalEstimatedTax).toBe(expected.form1040.totalTax);
+    expect(result.recordedEstimatedPayments).toBe(750);
+    expect(result.paymentReview.code).toBe('QUARTERLY_PLANNER_READY');
+    expect(result.planner.status).toBe('ready');
+    expect(result.planner.requiredAnnualPayment).toMatchObject({
+      basis: 'prior_year_100',
+      requiredAnnualPayment: 10000,
+      ninetyPercentOfCurrentYear: Math.round(expected.form1040.totalTax * 90) / 100,
+      estimatedPaymentsRequired: 10000,
+    });
+    expect(result).toMatchObject({
+      safeHarborTotal: 10000,
+      safeHarborPerQuarter: 2500,
+      safeHarborBasis: 'prior_year_100',
+      usingPriorYearSafeHarbor: true,
+      perQuarterRecommended: 2500,
+      remainingTarget: 9250,
+    });
+    expect(result.quarters.map((quarter: { recommended: number }) => quarter.recommended)).toEqual([2500, 2500, 2500, 2500]);
+    expect(result).not.toHaveProperty('priorYearOnly');
+    expect(result).not.toHaveProperty('annualStatus');
+    expect(result.planner).not.toHaveProperty('priorYearOnly');
+    expect(result.planner).not.toHaveProperty('annualStatus');
+  });
+
+  it('passes the prior-year-only shape through quarterly-estimates', async () => {
+    const fromGet = await (await quarterly(req('year=2026'))).json();
+    const response = await legacy(post({ taxYear: 2026, taxCalculation: { quarterlyAmount: 1 }, userProfile: { prior_year_tax: 1 } }));
+    expect(response.status).toBe(200);
+    const fromPost = await response.json();
+    expect(fromPost).toEqual(fromGet);
+    expect(fromPost.priorYearOnly).toBe(true);
+    expect(fromPost.annualStatus).toBe('review_required');
+    expect(fromPost.safeHarborBasis).toBe('prior_year_100');
+    expect(fromPost.safeHarborTotal).toBe(10000);
+    expect(fromPost.quarters.map((quarter: { recommended: number }) => quarter.recommended)).toEqual([2000, 2000, 2000, 2000]);
+    expect(fromPost.paymentReview.message).toBe(PLACEHOLDER);
+  });
+});

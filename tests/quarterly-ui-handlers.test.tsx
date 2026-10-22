@@ -13,7 +13,7 @@ vi.mock('@/components/landing/landing-header', () => ({ LandingHeader: 'LandingH
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: h.request }));
 import { QuarterlyEstimateClient } from '../app/tools/quarterly-estimate-calculator/quarterly-estimate-client';
 import { QuarterlyTaxCalculator } from '../components/quarterly-tax-calculator';
-import { buildQuarterlyPlan, QUARTERLY_PLANNER_READY_MESSAGE, type MissingFact } from '../lib/tax-provider/quarterly-planner';
+import { buildPriorYearOnlyQuarterlyPlan, buildQuarterlyPlan, PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL, QUARTERLY_PLANNER_READY_MESSAGE, type MissingFact } from '../lib/tax-provider/quarterly-planner';
 const walk = (n: any): any[] => Array.isArray(n) ? n.flatMap(walk) : n && typeof n === 'object' ? [n, ...walk(n.props?.children)] : [];
 const text = (n: any): string => Array.isArray(n) ? n.map(text).join('') : n && typeof n === 'object' ? text(n.props?.children) : typeof n === 'string' || typeof n === 'number' ? String(n) : '';
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -123,6 +123,26 @@ describe('authenticated quarterly summary renders planner figures or the specifi
     expect(content).toContain('Illustrated interest so far: not available yet'); expect(content).toContain('2027-Q1'); expect(content).toContain('January 1 – April 15, 2027: not yet published');
     expect(content).toContain('All 2026 installment dates have passed'); expect(content).toContain('Remaining regular-method shortfall (planning estimate): $7,500.00');
     expect(content).not.toContain('Illustrated interest so far: $0.00');
+  });
+  it('shows the prior-year-only placeholder in the planner message', async () => {
+    const planner = buildPriorYearOnlyQuarterlyPlan({
+      taxYear: 2026, filingStatus: 'single', withholding: 2000,
+      priorYear: { available: true, totalTax: 10000, agi: 100000, coveredTwelveMonths: true },
+      payments: [{ amount: 750, paidDate: '2026-07-01', recordedQuarter: 3 }],
+      asOf: '2026-09-01', annualStatusMessage: 'Review dependent credit eligibility in Tax Organizer.',
+    });
+    h.request.mockImplementation(() => Response.json({
+      taxYear: currentYear, recordedEstimatedPayments: 750, w2Withheld: 2000, calculationWarnings: [], priorYearOnly: true,
+      paymentReview: { code: 'PRIOR_YEAR_ONLY', message: 'not the approved label' }, planner,
+      quarters: planner.installments.map(item => ({ quarter: item.quarter, dueDate: item.dueDate, amountPaid: item.quarter === 3 ? 750 : 0, recommended: item.plannedEstimatedPayment })),
+    }));
+    render(component); await flush();
+    const content = text(render(component));
+    expect(content).toContain(PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL);
+    expect(content).not.toContain('not the approved label');
+    expect(content).toContain('$2,000.00');
+    expect(content).not.toContain('lesser of 90%');
+    expect(content).not.toContain('Federal estimate from saved annual records');
   });
   it('rejects a malformed planner payload instead of rendering partial figures', async () => {
     h.request.mockImplementation(() => Response.json({ taxYear: currentYear, totalEstimatedTax: 20000, recordedEstimatedPayments: 0, w2Withheld: 0, calculationWarnings: [], quarters: [], paymentReview: { message: 'x' }, planner: { status: 'ready' } }));

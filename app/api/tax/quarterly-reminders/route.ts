@@ -15,13 +15,17 @@ import { GET as computeAnnualTax } from '@/app/api/tax/compute-1040/route';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
-import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/firebase/quarterly-payments-server';
+import { getRecordedQuarterlyPayments, totalRecordedPayments, type RecordedQuarterlyPayment } from '@/lib/firebase/quarterly-payments-server';
 import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
 import {
-  buildQuarterlyPlan, isIsoDate, QUARTERLY_PLANNER_READY_MESSAGE, resolveQuarterlyPlannerFacts,
-  type QuarterlyPlannerResponse, type RecordedEstimatedPayment,
+  buildPriorYearOnlyQuarterlyPlan, buildQuarterlyPlan, isIsoDate, PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL,
+  QUARTERLY_PLANNER_READY_MESSAGE, readSavedPriorYearFacts, resolveQuarterlyPlannerFacts,
+  type QuarterlyPlan, type QuarterlyPlannerResponse, type RecordedEstimatedPayment,
 } from '@/lib/tax-provider/quarterly-planner';
 import { QUARTERLY_REVIEW_MESSAGE, QuarterlyReviewRequiredError } from '@/lib/tax-provider/regular-estimated-payments';
+import { getFederalTaxRules } from '@/lib/tax-rules/federal-year-rules';
+import { FilingStatusReviewRequiredError } from '@/lib/tax-rules/filing-status';
+import { readW2FederalWithholding } from '@/lib/tax-rules/w2-income';
 
 const REVIEW_QUARTER = { recommended: null, status: 'review_required' } as const;
 
@@ -32,7 +36,10 @@ export async function GET(request: NextRequest) {
     // Reuse the exact authenticated annual API contract, including unsupported
     // years, income reconciliation and organizer review requirements.
     const annualResponse = await computeAnnualTax(request);
-    if (!annualResponse.ok) return annualResponse;
+    if (!annualResponse.ok) {
+      const priorYearOnly = await priorYearOnlyWhenDependentReview(request, user.uid, annualResponse);
+      return priorYearOnly ?? annualResponse;
+    }
     const annual = await annualResponse.json();
     const taxYear: number = annual.taxYear;
     const owned = (collection: string) => adminDb.collection(collection).where('userId', '==', user.uid).where('taxYear', '==', taxYear).limit(1).get();
@@ -119,4 +126,152 @@ export async function GET(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Could not load your annual estimate and recorded payments. Please retry.' }, { status: 503 });
   }
+}
+
+function requestedSupportedTaxYear(request: NextRequest): number | null {
+  const yearParam = request.nextUrl.searchParams.get('year');
+  const year = yearParam === null ? new Date().getFullYear() : /^\d{4}$/.test(yearParam) ? Number(yearParam) : NaN;
+  try {
+    getFederalTaxRules(year);
+    return year;
+  } catch {
+    return null;
+  }
+}
+
+function withholdingUnreadable(annualStatusMessage: string) {
+  return NextResponse.json({
+    code: 'QUARTERLY_REVIEW_REQUIRED',
+    error: QUARTERLY_REVIEW_MESSAGE,
+    annualStatus: 'review_required',
+    annualStatusMessage,
+    planner: { status: 'review_required', missingFacts: [], notes: [] },
+  }, { status: 422 });
+}
+
+function recordedPayments(payments: RecordedQuarterlyPayment[]): RecordedEstimatedPayment[] {
+  return payments
+    .filter(payment => payment.paidAmount > 0)
+    .map(payment => {
+      const paidDate = payment.record?.paidDate;
+      return { amount: payment.paidAmount, paidDate: isIsoDate(paidDate) ? paidDate : null, recordedQuarter: payment.quarter };
+    });
+}
+
+function priorYearOnlyBody(input: {
+  taxYear: number;
+  planner: QuarterlyPlan;
+  payments: RecordedQuarterlyPayment[];
+  withholding: number;
+  annualStatusMessage: string;
+}) {
+  const { planner, payments, withholding, annualStatusMessage, taxYear } = input;
+  const amountPaid = (quarter: number) => payments.find(payment => payment.quarter === quarter)?.paidAmount ?? 0;
+  const recordedEstimatedPayments = totalRecordedPayments(payments);
+  const quarters = planner.installments.map(installment => ({
+    quarter: installment.quarter, label: `Q${installment.quarter}`, dueDate: installment.dueDate, amountPaid: amountPaid(installment.quarter),
+    recommended: installment.plannedEstimatedPayment, status: installment.status,
+    requiredInstallment: installment.requiredInstallment, withholdingCredited: installment.withholdingCredited,
+    paymentsMatchedTotal: installment.paymentsMatchedTotal, underpayment: installment.underpayment, overpaymentCarriedOut: installment.overpaymentCarriedOut,
+  }));
+  return {
+    taxYear, filingStatus: planner.filingStatus, asOf: planner.asOf,
+    priorYearOnly: true,
+    annualStatus: 'review_required' as const,
+    annualStatusMessage,
+    recordedEstimatedPayments,
+    w2Withheld: withholding,
+    totalFederalWithheld: withholding,
+    totalPaid: recordedEstimatedPayments + withholding,
+    calculationWarnings: [] as string[],
+    paymentReview: { code: 'PRIOR_YEAR_ONLY', message: PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL },
+    planner,
+    perQuarterRecommended: planner.nextDue?.installmentOnly ?? null,
+    remainingTarget: planner.totals.remainingEstimatedPayments,
+    safeHarborTotal: planner.requiredAnnualPayment.requiredAnnualPayment,
+    safeHarborPerQuarter: Math.round(planner.requiredAnnualPayment.requiredAnnualPayment * 25) / 100,
+    safeHarborBasis: planner.requiredAnnualPayment.basis,
+    usingPriorYearSafeHarbor: true,
+    onTrack: null, estimatedPenaltyRisk: null, quarters,
+  };
+}
+
+/**
+ * DEPENDENT_CREDIT_REVIEW_REQUIRED is the only annual 422 that can fall back to a
+ * prior-year plan. Every other status and code returns null so the caller sends
+ * the annual response unchanged.
+ */
+async function priorYearOnlyWhenDependentReview(request: NextRequest, uid: string, annualResponse: Response): Promise<NextResponse | null> {
+  if (annualResponse.status !== 422) return null;
+  let body: { code?: unknown; error?: unknown };
+  try {
+    body = await annualResponse.clone().json();
+  } catch {
+    return null;
+  }
+  if (body?.code !== 'DEPENDENT_CREDIT_REVIEW_REQUIRED') return null;
+  const annualStatusMessage = typeof body.error === 'string' ? body.error : '';
+  const taxYear = requestedSupportedTaxYear(request);
+  if (taxYear === null) return null;
+
+  let payments: RecordedQuarterlyPayment[];
+  let organizerSnap: FirebaseFirestore.QuerySnapshot;
+  let deductionsSnap: FirebaseFirestore.QuerySnapshot;
+  let profileResult: Awaited<ReturnType<typeof getUserProfileServer>>;
+  try {
+    [payments, organizerSnap, deductionsSnap, profileResult] = await Promise.all([
+      getRecordedQuarterlyPayments(uid, taxYear),
+      adminDb.collection('tax_organizers').where('userId', '==', uid).where('taxYear', '==', taxYear).limit(1).get(),
+      adminDb.collection('tax_deductions').where('userId', '==', uid).where('taxYear', '==', taxYear).limit(1).get(),
+      getUserProfileServer(uid),
+    ]);
+  } catch {
+    return null;
+  }
+  if (profileResult.error) return null;
+  const profile = (profileResult.data ?? null) as Record<string, unknown> | null;
+  const saved = readSavedPriorYearFacts({
+    taxYear,
+    organizer: organizerSnap.empty ? null : organizerSnap.docs[0].data(),
+    deductions: deductionsSnap.empty ? null : deductionsSnap.docs[0].data(),
+    profile,
+  });
+  const priorYear = saved.priorYear;
+  if (!priorYear || priorYear.available !== true || priorYear.coveredTwelveMonths !== true
+    || typeof priorYear.totalTax !== 'number' || !Number.isFinite(priorYear.totalTax)
+    || typeof priorYear.agi !== 'number' || !Number.isFinite(priorYear.agi)) {
+    return null;
+  }
+
+  let withholding: { status: 'ready'; federalWithheld: number } | { status: 'unreadable' };
+  try {
+    const w2Snap = await adminDb.collection('w2_income').where('userId', '==', uid).where('taxYear', '==', taxYear).get();
+    withholding = readW2FederalWithholding(w2Snap.docs.map(doc => doc.data()), profile);
+  } catch {
+    return withholdingUnreadable(annualStatusMessage);
+  }
+  if (withholding.status !== 'ready') return withholdingUnreadable(annualStatusMessage);
+
+  const asOfParam = request.nextUrl.searchParams.get('asOf');
+  const asOf = isIsoDate(asOfParam) ? asOfParam : new Date().toISOString().slice(0, 10);
+  const recorded = recordedPayments(payments);
+  let planner: QuarterlyPlan;
+  try {
+    planner = buildPriorYearOnlyQuarterlyPlan({
+      taxYear,
+      filingStatus: (profile?.filing_status ?? '') as string,
+      withholding: withholding.federalWithheld,
+      priorYear,
+      payments: recorded,
+      asOf,
+      annualStatusMessage,
+      assumptions: recorded.length ? ['Each quarter\'s recorded total is treated as paid on the most recent payment date saved for that quarter.'] : [],
+    });
+  } catch (plannerError) {
+    if (plannerError instanceof QuarterlyReviewRequiredError || plannerError instanceof FilingStatusReviewRequiredError) return null;
+    throw plannerError;
+  }
+  return NextResponse.json(priorYearOnlyBody({ taxYear, planner, payments, withholding: withholding.federalWithheld, annualStatusMessage }), {
+    headers: { 'Cache-Control': 'private, no-store' },
+  });
 }
