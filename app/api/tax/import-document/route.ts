@@ -427,6 +427,14 @@ function addPayerIdCheck(data: Record<string, unknown>): void {
   data.verificationWarnings = warnings;
 }
 
+/** Drop the payer check, then put it back only when the saved ID is empty. The saved document and the response share this. */
+function syncPayerIdCheck(data: Record<string, unknown>, idEmpty: boolean): void {
+  if (!Array.isArray(data.verificationWarnings)) return;
+  const warnings = data.verificationWarnings.filter((item: unknown) => item !== PAYER_ID_CHECK);
+  if (idEmpty) warnings.push(PAYER_ID_CHECK);
+  data.verificationWarnings = warnings;
+}
+
 /** A typed employer or payer value is kept only as NN-NNNNNNN. Anything else is cleared, and a non-empty edit asks the user to check it. */
 function applyPayerNumberEdits(data: Record<string, unknown>, overrides: Record<string, string | number | boolean | null>): void {
   let rejected = false;
@@ -755,6 +763,10 @@ export async function POST(request: NextRequest) {
     applyPayerNumberEdits(finalData, fieldEdits);
     const savedType = savedDocumentType(finalData, docType);
     const savedIdField = savedType === 'w2' ? 'employerEIN' : savedType === '1099' ? 'payerEIN' : null;
+    const responseExtracted: Record<string, unknown> = { ...extracted };
+    for (const field of PAYER_NUMBER_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(fieldEdits, field)) responseExtracted[field] = finalData[field];
+    }
     // The scan can add the check before a typed value replaces it. For a saved W-2 or 1099 the prompt matches the saved ID only.
     if (savedIdField) {
       const empty = !finalData[savedIdField];
@@ -762,15 +774,8 @@ export async function POST(request: NextRequest) {
         if (verificationRequired[i] === PAYER_ID_CHECK) verificationRequired.splice(i, 1);
       }
       if (empty) verificationRequired.push(PAYER_ID_CHECK);
-    }
-    const responseExtracted: Record<string, unknown> = { ...extracted };
-    for (const field of PAYER_NUMBER_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(fieldEdits, field)) responseExtracted[field] = finalData[field];
-    }
-    if (savedIdField && Array.isArray(responseExtracted.verificationWarnings)) {
-      const warnings = responseExtracted.verificationWarnings.filter((item: unknown) => item !== PAYER_ID_CHECK);
-      if (!finalData[savedIdField]) warnings.push(PAYER_ID_CHECK);
-      responseExtracted.verificationWarnings = warnings;
+      syncPayerIdCheck(finalData, empty);
+      syncPayerIdCheck(responseExtracted, empty);
     }
 
     // Save to Firestore if commit=true. A triggered W-2 writes nothing until the user picks.
