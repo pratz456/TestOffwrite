@@ -3,6 +3,7 @@ import {
   ACA_2027_PARAMETERS,
   HSA_2027_LIMITS,
   SALT_2027_PARAMETERS,
+  SOCIAL_SECURITY_QUARTER_OF_COVERAGE,
   TAX_YEAR_2027_STATUS,
 } from '../lib/tax-rules/tax-year-2027';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS, TAX_YEAR_2027_STATUS as apiStatus } from '../lib/tax-rules/federal-year-rules';
@@ -42,7 +43,7 @@ describe('2027 coverage boundaries', () => {
   it('shares exactly the same status with annual API errors without enabling annual estimates', () => {
     expect(apiStatus).toBe(TAX_YEAR_2027_STATUS);
     expect(SUPPORTED_TAX_YEARS).not.toContain(2027);
-    expect(() => getFederalTaxRules(2027)).toThrow('not published the 2027');
+    expect(() => getFederalTaxRules(2027)).toThrow('Tax year 2027 estimates are not available yet: the IRS has not published the 2027 tax brackets, standard deduction and credit amounts. The Social Security Administration has published the 2027 Social Security wage base, and published 2027 health-plan figures and rules fixed by law are available for guidance. Complete estimates remain available for 2024 to 2026.');
     expect(TAX_YEAR_2027_STATUS.annualEstimateAvailable).toBe(false);
     expect(TAX_YEAR_2027_STATUS.usualFilingYear).toBe(2028);
   });
@@ -56,6 +57,8 @@ describe('2027 coverage boundaries', () => {
     }
     expect(TAX_YEAR_2027_STATUS.pendingPublication.some(({ item }) => item.includes('QBI'))).toBe(true);
     expect(TAX_YEAR_2027_STATUS.pendingPublication.some(({ item }) => item.includes('mileage'))).toBe(true);
+    expect(SOCIAL_SECURITY_QUARTER_OF_COVERAGE).toEqual({ 2026: 1890, 2027: 1970 });
+    expect(TAX_YEAR_2027_STATUS.pendingPublication.some(({ item }) => item.includes('quarter of coverage'))).toBe(false);
     expect(TAX_YEAR_2027_STATUS.notImplemented.join(' ')).toContain('transaction-level');
   });
 });

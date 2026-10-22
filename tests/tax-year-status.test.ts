@@ -24,10 +24,12 @@ describe('published parameter registry versus primary sources (Rev. Proc. 2024-4
     expect(SUPPORTED_TAX_YEARS).toEqual([2024, 2025, 2026]);
     expect(LATEST_PUBLISHED_TAX_YEAR).toBe(2026);
     expect(() => getFederalTaxRules(2027)).toThrow(UnsupportedTaxYearError);
-    expect(describeUnsupportedTaxYear(2027)).toContain('not published the 2027');
+    expect(describeUnsupportedTaxYear(2027)).toBe('Tax year 2027 estimates are not available yet: the IRS has not published the 2027 tax brackets, standard deduction and credit amounts. The Social Security Administration has published the 2027 Social Security wage base, and published 2027 health-plan figures and rules fixed by law are available for guidance. Complete estimates remain available for 2024 to 2026.');
     expect(TAX_YEAR_2027_STATUS.pendingPublication.map(item => item.item)).toEqual(expect.arrayContaining([
-      'Ordinary income bracket amounts', 'Social Security wage base and quarter of coverage', 'Standard mileage rates',
+      'Ordinary income bracket amounts', 'Standard mileage rates',
     ]));
+    expect(TAX_YEAR_2027_STATUS.pendingPublication.map(item => item.item).join(' ')).not.toMatch(/wage base|quarter of coverage/);
+    expect(TAX_YEAR_2027_STATUS.publishedParameters.socialSecurityQuarterOfCoverage).toBe(1970);
     expect(TAX_YEAR_2027_STATUS.knownByStatute.join(' ')).toContain('$25,000');
     expect(TAX_YEAR_2027_STATUS.knownByStatute.join(' ')).not.toMatch(/2027 bracket amounts are/);
   });

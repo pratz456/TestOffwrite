@@ -7,6 +7,7 @@ import { LandingHeader } from "@/components/landing/landing-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { assertWageOwnershipScope } from "@/lib/tax-rules/calculation-scope";
+import { getSocialSecurityWageBase } from "@/lib/tax-rules/federal-year-rules";
 import { calcScheduleSE } from "@/lib/reports/calcSE";
 import {
   additionalMedicareThreshold,
@@ -117,7 +118,7 @@ export function SETaxCalculatorClient() {
                   ))}
                 </select>
                 <p className="mt-1 text-xs text-gray-500">
-                  Social Security wage base: {formatWhole(wageBase)} for {taxYear}. The 2027 wage base has not been announced.
+                  Social Security wage base: {formatWhole(wageBase)} for {taxYear}. The 2027 wage base is {formatWhole(getSocialSecurityWageBase(2027))}.
                 </p>
               </div>
 
