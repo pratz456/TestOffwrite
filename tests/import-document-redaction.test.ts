@@ -106,6 +106,14 @@ describe('redact-first W-2/1099 import: text path', () => {
     expect(state.records.w2_income).toBeUndefined();
   });
 
+  it('still renders when the organizer has no identifier fields', async () => {
+    state.records.tax_organizers = [{ userId: 'import-owner', taxYear: 2025, filingStatus: 'single' }];
+    modelReplies(W2_JSON);
+    const body = await (await importDocument(request())).json();
+    expect(body).toMatchObject({ success: true, documentOwner: 'unknown', committed: true });
+    expect(body.extracted.employerEIN).toBe('98-7654321');
+  });
+
   it('attributes a spouse W-2 through the legacy plaintext spouse SSN and leaves the organizer intact for the owner read path', async () => {
     state.records.tax_organizers = [{ userId: 'import-owner', taxYear: 2025, taxpayerSSN: encryptSensitive('111223333'), spouseSSN: '123456789' }];
     modelReplies(W2_JSON);

@@ -193,7 +193,12 @@ describe('complete Social Security facts reach real JSON and PDF', () => {
     expect(Object.keys(answers).length).toBeLessThanOrEqual(80);
     await save(answers);
     const response = await getOrganizer(new NextRequest('http://localhost/api/tax/organizer?year=2026'));
-    expect(response.status).toBe(200); expect((await response.json()).organizer).toMatchObject(answers);
+    const retired = ['taxpayerSSN', 'spouseSSN', 'bankRouting', 'bankAccount', 'ipPin'];
+    const visible = Object.fromEntries(Object.entries(answers).filter(([key]) => !retired.includes(key)));
+    expect(response.status).toBe(200);
+    const organizer = (await response.json()).organizer;
+    expect(organizer).toMatchObject(visible);
+    for (const field of retired) expect(organizer).not.toHaveProperty(field);
   });
 
   it.each([2024, 2025, 2026])('persists the IRS Example1 facts and matches JSON/PDF in%s', async year => {

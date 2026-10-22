@@ -39,6 +39,16 @@ export function organizerIdentifierKind(field: string): OrganizerIdentifierKind 
   return null;
 }
 
+/** Taxpayer, spouse, dependent, PIN and bank answers are no longer accepted. EIN stays. */
+export function isRetiredOrganizerIdentifier(field: string): boolean {
+  const kind = organizerIdentifierKind(field);
+  return kind !== null && kind !== 'ein';
+}
+
+export function withoutRetiredOrganizerIdentifiers(answers: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(answers).filter(([field]) => !isRetiredOrganizerIdentifier(field)));
+}
+
 export function isOrganizerIdentifierField(field: string): boolean {
   return organizerIdentifierKind(field) !== null;
 }
@@ -120,8 +130,9 @@ export function encryptOrganizerIdentifiers(
     }
     if ((ORGANIZER_REDACTED_TEXT_FIELDS as readonly string[]).includes(field)) {
       const redaction = redactIdentifierText(value);
-      if (redaction.count > 0) redactedTextFields.push(field);
-      encrypted[field] = sanitizeString(redaction.text, 2000);
+      const text = maskSsnShapedFreeText(redaction.text);
+      if (redaction.count > 0 || text !== redaction.text) redactedTextFields.push(field);
+      encrypted[field] = sanitizeString(text, 2000);
     }
   }
   return { answers: encrypted, redactedTextFields };
@@ -142,4 +153,33 @@ export function maskOrganizerIdentifier(kind: OrganizerIdentifierKind, value: un
     case 'bankRouting': return `*****${digits.slice(-4).padStart(4, '*')}`;
     case 'bankAccount': return `****${digits.slice(-4).padStart(4, '*')}`;
   }
+}
+
+/** Masks 3-2-4 digit groups, including values stored without the usual dashes. */
+export function maskSsnShapedFreeText(value: string): string {
+  return value.replace(/\d{3}-?\d{2}-?\d{4}/g, (match) => `***-**-${match.replace(/\D/g, '').slice(-4)}`);
+}
+
+const AMOUNT_TEXT = /^-?\d[\d,]*\.\d+$|^-?\d{1,3}(?:,\d{3})+$/;
+
+/** Owner response: identifier answers are masked, and free text cannot echo a 3-2-4 digit group. */
+export function toOrganizerClientView(organizer: Record<string, unknown>): Record<string, unknown> {
+  const view: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(organizer)) {
+    const kind = organizerIdentifierKind(field);
+    if (kind) {
+      if (typeof value !== 'string' || !value) continue;
+      const masked = maskOrganizerIdentifier(kind, value);
+      if (masked) view[field] = masked;
+      continue;
+    }
+    if (typeof value === 'string') {
+      const digits = value.trim().replace('-', '');
+      const amount = AMOUNT_TEXT.test(value.trim()) || (/^-?\d+$/.test(value.trim()) && digits.length !== 9);
+      view[field] = amount ? value : maskSsnShapedFreeText(value);
+      continue;
+    }
+    view[field] = value;
+  }
+  return view;
 }

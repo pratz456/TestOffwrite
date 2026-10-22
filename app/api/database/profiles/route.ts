@@ -4,7 +4,7 @@ import { adminDb, FieldValue } from '@/lib/firebase/admin';
 import { migrateLegacyPlaidConnection } from '@/lib/plaid/connections';
 import { EDITABLE_PROFILE_FIELDS, publicProfile } from '@/lib/firebase/profile-fields';
 import { parseConsentRecord, storedDocumentImportSignature } from '@/lib/onboarding/consents';
-import { encryptSensitive } from '@/lib/security/utils';
+import { decryptSensitive, encryptSensitive, isEncrypted } from '@/lib/security/utils';
 
 class ProfileInputError extends Error {}
 
@@ -31,6 +31,20 @@ function encryptedEinUpdate(value: unknown, existingLast4?: unknown): { error?: 
   };
 }
 
+function profileForRead(data: Record<string, unknown>): Record<string, unknown> {
+  if (typeof data.ein_last4 === 'string' && /^\d{4}$/.test(data.ein_last4)) return data;
+  const cipher = typeof data.ein_encrypted === 'string' && data.ein_encrypted
+    ? data.ein_encrypted
+    : typeof data.ein === 'string' && isEncrypted(data.ein) ? data.ein : '';
+  if (!cipher) return data;
+  try {
+    const digits = decryptSensitive(cipher).replace(/\D/g, '');
+    return digits.length >= 4 ? { ...data, ein_last4: digits.slice(-4) } : data;
+  } catch {
+    return { ...data, ein: undefined };
+  }
+}
+
 export async function GET(request: NextRequest) {
   const { user } = await getAuthenticatedUser(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -49,7 +63,7 @@ export async function GET(request: NextRequest) {
       });
       snapshot = await ref.get();
     }
-    return NextResponse.json({ success: true, profile: snapshot.exists ? publicProfile(snapshot.data()!, user.uid) : null },
+    return NextResponse.json({ success: true, profile: snapshot.exists ? publicProfile(profileForRead(snapshot.data()!), user.uid) : null },
       { headers: { 'Cache-Control': 'private, no-store' } });
   } catch {
     return NextResponse.json({ error: 'Failed to fetch profile' }, { status: 503 });

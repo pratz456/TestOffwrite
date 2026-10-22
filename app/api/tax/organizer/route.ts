@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
-import { DEPENDENT_IDENTIFIERS_REMOVED_WARNING, encryptOrganizerIdentifiers } from '@/lib/tax-organizer/identifiers';
+import { DEPENDENT_IDENTIFIERS_REMOVED_WARNING, encryptOrganizerIdentifiers, toOrganizerClientView, withoutRetiredOrganizerIdentifiers } from '@/lib/tax-organizer/identifiers';
 import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
 import { readEligibilityFacts } from '@/lib/tax-rules/eligibility';
 
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     const doc = snap.docs[0];
     // Return the owner's editable values; never show encryption bytes in form inputs.
     // Legacy plaintext identifiers are re-encrypted on this read.
-    const organizer = await readOrganizerDocument(doc);
+    const organizer = toOrganizerClientView(await readOrganizerDocument(doc));
     return NextResponse.json({ organizer: { ...organizer, id: doc.id }, taxYear: year }, { headers: privateHeaders });
   } catch {
     return NextResponse.json({ error: 'Unable to load your organizer. Please try again.' }, { status: 503, headers: privateHeaders });
@@ -55,7 +55,8 @@ export async function POST(request: NextRequest) {
   try {
     const snap = await adminDb.collection('tax_organizers').where('userId', '==', user.uid).where('taxYear', '==', year).limit(1).get();
     const previous = snap.empty ? {} : snap.docs[0].data();
-    const encrypted = encryptOrganizerIdentifiers(answers as Record<string, string>, previous);
+    const kept = withoutRetiredOrganizerIdentifiers(answers as Record<string, string>);
+    const encrypted = encryptOrganizerIdentifiers(kept, previous);
     if ('error' in encrypted) return NextResponse.json({ error: encrypted.error }, { status: 400 });
     const data = { ...encrypted.answers, userId: user.uid, taxYear: year, updatedAt: new Date() };
     // The client replaces its copy with the redacted text so the identifiers are not resent on the next save.

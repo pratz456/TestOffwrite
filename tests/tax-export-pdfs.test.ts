@@ -86,6 +86,16 @@ describe('Schedule C real PDF and request integrity', () => {
     expect(view.text()).toContain('Not determined'); expect(view.text()).toContain('27b'); expect(view.text()).toContain('NOT FOR FILING');
     expect(response.headers.get('cache-control')).toContain('no-store'); view.checkBounds(); saveArtifact('schedule-c-2026', bytes);
   });
+  it('still renders when organizer identifier fields are absent', async () => {
+    state.records.tax_organizers = [record({ filingStatus: 'single' })];
+    const view = inspectText();
+    const response = await scheduleC(request({ year: 2026, includeAppendix: false }));
+    expect(response.status).toBe(200);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect(bytes[0]).toBe(0x25);
+    expect(view.text()).toContain('Not provided');
+    expect(view.text()).not.toMatch(/\d{3}-\d{2}-\d{4}/);
+  });
   it('prints the organizer SSN masked to its last four digits and never the decrypted value', async () => {
     const { encryptSensitive } = await import('../lib/security/utils');
     state.records.tax_organizers = [record({ taxpayerSSN: encryptSensitive('900000001') })];
@@ -180,7 +190,7 @@ describe('Form 1040 planning PDF prints its review notes', () => {
     // compute1040 planning note + unreviewed Schedule 1-A note + reconciliation inflow warning + SSN + address completeness notes.
     expect(text).toContain('Review notes (5)');
     expect(text).toContain('1 posted inflow(s) are excluded from business receipts until classified as income/revenue.');
-    expect(text.match(/SSN not filled in - enter SSN in Tax Organizer/g)).toHaveLength(2); // page 2 block + appendix
+    expect(text.match(/SSN not filled in on this summary/g)).toHaveLength(2); // page 2 block + appendix
     expect(text.match(/Mailing address incomplete - update in Tax Organizer/g)).toHaveLength(2);
     expect(text).toContain('5 calculation or completeness note(s) qualify the figures on pages 1-2:');
     expect(text).not.toContain('Full list continues');
@@ -216,6 +226,17 @@ describe('Form 1040 planning PDF prints its review notes', () => {
     expect(text).not.toMatch(/900000001|900-00-0001|900000002|900-00-0002|000123456789|071000013|123456|900-00-0003/);
     expect(text).not.toContain('SSN not filled in');
     checkFormBounds(view.spy); saveArtifact('form-1040-2026-masked-identifiers', new Uint8Array(await response.arrayBuffer()));
+  });
+
+  it('still renders when organizer identifier fields are absent', async () => {
+    state.records.tax_organizers = [record(reviewedPersonalDeductionOrganizer())];
+    const view = inspectText();
+    const response = await form1040(request1040());
+    expect(response.status).toBe(200);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect(bytes[0]).toBe(0x25);
+    expect(view.text()).toContain('Not provided');
+    expect(view.text()).not.toMatch(/\d{3}-\d{2}-\d{4}/);
   });
 
   it('never prints a refund/balance page without its review notes block', async () => {

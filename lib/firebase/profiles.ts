@@ -7,7 +7,7 @@ import { db } from "./client";
 import { waitForAuth } from "./auth";
 import { makeAuthenticatedRequest } from "./api-client";
 import type { ConsentRecord } from "@/lib/onboarding/consents";
-import { EDITABLE_PROFILE_FIELDS } from "./profile-fields";
+import { EDITABLE_PROFILE_FIELDS, maskedEinValue } from "./profile-fields";
 
 // Admin migration runs before SDK reads: Firestore cannot redact a secret field.
 async function prepareProfileRead() {
@@ -159,7 +159,7 @@ export async function getUserProfileSafe(): Promise<{ data: UserProfile | null; 
             // Phase 2: Medium Impact Fields
             naics_code: data.naics_code,
             business_purpose: data.business_purpose,
-            ein: typeof data.ein_last4 === 'string' ? `**-***${data.ein_last4}` : data.ein,
+            ein: maskedEinValue(data.ein, data.ein_last4),
             w2_income: data.w2_income,
             w2_federal_withheld: data.w2_federal_withheld,
             health_insurance_premiums: data.health_insurance_premiums,
@@ -251,7 +251,7 @@ export async function getUserProfile(userId: string): Promise<{ data: UserProfil
           // Phase 2: Medium Impact Fields
           naics_code: data.naics_code,
           business_purpose: data.business_purpose,
-          ein: typeof data.ein_last4 === 'string' ? `**-***${data.ein_last4}` : data.ein,
+          ein: maskedEinValue(data.ein, data.ein_last4),
           w2_income: data.w2_income,
           w2_federal_withheld: data.w2_federal_withheld,
           health_insurance_premiums: data.health_insurance_premiums,

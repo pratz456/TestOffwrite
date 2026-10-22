@@ -144,6 +144,23 @@ describe('server profile API boundaries', () => {
     });
     vi.unstubAllEnvs();
   });
+  it('masks a legacy plaintext EIN and ciphertext-only EIN to the last four digits', async () => {
+    mock.get.mockResolvedValue({ exists: true, data: () => ({ name: 'Owner', ein: '12-3456789' }) });
+    const plaintext = await (await profileGet(request({ authorization: 'Bearer id' }))).json();
+    expect(plaintext.profile.ein).toBe('**-***6789');
+    expect(JSON.stringify(plaintext)).not.toContain('123456789');
+    expect(JSON.stringify(plaintext)).not.toContain('12-3456789');
+
+    vi.stubEnv('SSN_ENCRYPTION_KEY', '11'.repeat(32));
+    const { encryptSensitive } = await import('../lib/security/utils');
+    const cipher = encryptSensitive('123456789');
+    mock.get.mockResolvedValue({ exists: true, data: () => ({ name: 'Owner', ein_encrypted: cipher }) });
+    const encrypted = await (await profileGet(request({ authorization: 'Bearer id' }))).json();
+    expect(encrypted.profile.ein).toBe('**-***6789');
+    expect(JSON.stringify(encrypted)).not.toContain('123456789');
+    expect(JSON.stringify(encrypted)).not.toContain(cipher);
+    vi.unstubAllEnvs();
+  });
 
   describe('sign-up consent record', () => {
     const consents = { version: CONSENT_TERMS_VERSION, source: 'profile-setup', accepted_at: '2026-09-17T12:00:00Z', terms: true, bank_data: true, ai_review: true, communications: false };

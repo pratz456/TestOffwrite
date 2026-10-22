@@ -437,7 +437,7 @@ export async function POST(request: NextRequest) {
     // Add completeness warnings to displayData
     const warnings: string[] = [...(result.calculationWarnings || [])];
     if (!result.totalIncome || result.totalIncome === 0) warnings.push('No income entered - add income in WriteOff before using this form');
-    if (!enrichedProfile.ssn) warnings.push('SSN not filled in - enter SSN in Tax Organizer');
+    if (!enrichedProfile.ssn) warnings.push('SSN not filled in on this summary');
     if (!enrichedProfile.mailing_address?.street) warnings.push('Mailing address incomplete - update in Tax Organizer');
     displayData.warnings = warnings;
 
@@ -481,7 +481,7 @@ export async function POST(request: NextRequest) {
     const reviewCode = scheduleCReviewCode(err);
     if (reviewCode) return NextResponse.json({ error: err instanceof Error ? err.message : 'Schedule C records need review', code: reviewCode }, { status: 422 });
     if (err instanceof ExportDataUnavailableError) return NextResponse.json({ error: err.message, code: err.code }, { status: 503 });
-    console.error('[1040 Export]', err);
+    console.error('[1040 Export] failed');
     return NextResponse.json({ error: 'Failed to generate Form 1040' }, { status: 500 });
   }
 }

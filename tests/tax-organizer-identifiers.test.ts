@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { eligibilityOrganizer, hsaFacts } from './fixtures/eligibility';
 
 // In-memory tax_organizers collection: the real route handlers run against it.
-const state = vi.hoisted(() => ({ docs: new Map<string, Record<string, unknown>>(), sets: [] as Record<string, unknown>[], failSet: false }));
+const state = vi.hoisted(() => ({ docs: new Map<string, Record<string, unknown>>(), sets: [] as Record<string, unknown>[], merges: [] as boolean[], failSet: false }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'owner' }, error: null }) }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) => {
   if (name !== 'tax_organizers') throw new Error(`unexpected collection ${name}`);
@@ -11,7 +11,8 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) =
   const doc = (id: string) => ({ id, data: () => ({ ...state.docs.get(id)! }), ref: { set: async (patch: Record<string, unknown>, options: { merge: boolean }) => {
     if (state.failSet) throw new Error('private write failure');
     state.sets.push(patch);
-    state.docs.set(id, options.merge ? { ...state.docs.get(id), ...patch } : patch);
+    state.merges.push(options?.merge === true);
+    state.docs.set(id, options?.merge ? { ...state.docs.get(id), ...patch } : patch);
   } } });
   const query = {
     where(field: string, _op: string, value: unknown) { filters.push([field, value]); return query; },
@@ -39,7 +40,7 @@ const post = (body: unknown) => POST(new NextRequest('http://localhost/api/tax/o
 const get = (year = 2026) => GET(new NextRequest(`http://localhost/api/tax/organizer?year=${year}`));
 const stored = () => [...state.docs.values()].find(doc => doc.taxYear === 2026 && doc.userId === 'owner')!;
 
-beforeEach(() => { state.docs.clear(); state.sets.length = 0; state.failSet = false; });
+beforeEach(() => { state.docs.clear(); state.sets.length = 0; state.merges.length = 0; state.failSet = false; });
 
 describe('organizer identifier set', () => {
   it('covers every identifier answer and explicit dependent identifiers, but not yes/no eligibility answers', () => {
@@ -66,6 +67,9 @@ describe('organizer identifier set', () => {
   });
 });
 
+const RETIRED = ['taxpayerSSN', 'spouseSSN', 'dependentSSN', 'ipPin', 'bankRouting', 'bankAccount'] as const;
+const SSN_SHAPED = /\d{3}-?\d{2}-?\d{4}/;
+
 describe('organizer route stores ciphertext and returns plaintext only to the owner', () => {
   it('round-trips structured eligibility only under the matching tax year', async () => {
     const answers = eligibilityOrganizer({ hsa: hsaFacts() });
@@ -79,28 +83,76 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect((await post({ taxYear: 2026, adjustmentEligibilityFacts })).status).toBe(400);
     expect(state.docs.size).toBe(0);
   });
-  it.each(Object.entries(IDENTIFIERS))('round-trips %s through encryption', async (field, value) => {
-    const saved = await post({ taxYear: 2026, [field]: value, filingStatus: 'single' });
+  it('does not persist retired identifier fields, and returns EIN masked', async () => {
+    const saved = await post({ taxYear: 2026, ...IDENTIFIERS, dependentSSN: '900000003', filingStatus: 'single' });
     expect(saved.status).toBe(201);
     const record = stored();
-    expect(record[field]).not.toBe(value);
-    expect(isEncrypted(String(record[field]))).toBe(true);
-    expect(decryptSensitive(String(record[field]))).toBe(value);
-    expect(JSON.stringify(record)).not.toContain(value);
+    for (const field of RETIRED) expect(record[field], field).toBeUndefined();
+    expect(isEncrypted(String(record.ein))).toBe(true);
+    expect(decryptSensitive(String(record.ein))).toBe('123456789');
+    expect(JSON.stringify(record)).not.toMatch(/900000001|900000003|000123456789|071000013|123456789/);
     const body = await (await get()).json();
-    expect(body.organizer[field]).toBe(value);
+    expect(body.organizer.ein).toBe('**-***6789');
     expect(body.organizer.filingStatus).toBe('single');
+    for (const field of RETIRED) expect(body.organizer[field], field).toBeUndefined();
+    expect(JSON.stringify(body)).not.toMatch(SSN_SHAPED);
+  });
+  it('leaves stored identifier fields byte-for-byte unchanged when the form payload omits them', async () => {
+    const seeded = {
+      userId: 'owner', taxYear: 2026, filingStatus: 'single',
+      taxpayerSSN: encryptSensitive('900000001'),
+      spouseSSN: encryptSensitive('900000002'),
+      dependentSSN: encryptSensitive('900000003'),
+      ipPin: encryptSensitive('123456'),
+      bankRouting: encryptSensitive('071000013'),
+      bankAccount: encryptSensitive('000123456789'),
+    };
+    state.docs.set('existing', { ...seeded });
+    const before = { ...state.docs.get('existing')! };
+    const response = await post({
+      taxYear: 2026, filingStatus: 'married_filing_jointly', spouseName: 'Synthetic Spouse', dependents: '1',
+      dependentDetails: 'Emma Shah, 2018-03-15, Daughter', streetAddress: '1 Main St', city: 'Austin', stateAddr: 'TX',
+      zipCode: '78701', priorYearAGI: '50000', bankAccountType: 'checking',
+    });
+    expect(response.status).toBe(200);
+    expect(state.merges).toEqual([true]);
+    const after = state.docs.get('existing')!;
+    for (const field of RETIRED) expect(after[field], field).toBe(before[field]);
+    expect(state.sets[0]).not.toHaveProperty('taxpayerSSN');
+    expect(state.sets[0]).not.toHaveProperty('spouseSSN');
+    expect(state.sets[0]).not.toHaveProperty('dependentSSN');
+    expect(state.sets[0]).not.toHaveProperty('ipPin');
+    expect(state.sets[0]).not.toHaveProperty('bankRouting');
+    expect(state.sets[0]).not.toHaveProperty('bankAccount');
+    expect(after.filingStatus).toBe('married_filing_jointly');
+    expect(after.spouseName).toBe('Synthetic Spouse');
+  });
+  it('does not overwrite stored identifier fields when a client still sends them', async () => {
+    const ciphertext = encryptSensitive('900000001');
+    state.docs.set('current', { userId: 'owner', taxYear: 2026, taxpayerSSN: ciphertext, ipPin: '123456', bankRouting: '071000013', filingStatus: 'single' });
+    expect((await post({ taxYear: 2026, taxpayerSSN: ciphertext, ipPin: '654321', bankRouting: '021000021', filingStatus: 'head_of_household' })).status).toBe(200);
+    const record = state.docs.get('current')!;
+    expect(record.taxpayerSSN).toBe(ciphertext);
+    expect(record.ipPin).toBe('123456');
+    expect(record.bankRouting).toBe('071000013');
+    expect(record.filingStatus).toBe('head_of_household');
+    expect(state.merges).toEqual([true]);
   });
   it('re-encrypts every legacy plaintext identifier when the owner reads the organizer, and keeps the read working if that write fails', async () => {
     state.docs.set('legacy', { userId: 'owner', taxYear: 2026, ...IDENTIFIERS, dependentDetails: 'Emma Shah, 123-45-6789, 2018-03-15, Daughter' });
     state.failSet = true;
     let body = await (await get()).json();
-    expect(body.organizer).toMatchObject(IDENTIFIERS);
+    expect(body.organizer).toMatchObject({
+      taxpayerSSN: '***-**-0001', spouseSSN: '***-**-0002', bankAccount: '****6789', bankRouting: '*****0013',
+      ipPin: 'Provided to preparer separately', ein: '**-***6789',
+    });
     expect(body.organizer.dependentDetails).toBe(`Emma Shah, ${REDACTED_ID}, 2018-03-15, Daughter`);
+    expect(JSON.stringify(body)).not.toMatch(SSN_SHAPED);
     expect(state.docs.get('legacy')!.taxpayerSSN).toBe(IDENTIFIERS.taxpayerSSN);
     state.failSet = false;
     body = await (await get()).json();
-    expect(body.organizer).toMatchObject(IDENTIFIERS);
+    expect(body.organizer.taxpayerSSN).toBe('***-**-0001');
+    expect(JSON.stringify(body)).not.toMatch(SSN_SHAPED);
     const record = state.docs.get('legacy')!;
     for (const [field, value] of Object.entries(IDENTIFIERS)) {
       expect(isEncrypted(String(record[field])), field).toBe(true);
@@ -114,18 +166,13 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     await get();
     expect(state.sets).toHaveLength(0);
   });
-  it('re-encrypts legacy plaintext on the next write, even when the client resends the same value', async () => {
-    state.docs.set('legacy', { userId: 'owner', taxYear: 2026, ipPin: '123456', bankRouting: '071000013' });
-    expect((await post({ taxYear: 2026, ipPin: '123456', bankRouting: '071000013' })).status).toBe(200);
-    const record = state.docs.get('legacy')!;
-    expect(isEncrypted(String(record.ipPin)) && isEncrypted(String(record.bankRouting))).toBe(true);
-    expect(decryptSensitive(String(record.ipPin))).toBe('123456');
-  });
-  it('keeps an unchanged ciphertext from a stale tab instead of encrypting it twice', async () => {
-    const ciphertext = encryptSensitive('900000001');
-    state.docs.set('current', { userId: 'owner', taxYear: 2026, taxpayerSSN: ciphertext });
-    expect((await post({ taxYear: 2026, taxpayerSSN: ciphertext })).status).toBe(200);
-    expect(state.docs.get('current')!.taxpayerSSN).toBe(ciphertext);
+  it('masks oddly formatted stored text instead of echoing a 9-digit value', async () => {
+    state.docs.set('dashed', { userId: 'owner', taxYear: 2026, taxpayerSSN: '900-00-0001', spouseName: 'Pat 900000001', dependentDetails: 'Child 123-456789 / 12345-6789' });
+    const body = await (await get()).json();
+    expect(body.organizer.taxpayerSSN).toBe('***-**-0001');
+    expect(body.organizer.spouseName).toBe('Pat ***-**-0001');
+    expect(body.organizer.dependentDetails).not.toMatch(SSN_SHAPED);
+    expect(JSON.stringify(body)).not.toMatch(SSN_SHAPED);
   });
   it('removes identifier digits from dependent details before storing and tells the client what was saved', async () => {
     const response = await post({ taxYear: 2026, dependents: '2', dependentDetails: 'Emma Shah, 123-45-6789, 2018-03-15, Daughter\nLeo Shah, 987 65 4321, 2020-01-02, Son\nITIN 912-70-1234' });
@@ -138,10 +185,16 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     const clean = await post({ taxYear: 2026, dependentDetails: 'Emma Shah, 2018-03-15, Daughter' });
     expect(await clean.json()).toEqual({ success: true, id: expect.any(String) });
   });
-  it('rejects an invalid identifier before writing anything', async () => {
-    const response = await post({ taxYear: 2026, ipPin: '12', taxpayerSSN: '900000001' });
+  it('ignores a retired identifier instead of rejecting the rest of the save', async () => {
+    const response = await post({ taxYear: 2026, ipPin: '12', taxpayerSSN: '900000001', filingStatus: 'single' });
+    expect(response.status).toBe(201);
+    expect(stored().ipPin).toBeUndefined();
+    expect(stored().taxpayerSSN).toBeUndefined();
+    expect(stored().filingStatus).toBe('single');
+  });
+  it('still rejects an invalid EIN before writing', async () => {
+    const response = await post({ taxYear: 2026, ein: '12-345678', filingStatus: 'single' });
     expect(response.status).toBe(400);
-    expect((await response.json()).error).toBe('Invalid IRS Identity Protection PIN');
     expect(state.docs.size).toBe(0);
   });
 });
