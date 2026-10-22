@@ -74,16 +74,23 @@ describe("temporary blog redirects", () => {
 });
 
 describe("temporary blog listings", () => {
-  it("omits the redirected and stubbed posts from the index helper and sitemap", () => {
+  it("omits the redirected and stubbed posts from the index helper", () => {
     const listed = getListedPosts().map((post) => post.slug);
     const unlisted = [...Object.keys(REDIRECTED_BLOG_SLUGS), ...STUBBED_BLOG_SLUGS];
     expect(listed).not.toEqual(expect.arrayContaining(unlisted));
     expect(listed).toEqual(expect.arrayContaining([...NOINDEX_BLOG_SLUGS, NORMAL_SLUG]));
+  });
+
+  it("omits every hotfix slug from the sitemap and keeps a normal post", () => {
     const urls = sitemap().map((entry) => entry.url);
     const listedUrl = (slug: string) => urls.some((url) => url.endsWith(`/blog/${slug}`));
-    for (const slug of unlisted) expect(listedUrl(slug)).toBe(false);
+    const hotfixSlugs = [
+      ...Object.keys(REDIRECTED_BLOG_SLUGS),
+      ...STUBBED_BLOG_SLUGS,
+      ...NOINDEX_BLOG_SLUGS,
+    ];
+    for (const slug of hotfixSlugs) expect(listedUrl(slug), slug).toBe(false);
     expect(listedUrl(NORMAL_SLUG)).toBe(true);
-    for (const slug of NOINDEX_BLOG_SLUGS) expect(listedUrl(slug)).toBe(true);
   });
 });
 
