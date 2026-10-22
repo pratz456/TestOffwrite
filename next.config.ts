@@ -52,6 +52,9 @@ const nextConfig: NextConfig = {
       './node_modules/tesseract.js/src/**/*',
       './node_modules/tesseract.js-core/*',
     ],
+    // The sitemap reads content/blog at request time. The path is built with
+    // process.cwd(), which file tracing does not follow on its own.
+    '/sitemap.xml': ['./content/blog/**/*.mdx'],
   },
 
   // Compiler optimizations
