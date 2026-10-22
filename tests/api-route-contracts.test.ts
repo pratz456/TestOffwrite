@@ -68,7 +68,8 @@ const BODYLESS_MUTATIONS: Record<string, Expectation> = {
   'POST /api/stripe/create-portal-session': { statuses: [409], reason: 'No linked billing customer; portal never creates a customer outside the protected checkout flow.' },
   'POST /api/plaid/reset-transactions': { statuses: [403, 404], reason: 'Disabled unless explicitly enabled outside production.' },
   'DELETE /api/plaid/items/[itemId]': { statuses: [404], reason: 'Unknown connection on an empty account.' },
-  'POST /api/tax/form-8879': { statuses: [409], reason: 'Always refuses: e-file authorization comes from a filing provider.' },
+  'POST /api/tax/form-8879': { statuses: [404], reason: 'Hidden unless FEATURE_UNRELEASED_SCREENS is true.' },
+  'POST /api/tax/filing': { statuses: [404], reason: 'Hidden unless FEATURE_UNRELEASED_SCREENS is true.' },
   'POST /api/tax/year-lock': { statuses: [409], reason: 'Always refuses: filing status comes from a filing provider.' },
 };
 
@@ -146,6 +147,7 @@ function expectedForEmptyBody(operation: Operation, body: string): number[] {
 
 beforeEach(async () => {
   await harness.reset();
+  vi.stubEnv('FEATURE_UNRELEASED_SCREENS', '');
   for (const level of ['log', 'warn', 'error'] as const) vi.spyOn(console, level).mockImplementation(() => {});
 });
 afterEach(() => { vi.restoreAllMocks(); });

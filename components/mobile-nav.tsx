@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { Menu, X, ChevronDown, ChevronUp } from 'lucide-react';
-import { PRIMARY_NAVIGATION, RECORD_NAVIGATION, TAX_TOOL_NAVIGATION, ACCOUNT_NAVIGATION, navigationItemActive, primaryNavigationActive, type AppNavigationItem } from '@/lib/navigation/app-navigation';
+import { PRIMARY_NAVIGATION, RECORD_NAVIGATION, TAX_TOOL_NAVIGATION, ACCOUNT_NAVIGATION, navigationItemActive, primaryNavigationActive, visibleNavItems, type AppNavigationItem } from '@/lib/navigation/app-navigation';
 import { requestAppNavigation } from '@/lib/navigation/navigation-guard';
 import { LogoutButton } from './logout-button';
 import { useSubscription } from '@/lib/hooks/use-subscription';
@@ -12,11 +12,12 @@ import { premiumFeatureForLocation } from '@/lib/subscriptions/client-status';
 interface MobileNavProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
   userProfile?: { name?: string; email?: string };
+  showUnreleasedScreens?: boolean;
 }
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
-export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
+export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile, showUnreleasedScreens = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const pathname = usePathname();
@@ -27,17 +28,18 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   const mainItems = PRIMARY_NAVIGATION;
-  const advancedItems = TAX_TOOL_NAVIGATION;
+  const recordItems = visibleNavItems(RECORD_NAVIGATION, showUnreleasedScreens);
+  const advancedItems = visibleNavItems(TAX_TOOL_NAVIGATION, showUnreleasedScreens);
   const bottomItems = ACCOUNT_NAVIGATION;
   const isActive = (href: string) => navigationItemActive(href, pathname, searchParams.get('screen'));
 
   // Auto-open advanced section if any advanced item is active
   useEffect(() => {
-    const anyAdvancedActive = TAX_TOOL_NAVIGATION.some((item) => navigationItemActive(item.href, pathname, searchParams.get('screen')));
+    const anyAdvancedActive = visibleNavItems(TAX_TOOL_NAVIGATION, showUnreleasedScreens).some((item) => navigationItemActive(item.href, pathname, searchParams.get('screen')));
     if (anyAdvancedActive) {
       setAdvancedOpen(true);
     }
-  }, [pathname, searchParams]);
+  }, [pathname, searchParams, showUnreleasedScreens]);
 
   const handleNavClick = (href: string) => {
     setIsOpen(false);
@@ -183,7 +185,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ user, userProfile }) => {
 
               <div className="mt-2 border-t border-border/60 pt-2">
                 <p className="px-3 py-1 text-xs font-medium text-muted-foreground">Your records</p>
-                {RECORD_NAVIGATION.map(item => renderNavItem(item))}
+                {recordItems.map(item => renderNavItem(item))}
               </div>
 
               {/* Additional tax tools */}

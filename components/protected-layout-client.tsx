@@ -16,9 +16,9 @@ import { subscribeToProfileUpdates } from '@/lib/onboarding/profile-events';
 import { profileLookupState } from '@/lib/onboarding/profile';
 import { ConsentReacknowledgment, consentGateApplies } from '@/components/onboarding/consent-reacknowledgment';
 
-interface ProtectedLayoutClientProps { children: React.ReactNode }
+interface ProtectedLayoutClientProps { children: React.ReactNode; showUnreleasedScreens?: boolean }
 
-const ProtectedLayoutContent: React.FC<ProtectedLayoutClientProps> = ({ children }) => {
+const ProtectedLayoutContent: React.FC<ProtectedLayoutClientProps> = ({ children, showUnreleasedScreens = false }) => {
   const { user, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -108,8 +108,8 @@ const ProtectedLayoutContent: React.FC<ProtectedLayoutClientProps> = ({ children
           <a href="#protected-main" className="sr-only z-[120] rounded-md bg-card px-3 py-2 text-sm font-medium text-foreground shadow focus:not-sr-only focus:fixed focus:left-3 focus:top-3">
             Skip to main content
           </a>
-          {showNavigation && <MobileNav user={{ ...user, email: user.email ?? undefined }} userProfile={userProfile ?? undefined} />}
-          {showNavigation && <SidebarNav user={{ ...user, email: user.email ?? undefined }} userProfile={userProfile ?? undefined} />}
+          {showNavigation && <MobileNav user={{ ...user, email: user.email ?? undefined }} userProfile={userProfile ?? undefined} showUnreleasedScreens={showUnreleasedScreens} />}
+          {showNavigation && <SidebarNav user={{ ...user, email: user.email ?? undefined }} userProfile={userProfile ?? undefined} showUnreleasedScreens={showUnreleasedScreens} />}
           <main id="protected-main" tabIndex={-1} ref={mainRef} className={`${showNavigation ? 'flex-1' : 'w-full'} min-h-0 min-w-0 overflow-auto focus:outline-none`}>
             {currentProfile?.error && (
               <div role="alert" className="m-4 rounded-lg border p-4 flex flex-wrap items-center gap-3">
@@ -137,8 +137,8 @@ const ProtectedLayoutContent: React.FC<ProtectedLayoutClientProps> = ({ children
 };
 
 
-export function ProtectedLayoutClient({ children }: ProtectedLayoutClientProps) {
+export function ProtectedLayoutClient({ children, showUnreleasedScreens = false }: ProtectedLayoutClientProps) {
   return <Suspense fallback={<div role="status" className="flex h-screen items-center justify-center">Loading your account…</div>}>
-    <ProtectedLayoutContent>{children}</ProtectedLayoutContent>
+    <ProtectedLayoutContent showUnreleasedScreens={showUnreleasedScreens}>{children}</ProtectedLayoutContent>
   </Suspense>;
 }

@@ -30,6 +30,16 @@ export const ACCOUNT_NAVIGATION: AppNavigationItem[] = [
   { name: 'Settings', href: '/protected/settings', icon: Settings, description: 'Account and preferences' },
 ];
 
+const UNRELEASED_NAV_HREFS = new Set([
+  '/protected?screen=tax-filing-hub',
+  '/protected?screen=form-8879',
+]);
+
+export function visibleNavItems(items: readonly AppNavigationItem[], showUnreleasedScreens: boolean): AppNavigationItem[] {
+  if (showUnreleasedScreens) return [...items];
+  return items.filter(item => !UNRELEASED_NAV_HREFS.has(item.href));
+}
+
 export function navigationItemActive(href: string, pathname: string, screen: string | null): boolean {
   if (href === '/protected') return pathname === '/protected' && (!screen || screen === 'dashboard');
   if (href === '/protected?screen=quarterly-taxes') {

@@ -55,6 +55,7 @@ const linked = () => { state.records[connectionPath] = { provider: 'column', env
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-16T18:00:00Z'));
   for (const [key, value] of Object.entries(approvedEnv)) vi.stubEnv(key, value);
+  vi.stubEnv('FEATURE_UNRELEASED_SCREENS', 'true');
   state.user = { uid, email: `${uid}@example.com`, authTime: 1789578000, secondFactorVerified: false };
   state.authError = null; state.denied = false; state.databaseError = false; state.legacyExists = true;
   state.records = { [securityPath]: { source: 'controlled-sandbox-fixture', authTime: state.user.authTime, checkedAt: new Date().toISOString(), metadata: { ...metadata } } };

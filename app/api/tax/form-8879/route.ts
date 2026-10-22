@@ -8,11 +8,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { unreleasedScreensEnabled } from '@/lib/features/unreleased-screens';
 const headers = { 'Cache-Control': 'private, no-store' };
 
 export async function GET(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers });
+  if (!unreleasedScreensEnabled()) return NextResponse.json({ error: 'Not found' }, { status: 404, headers });
   const raw = request.nextUrl.searchParams.get('year') ?? String(SUPPORTED_TAX_YEARS.at(-1));
   const year = /^\d{4}$/.test(raw) ? Number(raw) : NaN;
   if (!(SUPPORTED_TAX_YEARS as readonly number[]).includes(year)) return NextResponse.json({ error: 'Choose a supported tax year.' }, { status: 400, headers });
@@ -28,5 +30,6 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers });
+  if (!unreleasedScreensEnabled()) return NextResponse.json({ error: 'Not found' }, { status: 404, headers });
   return NextResponse.json({ code: 'FILING_PROVIDER_REQUIRED', error: 'WriteOff does not collect e-file PINs or authorize filing from a planning estimate. Review and sign the completed return inside an authorized filing provider.' }, { status: 409, headers });
 }
