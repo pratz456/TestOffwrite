@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { describeUnsupportedTaxYear, getFederalTaxRules, LATEST_PUBLISHED_TAX_YEAR, SUPPORTED_TAX_YEARS, TAX_YEAR_2027_STATUS, UnsupportedTaxYearError } from '../lib/tax-rules/federal-year-rules';
 import { calculateEffectiveTaxRate, calculateFederalIncomeTax, getMarginalTaxRate, getUserTaxRate, getUserTaxRateDisplay, TaxRateReviewRequiredError } from '../lib/tax-rules/federal-brackets';
-import { calcCombinedSERate } from '../lib/tax-rules/kpi-calculations';
+import { compute1040 } from '../lib/tax-rules/compute-1040';
+import { calcScheduleSE } from '../lib/reports/calcSE';
 
 describe('published parameter registry versus primary sources (Rev. Proc. 2024-40 / 2025-32, SSA, P.L. 119-21)', () => {
   it('encodes the verified 2025 and 2026 headline amounts', () => {
@@ -39,7 +40,15 @@ describe('published parameter registry versus primary sources (Rev. Proc. 2024-4
     expect(calculateEffectiveTaxRate(profile, 2026)).not.toBe(calculateEffectiveTaxRate(profile, 2025));
     expect(calculateEffectiveTaxRate(profile)).toBe(calculateEffectiveTaxRate(profile, 2026));
     expect(getMarginalTaxRate({ income: 60000, filing_status: 'Single' }, 2026)).toBe(12);
-    expect(calcCombinedSERate(60000, 'Single', 0, 2026).incomeTaxDollars).not.toBe(calcCombinedSERate(60000, 'Single', 0, 2025).incomeTaxDollars);
+    const returnFor = (taxYear: number) => {
+      const se = calcScheduleSE({ scheduleCNetProfit: 60000, taxYear }, 'single');
+      return compute1040({
+        taxYear, filingStatus: 'single', scheduleCNetProfit: 60000, w2Wages: 0, w2FederalWithheld: 0, estimatedPayments: 0,
+        selfEmploymentTax: se.totalSETax, halfSEDeduction: se.halfSEDeduction, healthInsurancePremiums: 0,
+        sepIraContribution: 0, solo401kContribution: 0, simpleIraContribution: 0, hsaContribution: 0, studentLoanInterest: 0,
+      });
+    };
+    expect(returnFor(2026).incomeTax).not.toBe(returnFor(2025).incomeTax);
   });
 
   it.each([2024, 2025, 2026])('distinguishes missing income from a valid zero for supported year %i', taxYear => {
@@ -48,7 +57,11 @@ describe('published parameter registry versus primary sources (Rev. Proc. 2024-4
     expect(getMarginalTaxRate(profile, taxYear)).toBe(0);
     expect(() => getUserTaxRate(undefined, taxYear)).toThrow(TaxRateReviewRequiredError);
     expect(getUserTaxRate(profile, taxYear)).toBe(0);
-    expect(calcCombinedSERate(0, 'Single', 0, taxYear).totalTaxDollars).toBe(0);
+    expect(compute1040({
+      taxYear, filingStatus: 'single', scheduleCNetProfit: 0, w2Wages: 0, w2FederalWithheld: 0, estimatedPayments: 0,
+      selfEmploymentTax: 0, halfSEDeduction: 0, healthInsurancePremiums: 0, sepIraContribution: 0,
+      solo401kContribution: 0, simpleIraContribution: 0, hsaContribution: 0, studentLoanInterest: 0,
+    }).totalTax).toBe(0);
   });
 
   it.each([2023, 2027, 2028])('rejects unsupported year %i before returning any numeric estimate', taxYear => {
@@ -62,7 +75,11 @@ describe('published parameter registry versus primary sources (Rev. Proc. 2024-4
     expect(() => getUserTaxRate(null, taxYear)).toThrow(UnsupportedTaxYearError);
     for (const profit of [100000, 0, -100]) {
       expect(() => calculateFederalIncomeTax(profit, 'single', taxYear)).toThrow(UnsupportedTaxYearError);
-      expect(() => calcCombinedSERate(profit, 'Single', 0, taxYear)).toThrow(UnsupportedTaxYearError);
+      expect(() => compute1040({
+        taxYear, filingStatus: 'single', scheduleCNetProfit: profit, w2Wages: 0, w2FederalWithheld: 0, estimatedPayments: 0,
+        selfEmploymentTax: 0, halfSEDeduction: 0, healthInsurancePremiums: 0, sepIraContribution: 0,
+        solo401kContribution: 0, simpleIraContribution: 0, hsaContribution: 0, studentLoanInterest: 0,
+      })).toThrow(UnsupportedTaxYearError);
     }
   });
 
