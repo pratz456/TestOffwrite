@@ -1,26 +1,24 @@
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
+import { ORGANIZER_TAX_INPUT_FIELDS, organizerTaxInputValues, type OrganizerTaxInputField, type OrganizerTaxInputValues } from '@/lib/tax-rules/organizer-tax-inputs';
 
 /** Fired after a successful organizer or quarterly-payment save. */
 export const DASHBOARD_TAX_INPUTS_UPDATED = 'writeoff:tax-inputs-updated';
 
-/** Ask a mounted dashboard to reread other income, dependents, and quarterly payments. */
+/** Ask a mounted dashboard to reread organizer tax inputs and quarterly payments. */
 export function notifyDashboardTaxInputsUpdated(target?: EventTarget) {
   const host = target ?? (typeof window === 'undefined' ? null : window);
   host?.dispatchEvent(new Event(DASHBOARD_TAX_INPUTS_UPDATED));
 }
 
-/** Organizer and quarterly-payment facts that change the federal estimate. */
-export interface DashboardTaxFacts {
-  amountOtherIncome: string | number | null;
-  dependents: string | number | null;
+/** Organizer answers and quarterly payments that change the federal estimate. */
+export type DashboardTaxFacts = OrganizerTaxInputValues & {
   payments: { quarter: number; paidAmount: number }[];
-}
+};
 
-function scalar(value: unknown): string | number | null {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value === 'string' && value.trim()) return value.trim();
-  return null;
-}
+/** Partial organizer answers supplied by a test. Production loads the full set. */
+export type DashboardTaxFactsInput = Partial<OrganizerTaxInputValues> & {
+  payments: DashboardTaxFacts['payments'];
+};
 
 function paidAmount(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
@@ -31,18 +29,16 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 
 /**
- * Keep only the values the federal snapshot reads. Document timestamps, notes,
- * and other organizer answers stay out so an unrelated save does not refresh.
+ * Keep only the organizer answers the federal snapshot reads, plus recorded
+ * quarterly payments. Notes and other answers stay out so an unrelated save
+ * does not refresh.
  */
 export function normalizeDashboardTaxFacts(input?: {
-  amountOtherIncome?: unknown;
-  dependents?: unknown;
   payments?: unknown;
-} | null): DashboardTaxFacts {
+} & Partial<Record<OrganizerTaxInputField, unknown>> | null): DashboardTaxFacts {
   const rows = Array.isArray(input?.payments) ? input.payments : [];
   return {
-    amountOtherIncome: scalar(input?.amountOtherIncome),
-    dependents: scalar(input?.dependents),
+    ...organizerTaxInputValues(input ?? undefined),
     payments: [1, 2, 3, 4].map(quarter => {
       const row = rows.map(record).find(item => item && Number(item.quarter) === quarter);
       return { quarter, paidAmount: paidAmount(row?.paidAmount) };
@@ -61,9 +57,10 @@ export function dashboardTaxFactsFromReads(organizerBody: unknown, paymentsBody:
   const body = record(organizerBody);
   const organizer = record(body?.organizer) ?? body;
   const listed = record(paymentsBody);
+  const picked: Partial<Record<OrganizerTaxInputField, unknown>> = {};
+  for (const field of ORGANIZER_TAX_INPUT_FIELDS) picked[field] = organizer?.[field];
   return normalizeDashboardTaxFacts({
-    amountOtherIncome: organizer?.amountOtherIncome,
-    dependents: organizer?.dependents,
+    ...picked,
     payments: Array.isArray(listed?.payments) ? listed.payments : [],
   });
 }

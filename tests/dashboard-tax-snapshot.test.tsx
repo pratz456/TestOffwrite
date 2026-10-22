@@ -378,6 +378,44 @@ describe('dashboard tax cards share the federal server calculation', () => {
     await flush();
     expect(taxCalls()).toBe(before + 3);
   });
+  it.each([
+    ['IRA distributions', 'amountIRADistributions', '500'],
+    ['rental income', 'amountRentalIncome', '800'],
+    ['an HSA amount', 'hsaAmount', '1000'],
+    ['a retirement amount', 'retirementAmount', '2000'],
+    ['a Social Security answer', 'hasSocialSecurity', 'yes'],
+    ['organizer filing status', 'filingStatus', 'single'],
+  ] as const)('recomputes once when %s changes on the production tax-input read, and a note does not', async (group, field, value) => {
+    expect(group.length).toBeGreaterThan(0);
+    vi.stubGlobal('window', new EventTarget());
+    const source = {
+      organizer: { notes: 'first' } as Record<string, string | null>,
+      payments: [1, 2, 3, 4].map(quarter => ({ quarter, paidAmount: 0, notes: 'blank' })),
+    };
+    h.request.mockImplementation(async (url: string) => {
+      const path = String(url);
+      if (path.includes('view=tax-input')) return Response.json(source.organizer);
+      if (path.includes('/api/tax/quarterly-payments')) return Response.json({ payments: source.payments });
+      return transport(path);
+    });
+    render(); await flush();
+    expect(render().state.status).toBe('ready');
+    const taxCalls = () => h.request.mock.calls.filter(([url]) => String(url).includes('/api/tax/compute-1040')).length;
+    const before = taxCalls();
+    expect(before).toBe(1);
+    source.organizer = { ...source.organizer, notes: 'only a note' };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('ready');
+    expect(taxCalls()).toBe(before);
+    source.organizer = { ...source.organizer, [field]: value };
+    window.dispatchEvent(new Event('focus'));
+    render(); await flush();
+    expect(render().state.status).toBe('loading');
+    await flush();
+    expect(taxCalls()).toBe(before + 1);
+    expect(render().state.status).toBe('ready');
+  });
   it.each([{ taxYear: 2025 }, { income: { grossReceipts: '0' } }, { form1040: { totalTax: null } }])('rejects mismatched/malformed snapshots %j', async override => {
     const real = await (await GET(new NextRequest('http://localhost/api/tax/compute-1040?year=2026'))).json();
     h.request.mockResolvedValue(Response.json({ ...real, ...override }));

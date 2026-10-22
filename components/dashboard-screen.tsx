@@ -22,6 +22,7 @@ import {
   EMPTY_DASHBOARD_TAX_FACTS,
   loadDashboardTaxFacts,
   normalizeDashboardTaxFacts,
+  type DashboardTaxFactsInput,
   taxFactsEqual,
   type DashboardTaxFacts,
 } from '@/lib/tax/dashboard-tax-input';
@@ -49,7 +50,7 @@ interface DashboardScreenProps {
   analyzingTransactions?: boolean;
   onSignOut?: () => void;
   /** When set, wins over the organizer and quarterly-payment reads. */
-  taxFacts?: DashboardTaxFacts;
+  taxFacts?: DashboardTaxFactsInput;
 }
 
 function recordRevision(value: unknown): number | string | null {
@@ -112,8 +113,8 @@ export default function DashboardScreen({
   // The current-year tax cards use the same authenticated calculation as Tax Preview.
   // Refresh only for facts that can affect the server snapshot. AI progress and
   // other cosmetic writes must not make ready KPI cards flash back to zero/loading.
-  // Other income, dependents, and quarterly payments live outside the profile,
-  // and those saves do not bump profile.updated_at, so they are part of this key.
+  // Organizer answers the federal snapshot reads, and recorded quarterly payments,
+  // live outside the profile. Those saves do not bump profile.updated_at.
   const taxYear = new Date().getFullYear();
   const [taxRetry, setTaxRetry] = useState(0);
   const [factsRetry, setFactsRetry] = useState(0);

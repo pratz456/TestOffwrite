@@ -27,6 +27,7 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) =
 } } }));
 
 import { GET, POST } from '../app/api/tax/organizer/route';
+import { organizerTaxInputValues } from '../lib/tax-rules/organizer-tax-inputs';
 import { decryptSensitive, encryptSensitive, isEncrypted } from '../lib/security/utils';
 import {
   encryptOrganizerIdentifiers, MASKED_NUMBER_EDIT_ERROR, maskOrganizerIdentifier,
@@ -373,7 +374,7 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect(state.sets).toEqual([]);
     expect(state.docs.get('legacy-tax-input')).toEqual(before);
     const input = await (await GET(new NextRequest('http://localhost/api/tax/organizer?year=2026&view=tax-input'))).json();
-    expect(input).toEqual({ amountOtherIncome: '1500', dependents: '2' });
+    expect(input).toEqual(organizerTaxInputValues({ amountOtherIncome: '1500', dependents: '2' }));
     expect(input).not.toHaveProperty('taxpayerSSN');
     expect(input).not.toHaveProperty('ein');
     expect(JSON.stringify(input)).not.toContain('900000001');
@@ -381,15 +382,17 @@ describe('organizer route stores ciphertext and returns plaintext only to the ow
     expect(state.sets).toEqual([]);
     expect(state.docs.get('legacy-tax-input')).toEqual(before);
   });
-  it('returns other income and dependents for the dashboard key without the rest of the organizer', async () => {
+  it('returns the organizer fields the federal snapshot reads and leaves the other answers out', async () => {
     state.docs.set('tax-input-row', {
       userId: 'owner', taxYear: 2026, amountOtherIncome: '1500', dependents: '2',
       notes: 'unrelated', hasW2: 'yes', taxpayerSSN: 'ciphertext', updatedAt: 'stamp',
     });
     const body = await (await GET(new NextRequest('http://localhost/api/tax/organizer?year=2026&view=tax-input'))).json();
-    expect(body).toEqual({ amountOtherIncome: '1500', dependents: '2' });
+    expect(body).toEqual(organizerTaxInputValues({ amountOtherIncome: '1500', dependents: '2' }));
+    expect(body).not.toHaveProperty('notes');
+    expect(body).not.toHaveProperty('taxpayerSSN');
     const missing = await (await GET(new NextRequest('http://localhost/api/tax/organizer?year=2024&view=tax-input'))).json();
-    expect(missing).toEqual({ amountOtherIncome: null, dependents: null });
+    expect(missing).toEqual(organizerTaxInputValues(undefined));
   });
   it('still rejects an invalid EIN before writing', async () => {
     const response = await post({ taxYear: 2026, ein: '12-345678', filingStatus: 'single' });
