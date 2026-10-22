@@ -342,6 +342,7 @@ describe('redact-first W-2/1099 import: text path', () => {
     expect(body.extracted.employerEIN).toBe('12-3456789');
     expect(state.records.w2_income[0].employerEIN).toBe('12-3456789');
     expect(body.verificationRequired).not.toContain('Check the employer/payer ID');
+    if ('verificationWarnings' in state.records.w2_income[0]) expect(state.records.w2_income[0].verificationWarnings).not.toContain('Check the employer/payer ID');
   });
 
   it('keeps a dashed payer number typed after a scan that found none', async () => {
@@ -351,6 +352,7 @@ describe('redact-first W-2/1099 import: text path', () => {
     expect(body.extracted.payerEIN).toBe('98-7654321');
     expect(state.records.income_1099[0].payerEIN).toBe('98-7654321');
     expect(body.verificationRequired).not.toContain('Check the employer/payer ID');
+    if ('verificationWarnings' in state.records.income_1099[0]) expect(state.records.income_1099[0].verificationWarnings).not.toContain('Check the employer/payer ID');
   });
 
   it('blanks a bare payer number typed on a 1099 and keeps the prompt', async () => {
@@ -360,6 +362,7 @@ describe('redact-first W-2/1099 import: text path', () => {
     expect(body.extracted.payerEIN).toBeNull();
     expect(state.records.income_1099[0].payerEIN).toBe('');
     expect(body.verificationRequired).toContain('Check the employer/payer ID');
+    if ('verificationWarnings' in state.records.income_1099[0]) expect(state.records.income_1099[0].verificationWarnings).toContain('Check the employer/payer ID');
     expect(JSON.stringify(body)).not.toContain('123456789');
     for (const [collection, records] of Object.entries(state.records)) expect(JSON.stringify(records), collection).not.toContain('123456789');
   });
