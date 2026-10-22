@@ -58,6 +58,7 @@ import { EMPTY_ORGANIZER_ANSWERS } from '../components/tax-organizer-screen';
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
 import { eligibilityOrganizer, hsaFacts } from './fixtures/eligibility';
 import { KpiGrid } from '../components/dashboard/KpiGrid';
+import { decryptSensitive, isEncrypted } from '../lib/security/utils';
 
 const jsonRequest = (year = 2026) => new NextRequest(`http://localhost/api/tax/compute-1040?year=${year}`);
 const pdfRequest = (year = 2026) => new NextRequest('http://localhost/api/tax/form-1040', { method: 'POST', body: JSON.stringify({ year }) });
@@ -331,7 +332,7 @@ describe('Form1040 preparer export completeness disclosures', () => {
   it('prints saved taxpayer/spouse identities with masked identifiers and missing-record warnings without filing authorization', async () => {
     state.profile = { filing_status: 'married_filing_jointly', name: 'Synthetic Maria Long Family Name 漢' };
     await save({ filingStatus: 'married_filing_jointly', spouseName: 'Synthetic Spouse Full Name' });
-    // Legacy plaintext spouse SSN stays stored. The PDF box is empty and this read does not write.
+    // A legacy spouse identifier is stored in the current format on read. The PDF box stays empty.
     state.records.tax_organizers[0].spouseSSN = '111223333';
     const draw = vi.spyOn(PDFPage.prototype, 'drawText');
     const response = await exportPdf(pdfRequest()); expect(response.status).toBe(200);
@@ -344,7 +345,10 @@ describe('Form1040 preparer export completeness disclosures', () => {
     expect(drawn[drawn.indexOf('Social security number (last 4 only)') + 1]).toBe('');
     expect(text).not.toContain('***-**-3333');
     expect(text).not.toContain('111-22-3333'); expect(text).not.toContain('111223333');
-    expect(state.records.tax_organizers[0].spouseSSN).toBe('111223333');
+    const storedSpouse = String(state.records.tax_organizers[0].spouseSSN);
+    expect(storedSpouse).not.toBe('111223333');
+    expect(isEncrypted(storedSpouse)).toBe(true);
+    expect(decryptSensitive(storedSpouse)).toBe('111223333');
     expect(text).toContain('Synthetic Maria Long Family Name [U+6F22]');
     expect(text).toContain('SSN not filled in'); expect(text).toContain('Mailing address incomplete');
     expect(text).toContain('Do not file this export with the IRS'); expect(text).not.toContain('Under penalties of perjury'); expect(text).not.toContain('Sign Here');
