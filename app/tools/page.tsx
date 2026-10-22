@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Calculator, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LandingHeader } from "@/components/landing/landing-header";
+import { GIG_MILEAGE_GAP_COPY } from "@/lib/tools/gig-mileage-gap-copy";
 
 export const metadata: Metadata = {
   title: "Free Tax Tools & Calculators",
@@ -45,6 +46,12 @@ const tools = [
       "Estimate your 2025 or 2026 self-employment tax  - Social Security (12.4% up to the annual wage base), Medicare (2.9%), and the deductible half. Supports W-2 wage offsets and all filing statuses.",
     href: "/tools/se-tax-calculator",
     badge: "Free",
+  },
+  {
+    title: GIG_MILEAGE_GAP_COPY.toolsIndexTitle,
+    description: GIG_MILEAGE_GAP_COPY.toolsIndexDescription,
+    href: GIG_MILEAGE_GAP_COPY.canonicalPath,
+    badge: GIG_MILEAGE_GAP_COPY.toolsIndexBadge,
   },
 ];
 

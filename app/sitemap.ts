@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { getAllPosts } from "@/lib/blog";
+import { GIG_MILEAGE_GAP_COPY } from "@/lib/tools/gig-mileage-gap-copy";
 
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +26,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${baseUrl}/tools/se-tax-calculator`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
     { url: `${baseUrl}/tools/1099-tax-calculator`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
     { url: `${baseUrl}/tools/quarterly-estimate-calculator`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
+    { url: `${baseUrl}${GIG_MILEAGE_GAP_COPY.canonicalPath}`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
   ];
 
   const blogPosts: MetadataRoute.Sitemap = getAllPosts().map((post) => {
