@@ -1,14 +1,24 @@
 import { inflateRawSync } from 'node:zlib';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mock = vi.hoisted(() => ({ archive: vi.fn(), originals: vi.fn(), audit: vi.fn(), docs: new Map<string, any>(), files: new Map<string, Buffer>(), reads: [] as string[] }));
-vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: () => ({ doc: (id: string) => ({ get: async () => ({ exists: mock.docs.has(id), data: () => mock.docs.get(id) }) }) }) } }));
+vi.mock('@/lib/firebase/admin', () => {
+  const doc = (path: string) => ({ path, id: path.split('/').at(-1), get: async () => ({ exists: mock.docs.has(path), id: path.split('/').at(-1), data: () => mock.docs.get(path) }) });
+  return { adminDb: { collection: () => ({ doc: (id: string) => ({ get: async () => ({ exists: mock.docs.has(id), data: () => mock.docs.get(id) }) }) }), doc, runTransaction: async (fn: (tx: { get: (ref: { get: () => Promise<unknown> }) => Promise<unknown>; set: (ref: { path: string }, data: unknown) => void }) => Promise<unknown>) => {
+    const writes: Array<() => void> = [];
+    const result = await fn({ get: ref => ref.get(), set: (ref, data) => writes.push(() => mock.docs.set(ref.path, data)) });
+    writes.forEach(write => write());
+    return result;
+  } } };
+});
 vi.mock('@/lib/reports/data-export', async original => ({ ...await original<typeof import('@/lib/reports/data-export')>(), generateUserDataExport: mock.archive }));
 vi.mock('@/lib/reports/export-records', async original => ({ ...await original<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: mock.originals }));
 vi.mock('@/lib/reports/audit-support-packet', () => ({ readAuditSupportPacket: mock.audit, auditSupportPacketCSV: () => 'Audit records\nConfirmed,75' }));
 vi.mock('@/lib/firebase/receipt-security', async original => ({ ...await original<typeof import('@/lib/firebase/receipt-security')>(), receiptBucket: () => ({ file: (path: string) => {
-  mock.reads.push(path); return { getMetadata: async () => { if (!mock.files.has(path)) throw new Error('Missing secret Storage path'); return [{ size: mock.files.get(path)!.length }]; }, download: async () => [mock.files.get(path)!] };
+  mock.reads.push(path); return { getMetadata: async () => { if (!mock.files.has(path)) throw new Error('Missing secret Storage path'); return [{ size: mock.files.get(path)!.length }]; }, download: async () => [mock.files.get(path)!],
+    save: async (bytes: Buffer) => { mock.files.set(path, Buffer.from(bytes)); }, delete: async () => { mock.files.delete(path); } };
 } }) }));
 import { buildPreparerPackage, ownedReceiptBytes, preparerQuestions, MAX_PACKAGE_RECEIPTS } from '@/lib/reports/preparer-package';
+import { createPreparerHandoff, downloadPreparerHandoff } from '@/lib/preparer/handoffs';
 
 /** Read the generated ZIP's central directory, then inflate each archived payload. */
 function unzip(bytes: Buffer) {
@@ -98,7 +108,8 @@ describe('receipt-inclusive preparer ZIP', () => {
     };
     const form1099 = { id: 'nec-2026', payerName: 'Acme Clients', nonemployeeCompensation: 4200, notes: 'January retainer', taxYear: 2026, box12Codes: [{ code: 'KEEP', amount: 9 }] };
     archive.taxRecords = { w2_income: [{ ...w2 }], income_1099: [{ ...form1099 }] };
-    const entries = unzip((await buildPreparerPackage('owner', 2026)).bytes);
+    const built = await buildPreparerPackage('owner', 2026);
+    const entries = unzip(built.bytes);
     const records = JSON.parse(entries.get('records.json')!.toString());
     const expectedW2 = { ...w2 };
     delete expectedW2.box12Codes;
@@ -107,7 +118,32 @@ describe('receipt-inclusive preparer ZIP', () => {
     expect(JSON.stringify(records.taxRecords.w2_income)).not.toContain('box12Codes');
     expect(records.taxRecords.w2_income[0]).toEqual(expectedW2);
     expect(records.taxRecords.income_1099[0]).toEqual(form1099);
+    expect(archive.taxRecords.w2_income[0]).toEqual(w2);
     expect(entries.get('README.txt')!.toString()).toContain('W-2 box 12 codes are not included because they have not been reviewed in the app; use the W-2 itself.');
-    expect(w2.box12Codes).toEqual(box12Codes);
+  });
+  it('omits unreviewed W-2 box 12 codes from the handoff ZIP records.json as well', async () => {
+    const box12Codes = [{ code: 'D', amount: 5000 }, { code: 'DD', amount: 1200 }];
+    const w2 = {
+      id: 'w2-2026', employer: 'Northwind Studio', employerEIN: '12-3456789',
+      wages: 65000, federalWithheld: 8100, box1Wages: 65000, box2FederalWithheld: 8100,
+      socialSecurityWages: 65000, box3SocialSecurityWages: 65000, box4SocialSecurityWithheld: 4030,
+      medicareWages: 65000, box5MedicareWages: 65000, box6MedicareWithheld: 942.5,
+      state: 'TX', stateWages: 65000, box16StateWages: 65000, stateWithheld: 0, box17StateWithheld: 0,
+      source: 'document_import', taxYear: 2026, box12Codes,
+    };
+    const form1099 = { id: 'nec-2026', payerName: 'Acme Clients', nonemployeeCompensation: 4200, notes: 'January retainer', taxYear: 2026, box12Codes: [{ code: 'KEEP', amount: 9 }] };
+    archive.taxRecords = { w2_income: [{ ...w2 }], income_1099: [{ ...form1099 }] };
+    mock.docs.set('user_profiles/owner', { name: 'Owner' });
+    const built = await buildPreparerPackage('owner', 2026);
+    const created = await createPreparerHandoff('owner', built, 3);
+    const downloaded = await downloadPreparerHandoff(created.id, created.token);
+    const records = JSON.parse(unzip(downloaded!.bytes).get('records.json')!.toString());
+    const expectedW2 = { ...w2 };
+    delete expectedW2.box12Codes;
+    expect(records.taxRecords.w2_income[0]).toEqual(expectedW2);
+    expect(records.taxRecords.w2_income[0]).not.toHaveProperty('box12Codes');
+    expect(JSON.stringify(records.taxRecords.w2_income)).not.toContain('box12Codes');
+    expect(records.taxRecords.income_1099[0]).toEqual(form1099);
+    expect(archive.taxRecords.w2_income[0].box12Codes).toEqual(box12Codes);
   });
 });

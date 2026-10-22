@@ -111,7 +111,7 @@ describe('owner export source completeness and privacy', () => {
     await expect(generateUserDataExport('owner', 2026)).rejects.toBeInstanceOf(ExportReviewRequiredError);
     expect((await generateUserDataExport('owner')).transactions).toHaveLength(4);
   });
-  it('omits unreviewed W-2 box 12 codes and leaves every other W-2 field and other tax records unchanged', async () => {
+  it('keeps W-2 box 12 codes in the account export and leaves every other field unchanged', async () => {
     const box12Codes = [{ code: 'D', amount: 5000 }, { code: 'DD', amount: 1200 }];
     const w2 = {
       userId: 'owner', taxYear: 2026, employer: 'Northwind Studio', employerEIN: '12-3456789',
@@ -126,13 +126,10 @@ describe('owner export source completeness and privacy', () => {
     state.rows.set('income_1099/current', form1099);
     const data = await generateUserDataExport('owner', 2026);
     const exported = data.taxRecords.w2_income[0];
-    const expectedW2 = { ...w2 };
-    delete expectedW2.box12Codes;
     expect(data.taxRecords.w2_income).toHaveLength(1);
-    expect(exported).not.toHaveProperty('box12Codes');
-    expect(JSON.stringify(data.taxRecords.w2_income)).not.toContain('box12Codes');
-    expect(exported).toMatchObject(expectedW2);
-    expect(generateDataPackage(data).json.taxRecords.w2_income[0]).not.toHaveProperty('box12Codes');
+    expect(exported.box12Codes).toEqual(box12Codes);
+    expect(exported).toMatchObject(w2);
+    expect(generateDataPackage(data).json.taxRecords.w2_income[0].box12Codes).toEqual(box12Codes);
     expect(data.taxRecords.income_1099[0]).toMatchObject(form1099);
     expect(state.rows.get('w2_income/current')).toMatchObject({ box12Codes });
   });
