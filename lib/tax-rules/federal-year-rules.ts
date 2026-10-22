@@ -236,7 +236,7 @@ export { TAX_YEAR_2027_STATUS } from './tax-year-2027';
 
 export function describeUnsupportedTaxYear(taxYear: number): string {
   if (taxYear === TAX_YEAR_2027_STATUS.taxYear) {
-    return `Tax year 2027 estimates are not available yet: the IRS and SSA have not published the 2027 bracket, standard deduction, credit and wage-base amounts (expected October–November 2026). Published 2027 health-plan figures and rules fixed by law are available for guidance. Complete estimates remain available for 2024–2026.`;
+    return 'Tax year 2027 estimates are not available yet: the IRS has not published the 2027 tax brackets, standard deduction and credit amounts. The Social Security Administration has published the 2027 Social Security wage base, and published 2027 health-plan figures and rules fixed by law are available for guidance. Complete estimates remain available for 2024 to 2026.';
   }
   return `Tax year ${taxYear} is not supported. Published rules are available for 2024, 2025 and 2026.`;
 }
