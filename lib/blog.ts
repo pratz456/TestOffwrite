@@ -52,6 +52,8 @@ export interface BlogPost {
   readingTime: number;
   contentHtml: string;
   hasMidCta: boolean;
+  /** ISO date of a later editorial update (frontmatter `updated`). */
+  updatedAt: string | null;
   /** ISO date of the last editorial accuracy review (frontmatter `reviewed`). */
   reviewedAt: string | null;
   /** Tax years the review covered (frontmatter `reviewedFor`), e.g. "tax years 2025–2026". */
@@ -66,6 +68,7 @@ export interface BlogPostMeta {
   author: string;
   tags: string[];
   readingTime: number;
+  updatedAt: string | null;
   reviewedAt: string | null;
   reviewedFor: string | null;
 }
@@ -88,6 +91,33 @@ function readReviewFields(data: Record<string, unknown>): Pick<BlogPostMeta, "re
   return { reviewedAt, reviewedFor: reviewedAt ? reviewedFor : null };
 }
 
+function readEditorialDates(data: Record<string, unknown>): Pick<BlogPostMeta, "date" | "updatedAt" | "reviewedAt" | "reviewedFor"> {
+  return {
+    date: normalizeReviewDate(data.date) ?? "",
+    updatedAt: normalizeReviewDate(data.updated),
+    ...readReviewFields(data),
+  };
+}
+
+/** Front matter can withhold a file the filename list would otherwise publish. */
+export function isWithheldBlogFrontMatter(data: Record<string, unknown>): boolean {
+  if (data.draft === true) return true;
+  if (data.published === false) return true;
+  const status = typeof data.status === "string" ? data.status.trim().toLowerCase() : "";
+  return status === "draft" || status === "unpublished";
+}
+
+/** Sitemap lastmod: `updated`, then `reviewed`, then `date`. Never the clock. */
+export function blogPostLastModified(post: {
+  updatedAt?: string | null;
+  reviewedAt?: string | null;
+  date?: string | null;
+}): string | null {
+  if (post.updatedAt) return post.updatedAt;
+  if (post.reviewedAt) return post.reviewedAt;
+  return post.date && /^\d{4}-\d{2}-\d{2}$/.test(post.date) ? post.date : null;
+}
+
 /** "2026-09-17" → "September 2026"; used for the dated review note shown on each post. */
 export function formatReviewMonth(isoDate: string): string {
   const [year, month] = isoDate.split("-").map(Number);
@@ -104,19 +134,19 @@ export function getAllPosts(): BlogPostMeta[] {
   return fs
     .readdirSync(BLOG_DIR)
     .filter((f) => f.endsWith(".mdx") && !UNPUBLISHED_BLOG_SLUGS.has(f.replace(/\.mdx$/, "")))
-    .map((filename) => {
+    .flatMap((filename) => {
       const raw = fs.readFileSync(path.join(BLOG_DIR, filename), "utf-8");
       const { data, content } = matter(raw, matterOptions);
-      return {
+      if (isWithheldBlogFrontMatter(data)) return [];
+      return [{
         slug: filename.replace(/\.mdx$/, ""),
         title: data.title ?? "",
         description: data.description ?? "",
-        date: data.date ?? "",
         author: data.author ?? "WriteOff Team",
         tags: data.tags ?? [],
         readingTime: estimateReadingTime(content),
-        ...readReviewFields(data),
-      };
+        ...readEditorialDates(data),
+      }];
     })
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
@@ -130,6 +160,7 @@ export async function getPostBySlug(slug: string): Promise<BlogPost | null> {
 
   const raw = fs.readFileSync(filePath, "utf-8");
   const { data, content } = matter(raw, matterOptions);
+  if (isWithheldBlogFrontMatter(data)) return null;
 
   const hasMidCta = content.includes("<BlogCTA");
   const cleaned = content.replace(/<BlogCTA\s*\/?>/, CTA_PLACEHOLDER);
@@ -141,13 +172,12 @@ export async function getPostBySlug(slug: string): Promise<BlogPost | null> {
     slug,
     title: data.title ?? "",
     description: data.description ?? "",
-    date: data.date ?? "",
     author: data.author ?? "WriteOff Team",
     tags: data.tags ?? [],
     readingTime: estimateReadingTime(content),
     contentHtml,
     hasMidCta,
-    ...readReviewFields(data),
+    ...readEditorialDates(data),
   };
 }
 
