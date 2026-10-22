@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getListedPosts } from "@/lib/blog";
 import { Sparkles } from "lucide-react";
 import { BlogGridClient } from "@/components/blog/blog-grid-client";
+import { publicShareImage } from "@/lib/public-share-image";
 
 export const metadata: Metadata = {
   title: "Tax Tips & Guides for Freelancers",
@@ -14,12 +15,14 @@ export const metadata: Metadata = {
       "Practical tax deduction tips, expense tracking guides, and IRS filing advice for freelancers and self-employed workers.",
     type: "website",
     url: "/blog",
+    images: [publicShareImage],
   },
   twitter: {
     card: "summary_large_image",
     title: "Tax Tips & Guides for Freelancers | WriteOff",
     description:
       "Practical tax tips and expense tracking guides for freelancers.",
+    images: [publicShareImage.url],
   },
 };
 

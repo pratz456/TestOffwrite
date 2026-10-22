@@ -1,14 +1,18 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { Button } from "@/components/ui/button";
+import { LoginAnchor } from "@/components/landing/public-auth-links";
+import { PUBLIC_SIGN_UP_HREF } from "@/lib/public-auth-links";
 import { Sparkles } from "lucide-react";
 
 export function BlogCTA({ variant = "inline" }: { variant?: "inline" | "full" }) {
   const { user, loading } = useAuth();
-  const href = user ? "/protected" : "/welcome";
-  const buttonText = user ? "Go to Dashboard" : "Start Your Free Trial";
+  const signedIn = !loading && !!user;
+  const href = signedIn ? "/protected" : PUBLIC_SIGN_UP_HREF;
+  const buttonText = signedIn ? "Go to Dashboard" : "Start Your Free Trial";
 
   if (variant === "inline") {
     return (
@@ -23,21 +27,18 @@ export function BlogCTA({ variant = "inline" }: { variant?: "inline" | "full" })
               Enter expenses, upload receipts, and review the details in WriteOff. Try WriteOff free for 30 days, no credit card needed.
             </p>
           </div>
-          <Link href={href}>
-            <Button
-              size="default"
-              disabled={loading}
-              className="rounded-lg bg-primary font-semibold text-white shadow-md hover:shadow-lg hover:brightness-110"
-            >
-              {loading ? (
-                <span className="flex items-center gap-2">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                </span>
-              ) : (
-                buttonText
-              )}
+          {signedIn ? (
+            <Button asChild size="default" className="rounded-lg bg-primary font-semibold text-white shadow-md hover:shadow-lg hover:brightness-110">
+              <Link href={href}>{buttonText}</Link>
             </Button>
-          </Link>
+          ) : (
+            <div className="flex flex-col items-center gap-2">
+              <Button asChild size="default" className="rounded-lg bg-primary font-semibold text-white shadow-md hover:shadow-lg hover:brightness-110">
+                <a href={href}>{buttonText}</a>
+              </Button>
+              <LoginAnchor />
+            </div>
+          )}
         </div>
       </div>
     );
@@ -55,21 +56,18 @@ export function BlogCTA({ variant = "inline" }: { variant?: "inline" | "full" })
         Save expenses and receipts as you go. Review their business purpose and prepare records for your accountant. In-app filing and AI analysis are not available in this preview.
       </p>
       <div className="mt-6 flex flex-col items-center gap-3">
-        <Link href={href}>
-          <Button
-            size="lg"
-            disabled={loading}
-            className="rounded-lg bg-primary px-8 py-3 text-base font-semibold text-white shadow-md hover:shadow-lg hover:brightness-110"
-          >
-            {loading ? (
-              <span className="flex items-center gap-2">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-              </span>
-            ) : (
-              buttonText
-            )}
+        {signedIn ? (
+          <Button asChild size="lg" className="rounded-lg bg-primary px-8 py-3 text-base font-semibold text-white shadow-md hover:shadow-lg hover:brightness-110">
+            <Link href={href}>{buttonText}</Link>
           </Button>
-        </Link>
+        ) : (
+          <>
+            <Button asChild size="lg" className="rounded-lg bg-primary px-8 py-3 text-base font-semibold text-white shadow-md hover:shadow-lg hover:brightness-110">
+              <a href={href}>{buttonText}</a>
+            </Button>
+            <LoginAnchor />
+          </>
+        )}
         <p className="text-xs text-muted-foreground">
           30-day free trial &middot; No credit card required &middot; Cancel anytime
         </p>
