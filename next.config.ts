@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { privacyRuntimeCaching } from './lib/pwa/cache-policy';
+import { blogHotfixRedirects } from './lib/blog-hotfix';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const withPWA = require("@ducanh2912/next-pwa").default;
@@ -132,6 +133,7 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       { source: "/login", destination: "/auth/login", permanent: false },
+      ...blogHotfixRedirects(),
     ];
   },
 

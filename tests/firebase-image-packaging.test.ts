@@ -8,6 +8,14 @@ import { describe, expect, it } from 'vitest';
 import { privacyRuntimeCaching } from '../lib/pwa/cache-policy';
 
 const require = createRequire(import.meta.url);
+function loadBlogHotfix() {
+  const hotfixModule = { exports: {} as { blogHotfixRedirects: () => unknown[] } };
+  const source = ts.transpileModule(fs.readFileSync('lib/blog-hotfix.ts', 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  vm.runInNewContext(source, { module: hotfixModule, exports: hotfixModule.exports });
+  return hotfixModule.exports;
+}
 function imageConfig() {
   const loadedModule = { exports: {} as { default: { images: Record<string, unknown> } } };
   const compiled = ts.transpileModule(fs.readFileSync('next.config.ts', 'utf8'), {
@@ -17,6 +25,7 @@ function imageConfig() {
     process: { env: { NODE_ENV: 'production' } }, require: (name: string) => {
       if (name === '@ducanh2912/next-pwa') return { default: () => (config: unknown) => config };
       if (name === './lib/pwa/cache-policy') return { privacyRuntimeCaching };
+      if (name === './lib/blog-hotfix') return loadBlogHotfix();
       throw new Error(`Unexpected config dependency ${name}`);
     } });
   return loadedModule.exports.default.images;

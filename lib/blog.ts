@@ -5,6 +5,7 @@ import yaml from "js-yaml";
 import { remark } from "remark";
 import remarkHtml from "remark-html";
 import remarkGfm from "remark-gfm";
+import { isUnlistedBlogSlug } from "./blog-hotfix";
 
 const BLOG_DIR = path.join(process.cwd(), "content", "blog");
 
@@ -96,6 +97,11 @@ export function getAllPosts(): BlogPostMeta[] {
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
+/** Posts shown on the index, related lists, adjacent links, and sitemap. */
+export function getListedPosts(): BlogPostMeta[] {
+  return getAllPosts().filter((post) => !isUnlistedBlogSlug(post.slug));
+}
+
 const CTA_PLACEHOLDER = "<!--BLOG_CTA-->";
 
 export async function getPostBySlug(slug: string): Promise<BlogPost | null> {
@@ -126,7 +132,7 @@ export async function getPostBySlug(slug: string): Promise<BlogPost | null> {
 }
 
 export function getAdjacentPosts(slug: string) {
-  const posts = getAllPosts();
+  const posts = getListedPosts();
   const idx = posts.findIndex((p) => p.slug === slug);
   return {
     prev: idx < posts.length - 1 ? posts[idx + 1] : null,
