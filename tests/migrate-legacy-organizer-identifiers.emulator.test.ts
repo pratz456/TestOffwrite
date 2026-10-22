@@ -1,7 +1,8 @@
 /**
  * Local Firestore emulator run for organizer record maintenance.
  * Requires a demo- project id and FIRESTORE_EMULATOR_HOST. It never selects
- * any other project.
+ * any other project. Disabled during ordinary tests. Run locally with:
+ * WRITEOFF_RULES_EMULATOR_TESTS=1 npx vitest run tests/migrate-legacy-organizer-identifiers.emulator.test.ts
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -16,6 +17,7 @@ import {
   type MigrationDb, type MigrationDocRef, type MigrationReport,
 } from '../scripts/migrate-legacy-organizer-identifiers';
 
+const enabled = process.env.WRITEOFF_RULES_EMULATOR_TESTS === '1';
 const PROJECT = 'demo-organizer-maintenance';
 const HOST = '127.0.0.1';
 const PORT = 8877;
@@ -87,7 +89,7 @@ async function waitForEmulator(child: ChildProcess): Promise<void> {
   }
 }
 
-describe('organizer maintenance on the local emulator', () => {
+(enabled ? describe : describe.skip)('organizer maintenance on the local emulator', () => {
   const control = { armed: false };
   const quiet = { rateLimitMs: 0, sleep: async () => undefined, env: process.env };
   let db: MigrationDb;
