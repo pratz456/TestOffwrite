@@ -98,6 +98,42 @@ describe('one-time acquisition write', () => {
     expect(model.sets).toBe(1);
   });
 
+  it('persists only the allowlisted fields when the payload carries click ids and a full referrer', async () => {
+    const gclid = 'EAIaIQobChMI123click';
+    const fbclid = 'IwAR0fbclickvalue';
+    const response = await POST(request({
+      acquisition: {
+        utm_source: 'newsletter',
+        utm_medium: 'cpc',
+        utm_content: gclid,
+        utm_term: 'shoes',
+        gclid,
+        fbclid,
+        msclkid: 'msclkidvalue123',
+        ttclid: 'ttclidvalue123',
+        referrer: `https://l.facebook.com/l.php?u=https://writeoffapp.com&fbclid=${fbclid}`,
+        referrerHost: `https://l.facebook.com/l.php?fbclid=${fbclid}&gclid=${gclid}`,
+        landingPath: `/pricing?plan=pro&gclid=${gclid}&fbclid=${fbclid}`,
+        ip: '203.0.113.8',
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        capturedAt: '2026-10-22T18:30:00.000Z',
+      },
+    }));
+    expect(response.status).toBe(200);
+    const stored = model.docs.get('user_profiles/new-user')?.acquisition;
+    expect(stored).toEqual({
+      utm_source: 'newsletter',
+      utm_medium: 'cpc',
+      referrerHost: 'l.facebook.com',
+      landingPath: '/pricing',
+      capturedAt: '2026-10-22T18:30:00.000Z',
+    });
+    const raw = JSON.stringify(stored).toLowerCase();
+    for (const secret of [gclid, fbclid, 'msclkidvalue123', 'ttclidvalue123', '203.0.113.8', 'mozilla', 'l.php', 'plan=pro', 'utm_term']) {
+      expect(raw).not.toContain(secret.toLowerCase());
+    }
+  });
+
   it('writes creatorRef as a flat string from ref, without a nested creator object', async () => {
     const response = await POST(request({
       acquisition: {

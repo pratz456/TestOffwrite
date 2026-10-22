@@ -1,7 +1,9 @@
 /**
  * First-touch campaign source. Stored in first-party localStorage for 30 days.
- * Values are capped and restricted so the record cannot hold an email, a token,
- * or a full URL. The first successful capture wins until it expires.
+ * The stored object is an allowlist: source (utm_source and the referrer host),
+ * medium, campaign, content, creatorRef, landing path, and capturedAt.
+ * Click ids, full referrer URLs, query strings, IP addresses, and user agents
+ * are never copied. The first successful capture wins until it expires.
  */
 
 export const ACQUISITION_STORAGE_KEY = 'writeoff.acquisition';
@@ -13,6 +15,28 @@ const LANDING_PATH = /^\/[A-Za-z0-9._~/-]{0,63}$/;
 const CAPTURED_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'] as const;
 const CREATOR_MEDIUMS = new Set(['creator', 'affiliate']);
+const IPV4 = /^(?:\d{1,3}\.){3}\d{1,3}$/;
+
+/** The only keys written on an acquisition object. `ref` is an input alias for creatorRef. */
+export const ACQUISITION_FIELDS = [
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'utm_content',
+  'creatorRef',
+  'referrerHost',
+  'landingPath',
+  'capturedAt',
+] as const;
+
+/** Ad click ids. Their values are not stored, including when copied into an allowed field. */
+const CLICK_ID_PARAMS = [
+  'gclid', 'gbraid', 'wbraid', 'gclsrc', 'gad_source', 'dclid',
+  'fbclid', 'msclkid', 'ttclid', 'twclid',
+  'li_fat_id', 'igshid', 'epik', 'sccid', 'irclickid', 'rdt_cid',
+  'mc_cid', 'mc_eid', 'yclid',
+] as const;
+const CLICK_ID_KEYS = new Set<string>(CLICK_ID_PARAMS);
 
 export type UtmKey = (typeof UTM_KEYS)[number];
 
@@ -75,9 +99,14 @@ export function externalReferrerHost(referrer: unknown, pageHost?: string): stri
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
   if (url.username || url.password) return undefined;
   const host = url.hostname.toLowerCase().replace(/\.$/, '');
-  if (!host || host.length > MAX_VALUE_LENGTH || !HOSTNAME.test(host)) return undefined;
+  if (!host || host.length > MAX_VALUE_LENGTH || !HOSTNAME.test(host) || isIpAddress(host)) return undefined;
   if (isOwnReferrerHost(host, pageHost)) return undefined;
   return host;
+}
+
+function isIpAddress(host: string): boolean {
+  if (!IPV4.test(host)) return false;
+  return host.split('.').every(part => Number(part) <= 255);
 }
 
 export function sanitizeLandingPath(value: unknown): string | undefined {
@@ -99,24 +128,60 @@ function hasCampaignSource(acquisition: Omit<Acquisition, 'capturedAt'>): boolea
   return UTM_KEYS.some(key => Boolean(acquisition[key])) || Boolean(acquisition.referrerHost) || Boolean(acquisition.creatorRef);
 }
 
+function queryParams(value: string): URLSearchParams | null {
+  const queryIndex = value.indexOf('?');
+  if (queryIndex === -1) return null;
+  return new URLSearchParams(value.slice(queryIndex + 1).split('#')[0]);
+}
+
+function rememberClickValue(blocked: Set<string>, value: unknown) {
+  const sanitized = sanitizeUtmValue(value);
+  if (sanitized) blocked.add(sanitized);
+}
+
+/** Click-id values from denied keys and from any URL query on the payload. */
+function blockedClickValues(record: Record<string, unknown>): Set<string> {
+  const blocked = new Set<string>();
+  for (const [key, value] of Object.entries(record)) {
+    if (CLICK_ID_KEYS.has(key.toLowerCase())) rememberClickValue(blocked, value);
+  }
+  for (const candidate of [record.referrer, record.referrerHost, record.referrerUrl, record.url, record.href, record.landingPath, record.search]) {
+    if (typeof candidate !== 'string') continue;
+    const params = queryParams(candidate);
+    if (!params) continue;
+    for (const key of CLICK_ID_PARAMS) rememberClickValue(blocked, params.get(key));
+  }
+  return blocked;
+}
+
+function allowedCode(value: string | undefined, blocked: Set<string>): string | undefined {
+  return value && !blocked.has(value) ? value : undefined;
+}
+
 /** Explicit `ref` wins. Otherwise a creator or affiliate medium uses utm_source. */
-function creatorRefValue(record: Record<string, unknown>, utmSource?: string, utmMedium?: string): string | undefined {
-  const explicit = sanitizeUtmValue(record.creatorRef) ?? sanitizeUtmValue(record.ref);
+function creatorRefValue(
+  record: Record<string, unknown>,
+  utmSource: string | undefined,
+  utmMedium: string | undefined,
+  blocked: Set<string>,
+): string | undefined {
+  const explicit = allowedCode(sanitizeUtmValue(record.creatorRef) ?? sanitizeUtmValue(record.ref), blocked);
   if (explicit) return explicit;
-  if (utmMedium && CREATOR_MEDIUMS.has(utmMedium) && utmSource) return utmSource;
+  if (utmMedium && CREATOR_MEDIUMS.has(utmMedium)) return allowedCode(utmSource, blocked);
   return undefined;
 }
 
-/** Keeps only known campaign fields. Returns null when no source was captured. */
+/** Keeps only the acquisition allowlist. Returns null when no source was captured. */
 export function acquisitionFromUnknown(input: unknown, now = Date.now()): Acquisition | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
   const record = input as Record<string, unknown>;
+  const blocked = blockedClickValues(record);
   const acquisition: Acquisition = { capturedAt: validCapturedAt(record.capturedAt, now) };
   for (const key of UTM_KEYS) {
-    const value = sanitizeUtmValue(record[key]);
+    const value = allowedCode(sanitizeUtmValue(record[key]), blocked);
     if (value) acquisition[key] = value;
   }
-  const creatorRef = creatorRefValue(record, acquisition.utm_source, acquisition.utm_medium);
+  const creatorRef = creatorRefValue(record, acquisition.utm_source, acquisition.utm_medium, blocked);
   if (creatorRef) acquisition.creatorRef = creatorRef;
   const referrerHost = referrerHostValue(record.referrerHost);
   if (referrerHost) acquisition.referrerHost = referrerHost;
@@ -178,6 +243,11 @@ function captureFromSource(source: CaptureSource, now: number): Acquisition | nu
   };
   for (const key of UTM_KEYS) record[key] = params.get(key) ?? undefined;
   record.ref = params.get('ref') ?? undefined;
+  record.referrer = source.referrer;
+  for (const key of CLICK_ID_PARAMS) {
+    const value = params.get(key);
+    if (value) record[key] = value;
+  }
   return acquisitionFromUnknown(record, now);
 }
 

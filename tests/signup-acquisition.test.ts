@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  ACQUISITION_STORAGE_KEY, ACQUISITION_TTL_MS, captureFirstTouch, readStoredAcquisition,
+  ACQUISITION_FIELDS, ACQUISITION_STORAGE_KEY, ACQUISITION_TTL_MS, captureFirstTouch, readStoredAcquisition,
   type CaptureSource, type KeyValueStorage,
 } from '@/lib/analytics/acquisition';
 import { attributeSignup, trackSignUp } from '@/lib/analytics/sign-up';
@@ -92,6 +92,43 @@ describe('first-touch campaign capture', () => {
     expect(raw).not.toContain('token');
     expect(raw).not.toContain('evil.test');
     expect(raw).not.toContain('creator/42');
+  });
+
+  it('stores none of the click ids, full referrer, query string, ip, or user agent from a landing URL', () => {
+    expect(ACQUISITION_FIELDS).toEqual([
+      'utm_source', 'utm_medium', 'utm_campaign', 'utm_content',
+      'creatorRef', 'referrerHost', 'landingPath', 'capturedAt',
+    ]);
+    const gclid = 'EAIaIQobChMI123click';
+    const fbclid = 'IwAR0fbclickvalue';
+    const msclkid = 'msclkidvalue123';
+    const ttclid = 'ttclidvalue123';
+    const ip = '203.0.113.8';
+    const userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36';
+    const storage = memoryStorage();
+    const captured = captureFirstTouch(storage, NOW, {
+      search: `?utm_source=newsletter&utm_medium=cpc&utm_campaign=spring&utm_content=${gclid}&utm_term=shoes&gclid=${gclid}&fbclid=${fbclid}&msclkid=${msclkid}&ttclid=${ttclid}&ip=${ip}&ua=${encodeURIComponent(userAgent)}`,
+      referrer: `https://l.facebook.com/l.php?u=https%3A%2F%2Fwriteoffapp.com%2Fpricing&fbclid=${fbclid}&gclid=${gclid}`,
+      pathname: `/pricing?plan=pro&gclid=${gclid}&fbclid=${fbclid}`,
+      hostname: 'writeoffapp.com',
+    });
+    expect(captured).toEqual({
+      utm_source: 'newsletter', utm_medium: 'cpc', utm_campaign: 'spring',
+      referrerHost: 'l.facebook.com', landingPath: '/pricing', capturedAt: '2026-10-22T19:00:00.000Z',
+    });
+    const raw = storage.snapshot()[ACQUISITION_STORAGE_KEY].toLowerCase();
+    for (const secret of [gclid, fbclid, msclkid, ttclid, ip, 'mozilla', 'l.php', 'plan=pro', 'utm_term', 'https://']) {
+      expect(raw).not.toContain(secret.toLowerCase());
+    }
+
+    const ipReferrer = memoryStorage();
+    expect(captureFirstTouch(ipReferrer, NOW, {
+      search: `?gclid=${gclid}&fbclid=${fbclid}`,
+      referrer: `https://${ip}/landing?q=tax&fbclid=${fbclid}`,
+      pathname: `/?gclid=${gclid}`,
+      hostname: 'writeoffapp.com',
+    })).toBeNull();
+    expect(ipReferrer.snapshot()).toEqual({});
   });
 
   it('stores ref as a flat creatorRef and falls back to utm_source for creator or affiliate links', () => {
