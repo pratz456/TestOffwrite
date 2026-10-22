@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: vi.fn(async () => ({ ok: false })) }));
 
-import { DocumentImportSavePanel } from '@/components/document-import-screen';
+import { DocumentImportSavePanel, importChoiceFromCommitError, importVerifyFieldDefs } from '@/components/document-import-screen';
 
 const panel = (choice: 'w2' | '1099' | null) => renderToStaticMarkup(
   <DocumentImportSavePanel
@@ -63,5 +63,210 @@ describe('W-2 or 1099 question on the verify panel', () => {
     const question = html.slice(questionAt, html.indexOf('</p>', questionAt));
     expect(question).toBe('This looks like it could be a 1099. Which form is it?');
     expect(question).not.toMatch(/\d{2}-\d{7}|\d{3}-\d{2}-\d{4}|\b\d{9}\b/);
+  });
+
+  it('asks which kind of 1099 only when the variant is unclear and keeps Save disabled until it is answered', () => {
+    const render = (choice: 'w2' | '1099' | null, needs1099Variant: boolean, variantChoice: 'NEC' | 'MISC' | null) => renderToStaticMarkup(
+      <DocumentImportSavePanel
+        notes={['Check the employer/payer ID']}
+        needsTypeConfirmation
+        needs1099Variant={needs1099Variant}
+        choice={choice}
+        variantChoice={variantChoice}
+        onChoice={() => {}}
+        onVariantChoice={() => {}}
+        saveDisabled={false}
+        saving={false}
+        saveLabel="Save Verified Data to WriteOff"
+        onSave={() => {}}
+      >
+        <p>Box 1 wages</p>
+      </DocumentImportSavePanel>,
+    );
+    const saveButton = (html: string) => buttons(html).find(button => button.includes('Save Verified Data to WriteOff'));
+    expect(render(null, true, null)).not.toContain('Which kind of 1099 is it?');
+    expect(render('w2', true, null)).not.toContain('Which kind of 1099 is it?');
+    const known = render('1099', false, null);
+    expect(known).not.toContain('Which kind of 1099 is it?');
+    expect(saveButton(known)).not.toMatch(/disabled=""/);
+
+    const waiting = render('1099', true, null);
+    const questionAt = waiting.indexOf('Which kind of 1099 is it?');
+    const fieldAt = waiting.indexOf('Box 1 wages');
+    const saveAt = waiting.indexOf('Save Verified Data to WriteOff');
+    expect(questionAt).toBeGreaterThan(waiting.indexOf('This looks like it could be a 1099. Which form is it?'));
+    expect(questionAt).toBeLessThan(fieldAt);
+    expect(fieldAt).toBeLessThan(saveAt);
+    const kindButtons = buttons(waiting).filter(button => button.includes('NEC (pay for work)') || button.includes('MISC (other income)'));
+    expect(kindButtons).toHaveLength(2);
+    expect(kindButtons[0]).toContain('NEC (pay for work)');
+    expect(waiting.indexOf('NEC (pay for work)')).toBeLessThan(waiting.indexOf('MISC (other income)'));
+    for (const button of kindButtons) {
+      expect(button).toContain('bg-card');
+      expect(button).toContain('border-border');
+      expect(button).toContain('w-full');
+      expect(button).toContain('sm:flex-1');
+      expect(button).toContain('aria-pressed="false"');
+      expect(button).not.toContain('bg-primary text-white');
+    }
+    expect(waiting).toContain('flex flex-col gap-2 sm:flex-row');
+    expect(saveButton(waiting)).toMatch(/disabled=""/);
+    expect(saveButton(render('1099', true, 'NEC'))).not.toMatch(/disabled=""/);
+    expect(saveButton(render('1099', true, 'MISC'))).toMatch(/disabled=""/);
+    expect(waiting).not.toMatch(/audit-proof|IRS-ready|guaranteed/i);
+  });
+
+  it('shows a MISC amount with box 3 unselected and keeps Save disabled until that box is picked', () => {
+    const render = (miscBox: '3' | null) => renderToStaticMarkup(
+      <DocumentImportSavePanel
+        notes={['Check the employer/payer ID']}
+        needsTypeConfirmation
+        needsMiscBox
+        choice="1099"
+        miscBox={miscBox}
+        miscAmount={1500}
+        onChoice={() => {}}
+        onMiscBox={() => {}}
+        saveDisabled={false}
+        saving={false}
+        saveLabel="Save Verified Data to WriteOff"
+        onSave={() => {}}
+      >
+        <p>Amount</p>
+      </DocumentImportSavePanel>,
+    );
+    const waiting = render(null);
+    const questionAt = waiting.indexOf('Which box is this amount?');
+    const amountAt = waiting.indexOf('$1,500.00');
+    const fieldAt = waiting.indexOf('>Amount<');
+    const saveAt = waiting.indexOf('Save Verified Data to WriteOff');
+    expect(questionAt).toBeGreaterThan(waiting.indexOf('This looks like it could be a 1099. Which form is it?'));
+    expect(amountAt).toBeGreaterThan(questionAt);
+    expect(amountAt).toBeLessThan(fieldAt);
+    expect(fieldAt).toBeLessThan(saveAt);
+    expect(waiting).toContain('Other income (box 3)');
+    expect(waiting).not.toMatch(/Rents/);
+    expect(waiting).not.toContain('Nonemployee compensation (box 1)');
+    const boxButton = buttons(waiting).find(button => button.includes('Other income (box 3)'));
+    expect(boxButton).toContain('aria-pressed="false"');
+    expect(boxButton).toContain('bg-card');
+    expect(boxButton).toContain('border-border');
+    expect(buttons(waiting).some(button => button.includes('Rents'))).toBe(false);
+    const saveButton = buttons(waiting).find(button => button.includes('Save Verified Data to WriteOff'));
+    expect(saveButton).toMatch(/disabled=""/);
+    const picked = render('3');
+    expect(buttons(picked).find(button => button.includes('Other income (box 3)'))).toContain('aria-pressed="true"');
+    expect(buttons(picked).find(button => button.includes('Save Verified Data to WriteOff'))).not.toMatch(/disabled=""/);
+    expect(waiting).not.toMatch(/audit-proof|IRS-ready|guaranteed/i);
+  });
+
+  it('shows the matching question when a save returns a choice code and keeps Save disabled', () => {
+    const typeChoice = importChoiceFromCommitError({ code: 'TYPE_CHOICE_REQUIRED' });
+    expect(typeChoice).toEqual({ needsTypeConfirmation: true });
+    const typeHtml = renderToStaticMarkup(
+      <DocumentImportSavePanel
+        notes={[]}
+        needsTypeConfirmation
+        choice={null}
+        onChoice={() => {}}
+        saveDisabled={false}
+        saving={false}
+        saveLabel="Save Verified Data to WriteOff"
+        onSave={() => {}}
+      >
+        <p>Box 1 wages</p>
+      </DocumentImportSavePanel>,
+    );
+    expect(typeHtml).toContain('This looks like it could be a 1099. Which form is it?');
+    expect(buttons(typeHtml).find(button => button.includes('Save Verified Data to WriteOff'))).toMatch(/disabled=""/);
+
+    const variantChoice = importChoiceFromCommitError({ code: 'VARIANT_CHOICE_REQUIRED' });
+    expect(variantChoice?.needs1099Variant).toBe(true);
+    expect(variantChoice?.confirmedDocType).toBe('1099');
+    const variantHtml = renderToStaticMarkup(
+      <DocumentImportSavePanel
+        notes={[]}
+        needsTypeConfirmation
+        needs1099Variant
+        choice="1099"
+        variantChoice={null}
+        onChoice={() => {}}
+        onVariantChoice={() => {}}
+        saveDisabled={false}
+        saving={false}
+        saveLabel="Save Verified Data to WriteOff"
+        onSave={() => {}}
+      >
+        <p>Box 1 wages</p>
+      </DocumentImportSavePanel>,
+    );
+    expect(variantHtml.indexOf('NEC (pay for work)')).toBeLessThan(variantHtml.indexOf('MISC (other income)'));
+    expect(variantHtml).toContain('Which kind of 1099 is it?');
+    expect(buttons(variantHtml).find(button => button.includes('Save Verified Data to WriteOff'))).toMatch(/disabled=""/);
+
+    const miscChoice = importChoiceFromCommitError({ code: 'MISC_BOX_CHOICE_REQUIRED' });
+    expect(miscChoice).toMatchObject({ needsMiscBox: true, confirmedDocType: '1099', confirmed1099Variant: 'MISC' });
+    const miscHtml = renderToStaticMarkup(
+      <DocumentImportSavePanel
+        notes={[]}
+        needsTypeConfirmation
+        needsMiscBox
+        choice="1099"
+        variantChoice="MISC"
+        miscBox={null}
+        miscAmount={1500}
+        onChoice={() => {}}
+        onMiscBox={() => {}}
+        saveDisabled={false}
+        saving={false}
+        saveLabel="Save Verified Data to WriteOff"
+        onSave={() => {}}
+      >
+        <p>Amount</p>
+      </DocumentImportSavePanel>,
+    );
+    expect(miscHtml).toContain('Which box is this amount?');
+    expect(miscHtml).toContain('$1,500.00');
+    expect(miscHtml).not.toMatch(/Rents/);
+    expect(buttons(miscHtml).find(button => button.includes('Save Verified Data to WriteOff'))).toMatch(/disabled=""/);
+    expect(importChoiceFromCommitError({ code: 'OTHER' })).toBeNull();
+  });
+
+  it('uses 1099 labels after 1099 is picked and does not call a MISC amount box 1', () => {
+    const labels = (variant: 'NEC' | 'MISC' | null, needsMiscBox = false) => importVerifyFieldDefs({
+      requestedType: 'w2',
+      confirmedDocType: '1099',
+      variant,
+      needsMiscBox,
+      fields: { box1Wages: 1200, box2FederalWithheld: 80, box3SocialSecurityWages: 1200, employerEIN: '98-7654321' },
+    }).map(def => def.label);
+    const nec = labels('NEC');
+    expect(nec).toContain('Nonemployee compensation (box 1)');
+    expect(nec).toContain('Federal income tax withheld (box 4)');
+    expect(nec.some(label => /Social security|Medicare|Wages, Tips/i.test(label))).toBe(false);
+    const misc = labels(null, true);
+    expect(misc).toContain('Amount');
+    expect(misc).not.toContain('Nonemployee compensation (box 1)');
+    expect(misc.some(label => /Rents/i.test(label))).toBe(false);
+    const html = renderToStaticMarkup(
+      <DocumentImportSavePanel
+        notes={[]}
+        needsTypeConfirmation
+        choice="1099"
+        onChoice={() => {}}
+        saveDisabled={false}
+        saving={false}
+        saveLabel="Save Verified Data to WriteOff"
+        onSave={() => {}}
+      >
+        {nec.map(label => <p key={label}>{label}</p>)}
+      </DocumentImportSavePanel>,
+    );
+    const questionAt = html.indexOf('This looks like it could be a 1099. Which form is it?');
+    const labelAt = html.indexOf('Nonemployee compensation (box 1)');
+    const withheldAt = html.indexOf('Federal income tax withheld (box 4)');
+    expect(questionAt).toBeLessThan(labelAt);
+    expect(labelAt).toBeLessThan(withheldAt);
+    expect(withheldAt).toBeLessThan(html.indexOf('Save Verified Data to WriteOff'));
   });
 });

@@ -298,6 +298,50 @@ function FieldRow({
   );
 }
 
+/** Labels once the user has picked 1099. A MISC amount is not box 1 rents and not NEC box 1. */
+export function importVerifyFieldDefs(input: {
+  requestedType: string;
+  confirmedDocType: "w2" | "1099" | null;
+  variant: "NEC" | "MISC" | null;
+  needsMiscBox?: boolean;
+  fields: Record<string, unknown>;
+}): FieldDef[] {
+  if (input.confirmedDocType === "1099") {
+    const misc = input.variant === "MISC" || (Boolean(input.needsMiscBox) && input.variant !== "NEC");
+    const relabel = (def: FieldDef, label: string): FieldDef => ({ ...def, label });
+    return [
+      relabel(W2_FIELDS[0], "Payer name"),
+      relabel(W2_FIELDS[1], "Payer EIN"),
+      relabel(W2_FIELDS[2], misc ? "Amount" : "Nonemployee compensation (box 1)"),
+      relabel(W2_FIELDS[3], "Federal income tax withheld (box 4)"),
+    ];
+  }
+  const dt = input.requestedType;
+  if (dt === "w2" || input.fields.box1Wages !== undefined) return W2_FIELDS;
+  if (dt === "1099" || input.fields.formVariant !== undefined) return FORM_1099_FIELDS;
+  if (dt === "platform_summary" || input.fields.grossEarnings !== undefined) return PLATFORM_FIELDS;
+  return W2_FIELDS;
+}
+
+/** A save that came back without a required choice. Null when the error is something else. */
+export function importChoiceFromCommitError(data: { code?: unknown } | null): {
+  needsTypeConfirmation: true;
+  needs1099Variant?: boolean;
+  needsMiscBox?: boolean;
+  confirmedDocType?: "1099";
+  confirmed1099Variant?: "MISC";
+} | null {
+  if (data?.code === "TYPE_CHOICE_REQUIRED") return { needsTypeConfirmation: true };
+  if (data?.code === "VARIANT_CHOICE_REQUIRED") return { needsTypeConfirmation: true, needs1099Variant: true, confirmedDocType: "1099" };
+  if (data?.code === "MISC_BOX_CHOICE_REQUIRED") return { needsTypeConfirmation: true, needsMiscBox: true, confirmedDocType: "1099", confirmed1099Variant: "MISC" };
+  return null;
+}
+
+function formatImportAmount(amount: number): string {
+  const [whole, fraction] = amount.toFixed(2).split(".");
+  return `$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${fraction}`;
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 const DOC_TYPES: { value: DocType; label: string; icon: React.ElementType }[] = [
@@ -307,12 +351,19 @@ const DOC_TYPES: { value: DocType; label: string; icon: React.ElementType }[] = 
   { value: "platform_summary", label: "Platform Summary", icon: DollarSign },
 ];
 
-/** Verify-before-saving panel. Order: ID prompt, form question, fields, Save. */
+/** Verify-before-saving panel. Order: ID prompt, form question, 1099 kind when it is unclear, MISC box, fields, Save. */
 export function DocumentImportSavePanel({
   notes,
   needsTypeConfirmation,
+  needs1099Variant = false,
+  needsMiscBox = false,
   choice,
+  variantChoice = null,
+  miscBox = null,
+  miscAmount = null,
   onChoice,
+  onVariantChoice,
+  onMiscBox,
   saveDisabled,
   saving,
   saveLabel,
@@ -321,8 +372,15 @@ export function DocumentImportSavePanel({
 }: {
   notes: string[];
   needsTypeConfirmation: boolean;
+  needs1099Variant?: boolean;
+  needsMiscBox?: boolean;
   choice: "w2" | "1099" | null;
+  variantChoice?: "NEC" | "MISC" | null;
+  miscBox?: "3" | null;
+  miscAmount?: number | null;
   onChoice: (choice: "w2" | "1099") => void;
+  onVariantChoice?: (variant: "NEC" | "MISC") => void;
+  onMiscBox?: (box: "3") => void;
   saveDisabled: boolean;
   saving: boolean;
   saveLabel: string;
@@ -330,6 +388,9 @@ export function DocumentImportSavePanel({
   children: React.ReactNode;
 }) {
   const awaitingChoice = needsTypeConfirmation && choice === null;
+  const awaitingVariant = needs1099Variant && choice === "1099" && variantChoice === null;
+  const askingMiscBox = choice === "1099" && (needsMiscBox || variantChoice === "MISC");
+  const awaitingMiscBox = askingMiscBox && miscBox !== "3";
   return (
     <>
       {(notes.length > 0 || needsTypeConfirmation) && (
@@ -353,13 +414,31 @@ export function DocumentImportSavePanel({
               </div>
             </div>
           )}
+          {needs1099Variant && choice === "1099" && (
+            <div className="space-y-2">
+              <p className="text-sm text-foreground">Which kind of 1099 is it?</p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button type="button" variant="secondary" className="w-full sm:flex-1" aria-pressed={variantChoice === "NEC"} onClick={() => onVariantChoice?.("NEC")}>NEC (pay for work)</Button>
+                <Button type="button" variant="secondary" className="w-full sm:flex-1" aria-pressed={variantChoice === "MISC"} onClick={() => onVariantChoice?.("MISC")}>MISC (other income)</Button>
+              </div>
+            </div>
+          )}
+          {askingMiscBox && (
+            <div className="space-y-2">
+              <p className="text-sm text-foreground">Which box is this amount?</p>
+              {typeof miscAmount === "number" && <p className="text-sm text-foreground">{formatImportAmount(miscAmount)}</p>}
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button type="button" variant="secondary" className="w-full sm:flex-1" aria-pressed={miscBox === "3"} onClick={() => onMiscBox?.("3")}>Other income (box 3)</Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
       {children}
       <Button
         type="button"
         onClick={onSave}
-        disabled={saving || saveDisabled || awaitingChoice}
+        disabled={saving || saveDisabled || awaitingChoice || awaitingVariant || awaitingMiscBox}
         className="w-full min-h-[48px] gap-2 text-base font-semibold"
       >
         {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
@@ -382,6 +461,8 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
   const [committing, setCommitting] = useState(false);
   const [committed, setCommitted] = useState(false);
   const [confirmedDocType, setConfirmedDocType] = useState<"w2" | "1099" | null>(null);
+  const [confirmed1099Variant, setConfirmed1099Variant] = useState<"NEC" | "MISC" | null>(null);
+  const [confirmedMiscBox, setConfirmedMiscBox] = useState<"3" | null>(null);
   const [dragging, setDragging] = useState(false);
   // §7216 consent: the account's stored record, and whether the person authorized
   // the image fallback for the current document (reset with every new file).
@@ -400,7 +481,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
 
   const handleFile = (f: File) => {
     setFile(f); setResult(null); setError(null);
-    setCommitted(false); setEditedFields({}); setConfirmedDocType(null);
+    setCommitted(false); setEditedFields({}); setConfirmedDocType(null); setConfirmed1099Variant(null); setConfirmedMiscBox(null);
     setImageConsentGranted(false); setConsentPrompt(null);
     setPreview(f.type.startsWith("image/") ? URL.createObjectURL(f) : null);
   };
@@ -423,11 +504,20 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
       fd.append("commit", action === "commit" ? "true" : "false");
       if (action === "commit") fd.append("overrideFields", JSON.stringify(editedFields));
       if (action === "commit" && confirmedDocType) fd.append("confirmedDocType", confirmedDocType);
+      if (action === "commit" && confirmedDocType === "1099" && confirmed1099Variant) fd.append("confirmed1099Variant", confirmed1099Variant);
+      if (action === "commit" && confirmedDocType === "1099" && confirmedMiscBox) fd.append("confirmedMiscBox", confirmedMiscBox);
       if (imageConsent) fd.append("documentImageConsent", "true");
       const res = await makeAuthenticatedRequest("/api/tax/import-document", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) {
         if (res.status === 403 && data.code === DOCUMENT_IMAGE_CONSENT_REQUIRED) { setConsentPrompt({ reason: data.reason, action }); return; }
+        const choiceError = action === "commit" ? importChoiceFromCommitError(data) : null;
+        if (choiceError) {
+          setResult((prev: any) => ({ ...(prev || {}), needsTypeConfirmation: true, needs1099Variant: choiceError.needs1099Variant || prev?.needs1099Variant, needsMiscBox: choiceError.needsMiscBox || prev?.needsMiscBox }));
+          if (choiceError.confirmedDocType) setConfirmedDocType(choiceError.confirmedDocType);
+          if (choiceError.confirmed1099Variant) setConfirmed1099Variant(choiceError.confirmed1099Variant);
+          return;
+        }
         if (data.tips) setError(`${data.warning}\n\nTips: ${data.tips.join(" • ")}`);
         else throw new Error(data.error || (action === "commit" ? "Save failed" : "Extraction failed"));
         return;
@@ -436,6 +526,8 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
       setResult(data);
       setEditedFields(data.extracted || {});
       setConfirmedDocType(null);
+      setConfirmed1099Variant(null);
+      setConfirmedMiscBox(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : action === "commit" ? "Failed to save" : "Failed to extract document");
     } finally { if (action === "extract") setLoading(false); else setCommitting(false); }
@@ -451,14 +543,13 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
     }));
   };
 
-  // Determine which field definitions to show
-  const getFieldDefs = (): FieldDef[] => {
-    const dt = result?.docType || docType;
-    if (dt === "w2" || editedFields.box1Wages !== undefined) return W2_FIELDS;
-    if (dt === "1099" || editedFields.formVariant !== undefined) return FORM_1099_FIELDS;
-    if (dt === "platform_summary" || editedFields.grossEarnings !== undefined) return PLATFORM_FIELDS;
-    return W2_FIELDS; // default
-  };
+  const getFieldDefs = (): FieldDef[] => importVerifyFieldDefs({
+    requestedType: result?.docType || docType,
+    confirmedDocType,
+    variant: confirmed1099Variant,
+    needsMiscBox: Boolean(result?.needsMiscBox),
+    fields: editedFields,
+  });
 
   // Run cross-checks across all fields
   const getCrossCheckWarning = (def: FieldDef): string | null => {
@@ -588,7 +679,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
                 </p>
               </div>
               <Button variant="ghost" size="sm" className="text-xs gap-1"
-                onClick={() => { setResult(null); setFile(null); setPreview(null); setImageConsentGranted(false); setConfirmedDocType(null); }}>
+                onClick={() => { setResult(null); setFile(null); setPreview(null); setImageConsentGranted(false); setConfirmedDocType(null); setConfirmed1099Variant(null); setConfirmedMiscBox(null); }}>
                 Try different file
               </Button>
             </div>
@@ -611,8 +702,15 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
             <DocumentImportSavePanel
               notes={result.verificationRequired || []}
               needsTypeConfirmation={Boolean(result.needsTypeConfirmation)}
+              needs1099Variant={Boolean(result.needs1099Variant)}
+              needsMiscBox={Boolean(result.needsMiscBox)}
               choice={confirmedDocType}
-              onChoice={setConfirmedDocType}
+              variantChoice={confirmed1099Variant}
+              miscBox={confirmedMiscBox}
+              miscAmount={typeof editedFields.box1Wages === "number" ? editedFields.box1Wages : typeof editedFields.box3OtherIncome === "number" ? editedFields.box3OtherIncome : null}
+              onChoice={(next) => { setConfirmedDocType(next); if (next !== "1099") { setConfirmed1099Variant(null); setConfirmedMiscBox(null); } }}
+              onVariantChoice={(next) => { setConfirmed1099Variant(next); if (next !== "MISC") setConfirmedMiscBox(null); }}
+              onMiscBox={setConfirmedMiscBox}
               saveDisabled={criticalFieldsMissing > 0}
               saving={committing}
               saveLabel={criticalFieldsMissing > 0 ? `${criticalFieldsMissing} required field${criticalFieldsMissing > 1 ? "s" : ""} missing` : "Save Verified Data to WriteOff"}
@@ -661,7 +759,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
                "Earnings added as self-employment income"}
             </p>
             <div className="flex gap-3">
-              <Button variant="outline" onClick={() => { setResult(null); setFile(null); setPreview(null); setCommitted(false); setEditedFields({}); setConfirmedDocType(null); }}>
+              <Button variant="outline" onClick={() => { setResult(null); setFile(null); setPreview(null); setCommitted(false); setEditedFields({}); setConfirmedDocType(null); setConfirmed1099Variant(null); setConfirmedMiscBox(null); }}>
                 Import Another
               </Button>
               {onNavigate && <Button onClick={() => onNavigate("tax-preview")}>View Tax Preview</Button>}

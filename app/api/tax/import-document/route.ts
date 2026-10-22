@@ -25,6 +25,8 @@
  *   commit: 'true' | 'false' (whether to save to Firestore)
  *   documentImageConsent: 'true' when the person authorized the image fallback for this document
  *   confirmedDocType: 'w2' | '1099' when the user picked which form a W-2 save is
+ *   confirmed1099Variant: 'NEC' | 'MISC' when that 1099's variant was not already clear
+ *   confirmedMiscBox: '3' when a MISC amount is other income (box 3). Box 1 (rents) is not accepted.
  */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -104,6 +106,7 @@ Determine the exact form type from the form header and extract:
   "recipientName": "string",
   "box1Amount": number,
   "box2FederalWithheld": number,
+  "box3OtherIncome": number,
   "box4FederalWithheld": number,
   "grossAmount": number,
   "taxYear": number,
@@ -113,6 +116,7 @@ Determine the exact form type from the form header and extract:
 
 For 1099-K: box1Amount is gross payment card/third-party network transactions.
 For 1099-NEC: box1Amount is nonemployee compensation.
+For 1099-MISC: box3OtherIncome is other income (box 3). Box 1 on 1099-MISC is rents, not this amount.
 taxYear should be inferred from the form or default to ${new Date().getFullYear() - 1}.`;
 
 const PLATFORM_SUMMARY_PROMPT = `You are a tax document parser. Extract earnings data from this platform annual earnings/tax summary.
@@ -174,7 +178,7 @@ function savedDocumentType(data: Record<string, unknown>, requested: string): 'w
 }
 
 /** Fields a 1099 carries and a W-2 does not. A photo counts when the model sent one of these. */
-const FORM_1099_ONLY_FIELDS = ['formVariant', 'payerName', 'payerEIN', 'recipientName', 'recipientTIN', 'box1Amount', 'box4FederalWithheld', 'grossAmount'] as const;
+const FORM_1099_ONLY_FIELDS = ['formVariant', 'payerName', 'payerEIN', 'recipientName', 'recipientTIN', 'box1Amount', 'box3OtherIncome', 'box4FederalWithheld', 'grossAmount'] as const;
 const TYPE_CHOICE_REQUIRED = 'Choose W-2 or 1099 before saving this document.';
 
 function confirmedDocumentChoice(value: FormDataEntryValue | null): 'w2' | '1099' | null {
@@ -199,27 +203,72 @@ function modelReturned1099OnlyField(data: Record<string, unknown>): boolean {
   });
 }
 
-/** Point a confirmed 1099 at the same fields a native 1099 import saves. */
-function applyConfirmed1099(data: Record<string, unknown>): void {
+/** W-2 social security and Medicare boxes. A confirmed 1099 does not keep them. */
+const W2_BOXES_DROPPED_ON_1099 = ['box3SocialSecurityWages', 'box4SocialSecurityWithheld', 'box5MedicareWages', 'box6MedicareWithheld'] as const;
+const VARIANT_CHOICE_REQUIRED = 'Choose NEC or MISC before saving this 1099.';
+const MISC_BOX_CHOICE_REQUIRED = 'Choose which box this amount belongs in before saving this 1099-MISC.';
+
+function confirmed1099VariantChoice(value: FormDataEntryValue | null): 'NEC' | 'MISC' | null {
+  return value === 'NEC' || value === 'MISC' ? value : null;
+}
+
+/** Box 3 is other income. Box 1 (rents) is not a choice for a converted W-2 amount. */
+function confirmedMiscBoxChoice(value: FormDataEntryValue | null): '3' | null {
+  return value === '3' ? '3' : null;
+}
+
+function positiveAmount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/**
+ * The model's formVariant wins when it is set.
+ * Otherwise NEC only for "Nonemployee compensation" or "1099-NEC", and MISC only for "1099-MISC".
+ * Both phrases, or neither, leaves the variant unclear.
+ */
+function resolved1099Variant(data: Record<string, unknown>, text: string): string | null {
+  if (typeof data.formVariant === 'string' && data.formVariant.trim()) {
+    const variant = data.formVariant.trim();
+    if (/^nec$/i.test(variant)) return 'NEC';
+    if (/^misc$/i.test(variant)) return 'MISC';
+    return variant;
+  }
+  const nec = /nonemployee compensation|1099-nec/i.test(text);
+  const misc = /1099-misc/i.test(text);
+  if (nec && !misc) return 'NEC';
+  if (misc && !nec) return 'MISC';
+  return null;
+}
+
+/** Point a confirmed 1099 at the same fields a native 1099 import saves. NEC box 1 is the only wage destination. */
+function applyConfirmed1099(data: Record<string, unknown>, variant: string): void {
   if (!data.payerName && data.employerName) data.payerName = data.employerName;
   if (!data.payerEIN && data.employerEIN) data.payerEIN = data.employerEIN;
-  if ((data.box1Amount === null || data.box1Amount === undefined) && data.box1Wages != null) data.box1Amount = data.box1Wages;
+  if (variant === 'NEC' && (data.box1Amount === null || data.box1Amount === undefined) && data.box1Wages != null) data.box1Amount = data.box1Wages;
   if ((data.box4FederalWithheld === null || data.box4FederalWithheld === undefined) && data.box2FederalWithheld != null) data.box4FederalWithheld = data.box2FederalWithheld;
-  if (!data.formVariant) data.formVariant = 'NEC';
+  for (const field of W2_BOXES_DROPPED_ON_1099) delete data[field];
+  delete data.box1Wages;
+  data.formVariant = variant;
   data.docType = '1099';
 }
 
 /** A W-2 preview's edits, mapped onto the 1099 fields a native import would receive. */
-function overridesForConfirmed1099(overrides: Record<string, string | number | boolean | null>): Record<string, string | number | boolean | null> {
+function overridesForConfirmed1099(overrides: Record<string, string | number | boolean | null>, variant: string | null, miscBox: '3' | null): Record<string, string | number | boolean | null> {
   const next = { ...overrides };
   const copy = (from: string, to: string) => {
     if (Object.prototype.hasOwnProperty.call(next, from) && !Object.prototype.hasOwnProperty.call(next, to)) next[to] = next[from];
   };
   copy('employerName', 'payerName');
   copy('employerEIN', 'payerEIN');
-  copy('box1Wages', 'box1Amount');
+  if (variant === 'NEC') copy('box1Wages', 'box1Amount');
+  if (variant === 'MISC' && miscBox === '3') {
+    copy('box1Wages', 'box3OtherIncome');
+    delete next.box1Amount;
+  }
   copy('box2FederalWithheld', 'box4FederalWithheld');
   delete next.docType;
+  delete next.box1Wages;
+  for (const field of W2_BOXES_DROPPED_ON_1099) delete next[field];
   return next;
 }
 
@@ -269,20 +318,25 @@ async function saveW2(uid: string, data: Record<string, any>, options?: { typeCo
 
 async function save1099(uid: string, data: Record<string, any>) {
   const taxYear = data.taxYear || new Date().getFullYear() - 1;
-  const record = {
+  const box3OtherIncome = data.box3OtherIncome || 0;
+  const record: Record<string, unknown> = {
     userId: uid,
     taxYear,
     payer: data.payerName || 'Unknown Payer',
     payerEIN: data.payerEIN || '',
     formType: `1099-${data.formVariant || 'NEC'}`,
-    amount: data.grossAmount || data.box1Amount || 0,
-    box1Amount: data.box1Amount || 0,
+    amount: data.grossAmount || box3OtherIncome || data.box1Amount || 0,
     federalWithheld: data.box4FederalWithheld || data.box2FederalWithheld || 0,
     platform: data.platform || null,
     source: 'document_import',
+    box3OtherIncome,
     importedAt: new Date(),
     updatedAt: new Date(),
   };
+  // A MISC with no rents amount does not store box 1. NEC and K keep box 1 as before.
+  if (!(data.formVariant === 'MISC' && !(typeof data.box1Amount === 'number' && data.box1Amount > 0))) {
+    record.box1Amount = data.box1Amount || 0;
+  }
 
   const ref = await adminDb.collection('income_1099').add({ ...record, createdAt: new Date() });
   return { id: ref.id, action: 'created' };
@@ -504,7 +558,7 @@ const DOCUMENT_IDENTIFIER_KEYS = new Set([
   'recipienttin', 'recipientssn', 'recipientsocialsecuritynumber', 'tin', 'payeetin', 'payeessn', 'employeetin', 'ssnortin',
 ]);
 const W2_PUBLIC_FIELDS = ['docType', 'employerName', 'employerEIN', 'box1Wages', 'box2FederalWithheld', 'box3SocialSecurityWages', 'box4SocialSecurityWithheld', 'box5MedicareWages', 'box6MedicareWithheld', 'box12Codes', 'box16StateWages', 'box17StateWithheld', 'state', 'taxYear', 'confidence', 'fieldConfidence', 'imageQualityIssues', 'verificationWarnings'] as const;
-const FORM_1099_PUBLIC_FIELDS = ['docType', 'formVariant', 'payerName', 'payerEIN', 'recipientName', 'box1Amount', 'box2FederalWithheld', 'box4FederalWithheld', 'grossAmount', 'taxYear', 'platform', 'confidence', 'imageQualityIssues', 'verificationWarnings'] as const;
+const FORM_1099_PUBLIC_FIELDS = ['docType', 'formVariant', 'payerName', 'payerEIN', 'recipientName', 'box1Amount', 'box2FederalWithheld', 'box3OtherIncome', 'box4FederalWithheld', 'grossAmount', 'taxYear', 'platform', 'confidence', 'imageQualityIssues', 'verificationWarnings'] as const;
 const PLATFORM_PUBLIC_FIELDS = ['docType', 'platform', 'taxYear', 'grossEarnings', 'platformFees', 'netEarnings', 'milesDriven', 'onlineHours', 'trips', 'form1099KAmount', 'form1099NECAmount', 'federalWithheld', 'breakdown', 'confidence', 'imageQualityIssues', 'verificationWarnings'] as const;
 const AUTO_PUBLIC_FIELDS = ['docType', 'formVariant', 'platform', 'taxYear', 'primaryAmount', 'federalWithheld', 'employerOrPayerName', 'confidence'] as const;
 const BREAKDOWN_FIELDS = ['baseEarnings', 'tips', 'bonuses', 'promotions', 'otherIncome'] as const;
@@ -686,13 +740,29 @@ export async function POST(request: NextRequest) {
     // Override taxYear if provided
     if (taxYear) extracted.taxYear = taxYear;
 
-    // A W-2 that still reads like a 1099 is not saved until the user picks the form.
+    // The type that will be saved includes edits, so changing a 1099 to a W-2 still asks.
+    // NEC box 1 receives the wage. A MISC wage is other income (box 3), never rents and never $0.
     const confirmedDocType = confirmedDocumentChoice(formData.get('confirmedDocType'));
-    const needsTypeConfirmation = savedDocumentType(extracted, docType) === 'w2' && (
-      textSuggests1099(ocr?.text ?? '') || (disclosure === 'image' && modelReturned1099OnlyField(extracted))
+    const variantChoice = confirmed1099VariantChoice(formData.get('confirmed1099Variant'));
+    const miscBox = confirmedMiscBoxChoice(formData.get('confirmedMiscBox'));
+    const ocrText = ocr?.text ?? '';
+    const needsTypeConfirmation = savedDocumentType({ ...extracted, ...overrideFields }, docType) === 'w2' && (
+      textSuggests1099(ocrText) || (disclosure === 'image' && modelReturned1099OnlyField(extracted))
     );
+    const documentVariant = resolved1099Variant(extracted, ocrText);
+    const needs1099Variant = needsTypeConfirmation && documentVariant === null;
+    const needsMiscBox = needsTypeConfirmation && documentVariant === 'MISC';
+    const confirmedVariant = needsTypeConfirmation && confirmedDocType === '1099'
+      ? (documentVariant ?? variantChoice)
+      : null;
     const typeConfirmedByUser = needsTypeConfirmation && confirmedDocType === 'w2';
-    if (needsTypeConfirmation && confirmedDocType === '1099') applyConfirmed1099(extracted);
+    if (needsTypeConfirmation && confirmedDocType === 'w2') extracted.docType = 'w2';
+    if (confirmedVariant === 'MISC' && miscBox === '3') {
+      const wage = positiveAmount(overrideFields.box1Wages) ?? positiveAmount(extracted.box1Wages);
+      if (wage !== null) extracted.box3OtherIncome = wage;
+      delete extracted.box1Amount;
+    }
+    if (confirmedVariant) applyConfirmed1099(extracted, confirmedVariant);
 
     // Text path: identifiers were removed before the model saw the document, so the
     // employer/payer EIN comes from the local OCR read and the SSN is matched, not stored.
@@ -701,7 +771,9 @@ export async function POST(request: NextRequest) {
       // The model saw redacted text. Drop both numbers before the local read fills the field that will be saved.
       extracted.employerEIN = null;
       extracted.payerEIN = null;
-      const savedType = savedDocumentType(extracted, docType);
+      const savedType = needsTypeConfirmation && confirmedDocType
+        ? confirmedDocType
+        : savedDocumentType(extracted, docType);
       const einField = savedType === 'w2' ? 'employerEIN' : savedType === '1099' ? 'payerEIN' : null;
       if (einField) {
         // A payer line never contributes a bare number. A 1099 record also keeps only a dashed NN-NNNNNNN.
@@ -755,7 +827,7 @@ export async function POST(request: NextRequest) {
 
     // Merge user edits into extracted data before saving. Identifier keys are already removed from extracted.
     // A confirmed 1099 uses the same edit fields a native 1099 import would, even when the preview was a W-2.
-    const fieldEdits = needsTypeConfirmation && confirmedDocType === '1099' ? overridesForConfirmed1099(overrideFields) : overrideFields;
+    const fieldEdits = needsTypeConfirmation && confirmedDocType === '1099' ? overridesForConfirmed1099(overrideFields, confirmedVariant, miscBox) : overrideFields;
     const finalData = publicDocument(dropDocumentIdentifiers({ ...extracted, ...fieldEdits }), docType);
     if (disclosure === 'image') rejectUndashedImagePayerNumbers(finalData);
     // A typed value that is not NN-NNNNNNN is saved blank. payerNumberOrBlank would already have dropped a 3-2-4, so check the raw edit.
@@ -779,7 +851,22 @@ export async function POST(request: NextRequest) {
 
     // Save to Firestore if commit=true. A triggered W-2 writes nothing until the user picks.
     if (commit && needsTypeConfirmation && !confirmedDocType) {
-      return NextResponse.json({ error: TYPE_CHOICE_REQUIRED }, { status: 400 });
+      return NextResponse.json({ error: TYPE_CHOICE_REQUIRED, code: 'TYPE_CHOICE_REQUIRED' }, { status: 400 });
+    }
+    if (commit && needsTypeConfirmation && confirmedDocType === '1099' && !confirmedVariant) {
+      return NextResponse.json({ error: VARIANT_CHOICE_REQUIRED, code: 'VARIANT_CHOICE_REQUIRED' }, { status: 400 });
+    }
+    if (commit && needsTypeConfirmation && confirmedDocType === '1099' && confirmedVariant === 'MISC') {
+      if (miscBox !== '3') {
+        return NextResponse.json({ error: MISC_BOX_CHOICE_REQUIRED, code: 'MISC_BOX_CHOICE_REQUIRED' }, { status: 400 });
+      }
+      delete finalData.box1Amount;
+      const kept = positiveAmount(finalData.box3OtherIncome) ?? positiveAmount(finalData.grossAmount);
+      if (kept === null) {
+        return NextResponse.json({ error: MISC_BOX_CHOICE_REQUIRED, code: 'MISC_BOX_CHOICE_REQUIRED' }, { status: 400 });
+      }
+      finalData.box3OtherIncome = kept;
+      finalData.formVariant = 'MISC';
     }
     let saveResult: Record<string, any> = {};
     if (commit) {
@@ -808,6 +895,8 @@ export async function POST(request: NextRequest) {
       identifiersRedacted,
       documentOwner,
       ...(needsTypeConfirmation ? { needsTypeConfirmation: true } : {}),
+      ...(needs1099Variant ? { needs1099Variant: true } : {}),
+      ...(needsMiscBox ? { needsMiscBox: true } : {}),
     });
   } catch (error) {
     if (error instanceof ReceiptRequestError) return NextResponse.json({ error: error.message }, { status: error.status });
@@ -820,7 +909,7 @@ function buildSummary(data: Record<string, any>): string {
     return `W-2 from ${data.employerName || 'employer'}: $${(data.box1Wages || 0).toLocaleString()} wages, $${(data.box2FederalWithheld || 0).toLocaleString()} withheld`;
   }
   if (data.docType === '1099') {
-    return `1099-${data.formVariant || 'NEC'} from ${data.payerName || 'payer'}: $${(data.grossAmount || data.box1Amount || 0).toLocaleString()} income`;
+    return `1099-${data.formVariant || 'NEC'} from ${data.payerName || 'payer'}: $${(data.grossAmount || data.box3OtherIncome || data.box1Amount || 0).toLocaleString()} income`;
   }
   if (data.docType === 'platform_summary') {
     return `${data.platform || 'Platform'} summary: $${(data.grossEarnings || 0).toLocaleString()} gross earnings`;
