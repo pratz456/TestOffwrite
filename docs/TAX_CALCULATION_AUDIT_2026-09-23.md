@@ -6,7 +6,7 @@ This audit traced the ordinary federal brackets, regular self-employment tax, Ad
 
 Confirmed defects corrected:
 
-1. `calculateEffectiveTaxRate` previously used an uncapped 15.3% of 92.35% of profit. It now reuses regular Schedule SE calculation, including its Social Security ceiling, remaining same-owner wage base where provided, and net-earnings minimum. Additional Medicare tax is Form 8959 and is excluded from the half-SE deduction. The unused `calcCombinedSERate` helper has been removed; Schedule SE and `compute1040` are the calculations under test.
+1. `calculateEffectiveTaxRate` previously used an uncapped 15.3% of 92.35% of profit. It now reuses regular Schedule SE calculation, including its Social Security ceiling, remaining same-owner wage base where provided, and net-earnings minimum. Additional Medicare tax is Form 8959 and is excluded from the half-SE deduction.
 2. `getMarginalTaxRate` previously selected a bracket from gross business income. It now uses income after the modeled half-SE adjustment and standard deduction, including W-2 income separately.
 3. Missing, malformed, nonfinite or negative profile income no longer silently supplies a generic 25% rate. `TaxRateReviewRequiredError` requires profile review. Explicit zero remains valid, W-2-only inputs are supported, and the display wrapper returns an unavailable rate instead of crashing.
 4. `compute1040` previously assigned a generic linear QBI phaseout above the annual threshold, without business type, business wages or qualified-property data. Positive QBI above the threshold now raises `QBIReviewRequiredError`; it does not publish a fabricated deduction or an assumed zero. Threshold equality remains supported. API/UI handlers must preserve the review-required result.

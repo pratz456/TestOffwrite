@@ -4,6 +4,7 @@ import { compute1040, type Form1040Input } from '../lib/tax-rules/compute-1040';
 import { QBIReviewRequiredError } from '../lib/tax-rules/qbi';
 import { calcScheduleSE } from '../lib/reports/calcSE';
 import { TaxCalculationScopeReviewRequiredError } from '../lib/tax-rules/calculation-scope';
+import { BusinessLossReviewRequiredError } from '../lib/tax-rules/business-losses';
 
 const base: Form1040Input = {
   taxYear: 2026, filingStatus: 'single', scheduleCNetProfit: 0, w2Wages: 0,
@@ -64,25 +65,33 @@ describe('federal calculation audit: independently worked 2026 reference cases',
     })).toMatchObject({ additionalMedicareTax: 381.15, selfEmploymentTax: 6956.15 });
   });
 
-  it('calculates Form 8959 when Box 3 is the wage base and Box 5 is $250,000', () => {
+  it('calculates isolated Form 8959 math when Box 3 is the wage base and Box 5 is $250,000', () => {
+    // Box 1 intentionally $0 to isolate Additional Medicare math; real wages would trip QBIReviewRequiredError.
     // Box 3 cannot exceed the $184,500 wage base. Box 5 is $250,000.
     // Remaining Social Security base clamps at $0. Regular Medicare $2,678.15 is the whole SE tax.
     // The SE threshold clamps at $0, so SE Additional Medicare is $92,350 × 0.9% = $831.15.
     // Wage Additional Medicare ($250,000 − $200,000) × 0.9% = $450. Form 8959 line 18 is $1,281.15.
-    // compute1040 does not compute Form 8959 line 24 withholding, so it does not reduce line 18 by that $450.
+    // The total below is this isolated Box 1 = $0 case, not a realistic wage return.
     const se = calcScheduleSE({ scheduleCNetProfit: 100000, taxYear: 2026 }, 'single', 184500, 250000);
     expect(se).toMatchObject({
       seBase: 92350, socialSecurityTax: 0, medicareTax: 2678.15, totalSETax: 2678.15, additionalMedicareTax: 831.15,
     });
-    const seTax = { selfEmploymentTax: se.totalSETax, halfSEDeduction: se.halfSEDeduction };
-    expect(() => compute1040({
-      ...base, scheduleCNetProfit: 100000, w2Wages: 250000, w2SocialSecurityWages: 184500, w2MedicareWages: 250000, ...seTax,
-    })).toThrow(QBIReviewRequiredError);
     const form = compute1040({
-      ...base, scheduleCNetProfit: 100000, w2Wages: 0, w2SocialSecurityWages: 184500, w2MedicareWages: 250000, ...seTax,
+      ...base, scheduleCNetProfit: 100000, w2Wages: 0, w2SocialSecurityWages: 184500, w2MedicareWages: 250000,
+      selfEmploymentTax: se.totalSETax, halfSEDeduction: se.halfSEDeduction,
     });
     expect(form.additionalMedicareTax).toBe(1281.15);
     expect(form.selfEmploymentTax).toBe(2678.15);
+    expect(form.totalTax).toBe(13202.02);
+    expect(form.balanceDue).toBe(13202.02);
+  });
+
+  it('requires QBI review when Box 1 is $250,000 and profit is $100,000', () => {
+    const se = calcScheduleSE({ scheduleCNetProfit: 100000, taxYear: 2026 }, 'single', 184500, 250000);
+    expect(() => compute1040({
+      ...base, scheduleCNetProfit: 100000, w2Wages: 250000, w2SocialSecurityWages: 184500, w2MedicareWages: 250000,
+      selfEmploymentTax: se.totalSETax, halfSEDeduction: se.halfSEDeduction,
+    })).toThrow(QBIReviewRequiredError);
   });
 
   it('uses the same owner’s W-2 Social Security wages before the SE deduction and ordinary bracket', () => {
@@ -143,6 +152,12 @@ describe('federal calculation audit: independently worked 2026 reference cases',
     for (const income of [NaN, Infinity, -Infinity]) {
       expect(() => calculateFederalIncomeTax(income, 'single', 2026)).toThrow(RangeError);
     }
+    // compute1040 does not throw RangeError for these profits. NaN and Infinity stop in deduction
+    // scope review; a nonfinite loss stops in the business-loss review.
+    for (const profit of [NaN, Infinity]) {
+      expect(() => compute1040({ ...base, scheduleCNetProfit: profit })).toThrow(TaxCalculationScopeReviewRequiredError);
+    }
+    expect(() => compute1040({ ...base, scheduleCNetProfit: -Infinity })).toThrow(BusinessLossReviewRequiredError);
   });
 
   it.each([

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { calculateEffectiveTaxRate, calculateFederalIncomeTax, getMarginalTaxRate, getUserTaxRate, getUserTaxRateDisplay, TaxRateReviewRequiredError } from '../lib/tax-rules/federal-brackets';
-import { FilingStatusReviewRequiredError } from '../lib/tax-rules/filing-status';
+import { compute1040, type Form1040Input } from '../lib/tax-rules/compute-1040';
+import { FilingStatusReviewRequiredError, normalizeFilingStatus } from '../lib/tax-rules/filing-status';
 
 const fixture = vi.hoisted(() => ({ status: 'Single', income: 100000 }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'synthetic' }, error: null }) }));
@@ -43,6 +44,24 @@ describe('shared dashboard rate normalization', () => {
       rate: null,
       reviewMessage: expect.stringContaining('Update income'),
     });
+  });
+  it('withholds qualifying surviving spouse, which compute1040 does not calculate', () => {
+    // FederalFilingStatus has no qualifying-surviving-spouse key. The old widower label and the
+    // current settings label both normalize to the same unsupported review error.
+    const input = {
+      taxYear: 2026, scheduleCNetProfit: 1000, w2Wages: 0, w2FederalWithheld: 0, estimatedPayments: 0,
+      selfEmploymentTax: 0, halfSEDeduction: 0, healthInsurancePremiums: 0, sepIraContribution: 0,
+      solo401kContribution: 0, simpleIraContribution: 0, hsaContribution: 0, studentLoanInterest: 0,
+      personalDeductionOrganizer: { taxYear: 2026 },
+    } as Form1040Input;
+    for (const status of ['qualifying_surviving_spouse', 'Qualifying Surviving Spouse', 'Qualifying Widower']) {
+      expect(() => normalizeFilingStatus(status)).toThrow(FilingStatusReviewRequiredError);
+      expect(() => normalizeFilingStatus(status)).toThrow(/not supported yet/);
+      expect(() => compute1040({ ...input, filingStatus: status as Form1040Input['filingStatus'] })).toThrow(FilingStatusReviewRequiredError);
+    }
+    // Without organizer facts, compute1040 indexes brackets before filing-status review and throws TypeError.
+    const bare = { ...input, personalDeductionOrganizer: undefined, filingStatus: 'qualifying_surviving_spouse' as Form1040Input['filingStatus'] };
+    expect(() => compute1040(bare)).toThrow(TypeError);
   });
   it.each(['Qualifying Widower', 'not-a-status'])('withholds the display rate for %s, even without income', status => {
     for (const income of [100000, 0, undefined]) {
