@@ -53,7 +53,11 @@ describe('Plaid OAuth client resume', () => {
     h.fetch.mockResolvedValue(Response.json({ code: 'BANK_HISTORY_REVIEW_REQUIRED', error: 'Your saved bank history needs a review. Your existing records are safe.' }, { status: 409 }));
     const back = vi.fn();
     const component = () => renderPlaidLink({ user: { id: 'owner' }, onSuccess() {}, onBack: back });
-    render(component); await flush(); const tree = render(component);
+    render(component); await flush(); let tree = render(component);
+    expect(h.fetch).not.toHaveBeenCalled();
+    walk(tree).find(node => node.props?.type === 'checkbox').props.onChange({ target: { checked: true } }); tree = render(component);
+    await walk(tree).find(node => node.props?.onClick && content(node).includes('Connect') && !content(node).includes('Skip')).props.onClick();
+    tree = render(component);
     expect(content(tree)).toContain('Review saved bank history');
     expect(content(tree)).toContain('Your existing records are safe');
     expect(walk(tree).find(node => node.props?.href === '/plaid/reconnect')).toBeTruthy();
@@ -80,7 +84,9 @@ describe('Plaid OAuth client resume', () => {
   it('finishes resumed repair with exact-item sync and no public token exchange, then clears session', async () => {
     const saved = session('owned-item'); savePlaidOAuthSession(storage, saved, origin); const done = vi.fn();
     const component = () => renderPlaidLink({ user: { id: 'owner' }, updateItemId: 'owned-item', oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess: done, onBack() {} });
-    render(component); render(component); await h.link.onSuccess(null);
+    const gtag = vi.fn(); (window as any).gtag = gtag;
+    render(component); render(component); await h.link.onSuccess(null, { link_session_id: 'session-repair', institution: { institution_id: 'ins_9', name: 'First Bank' } });
+    expect(gtag).not.toHaveBeenCalledWith('event', 'plaid_link_handoff', expect.anything());
     expect(h.request).toHaveBeenCalledWith('/api/plaid/sync-transactions', { method: 'POST', body: JSON.stringify({ itemId: 'owned-item', incremental: true }) });
     expect(h.fetch).not.toHaveBeenCalled(); expect(done).toHaveBeenCalledOnce();
     expect(storage.getItem(PLAID_OAUTH_STORAGE_KEY)).toBeNull();
@@ -112,11 +118,17 @@ describe('Plaid OAuth client resume', () => {
     window.location.href = `${origin}/protected?screen=plaid-link`; window.location.search = '?screen=plaid-link';
     const component = () => renderPlaidLink({ user: { id: 'owner' }, onSuccess() {}, onBack() {}, fromSettings: true });
     render(component); await flush(); let tree = render(component);
+    expect(h.fetch).not.toHaveBeenCalled();
     expect(storage.getItem(PLAID_OAUTH_STORAGE_KEY)).toBeNull();
     const checkbox = walk(tree).find(node => node.props?.type === 'checkbox');
     checkbox.props.onChange({ target: { checked: true } }); tree = render(component);
     const connect = walk(tree).find(node => node.props?.onClick && content(node).includes('Connect') && !content(node).includes('Skip'));
     await connect.props.onClick();
+    expect(h.request).toHaveBeenCalledWith('/api/onboarding/bank-consent', expect.objectContaining({ method: 'POST' }));
+    expect(h.fetch).toHaveBeenCalledWith('/api/plaid/create-link-token', expect.anything());
+    expect(h.request.mock.invocationCallOrder[0]).toBeLessThan(h.fetch.mock.invocationCallOrder[0]);
+    expect(h.open).not.toHaveBeenCalled();
+    render(component);
     expect(h.open).toHaveBeenCalledOnce();
     expect(JSON.parse(storage.getItem(PLAID_OAUTH_STORAGE_KEY)!)).toMatchObject({ uid: 'owner', token: 'link-sandbox-new', fromSettings: true });
   });
@@ -150,10 +162,39 @@ describe('Plaid OAuth client resume', () => {
     window.location.href = `${origin}/protected?screen=plaid-link`; window.location.search = '?screen=plaid-link';
     let uid = 'owner';
     const component = () => renderPlaidLink({ user: { id: uid }, onSuccess() {}, onBack() {} });
-    render(component); await flush(); render(component);
+    render(component); await flush(); let tree = render(component);
+    expect(h.link.token).toBeNull();
+    expect(h.fetch).not.toHaveBeenCalled();
+    walk(tree).find(node => node.props?.type === 'checkbox').props.onChange({ target: { checked: true } }); tree = render(component);
+    await walk(tree).find(node => node.props?.onClick && content(node).includes('Connect') && !content(node).includes('Skip')).props.onClick();
+    tree = render(component);
     expect(h.link.token).toBe('link-sandbox-new');
     uid = 'other-owner'; h.currentUser.uid = uid; h.fetch.mockImplementation(() => new Promise(() => {}));
     render(component); expect(h.link.token).toBeNull();
+  });
+  it('records Link open and exit, and records handoff before the public token is exchanged', async () => {
+    const gtag = vi.fn(); (window as any).gtag = gtag;
+    const saved = session(); savePlaidOAuthSession(storage, saved, origin);
+    h.fetch.mockResolvedValue(Response.json({ accountId: 'saved-account', imported: 1 }));
+    const component = () => renderPlaidLink({ user: { id: 'owner' }, oauthResume: { session: saved, receivedRedirectUri: href }, onSuccess() {}, onBack() {} });
+    render(component); render(component);
+    h.link.onEvent('OPEN', { link_session_id: 'session-1', institution_id: 'ins_1', institution_name: 'First Bank' });
+    expect(gtag).toHaveBeenCalledWith('event', 'plaid_link_open', { link_session_id: 'session-1' });
+    await h.link.onSuccess('public-sandbox-token', {
+      link_session_id: 'session-1', institution: { name: 'First Bank', institution_id: 'ins_1' },
+      accounts: [{ id: 'account-1', name: 'Checking', mask: '0000' }],
+    });
+    expect(gtag).toHaveBeenCalledWith('event', 'plaid_link_handoff', { link_session_id: 'session-1' });
+    const handoff = gtag.mock.invocationCallOrder[gtag.mock.calls.length - 1];
+    expect(handoff).toBeLessThan(h.fetch.mock.invocationCallOrder[0]);
+    h.link.onExit(
+      { error_code: 'INVALID_CREDENTIALS', error_message: 'bad password', display_message: 'Try again' },
+      { status: 'requires_credentials', link_session_id: 'session-1', request_id: 'req-1', institution: { name: 'First Bank', institution_id: 'ins_1' } },
+    );
+    expect(gtag).toHaveBeenCalledWith('event', 'plaid_link_exit', {
+      link_session_id: 'session-1', status: 'requires_credentials', error_code: 'INVALID_CREDENTIALS',
+    });
+    expect(JSON.stringify(gtag.mock.calls)).not.toMatch(/ins_1|First Bank|0000|public-sandbox-token|bad password|req-1/);
   });
 });
 describe('guided reconnect OAuth', () => {
@@ -161,9 +202,11 @@ describe('guided reconnect OAuth', () => {
     window.location.href = `${origin}/plaid/reconnect`; window.location.search = '';
     const component = () => renderPlaidLink({ user: { id: 'owner' }, reconnectSessionId: 'review-1', onSuccess() {}, onBack() {}, fromSettings: true });
     render(component); await flush(); let tree = render(component);
-    expect(h.fetch).toHaveBeenCalledWith('/api/plaid/create-link-token', expect.objectContaining({ body: JSON.stringify({ reconnectSessionId: 'review-1' }) }));
+    expect(h.fetch).not.toHaveBeenCalled();
     walk(tree).find(node => node.props?.type === 'checkbox').props.onChange({ target: { checked: true } }); tree = render(component);
     await walk(tree).find(node => node.props?.onClick && content(node).includes('Connect bank for history review')).props.onClick();
+    render(component);
+    expect(h.fetch).toHaveBeenCalledWith('/api/plaid/create-link-token', expect.objectContaining({ body: JSON.stringify({ reconnectSessionId: 'review-1' }) }));
     expect(JSON.parse(storage.getItem(PLAID_OAUTH_STORAGE_KEY)!)).toMatchObject({ reconnectSessionId: 'review-1', uid: 'owner' });
   });
   it('exchanges a resumed reconnect into review without starting normal import', async () => {

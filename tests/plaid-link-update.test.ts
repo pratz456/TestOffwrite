@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-const mock = vi.hoisted(() => ({ auth: vi.fn(), connection: vi.fn(), link: vi.fn(), trial: vi.fn(), history: vi.fn(), historyReady: vi.fn(), reconnectCanLink: vi.fn() }));
+const mock = vi.hoisted(() => ({ auth: vi.fn(), connection: vi.fn(), link: vi.fn(), trial: vi.fn(), history: vi.fn(), historyReady: vi.fn(), reconnectCanLink: vi.fn(), consent: vi.fn() }));
 vi.mock('@/lib/plaid/reconnect', () => ({ assertReconnectCanLink: mock.reconnectCanLink }));
 vi.mock('@/lib/plaid/history-review', () => ({ assertBankHistoryReadyForNewConnection: mock.historyReady,
   BANK_HISTORY_REVIEW_REQUIRED: 'BANK_HISTORY_REVIEW_REQUIRED', BANK_HISTORY_REVIEW_MESSAGE: 'Review saved bank history with WriteOff support.' }));
@@ -9,6 +9,7 @@ vi.mock('@/lib/plaid/connections', () => ({ getPlaidConnection: mock.connection 
 vi.mock('@/lib/plaid/client', () => ({ plaidClient: { linkTokenCreate: mock.link } }));
 vi.mock('@/lib/subscriptions/trial-manager', () => ({ startFreeTrial: mock.trial }));
 vi.mock('@/lib/subscriptions/history-window', () => ({ getTransactionHistoryWindow: mock.history }));
+vi.mock('@/lib/onboarding/bank-consent', () => ({ hasCurrentBankConsent: mock.consent }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 import { POST } from '@/app/api/plaid/create-link-token/route';
 import { RATE_LIMITS } from '@/lib/security/rate-limit';
@@ -16,6 +17,7 @@ import { exhaustRateLimit, failRateLimitStore, resetRateLimitStore } from './fix
 const req = (body = {}) => new NextRequest('https://staging.example.test/api/plaid/create-link-token', { method: 'POST', body: JSON.stringify(body) });
 beforeEach(() => { vi.clearAllMocks(); resetRateLimitStore(); mock.auth.mockResolvedValue({ uid: 'owner' }); mock.link.mockResolvedValue({ data: { link_token: 'public-link-token' } });
   mock.historyReady.mockResolvedValue(undefined);
+  mock.consent.mockResolvedValue(true);
   mock.connection.mockResolvedValue({ uid: 'owner', itemId: 'owned-item', accessToken: 'synthetic-private-token' }); mock.trial.mockResolvedValue({ success: true });
   mock.history.mockResolvedValue({ days: 90 }); vi.stubEnv('PLAID_ENV', 'sandbox'); vi.stubEnv('PLAID_WEBHOOK_URL', '');
   vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'https://staging.example.test'); vi.stubEnv('VERCEL_URL', '');
