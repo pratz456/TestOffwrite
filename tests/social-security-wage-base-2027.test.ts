@@ -18,16 +18,22 @@ describe('2027 Social Security wage base', () => {
   });
 
   it('taxes only the wage base remaining after W-2 Social Security wages', () => {
-    // Remaining base: $192,300 − $150,000 = $42,300.
-    // Profit $100,000 → net earnings $92,350, which is above that remainder.
-    // Social Security tax = $42,300 × 12.4% = $5,245.20.
-    // Medicare stays on the full $92,350: $92,350 × 2.9% = $2,678.15.
-    const result = calcScheduleSE({ scheduleCNetProfit: 100000, taxYear: 2027 }, 'single', 150000, 0);
+    // Both W-2 boxes are $150,000. Remaining Social Security base: $192,300 − $150,000 = $42,300.
+    // Profit $100,000 → net earnings $92,350. Social Security tax = $42,300 × 12.4% = $5,245.20.
+    // Regular Medicare stays on $92,350 × 2.9% = $2,678.15.
+    // Form 8959: single threshold $200,000 − $150,000 Medicare wages = $50,000.
+    // Additional Medicare = ($92,350 − $50,000) × 0.9% = $381.15.
+    // Regular SE tax $7,923.35 and the half-SE deduction $3,961.68 leave that $381.15 out.
+    const result = calcScheduleSE({ scheduleCNetProfit: 100000, taxYear: 2027 }, 'single', 150000, 150000);
     expect(result.netEarnings).toBe(100000);
     expect(result.seBase).toBe(92350);
     expect(result.socialSecurityTax).toBe(5245.2);
     expect(result.socialSecurityTax / 0.124).toBeCloseTo(42300, 2);
     expect(result.medicareTax).toBe(2678.15);
+    expect(result.additionalMedicareTax).toBe(381.15);
+    expect(result.totalSETax).toBe(7923.35);
+    expect(result.totalSETax).toBe(result.socialSecurityTax + result.medicareTax);
+    expect(result.halfSEDeduction).toBe(3961.68);
   });
 
   it('compares net earnings after the 92.35% step with the cap', () => {
