@@ -24,10 +24,16 @@ vi.mock('@/lib/firebase/admin', () => ({
       update: async () => { store.writes.push('profile-update'); },
       set: async () => { store.writes.push('profile-set'); },
     }),
-    collection: () => ({
+    collection: (path: string) => ({
+      where: () => ({
+        get: async () => {
+          if (store.failRead) throw new Error('unavailable');
+          return { docs: [] };
+        },
+      }),
       get: async () => {
         if (store.failRead) throw new Error('unavailable');
-        return { docs: store.bankConsents.map(data => ({ data: () => data })) };
+        return { docs: (path === 'plaid_connections' ? [] : store.bankConsents).map(data => ({ data: () => data })) };
       },
       doc: () => ({ create: async () => { store.writes.push('bank-consent'); } }),
     }),
@@ -80,6 +86,19 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('link token before a bank acknowledgment', () => {
+  it('still requires an acknowledgment when bank_data is true and no bank link is saved', async () => {
+    store.profile = { ...store.profile, consents: { bank_data: true, terms: true, ai_review: true, source: 'sign-up' } };
+    const before = { ...store.profile };
+    const response = await POST(req());
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: BANK_CONSENT_REQUIRED_ERROR });
+    expect(mock.trial).not.toHaveBeenCalled();
+    expect(mock.link).not.toHaveBeenCalled();
+    expect(store.bankConsents).toEqual([]);
+    expect(store.writes).toEqual([]);
+    expect(store.profile).toEqual(before);
+  });
+
   it('moves no financial data, writes no acknowledgment, and does not start a trial', async () => {
     const before = { ...store.profile };
     const response = await POST(req());

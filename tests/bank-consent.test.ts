@@ -1,15 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import {
-  BANK_CONSENT_CLOCK_ERROR, BANK_CONSENT_LOOKUP_ERROR, BANK_CONSENT_OUT_OF_DATE_ERROR, BANK_CONSENT_SAVE_ERROR,
+  BANK_CONSENT_CLOCK_ERROR, BANK_CONSENT_LOOKUP_ERROR, BANK_CONSENT_OUT_OF_DATE_ERROR, BANK_CONSENT_REQUIRED_ERROR, BANK_CONSENT_SAVE_ERROR,
   BANK_CONSENT_TEXT, BANK_CONSENT_VERSION,
 } from '@/lib/onboarding/bank-consent-copy';
-import { ACCEPT_LEGACY_BANK_DATA_CONSENT, legacyBankDataConsentStillCounts } from '@/lib/onboarding/bank-consent';
+import { ACCEPT_LEGACY_BANK_DATA_CONSENT, hasCurrentBankConsent, legacyBankDataConsentStillCounts } from '@/lib/onboarding/bank-consent';
+import { buildConsentRecord, withStoredBankDataConsent } from '@/lib/onboarding/consents';
 
 const hash = createHash('sha256').update(BANK_CONSENT_TEXT, 'utf8').digest('hex');
 const store = vi.hoisted(() => ({
   profile: undefined as Record<string, unknown> | undefined,
   bankConsents: [] as Record<string, unknown>[],
+  links: [] as Record<string, unknown>[],
   failRead: false,
 }));
 const m = vi.hoisted(() => ({
@@ -26,15 +28,27 @@ vi.mock('@/lib/firebase/admin', () => ({
         return { exists: store.profile !== undefined, data: () => store.profile };
       },
     }),
-    collection: () => ({
+    collection: (path: string) => ({
+      where: () => ({
+        get: async () => {
+          if (store.failRead) throw new Error('unavailable');
+          return { docs: (path === 'plaid_connections' ? store.links : []).map(data => ({ data: () => data })) };
+        },
+      }),
       get: async () => {
         if (store.failRead) throw new Error('unavailable');
-        return { docs: store.bankConsents.map(data => ({ data: () => data })) };
+        const rows = path === 'plaid_connections' ? store.links : store.bankConsents;
+        return { docs: rows.map(data => ({ data: () => data })) };
       },
       doc: () => ({ create: async (data: Record<string, unknown>) => { store.bankConsents.push({ ...data }); } }),
     }),
   },
   FieldValue: { serverTimestamp: () => 'server-time' },
+}));
+vi.mock('@/lib/security/rate-limit', () => ({
+  enforceRateLimit: async () => ({ allowed: true }),
+  rateLimitResponse: () => new Response(null, { status: 429 }),
+  RATE_LIMITS: { plaidSync: { scope: 'plaid.sync', limit: 20, windowMs: 1, onUnavailable: 'deny' } },
 }));
 vi.mock('@/lib/plaid/reconnect', () => ({ assertReconnectCanLink: m.reconnectCanLink, saveReconnectConnection: m.saveReconnect }));
 vi.mock('@/lib/plaid/history-review', () => ({
@@ -55,6 +69,7 @@ vi.mock('@/lib/plaid/link-operations', () => ({
 import { POST as exchangePublicToken } from '@/app/api/plaid/exchange-public-token/route';
 import { POST as exchangeToken } from '@/app/api/plaid/exchange-token/route';
 import { POST as saveBankConsent } from '@/app/api/onboarding/bank-consent/route';
+import { POST as syncTransactions } from '@/app/api/plaid/sync-transactions/route';
 
 const currentRecord = {
   version: BANK_CONSENT_VERSION, source: 'bank-connect', wording_hash: hash,
@@ -68,6 +83,7 @@ const saveBody = (body: unknown) => new Request('https://writeoff.test/api/onboa
 beforeEach(() => {
   store.profile = undefined;
   store.bankConsents = [];
+  store.links = [];
   store.failRead = false;
   vi.resetAllMocks();
   m.auth.mockResolvedValue({ uid: 'owner' });
@@ -132,13 +148,39 @@ describe('Plaid exchange requires a bank acknowledgment', () => {
     expect(m.exchange).toHaveBeenCalledOnce();
   });
 
-  it('exchanges when an older profile record has bank_data true', async () => {
+  it('still requires the bank acknowledgment when a new signup sends bank_data true and has no saved bank link', async () => {
+    const submitted = { ...buildConsentRecord({ terms: true, ai_review: true, communications: false, document_import: false }, 'sign-up')!, bank_data: true };
+    expect(withStoredBankDataConsent(submitted, undefined).bank_data).toBeUndefined();
     store.profile = { consents: { version: '2026-09-17', source: 'sign-up', bank_data: true, terms: true, ai_review: true } };
-    const response = await exchangeToken(new Request('https://writeoff.test/api/plaid/exchange-token', {
+    store.links = [{ uid: 'owner', itemId: 'retired-item', status: 'disconnected' }];
+    expect(await hasCurrentBankConsent('owner')).toBe(false);
+    store.links = [];
+    const response = await exchangePublicToken(exchangeBody({ public_token: 'public-sandbox-test' }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: BANK_CONSENT_REQUIRED_ERROR });
+    expect((await exchangeToken(new Request('https://writeoff.test/api/plaid/exchange-token', {
       method: 'POST', body: JSON.stringify({ publicToken: 'public-sandbox-test' }),
+    }))).status).toBe(403);
+    expect(m.exchange).not.toHaveBeenCalled();
+    expect(store.bankConsents).toEqual([]);
+  });
+
+  it('keeps refreshing an existing saved bank link when bank_data is true, without a new consent record', async () => {
+    store.profile = { consents: { version: '2026-09-17', source: 'sign-up', bank_data: true, terms: true, ai_review: true }, plaid_item_id: 'item-1', plaid_token: 'stored-access' };
+    expect(await hasCurrentBankConsent('owner')).toBe(true);
+    store.profile = { consents: store.profile.consents };
+    store.links = [{ uid: 'owner', itemId: 'item-1', encryptedAccessToken: 'stored-access', status: 'active' }];
+    expect(legacyBankDataConsentStillCounts(store.profile.consents, ACCEPT_LEGACY_BANK_DATA_CONSENT, true)).toBe(true);
+    expect(await hasCurrentBankConsent('owner')).toBe(true);
+    m.sync.mockResolvedValue({ success: true, transactionsSaved: 2, accountsProcessed: 1 });
+    const response = await syncTransactions(new Request('https://writeoff.test/api/plaid/sync-transactions', {
+      method: 'POST', body: JSON.stringify({ incremental: true, itemId: 'item-1' }),
     }));
     expect(response.status).toBe(200);
-    expect(m.exchange).toHaveBeenCalledOnce();
+    expect(await response.json()).toMatchObject({ success: true, transactions_saved: 2 });
+    expect(m.sync).toHaveBeenCalledWith('owner', 'item-1');
+    expect(store.bankConsents).toEqual([]);
+    expect(m.exchange).not.toHaveBeenCalled();
   });
 
   it('uses the lookup sentence only when the stored acknowledgment cannot be read', async () => {
@@ -149,12 +191,14 @@ describe('Plaid exchange requires a bank acknowledgment', () => {
     expect(m.exchange).not.toHaveBeenCalled();
   });
 
-  it('keeps an older bank_data acknowledgment behind one switch', () => {
+  it('keeps an older bank_data acknowledgment behind one switch and a saved bank link', () => {
     expect(ACCEPT_LEGACY_BANK_DATA_CONSENT).toBe(true);
-    expect(legacyBankDataConsentStillCounts({ bank_data: true })).toBe(true);
-    expect(legacyBankDataConsentStillCounts({ bank_data: true }, false)).toBe(false);
-    expect(legacyBankDataConsentStillCounts({ bank_data: false })).toBe(false);
-    expect(legacyBankDataConsentStillCounts(undefined)).toBe(false);
+    expect(legacyBankDataConsentStillCounts({ bank_data: true }, true, true)).toBe(true);
+    expect(legacyBankDataConsentStillCounts({ bank_data: true })).toBe(false);
+    expect(legacyBankDataConsentStillCounts({ bank_data: true }, false, true)).toBe(false);
+    expect(legacyBankDataConsentStillCounts({ bank_data: true }, true, false)).toBe(false);
+    expect(legacyBankDataConsentStillCounts({ bank_data: false }, true, true)).toBe(false);
+    expect(legacyBankDataConsentStillCounts(undefined, true, true)).toBe(false);
   });
 
   it('does not treat bank_data false or a different wording hash as a current acknowledgment', async () => {

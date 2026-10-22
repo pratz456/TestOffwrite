@@ -49,6 +49,7 @@ vi.mock('@/lib/firebase/admin', () => ({
       get: async () => ({ exists: h.profile !== undefined, data: () => h.profile }),
     }),
     collection: () => ({
+      where: () => ({ get: async () => ({ docs: [] }) }),
       get: async () => ({ docs: h.bankConsents.map(data => ({ data: () => data })) }),
       doc: () => ({ create: async (data: Record<string, unknown>) => { h.bankConsents.push({ ...data }); } }),
     }),

@@ -5,15 +5,40 @@ import { BANK_CONSENT_SOURCE, BANK_CONSENT_TEXT, BANK_CONSENT_VERSION } from './
 
 /**
  * Pending owner decision: people who already linked a bank keep syncing until a
- * one-time prompt exists. Older sign-up records with `bank_data: true` still
- * count as a bank acknowledgment. Set this to false to stop accepting them.
- * Removal is this one assignment.
+ * one-time prompt exists. An older sign-up record with `bank_data: true` counts
+ * only when that account already has a saved Plaid item or stored access record.
+ * Set this to false to stop accepting those records. Removal is this one assignment.
  */
 export const ACCEPT_LEGACY_BANK_DATA_CONSENT = true;
 
-/** True only while the owner decision above still accepts an older `bank_data: true` record. */
-export function legacyBankDataConsentStillCounts(record: unknown, accept = ACCEPT_LEGACY_BANK_DATA_CONSENT): boolean {
-  return accept && legacyBankDataConsent(record);
+/** True only while the owner decision above still accepts an older `bank_data: true` record for an account that already has a saved bank link. */
+export function legacyBankDataConsentStillCounts(
+  record: unknown,
+  accept = ACCEPT_LEGACY_BANK_DATA_CONSENT,
+  savedBankLink = false,
+): boolean {
+  return accept && savedBankLink && legacyBankDataConsent(record);
+}
+
+function storedSecret(value: unknown): boolean {
+  return typeof value === 'string' && value.length > 0;
+}
+
+/** A Plaid item or access token already stored for this account. A disconnected item does not count. */
+function profileHasSavedBankLink(profile: Record<string, unknown> | undefined): boolean {
+  if (!profile) return false;
+  return storedSecret(profile.plaid_item_id) || storedSecret(profile.plaid_token) || storedSecret(profile.access_token);
+}
+
+function connectionHasSavedBankLink(data: Record<string, unknown> | undefined): boolean {
+  if (!data || data.status === 'disconnected') return false;
+  return storedSecret(data.encryptedAccessToken) || storedSecret(data.accessToken) || storedSecret(data.itemId);
+}
+
+async function accountHasSavedBankLink(uid: string, profile: Record<string, unknown> | undefined): Promise<boolean> {
+  if (profileHasSavedBankLink(profile)) return true;
+  const saved = await adminDb.collection('plaid_connections').where('uid', '==', uid).get();
+  return saved.docs.some(doc => connectionHasSavedBankLink(doc.data()));
 }
 
 export function bankConsentWordingHash(text = BANK_CONSENT_TEXT): string {
@@ -34,11 +59,13 @@ export function isCurrentBankConsentRecord(input: unknown): boolean {
 
 /**
  * True when this account already has a bank acknowledgment: a new bank-connect record,
- * or, while `ACCEPT_LEGACY_BANK_DATA_CONSENT` is set, an older profile record with `bank_data: true`.
+ * or, while `ACCEPT_LEGACY_BANK_DATA_CONSENT` is set, an older `bank_data: true` record
+ * on an account that already has a saved bank link.
  */
 export async function hasCurrentBankConsent(uid: string): Promise<boolean> {
-  const profile = await adminDb.doc(`user_profiles/${uid}`).get();
-  if (legacyBankDataConsentStillCounts(profile.data()?.consents)) return true;
+  const profileSnap = await adminDb.doc(`user_profiles/${uid}`).get();
+  const profile = profileSnap.data() as Record<string, unknown> | undefined;
+  if (legacyBankDataConsentStillCounts(profile?.consents, ACCEPT_LEGACY_BANK_DATA_CONSENT, await accountHasSavedBankLink(uid, profile))) return true;
   const saved = await adminDb.collection(`user_profiles/${uid}/bank_consents`).get();
   return saved.docs.some(doc => isCurrentBankConsentRecord(doc.data()));
 }
