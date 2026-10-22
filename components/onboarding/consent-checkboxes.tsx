@@ -28,10 +28,6 @@ const CONSENT_ITEMS: ConsentItem[] = [
     label: <>I have read and agree to the <a href="/terms" className={policyLink} target="_blank" rel="noopener noreferrer">Terms of Service</a> and the <a href="/privacy" className={policyLink} target="_blank" rel="noopener noreferrer">Privacy Policy</a>. WriteOff organizes records and produces planning estimates; it does not prepare or file tax returns or give tax advice.</>,
   },
   {
-    key: 'bank_data', id: 'bankConsent', required: true,
-    label: <>I authorize WriteOff to access and use my account and transaction data via Plaid to analyze potential tax deductions and generate reports. (<a href="/privacy" className={policyLink} target="_blank" rel="noopener noreferrer">Privacy</a> | <a href="https://plaid.com/legal/#end-user-privacy-policy" className={policyLink} target="_blank" rel="noopener noreferrer">Plaid</a>)</>,
-  },
-  {
     key: 'ai_review', id: 'aiConsent', required: true,
     label: 'I understand that WriteOff uses automated (AI) analysis to suggest categories and possible tax treatments for my review, and that I confirm each one.',
   },

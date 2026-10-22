@@ -15,6 +15,26 @@ import { useJobProgress } from '@/lib/hooks/useJobProgress';
 import { analysisJobView, parseAnalysisJob, parseAnalysisQueue, type AnalysisJob } from '@/lib/ai/client-job-progress';
 import { debugLog } from '@/lib/utils/debug';
 import { clearPlaidOAuthSession, readPlaidOAuthResume, savePlaidOAuthSession, type PlaidOAuthResume } from '@/lib/plaid/oauth-session';
+import {
+  BANK_CONSENT_PRIVACY_LINK_LABEL, BANK_CONSENT_SAVE_ERROR, BANK_CONSENT_TEXT, BANK_CONSENT_VERSION,
+  BANK_LINK_ADD_EXPENSE, BANK_LINK_NOT_FINISHED, BANK_LINK_NOT_NOW, BANK_LINK_TRY_AGAIN, BANK_LINK_UPLOAD_RECEIPT,
+} from '@/lib/onboarding/bank-consent-copy';
+import { trackPlaidLinkExit, trackPlaidLinkHandoff, trackPlaidLinkOpen } from '@/lib/analytics/plaid-link';
+import { protectedScreenUrl } from '@/lib/navigation/protected-screens';
+
+function bankLinkAlternatives(onTryAgain: () => void) {
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row">
+      <Button type="button" variant="outline" className="flex-1" onClick={onTryAgain}>{BANK_LINK_TRY_AGAIN}</Button>
+      <Button asChild variant="outline" className="flex-1">
+        <Link href={protectedScreenUrl('add-manual-transaction')}>{BANK_LINK_ADD_EXPENSE}</Link>
+      </Button>
+      <Button asChild variant="outline" className="flex-1">
+        <Link href={protectedScreenUrl('receipt-upload')}>{BANK_LINK_UPLOAD_RECEIPT}</Link>
+      </Button>
+    </div>
+  );
+}
 
 // Global flag to prevent duplicate Plaid script loading
 let plaidScriptLoaded = false;
@@ -23,6 +43,7 @@ interface PlaidLinkScreenProps {
   user: any;
   onSuccess: () => void;
   onBack: () => void;
+  onSkip?: () => void;
   fromSettings?: boolean; // If true, hide subscription options and connect directly
   updateItemId?: string;
   reconnectSessionId?: string;
@@ -45,7 +66,7 @@ export const PlaidLinkScreen: React.FC<PlaidLinkScreenProps> = (props) => {
   return <ActivePlaidLinkScreen {...props} />;
 };
 
-const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack, fromSettings = false, updateItemId, reconnectSessionId, oauthResume }) => {
+const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess, onBack, onSkip, fromSettings = false, updateItemId, reconnectSessionId, oauthResume }) => {
   const router = useRouter();
   // Capture the app origin from the top-level page. Some Plaid callbacks can run
   // in a different browsing context (e.g. iframe), where relative URLs might
@@ -54,6 +75,10 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
   const appOriginRef = useRef<string | null>(null);
   // Consent for Plaid data access
   const [bankConsent, setBankConsent] = useState(false);
+  const consentSaved = useRef(false);
+  const pendingOpen = useRef(false);
+  const linkRequest = useRef(0);
+  const [showLinkFallback, setShowLinkFallback] = useState(false);
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [linkOwner, setLinkOwner] = useState<string | null>(null);
   const [redirectUri, setRedirectUri] = useState<string | undefined>();
@@ -217,11 +242,44 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
     };
   }, [user.id, monitorAnalysisProgress]);
 
-  // Create link token on component mount (only if not redirected from account usage)
+  const requestLinkToken = useCallback(async () => {
+    const request = ++linkRequest.current;
+    const currentUser = auth.currentUser;
+    if (!currentUser || currentUser.uid !== user.id) throw new Error('No authenticated user found');
+    const token = await currentUser.getIdToken(true);
+    const response = await fetch('/api/plaid/create-link-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(reconnectSessionId ? { reconnectSessionId } : updateItemId ? { itemId: updateItemId } : {}),
+    });
+    const stale = () => request !== linkRequest.current || auth.currentUser?.uid !== user.id;
+    if (!response.ok) {
+      const contentType = response.headers.get('content-type') || '';
+      let errorBodyText = '';
+      let errorData: any = null;
+      try {
+        errorBodyText = await response.text();
+        try { errorData = JSON.parse(errorBodyText); } catch { errorData = null; }
+      } catch { /* ignore */ }
+      console.error('❌ Failed to create link token:', { status: response.status, contentType, errorData, errorBodyText: errorData ? undefined : errorBodyText });
+      if (!stale()) setHistoryReviewRequired(errorData?.code === 'BANK_HISTORY_REVIEW_REQUIRED');
+      throw new Error(errorData?.error || errorData?.message || (typeof errorBodyText === 'string' && errorBodyText.trim() ? errorBodyText : null) || 'Failed to create link token');
+    }
+    const data = await response.json();
+    if (stale()) return null;
+    setLinkToken(data.link_token);
+    setLinkOwner(user.id);
+    setRedirectUri(data.redirect_uri);
+    return data.link_token as string;
+  }, [user.id, updateItemId, reconnectSessionId]);
+
+  // Repair of an existing Item does not start a trial. A new connection waits for the acknowledgment.
   useEffect(() => {
     if (typeof window !== 'undefined') {
       appOriginRef.current = window.location.origin;
     }
+    consentSaved.current = false;
+    pendingOpen.current = false;
 
     if (oauthResume) {
       const resumed = readPlaidOAuthResume(window.sessionStorage, user.id, window.location.href);
@@ -240,86 +298,25 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
     const accountIdParam = urlParams.get('accountId');
     const analyzingParam = urlParams.get('analyzing');
 
-    // Only create link token if we're not redirected from account usage page
-    if (accountIdParam && analyzingParam === 'true') {
-      return;
-    }
+    if (accountIdParam && analyzingParam === 'true') return;
 
-    let cancelled = false;
     setLinkToken(null);
     setLinkOwner(null);
     setError(null);
     setHistoryReviewRequired(false);
-    const createLinkToken = async () => {
-      try {
-        // Get Firebase auth token for authentication
-        const currentUser = auth.currentUser;
-        if (!currentUser) {
-          throw new Error('No authenticated user found');
-        }
+    if (!updateItemId) return;
 
-        const token = await currentUser.getIdToken(true); // Force refresh the token
-        console.log('🔑 Got Firebase token for Plaid link token creation');
+    let cancelled = false;
+    void requestLinkToken().catch((err: any) => {
+      if (cancelled) return;
+      console.error('Error creating link token:', err);
+      setError(err.message || 'Failed to initialize bank connection. Please try again.');
+    });
+    return () => { cancelled = true; linkRequest.current += 1; };
+  }, [user.id, updateItemId, reconnectSessionId, oauthResume, requestLinkToken]);
 
-        const response = await fetch('/api/plaid/create-link-token', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify(reconnectSessionId ? { reconnectSessionId } : updateItemId ? { itemId: updateItemId } : {}),
-        });
-
-        if (!response.ok) {
-          const contentType = response.headers.get('content-type') || '';
-          let errorBodyText = '';
-          let errorData: any = null;
-          try {
-            errorBodyText = await response.text(); // read once
-            try {
-              errorData = JSON.parse(errorBodyText);
-            } catch {
-              errorData = null;
-            }
-          } catch {
-            // ignore
-          }
-
-          console.error('❌ Failed to create link token:', {
-            status: response.status,
-            contentType,
-            errorData,
-            errorBodyText: errorData ? undefined : errorBodyText,
-          });
-
-          const message =
-            errorData?.error ||
-            errorData?.message ||
-            (typeof errorBodyText === 'string' && errorBodyText.trim() ? errorBodyText : null) ||
-            'Failed to create link token';
-          if (!cancelled && auth.currentUser?.uid === user.id) {
-            setHistoryReviewRequired(errorData?.code === 'BANK_HISTORY_REVIEW_REQUIRED');
-          }
-          throw new Error(message);
-        }
-
-        const data = await response.json();
-        if (cancelled || auth.currentUser?.uid !== user.id) return;
-        setLinkToken(data.link_token);
-        setLinkOwner(user.id);
-        setRedirectUri(data.redirect_uri);
-      } catch (err: any) {
-        if (cancelled) return;
-        console.error('Error creating link token:', err);
-        setError(err.message || 'Failed to initialize bank connection. Please try again.');
-      }
-    };
-
-    createLinkToken();
-    return () => { cancelled = true; };
-  }, [user.id, updateItemId, reconnectSessionId, oauthResume]);
-
-  const onPlaidSuccess = useCallback(async (public_token: string) => {
+  const onPlaidSuccess = useCallback(async (public_token: string | null, metadata?: { link_session_id?: unknown }) => {
+    if (typeof public_token === 'string' && public_token) trackPlaidLinkHandoff(metadata);
     setLoading(true);
     setError(null);
     setHistoryReviewRequired(false);
@@ -431,22 +428,23 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
       }
     } catch (err: any) {
       console.error('Error connecting bank account:', err);
+      setShowLinkFallback(true);
       setError(err.message || 'Failed to connect bank account. Please try again.');
     } finally {
       setLoading(false);
     }
   }, [user.id, onSuccess, updateItemId, reconnectSessionId, router, linkOwner]);
 
-  const onPlaidExit = useCallback((err: any) => {
+  const onPlaidExit = useCallback((err: { error_code?: unknown } | null, metadata?: { status?: unknown; link_session_id?: unknown }) => {
+    trackPlaidLinkExit(metadata, err);
     clearPlaidOAuthSession(window.sessionStorage);
+    setShowLinkFallback(true);
     if (oauthResume) {
       setError('Bank sign-in was not completed. Return to your banks and try again.');
       return;
     }
-    if (err) {
-      console.error('Plaid Link exit error:', err);
-      setError('Bank connection was cancelled or failed. Please try again.');
-    }
+    if (err) console.error('Plaid Link exit error:', err);
+    setError(err ? 'Bank connection was cancelled or failed. Please try again.' : BANK_LINK_NOT_FINISHED);
   }, [oauthResume]);
 
   // Check for duplicate script loading and warn if detected
@@ -466,7 +464,15 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
     ...(oauthResume ? { receivedRedirectUri: oauthResume.receivedRedirectUri } : {}),
     onSuccess: onPlaidSuccess,
     onExit: onPlaidExit,
+    onEvent: (eventName, metadata) => { if (eventName === 'OPEN') trackPlaidLinkOpen(metadata); },
   });
+
+  const rememberLinkSession = useCallback((token: string) => {
+    if (redirectUri) savePlaidOAuthSession(window.sessionStorage, { version: 1, uid: user.id, token,
+      redirectUri, createdAt: Date.now(), fromSettings, ...(updateItemId ? { itemId: updateItemId } : {}),
+      ...(reconnectSessionId ? { reconnectSessionId } : {}) }, window.location.origin);
+    else clearPlaidOAuthSession(window.sessionStorage);
+  }, [redirectUri, user.id, fromSettings, updateItemId, reconnectSessionId]);
 
   useEffect(() => {
     if (!oauthResume || !ready || !linkToken || linkOwner !== user.id || resumedToken.current === linkToken) return;
@@ -474,26 +480,65 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
     open();
   }, [oauthResume, ready, linkToken, open, linkOwner, user.id]);
 
-  const handleConnectBank = async () => {
-    if (!bankConsent) return;
+  useEffect(() => {
+    if (!pendingOpen.current || oauthResume || !ready || !linkToken || linkOwner !== user.id || auth.currentUser?.uid !== user.id) return;
+    pendingOpen.current = false;
+    rememberLinkSession(linkToken);
+    open();
+  }, [oauthResume, ready, linkToken, linkOwner, user.id, open, rememberLinkSession]);
 
-    // Free trial is automatically started when creating link token
-    // Just connect the bank - no subscription selection needed
-    if (ready) {
-      try {
-        if (!linkToken || linkOwner !== user.id || auth.currentUser?.uid !== user.id) throw new Error('Sign in again before connecting your bank.');
-        if (redirectUri) savePlaidOAuthSession(window.sessionStorage, { version: 1, uid: user.id, token: linkToken,
-          redirectUri, createdAt: Date.now(), fromSettings, ...(updateItemId ? { itemId: updateItemId } : {}),
-          ...(reconnectSessionId ? { reconnectSessionId } : {}) }, window.location.origin);
-        else clearPlaidOAuthSession(window.sessionStorage);
+  const handleConnectBank = async () => {
+    if (!bankConsent || loading) return;
+    setShowLinkFallback(false);
+    setLoading(true);
+    setError(null);
+    try {
+      if (!consentSaved.current) {
+        const response = await makeAuthenticatedRequest('/api/onboarding/bank-consent', {
+          method: 'POST',
+          body: JSON.stringify({ version: BANK_CONSENT_VERSION, accepted_at: new Date().toISOString() }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          throw new Error(body?.error || BANK_CONSENT_SAVE_ERROR);
+        }
+        consentSaved.current = true;
+      }
+      if (auth.currentUser?.uid !== user.id) throw new Error('Sign in again before connecting your bank.');
+      if (updateItemId && (!ready || !linkToken || linkOwner !== user.id)) {
+        throw new Error('Sign in again before connecting your bank.');
+      }
+      if (ready && linkToken && linkOwner === user.id) {
+        rememberLinkSession(linkToken);
         open();
-      } catch (err) { setError(err instanceof Error ? err.message : 'Bank sign-in could not start. Please retry.'); }
+        return;
+      }
+      pendingOpen.current = true;
+      const token = await requestLinkToken();
+      if (!token) pendingOpen.current = false;
+    } catch (err) {
+      pendingOpen.current = false;
+      setShowLinkFallback(true);
+      setError(err instanceof Error ? err.message : BANK_CONSENT_SAVE_ERROR);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const retryBankLink = () => {
+    setError(null);
+    setShowLinkFallback(false);
+    if (oauthResume) {
+      if (ready) open();
+      return;
+    }
+    void handleConnectBank();
   };
 
   const handleSkip = () => {
     clearPlaidOAuthSession(window.sessionStorage);
-    onSuccess(); // Continue to next step without connecting bank
+    if (onSkip) onSkip();
+    else onSuccess();
   };
 
   if (historyReviewRequired) return (
@@ -514,6 +559,7 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
         <h1 className="text-xl font-semibold">{error ? 'Bank sign-in needs another try' : 'Finishing bank sign-in'}</h1>
         {error ? <p role="alert" className="text-sm text-muted-foreground">{error}</p>
           : <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Returning securely to your bank connection…</p>}
+        {showLinkFallback && bankLinkAlternatives(retryBankLink)}
         <Button variant="outline" onClick={() => { clearPlaidOAuthSession(window.sessionStorage); onBack(); }}>Return to banks</Button>
       </Card>
     </main>
@@ -807,8 +853,9 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
         </div>
 
         {error && (
-          <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
+          <div className="mb-6 space-y-3 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
             <p className="text-destructive text-sm">{error}</p>
+            {showLinkFallback && bankLinkAlternatives(retryBankLink)}
           </div>
         )}
 
@@ -888,13 +935,14 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
                   required
                 />
                 <label htmlFor="bankConsent" className="text-xs text-foreground">
-                  I authorize WriteOff to access and use my account and transaction data via Plaid to analyze potential tax deductions and generate reports, including Schedule C. I understand I can revoke access anytime. (<a href="/privacy" className="underline text-primary" target="_blank" rel="noopener noreferrer">Privacy Policy</a> | <a href="https://plaid.com/legal/#end-user-privacy-policy" className="underline text-primary" target="_blank" rel="noopener noreferrer">Plaid Privacy Policy</a>)
+                  {BANK_CONSENT_TEXT}{' '}
+                  (<a href="/privacy" className="underline text-primary" target="_blank" rel="noopener noreferrer">{BANK_CONSENT_PRIVACY_LINK_LABEL}</a>)
                   <span className="text-destructive ml-0.5">*</span>
                 </label>
               </div>
               <Button
                 onClick={handleConnectBank}
-                disabled={!ready || loading || !bankConsent}
+                disabled={loading || !bankConsent || Boolean(updateItemId && (!ready || !linkToken || linkOwner !== user.id))}
                 className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground font-medium shadow-md rounded-xl transition-all duration-200 flex items-center justify-center gap-3 disabled:opacity-50 text-base"
               >
                 {loading ? (
@@ -915,7 +963,7 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
                 variant="outline"
                 className="w-full h-10 border-2 border-border bg-card hover:bg-muted text-foreground rounded-xl transition-all duration-200 text-sm font-medium"
               >
-                {reconnectSessionId ? 'Return to history review' : 'Skip for now (connect later)'}
+                {reconnectSessionId ? 'Return to history review' : onSkip ? BANK_LINK_NOT_NOW : 'Skip for now (connect later)'}
               </Button>
           </Card>
 

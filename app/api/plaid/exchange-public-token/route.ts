@@ -10,6 +10,8 @@ import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 import { assertBankHistoryReadyForNewConnection, BANK_HISTORY_REVIEW_REQUIRED, BANK_HISTORY_REVIEW_MESSAGE } from '@/lib/plaid/history-review';
 import { ACCOUNT_DELETION_IN_PROGRESS, beginPlaidLinkOperation, retainPlaidLinkRecovery, finishPlaidLinkOperation,
   markPlaidLinkOperationUnresolved, existingPlaidLinkOwner, quarantinePlaidLinkRecovery } from '@/lib/plaid/link-operations';
+import { hasCurrentBankConsent } from '@/lib/onboarding/bank-consent';
+import { BANK_CONSENT_LOOKUP_ERROR, BANK_CONSENT_REQUIRED_ERROR } from '@/lib/onboarding/bank-consent-copy';
 
 export async function POST(req: Request) {
   let uid: string;
@@ -23,6 +25,12 @@ export async function POST(req: Request) {
   if (!body) return invalidJsonResponse();
   const { public_token } = body;
   if (typeof public_token !== 'string' || !public_token || public_token.length > 2048) return NextResponse.json({ error: 'Missing public_token' }, { status: 400 });
+  let bankAcknowledged = false;
+  try { bankAcknowledged = await hasCurrentBankConsent(uid); }
+  catch { return NextResponse.json({ error: BANK_CONSENT_LOOKUP_ERROR }, { status: 503 }); }
+  if (!bankAcknowledged) {
+    return NextResponse.json({ error: BANK_CONSENT_REQUIRED_ERROR }, { status: 403 });
+  }
   try {
     assertPlaidTokenEncryptionConfigured();
     // An already-issued Link/public token must not bypass the history check.

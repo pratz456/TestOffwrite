@@ -23,6 +23,12 @@ describe('consent re-acknowledgment for existing accounts', () => {
     delete beforeTerms.terms;
     expect(needsConsentReacknowledgment({ consents: beforeTerms })).toBe(true);
     expect(needsConsentReacknowledgment({ consents: current })).toBe(false);
+    const withoutBank = { ...current };
+    delete withoutBank.bank_data;
+    expect(needsConsentReacknowledgment({ consents: withoutBank })).toBe(false);
+    expect(needsConsentReacknowledgment({ consents: { ...current, bank_data: false } })).toBe(false);
+    expect(consentGateApplies('/protected', { consents: withoutBank })).toBe(false);
+    expect(consentGateApplies('/protected', { consents: current })).toBe(false);
     expect(needsConsentReacknowledgment(null)).toBe(false);
   });
   it('records the re-acknowledgment as its own source that the server allowlist accepts', () => {
@@ -47,7 +53,9 @@ describe('consent re-acknowledgment for existing accounts', () => {
     expect(html).toContain('Please review our updated acknowledgments');
     expect(html).toContain(`updated on ${CONSENT_TERMS_VERSION}`);
     expect(html).toContain('Notice at Collection');
-    for (const id of ['reack-termsConsent', 'reack-bankConsent', 'reack-aiConsent']) expect(html).toMatch(new RegExp(`<input[^>]*id="${id}"[^>]*aria-required="true"`));
+    for (const id of ['reack-termsConsent', 'reack-aiConsent']) expect(html).toMatch(new RegExp(`<input[^>]*id="${id}"[^>]*aria-required="true"`));
+    expect(html).not.toContain('reack-bankConsent');
+    expect(html).not.toContain('I authorize WriteOff to access and use my account and transaction data via Plaid');
     expect(html).toMatch(/href="\/terms"/);
     expect(html).not.toMatch(/checked=""/);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Agree and continue/);

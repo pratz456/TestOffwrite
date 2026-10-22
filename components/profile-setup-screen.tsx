@@ -100,7 +100,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
     const pending = readPendingConsents(user.email);
     if (!pending) return;
     let cancelled = false;
-    setConsentChoices({ terms: true, bank_data: true, ai_review: true, communications: pending.communications, document_import: false });
+    setConsentChoices({ terms: true, ai_review: true, communications: pending.communications, document_import: false });
     setConsentSaving(true);
     setConsentError(null);
     void persistConsentRecord(pending).then(
@@ -286,6 +286,7 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({ user, on
       <PlaidLinkScreen
         user={user}
         onSuccess={handlePlaidSuccess}
+        onSkip={() => onComplete(formData, PROFILE_COMPLETE_SCREEN)}
         onBack={() => setCurrentStep('data-source')}
       />
     );

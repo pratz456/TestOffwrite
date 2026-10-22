@@ -8,14 +8,16 @@ import { DOCUMENT_IMPORT_CONSENT_VERSION } from './document-import-consent';
 
 export const CONSENT_TERMS_VERSION = '2026-09-18';
 
-export const REQUIRED_CONSENTS = ['terms', 'bank_data', 'ai_review'] as const;
+export const REQUIRED_CONSENTS = ['terms', 'ai_review'] as const;
 /**
  * `communications` is a marketing preference. `document_import` is the §7216
  * consent to disclose a whole tax-document image to OpenAI; it is never offered
  * at sign-up, is true only together with a typed signature of the current
  * consent text, and can be withdrawn in Settings.
+ * `bank_data` is not collected here. Older sign-up records may still carry it.
  */
 export const OPTIONAL_CONSENTS = ['communications', 'document_import'] as const;
+export const LEGACY_CONSENT_KEYS = ['bank_data'] as const;
 export type RequiredConsent = (typeof REQUIRED_CONSENTS)[number];
 export type OptionalConsent = (typeof OPTIONAL_CONSENTS)[number];
 export type ConsentKey = RequiredConsent | OptionalConsent;
@@ -40,15 +42,23 @@ export interface ConsentRecord extends ConsentChoices {
   accepted_at: string;
   /** Present exactly when document_import is true. */
   document_import_signature?: DocumentImportConsentSignature;
+  /** Older sign-up records only. New records omit it. True means bank access was acknowledged then. */
+  bank_data?: boolean;
 }
 
-export const NO_CONSENTS: ConsentChoices = { terms: false, bank_data: false, ai_review: false, communications: false, document_import: false };
+export const NO_CONSENTS: ConsentChoices = { terms: false, ai_review: false, communications: false, document_import: false };
+
+/** True only for an already stored sign-up record that acknowledged bank access. A missing or false value is not one. */
+export function legacyBankDataConsent(record: unknown): boolean {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return false;
+  return (record as Record<string, unknown>).bank_data === true;
+}
 
 export function requiredConsentsAccepted(choices: Partial<ConsentChoices> | null | undefined): boolean {
   return REQUIRED_CONSENTS.every(key => choices?.[key] === true);
 }
 
-/** Sign-up, profile-setup and re-acknowledgment records; the §7216 consent is added later by signDocumentImportConsent. */
+/** Sign-up, profile-setup and re-acknowledgment records; the §7216 consent is added later by signDocumentImportConsent. Bank access is not part of this record. */
 export function buildConsentRecord(choices: ConsentChoices, source: ConsentSource, now = new Date()): ConsentRecord | null {
   if (!requiredConsentsAccepted(choices)) return null;
   return {
@@ -56,14 +66,13 @@ export function buildConsentRecord(choices: ConsentChoices, source: ConsentSourc
     source,
     accepted_at: now.toISOString(),
     terms: true,
-    bank_data: true,
     ai_review: true,
     communications: choices.communications === true,
     document_import: false,
   };
 }
 
-const RECORD_KEYS = new Set<string>(['version', 'source', 'accepted_at', 'document_import_signature', ...REQUIRED_CONSENTS, ...OPTIONAL_CONSENTS]);
+const RECORD_KEYS = new Set<string>(['version', 'source', 'accepted_at', 'document_import_signature', ...REQUIRED_CONSENTS, ...OPTIONAL_CONSENTS, ...LEGACY_CONSENT_KEYS]);
 const MAX_SIGNED_NAME_LENGTH = 200;
 
 /** Well-formed signature or null; `stale` marks a signature of an earlier consent text, which no longer authorizes anything. */
@@ -81,6 +90,7 @@ function parseDocumentImportSignature(input: unknown): { signature: DocumentImpo
 /**
  * Strict allowlist shared by the API route and the client: only the known keys,
  * only the current terms, and the required acknowledgments must be true.
+ * `bank_data` may be present on an older record and is not required.
  * `document_import: true` needs a well-formed signature; a signature of an
  * earlier consent version is read as no consent rather than as a bad record.
  */
@@ -93,6 +103,7 @@ export function parseConsentRecord(input: unknown): ConsentRecord | null {
   if (typeof record.accepted_at !== 'string' || record.accepted_at.length > 40 || Number.isNaN(Date.parse(record.accepted_at))) return null;
   if (!REQUIRED_CONSENTS.every(key => record[key] === true)) return null;
   if (OPTIONAL_CONSENTS.some(key => key in record && typeof record[key] !== 'boolean')) return null;
+  if ('bank_data' in record && typeof record.bank_data !== 'boolean') return null;
   let signature: DocumentImportConsentSignature | null = null;
   if (record.document_import === true) {
     const parsed = parseDocumentImportSignature(record.document_import_signature);
@@ -104,12 +115,23 @@ export function parseConsentRecord(input: unknown): ConsentRecord | null {
     source: record.source as ConsentSource,
     accepted_at: new Date(record.accepted_at).toISOString(),
     terms: true,
-    bank_data: true,
     ai_review: true,
     communications: record.communications === true,
     document_import: signature !== null,
+    ...(typeof record.bank_data === 'boolean' ? { bank_data: record.bank_data } : {}),
     ...(signature ? { document_import_signature: signature } : {}),
   };
+}
+
+/**
+ * Saves the sign-up acknowledgments without taking a new bank acknowledgment from the request.
+ * An account that already stored `bank_data: true` keeps that value.
+ */
+export function withStoredBankDataConsent(record: ConsentRecord, stored: unknown): ConsentRecord {
+  const next: ConsentRecord = { ...record };
+  delete next.bank_data;
+  if (legacyBankDataConsent(stored)) next.bank_data = true;
+  return next;
 }
 
 export function hasAcknowledgedRequiredConsents(record: unknown): record is ConsentRecord {

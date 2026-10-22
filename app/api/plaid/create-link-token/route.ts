@@ -11,6 +11,8 @@ import { getPlaidConnection } from '@/lib/plaid/connections';
 import { assertBankHistoryReadyForNewConnection, BANK_HISTORY_REVIEW_REQUIRED, BANK_HISTORY_REVIEW_MESSAGE } from '@/lib/plaid/history-review';
 import { getPlaidOAuthRedirectUri } from '@/lib/plaid/oauth-config';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { hasCurrentBankConsent } from '@/lib/onboarding/bank-consent';
+import { BANK_CONSENT_LOOKUP_ERROR, BANK_CONSENT_REQUIRED_ERROR } from '@/lib/onboarding/bank-consent-copy';
 
 function webhookUrl(): string | undefined {
   const source = process.env.PLAID_WEBHOOK_URL || process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL;
@@ -41,6 +43,11 @@ export async function POST(request: NextRequest) {
     if (!connection) {
       if (body.reconnectSessionId !== undefined) await assertReconnectCanLink(uid, body.reconnectSessionId);
       else await assertBankHistoryReadyForNewConnection(uid);
+      // A new Item can start a trial. That waits until a bank acknowledgment is on file.
+      let acknowledged = false;
+      try { acknowledged = await hasCurrentBankConsent(uid); }
+      catch { return NextResponse.json({ error: BANK_CONSENT_LOOKUP_ERROR }, { status: 503 }); }
+      if (!acknowledged) return NextResponse.json({ error: BANK_CONSENT_REQUIRED_ERROR }, { status: 403 });
       await startFreeTrial(uid);
     }
     const webhook = webhookUrl();
