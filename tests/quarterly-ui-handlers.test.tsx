@@ -13,7 +13,7 @@ vi.mock('@/components/landing/landing-header', () => ({ LandingHeader: 'LandingH
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: h.request }));
 import { QuarterlyEstimateClient } from '../app/tools/quarterly-estimate-calculator/quarterly-estimate-client';
 import { QuarterlyTaxCalculator } from '../components/quarterly-tax-calculator';
-import { BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL, buildPriorYearOnlyQuarterlyPlan, buildQuarterlyPlan, PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL, QUARTERLY_PLANNER_READY_MESSAGE, type MissingFact } from '../lib/tax-provider/quarterly-planner';
+import { BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL, buildPriorYearOnlyQuarterlyPlan, buildQuarterlyPlan, PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL, QUARTERLY_PLANNER_READY_MESSAGE, ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL, type MissingFact } from '../lib/tax-provider/quarterly-planner';
 const walk = (n: any): any[] => Array.isArray(n) ? n.flatMap(walk) : n && typeof n === 'object' ? [n, ...walk(n.props?.children)] : [];
 const text = (n: any): string => Array.isArray(n) ? n.map(text).join('') : n && typeof n === 'object' ? text(n.props?.children) : typeof n === 'string' || typeof n === 'number' ? String(n) : '';
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -165,6 +165,20 @@ describe('authenticated quarterly summary renders planner figures or the specifi
     expect(content).toContain('$2,500.00');
     expect(content).not.toContain('Recorded federal withholding');
     expect(content).not.toContain('lesser of 90%');
+  });
+  it('shows the zero-prior-tax placeholder and no installment amounts', async () => {
+    h.request.mockImplementation(() => Response.json({
+      taxYear: currentYear, priorYearOnly: true, zeroPriorTaxReview: true, calculationWarnings: [],
+      paymentReview: { code: 'ZERO_PRIOR_TAX', message: 'not the approved label' },
+    }));
+    render(component); await flush();
+    const content = text(render(component));
+    expect(content).toContain(ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL);
+    expect(content).not.toContain('not the approved label');
+    expect(content).not.toContain('Recorded estimated payments');
+    expect(content).not.toContain('Recorded federal withholding');
+    expect(content).not.toContain('Installment (25%)');
+    expect(content).not.toContain('$0.00');
   });
   it('rejects a malformed planner payload instead of rendering partial figures', async () => {
     h.request.mockImplementation(() => Response.json({ taxYear: currentYear, totalEstimatedTax: 20000, recordedEstimatedPayments: 0, w2Withheld: 0, calculationWarnings: [], quarters: [], paymentReview: { message: 'x' }, planner: { status: 'ready' } }));

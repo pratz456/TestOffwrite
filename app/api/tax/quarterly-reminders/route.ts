@@ -20,6 +20,7 @@ import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
 import {
   BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL, buildPriorYearOnlyQuarterlyPlan, buildQuarterlyPlan, isIsoDate,
   PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL, QUARTERLY_PLANNER_READY_MESSAGE, readSavedPriorYearFacts, resolveQuarterlyPlannerFacts,
+  ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL,
   type QuarterlyPlan, type QuarterlyPlannerResponse, type RecordedEstimatedPayment,
 } from '@/lib/tax-provider/quarterly-planner';
 import { QUARTERLY_REVIEW_MESSAGE, QuarterlyReviewRequiredError } from '@/lib/tax-provider/regular-estimated-payments';
@@ -168,6 +169,8 @@ function priorYearOnlyBody(input: {
   return {
     taxYear, filingStatus: planner.filingStatus, asOf: planner.asOf,
     priorYearOnly: true,
+    // Line 24 total tax does not subtract refundable credits, so this base can be higher than the 1040-ES prior-year figure.
+    priorYearBaseMayOverstate: true,
     withholdingApplied,
     annualStatus: 'review_required' as const,
     annualStatusMessage,
@@ -230,10 +233,24 @@ async function priorYearOnlyWhenDependentReview(request: NextRequest, uid: strin
     profile,
   });
   const priorYear = saved.priorYear;
+  // The 12-month answer has to be an explicit yes. A missing answer leaves priorYear null; 'no' is available false. Both keep the annual response and include no amounts.
   if (!priorYear || priorYear.available !== true || priorYear.coveredTwelveMonths !== true
     || typeof priorYear.totalTax !== 'number' || !Number.isFinite(priorYear.totalTax)
     || typeof priorYear.agi !== 'number' || !Number.isFinite(priorYear.agi)) {
     return null;
+  }
+  if (priorYear.totalTax === 0) {
+    return NextResponse.json({
+      taxYear,
+      priorYearOnly: true,
+      zeroPriorTaxReview: true,
+      annualStatus: 'review_required' as const,
+      annualStatusMessage,
+      calculationWarnings: [] as string[],
+      paymentReview: { code: 'ZERO_PRIOR_TAX', message: ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL },
+    }, {
+      headers: { 'Cache-Control': 'private, no-store' },
+    });
   }
 
   let withholdingApplied = false;

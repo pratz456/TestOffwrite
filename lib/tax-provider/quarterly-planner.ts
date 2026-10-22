@@ -44,14 +44,22 @@ export const QUARTERLY_PLANNER_READY_MESSAGE = 'Planning estimate from your revi
 /**
  * Awaiting owner approval. Placeholder for the prior-year-only planner message shown on the quarterly screen.
  * The approved label must convey that the amount may be more than this year needs, because the current-year 90% option is not available.
+ * The approved label must also say the prior-year figure is Form 1040 line 24 total tax, which does not subtract refundable credits, so that figure may overstate the 1040-ES prior-year base.
  */
 export const PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL = 'PRIOR_YEAR_ONLY_LABEL_PENDING_APPROVAL';
 
 /**
  * Awaiting owner approval. Placeholder when prior-year installments are shown before federal withholding is applied.
  * The approved label must convey that the amount may be more than this year needs.
+ * The approved label must also say the prior-year figure is Form 1040 line 24 total tax, which does not subtract refundable credits, so that figure may overstate the 1040-ES prior-year base.
  */
 export const BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL = 'BEFORE_WITHHOLDING_LABEL_PENDING_APPROVAL';
+
+/**
+ * Awaiting owner approval. Placeholder when a 12-month prior return shows zero total tax.
+ * Full-year U.S. citizenship or residency is not collected, so that zero is not turned into installments.
+ */
+export const ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL = 'ZERO_PRIOR_TAX_LABEL_PENDING_APPROVAL';
 
 const QUARTERS: readonly Quarter[] = [1, 2, 3, 4];
 const DAY_MS = 86_400_000;
