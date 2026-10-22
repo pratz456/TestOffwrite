@@ -143,10 +143,10 @@ describe("2026-10-22 blog tax corrections", () => {
     expect(readPost(file)).toContain(added);
   });
 
-  it("holds finding 3 unchanged for tax review v2", () => {
+  it("applies finding 3 from tax review v2", () => {
     const post = readPost("qbi-deduction-freelancers-section-199a.mdx");
-    expect(post).toContain("You are a freelance graphic designer with $80,000 in net profit. Full qualification gets you a $16,000 deduction. At a 22% tax rate, that is **$3,520 back in your pocket** for knowing about a form most people skip.");
-    expect(post).not.toContain("a QBI deduction of roughly $11,650");
-    expect(post).not.toContain("worth about $2,560 in federal income tax at a 22% bracket");
+    expect(post).toContain("Say you are single, this $80,000 is your only income, and you take the standard deduction. Your QBI deduction is roughly $11,650 for 2026, which cuts federal income tax by about $2,180.");
+    expect(post).not.toContain("Full qualification gets you a $16,000 deduction");
+    expect(post).not.toContain("**$3,520 back in your pocket**");
   });
 });
