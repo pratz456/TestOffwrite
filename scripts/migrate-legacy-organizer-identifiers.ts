@@ -13,8 +13,9 @@
  * organizer write, the current field values are saved in
  * `tax_organizer_identifier_backups` with the existing helpers. The organizer
  * update merges the fields from `legacyIdentifierPatch` and `identifiersEncryptedAt`
- * in the same transaction as the backup. A record that changed after it was
- * read is left as-is and counted for a later run.
+ * in the same transaction as the backup. A record whose read time changed, or that
+ * has no read time, is left as-is. A record that no longer needs an update is
+ * counted separately.
  * The report and each backup document store a short fingerprint of the
  * application key. The key itself is not printed or stored.
  *
@@ -96,6 +97,7 @@ export interface MigrationReport {
   notesFieldsMatched: number;
   docsUpdated: number;
   skippedChanged: number;
+  skippedAlreadyDone: number;
   docsUnreadable: number;
   writesPerformed: boolean;
   encryptionKeyFingerprint: string;
@@ -173,6 +175,7 @@ export function formatMigrationReport(report: MigrationReport): string {
     notesFieldsMatched: report.notesFieldsMatched,
     docsUpdated: report.docsUpdated,
     skippedChanged: report.skippedChanged,
+    skippedAlreadyDone: report.skippedAlreadyDone,
     docsUnreadable: report.docsUnreadable,
     writesPerformed: report.writesPerformed,
     encryptionKeyFingerprint: report.encryptionKeyFingerprint,
@@ -326,7 +329,7 @@ function storedFieldMatches(field: string, original: string, stored: Record<stri
 function emptyReport(mode: MigrationMode, projectId: string, encryptionKeyFingerprint: string): MigrationReport {
   return {
     mode, projectId, docsScanned: 0, docsNeedingUpdate: 0, fieldsByType: {}, notesFieldsMatched: 0,
-    docsUpdated: 0, skippedChanged: 0, docsUnreadable: 0, writesPerformed: false, encryptionKeyFingerprint,
+    docsUpdated: 0, skippedChanged: 0, skippedAlreadyDone: 0, docsUnreadable: 0, writesPerformed: false, encryptionKeyFingerprint,
   };
 }
 
@@ -356,6 +359,22 @@ export async function connectMigrationFirestore(projectId: string, env: NodeJS.P
     { credential: applicationDefault(), projectId },
     `migrate-legacy-organizer-identifiers-${Date.now()}`,
   );
+  return { db: getFirestore(app) as unknown as MigrationDb, close: () => deleteApp(app) };
+}
+
+/** Local emulator only. The owner-run path above still refuses an emulator host. */
+export function assertEmulatorMaintenanceTarget(projectId: string, env: NodeJS.ProcessEnv = process.env): void {
+  if (!env.FIRESTORE_EMULATOR_HOST) throw new Error('The local emulator host is required');
+  if (!/^demo-[a-z0-9-]+$/.test(projectId)) throw new Error('The local emulator run requires a demo- project id');
+}
+
+export async function connectEmulatorMigrationFirestore(projectId: string, env: NodeJS.ProcessEnv = process.env): Promise<{ db: MigrationDb; close: () => Promise<void> }> {
+  assertEmulatorMaintenanceTarget(projectId, env);
+  const [{ initializeApp, deleteApp }, { getFirestore }] = await Promise.all([
+    import('firebase-admin/app'),
+    import('firebase-admin/firestore'),
+  ]);
+  const app = initializeApp({ projectId }, `migrate-legacy-organizer-identifiers-emulator-${Date.now()}`);
   return { db: getFirestore(app) as unknown as MigrationDb, close: () => deleteApp(app) };
 }
 
@@ -538,7 +557,7 @@ export async function runMigration(options: MigrationRunOptions): Promise<Migrat
         try {
           const outcome = await opened.db.runTransaction(async tx => {
             const fresh = await tx.get(doc.ref);
-            if (!fresh.exists || !sameUpdateTime(fresh.updateTime, doc.updateTime)) return 'skipped' as const;
+            if (!fresh.exists || !sameUpdateTime(fresh.updateTime, doc.updateTime)) return 'changed' as const;
             const freshData = fresh.data() ?? {};
             let freshRead: OrganizerIdentifierRead;
             try {
@@ -547,7 +566,7 @@ export async function runMigration(options: MigrationRunOptions): Promise<Migrat
               return 'unreadable' as const;
             }
             const freshFields = legacyFields(freshRead);
-            if (!freshFields.length) return 'skipped' as const;
+            if (!freshFields.length) return 'alreadyDone' as const;
             let owner: { userId?: string };
             let encryptedFields: Record<string, string>;
             try {
@@ -565,7 +584,8 @@ export async function runMigration(options: MigrationRunOptions): Promise<Migrat
             runId = id;
             return 'updated' as const;
           });
-          if (outcome === 'skipped') { report.skippedChanged += 1; continue; }
+          if (outcome === 'changed') { report.skippedChanged += 1; continue; }
+          if (outcome === 'alreadyDone') { report.skippedAlreadyDone += 1; continue; }
           if (outcome === 'unreadable') { report.docsUnreadable += 1; continue; }
           report.docsUpdated += 1;
         } catch (error) {

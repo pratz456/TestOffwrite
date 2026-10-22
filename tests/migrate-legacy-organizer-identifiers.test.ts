@@ -5,7 +5,7 @@ import { REDACTED_ID } from '../lib/security/identifier-redaction';
 import { decryptSensitive, encryptSensitive, isEncrypted } from '../lib/security/utils';
 import { assertVendoredLiveReader, decryptSensitive as liveDecrypt, maskOrganizerIdentifier as liveMask, type OrganizerIdentifierKind } from './fixtures/live-organizer-reader';
 import {
-  DEFAULT_RETENTION_DAYS, ORGANIZER_COLLECTION, connectMigrationFirestore, formatMigrationReport, hashDocRef, parseMigrationArgs, runMigration, runMigrationCli,
+  DEFAULT_RETENTION_DAYS, ORGANIZER_COLLECTION, assertEmulatorMaintenanceTarget, connectMigrationFirestore, formatMigrationReport, hashDocRef, parseMigrationArgs, runMigration, runMigrationCli,
   type MigrationDb, type MigrationDocRef,
 } from '../scripts/migrate-legacy-organizer-identifiers';
 
@@ -21,7 +21,7 @@ function fakeDb(
   organizers: Record<string, Record<string, unknown>>,
   failOrganizerIds = new Set<string>(),
   backups: Record<string, Record<string, unknown>> = {},
-  hooks: { afterOrganizerPage?: () => void } = {},
+  hooks: { afterOrganizerPage?: () => void; hideUpdateTimeOnFirstPage?: boolean } = {},
 ) {
   const collections = new Map<string, Map<string, Record<string, unknown>>>([
     [ORGANIZER_COLLECTION, new Map(Object.entries(organizers).map(([id, data]) => [id, { ...data }]))],
@@ -91,9 +91,10 @@ function fakeDb(
         async get() {
           const ids = [...collections.get(name)!.keys()].filter(id => afterId === undefined || id > afterId).sort();
           const page = ids.slice(0, limitCount);
+          const hideUpdateTime = name === ORGANIZER_COLLECTION && !sawOrganizerPage && hooks.hideUpdateTimeOnFirstPage === true;
           const docs = page.map(id => {
             const frozen = { ...collections.get(name)!.get(id)! };
-            const updateTime = updateTimes.get(name)!.get(id);
+            const updateTime = hideUpdateTime ? undefined : updateTimes.get(name)!.get(id);
             return { id, updateTime, ref: docRef(name, id), data: () => ({ ...frozen }) };
           });
           if (name === ORGANIZER_COLLECTION && !sawOrganizerPage && docs.length > 0) {
@@ -185,7 +186,7 @@ describe('organizer record maintenance', () => {
     expect(report).toEqual({
       mode: 'dry_run', projectId: PROJECT, docsScanned: 2, docsNeedingUpdate: 1,
       fieldsByType: { ssn: 2, ein: 1, redactedText: 1 }, notesFieldsMatched: 1,
-      docsUpdated: 0, skippedChanged: 0, docsUnreadable: 0, writesPerformed: false, encryptionKeyFingerprint: keyFingerprint(KEY),
+      docsUpdated: 0, skippedChanged: 0, skippedAlreadyDone: 0, docsUnreadable: 0, writesPerformed: false, encryptionKeyFingerprint: keyFingerprint(KEY),
     });
     expect(writes).toEqual([]);
     expect(collections.get(ORGANIZER_COLLECTION)!.get('legacy')).toEqual(before);
@@ -330,6 +331,9 @@ describe('organizer record maintenance', () => {
   it('refuses to open Firestore while the emulator host is set', async () => {
     await expect(connectMigrationFirestore(PROJECT, { FIRESTORE_EMULATOR_HOST: '127.0.0.1:8080' })).rejects.toThrow(/FIRESTORE_EMULATOR_HOST/);
     await expect(runMigration({ projectId: '', db: fakeDb({}).db, ...quiet })).rejects.toThrow(/project id/);
+    expect(() => assertEmulatorMaintenanceTarget(PROJECT, {})).toThrow(/emulator host/);
+    expect(() => assertEmulatorMaintenanceTarget('writeoff-23910', { FIRESTORE_EMULATOR_HOST: '127.0.0.1:8765' })).toThrow(/demo-/);
+    expect(() => assertEmulatorMaintenanceTarget(PROJECT, { FIRESTORE_EMULATOR_HOST: '127.0.0.1:8765' })).not.toThrow();
   });
 
   it('reads and masks every written field with the recorded production helpers', async () => {
@@ -555,6 +559,7 @@ describe('organizer record maintenance', () => {
     const again = await runMigration({ projectId: PROJECT, apply: true, confirm: PROJECT, db: store.db, ...quiet });
     expect(again.docsUpdated).toBe(1);
     expect(again.skippedChanged).toBe(0);
+    expect(again.skippedAlreadyDone).toBe(0);
     const converted = store.collections.get(ORGANIZER_COLLECTION)!.get('row')!;
     const backup = store.collections.get(ORGANIZER_IDENTIFIER_BACKUP_COLLECTION)!.get('row')!;
     expect(decryptSensitive(String(converted.taxpayerSSN))).toBe(saved);
@@ -585,5 +590,37 @@ describe('organizer record maintenance', () => {
     expect(different.collections.get(ORGANIZER_IDENTIFIER_BACKUP_COLLECTION)!.get('row')!.verified).toBe(false);
     expect(formatMigrationReport(missingReport)).not.toContain(original);
     expect(formatMigrationReport(differentReport)).not.toContain(original);
+  });
+
+  it('counts a record that no longer needs an update on its own', async () => {
+    const done = encryptSensitive('900-00-0004');
+    const store = fakeDb({ row: { userId: 'owner-done', taxpayerSSN: '900-00-0004' } }, new Set(), {}, {
+      afterOrganizerPage: () => {
+        store.collections.get(ORGANIZER_COLLECTION)!.set('row', { userId: 'owner-done', taxpayerSSN: done });
+      },
+    });
+    const report = await runMigration({ projectId: PROJECT, apply: true, confirm: PROJECT, db: store.db, ...quiet });
+    expect(report.skippedAlreadyDone).toBe(1);
+    expect(report.skippedChanged).toBe(0);
+    expect(report.docsUpdated).toBe(0);
+    expect(store.collections.get(ORGANIZER_COLLECTION)!.get('row')!.taxpayerSSN).toBe(done);
+    expect(store.collections.get(ORGANIZER_IDENTIFIER_BACKUP_COLLECTION)!.has('row')).toBe(false);
+  });
+
+  it('counts a missing read time as changed and a rerun can finish it', async () => {
+    const original = '900-00-0005';
+    const store = fakeDb({ row: { userId: 'owner-open', taxpayerSSN: original } }, new Set(), {}, { hideUpdateTimeOnFirstPage: true });
+    const report = await runMigration({ projectId: PROJECT, apply: true, confirm: PROJECT, db: store.db, ...quiet });
+    expect(report.skippedChanged).toBe(1);
+    expect(report.skippedAlreadyDone).toBe(0);
+    expect(report.docsUpdated).toBe(0);
+    expect(store.collections.get(ORGANIZER_COLLECTION)!.get('row')!.taxpayerSSN).toBe(original);
+    expect(store.collections.get(ORGANIZER_IDENTIFIER_BACKUP_COLLECTION)!.has('row')).toBe(false);
+    const again = await runMigration({ projectId: PROJECT, apply: true, confirm: PROJECT, db: store.db, ...quiet });
+    expect(again.skippedChanged).toBe(0);
+    expect(again.docsUpdated).toBe(1);
+    expect(decryptSensitive(String(store.collections.get(ORGANIZER_COLLECTION)!.get('row')!.taxpayerSSN))).toBe(original);
+    const backup = store.collections.get(ORGANIZER_IDENTIFIER_BACKUP_COLLECTION)!.get('row')!;
+    expect(decryptSensitive(String((backup.encryptedFields as Record<string, string>).taxpayerSSN))).toBe(original);
   });
 });
