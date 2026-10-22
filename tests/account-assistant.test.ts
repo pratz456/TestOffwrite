@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 import { accountResultSchema, isAccountActionHref } from '@/lib/tax-assistant/account-contract';
 import { extractTaxPosition, taxPositionResult, transactionAccountResult } from '@/lib/tax-assistant/account-tools';
@@ -17,7 +17,8 @@ const row = { id: 'one', userId: 'owner', merchant_name: 'Adobe', amount: 59, da
 const tax = { taxYear: 2026, income: { grossReceipts: 60000, totalDeductible: 5000 }, form1040: { totalTax: 11413, balanceDue: 1000, refund: 0, calculationWarnings: [] } };
 const completion = (value: unknown) => ({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(value), refusal: null } }] });
 const req = (body: unknown = { message: 'What needs review?', taxYear: 2026 }) => new NextRequest('http://localhost/api/ai/account-assistant', { method: 'POST', body: JSON.stringify(body), headers: { authorization: 'Bearer synthetic', 'content-type': 'application/json' } });
-beforeEach(() => { vi.clearAllMocks(); resetRateLimitStore(); h.key = true; h.authenticate.mockResolvedValue({ user: { uid: 'owner' } }); h.create.mockResolvedValue(completion({ intent: 'review_transactions' })); h.records.mockResolvedValue([row]); h.tax.mockImplementation(async () => NextResponse.json(tax)); h.guidance.mockImplementation(async () => NextResponse.json({ reply: 'Reviewed legal guidance' })); h.save.mockResolvedValue(null); });
+beforeEach(() => { vi.clearAllMocks(); resetRateLimitStore(); vi.stubEnv('FEATURE_UNRELEASED_SCREENS', ''); h.key = true; h.authenticate.mockResolvedValue({ user: { uid: 'owner' } }); h.create.mockResolvedValue(completion({ intent: 'review_transactions' })); h.records.mockResolvedValue([row]); h.tax.mockImplementation(async () => NextResponse.json(tax)); h.guidance.mockImplementation(async () => NextResponse.json({ reply: 'Reviewed legal guidance' })); h.save.mockResolvedValue(null); });
+afterEach(() => { vi.unstubAllEnvs(); });
 
 describe('account assistant read boundary', () => {
   it('authenticates before provider or record reads', async () => {
@@ -68,9 +69,12 @@ describe('account assistant read boundary', () => {
     h.tax.mockImplementation(async () => NextResponse.json({ error: 'Annual 2027 figures are not published.', code: 'TAX_YEAR_UNAVAILABLE' }, { status: 400 }));
     const result = await (await POST(req({ message: 'What do I owe?', taxYear: 2027 }))).json(); expect(result.account.metrics).toEqual([]); expect(h.save).not.toHaveBeenCalled();
   });
-  it('links to the Premium-gated handoff flow without exporting or sharing anything', async () => {
-    h.create.mockResolvedValue(completion({ intent: 'prepare_handoff' })); const result = await (await POST(req())).json();
-    expect(result.account.actions[0].href).toBe('/protected?screen=tax-filing-hub'); expect(h.records).not.toHaveBeenCalled(); expect(h.tax).not.toHaveBeenCalled();
+  it('does not link to an unreleased screen unless that flag is on', async () => {
+    h.create.mockResolvedValue(completion({ intent: 'prepare_handoff' })); const hidden = await (await POST(req())).json();
+    expect(hidden.account.actions).toEqual([]); expect(h.records).not.toHaveBeenCalled(); expect(h.tax).not.toHaveBeenCalled();
+    vi.stubEnv('FEATURE_UNRELEASED_SCREENS', 'true');
+    h.create.mockResolvedValue(completion({ intent: 'prepare_handoff' })); const shown = await (await POST(req())).json();
+    expect(shown.account.actions[0].href).toBe('/protected?screen=tax-filing-hub');
   });
 });
 

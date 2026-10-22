@@ -140,7 +140,7 @@ if (mode !== 'public') {
     '/api/transactions/analysis-status', '/api/analysis-status', '/api/monthly-deductions?year=2026', '/api/tax-savings?year=2026',
     '/api/categories', '/api/income/1099?year=2026', '/api/income/gross-receipts?year=2026',
     '/api/tax/deductions?year=2026', '/api/tax/organizer?year=2026', '/api/tax/year-lock?year=2026',
-    '/api/tax/schedule-se/auto?year=2026', '/api/tax/schedule-c/calculate?year=2026', '/api/tax/form-8879?year=2026',
+    '/api/tax/schedule-se/auto?year=2026', '/api/tax/schedule-c/calculate?year=2026',
     '/api/settings/tax-summary', '/api/plaid/items', '/api/plaid/import-status',
   ];
   for (const route of readOnlyRoutes) {
@@ -148,16 +148,26 @@ if (mode !== 'public') {
       const result = await request(route, { token: owner.token }); status(result, 200); assert.ok(result.data !== null);
     });
   }
-  await check('in-app filing stays unavailable without sandbox enrollment', async () => {
-    const r = await request('/api/tax/filing?year=2026', { token: owner.token }); status(r, 200);
+  const unreleasedScreens = process.env.FEATURE_UNRELEASED_SCREENS === 'true';
+  await check('unreleased history read follows the server flag', async () => {
+    const r = await request('/api/tax/form-8879?year=2026', { token: owner.token });
+    if (!unreleasedScreens) { status(r, 404); return; }
+    status(r, 200); assert.ok(r.data !== null);
+  });
+  await check('unreleased status read follows the server flag', async () => {
+    const r = await request('/api/tax/filing?year=2026', { token: owner.token });
+    if (!unreleasedScreens) { status(r, 404); return; }
+    status(r, 200);
     assert.equal(r.data.available, false); assert.equal(r.data.status, 'unavailable'); assert.ok(!('userUrl' in r.data));
   });
-  await check('local legacy PIN cannot authorize or submit a return', async () => {
+  await check('unreleased history write follows the server flag', async () => {
     const r = await request('/api/tax/form-8879', { method: 'POST', token: owner.token, body: { taxYear: 2026, taxpayerPin: '12345', consent: true } });
+    if (!unreleasedScreens) { status(r, 404); return; }
     status(r, 409); assert.equal(r.data.code, 'FILING_PROVIDER_REQUIRED');
   });
-  await check('disabled filing launch rejects an otherwise consented paid account', async () => {
+  await check('unreleased status write follows the server flag', async () => {
     const r = await request('/api/tax/filing', { method: 'POST', token: owner.token, body: { taxYear: 2026, consent: true } });
+    if (!unreleasedScreens) { status(r, 404); return; }
     status(r, 503); assert.equal(r.data.code, 'FILING_NOT_AVAILABLE'); assert.ok(!('userUrl' in r.data));
   });
   const annualTaxRoutes = [
