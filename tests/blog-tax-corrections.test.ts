@@ -160,6 +160,8 @@ describe("2026-10-22 blog tax corrections", () => {
     expect(underreporting).toContain("This is only possible under the 6-year statute of limitations for leaving out more than 25% of gross income (IRC §6501(e)(1)(A)), and the normal limit is 3 years.");
 
     const gig = readPost("gig-economy-tax-guide.mdx");
+    expect(gig).not.toContain("Jan–Jun");
+    expect(gig).not.toContain("Jul–Dec");
     const gigFootnote = gig.split("\n").find((line) => line.startsWith("*2025 standard mileage rate:"));
     expect(gigFootnote).toContain("72.5 cents/mile Jan to Jun (IRS Notice 2026-10) and 76 cents/mile Jul to Dec (IRS Announcement 2026-11).");
     expect(gigFootnote).not.toContain("[IRC Section 274(d)](");
