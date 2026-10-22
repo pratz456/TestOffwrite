@@ -64,9 +64,11 @@ export async function GET(request: NextRequest) {
         .map(payment => {
           const paidDate = payment.record?.paidDate;
           const designatedTaxYear = payment.record?.designatedTaxYear;
+          const paymentType = payment.record?.paymentType === 'prior_year_overpayment' ? 'prior_year_overpayment' as const : null;
           return {
             amount: payment.paidAmount, paidDate: isIsoDate(paidDate) ? paidDate : null, recordedQuarter: payment.quarter,
             designatedTaxYear: typeof designatedTaxYear === 'number' && Number.isInteger(designatedTaxYear) ? designatedTaxYear : null,
+            ...(paymentType ? { paymentType, priorReturnFiled: true as const } : {}),
           };
         });
       try {
@@ -74,7 +76,7 @@ export async function GET(request: NextRequest) {
           ...resolution.facts, payments: recorded, asOf,
           assumptions: [
             ...resolution.facts.assumptions,
-            ...(recorded.length ? ['Each quarter\'s recorded total is treated as paid on the most recent payment date saved for that quarter.'] : []),
+            ...(recorded.length ? ['Each recorded payment is credited on the date saved for that payment.'] : []),
           ],
         });
       } catch (plannerError) {
@@ -85,7 +87,7 @@ export async function GET(request: NextRequest) {
       planner = resolution;
     }
 
-    const amountPaid = (quarter: number) => payments.find(payment => payment.quarter === quarter)?.paidAmount ?? 0;
+    const amountPaid = (quarter: number) => Math.round(payments.filter(payment => payment.quarter === quarter).reduce((sum, payment) => sum + Math.round(payment.paidAmount * 100), 0)) / 100;
     const quarters = planner.status === 'ready'
       ? planner.installments.map(installment => ({
         quarter: installment.quarter, label: `Q${installment.quarter}`, dueDate: installment.dueDate, amountPaid: amountPaid(installment.quarter),

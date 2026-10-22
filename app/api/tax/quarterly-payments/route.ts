@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb, FieldValue } from '@/lib/firebase/admin';
+import { getRecordedQuarterlyPayments } from '@/lib/firebase/quarterly-payments-server';
 import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
 import { getInstallmentDueDates } from '@/lib/tax-provider/quarterly-planner';
 import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
@@ -32,6 +33,26 @@ interface QuarterlyPaymentRecord {
 
 function getDocId(quarter: number, year: number): string {
   return `Q${quarter}_${year}`;
+}
+
+const LEGACY_DOC_ID = /^Q([1-4])_(\d{4})$/;
+const CLIENT_PAYMENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function designatedYear(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 2000 && value <= 2100 ? value : null;
+}
+
+function clientPaymentId(value: unknown): string | null {
+  if (typeof value !== 'string' || !CLIENT_PAYMENT_ID.test(value) || LEGACY_DOC_ID.test(value)) return null;
+  return value;
+}
+
+function present(value: unknown): boolean {
+  return !(value === undefined || value === null || value === '');
 }
 
 function getDeadlineForQuarter(quarter: number, year: number): Date {
@@ -78,12 +99,19 @@ export async function GET(request: NextRequest) {
       .doc(user.uid)
       .collection('quarterly_payments');
 
+    const recorded = await getRecordedQuarterlyPayments(user.uid, year);
     const docIds = QUARTER_DEADLINES.map((q) => getDocId(q.quarter, year));
     const payments: QuarterlyPaymentRecord[] = [];
 
     for (const docId of docIds) {
       const [q, y] = docId.replace('Q', '').split('_').map(Number);
       const docSnap = await collectionRef.doc(docId).get();
+      const counted = recorded.filter(payment => payment.quarter === q);
+      const paidAmount = roundMoney(counted.reduce((sum, payment) => sum + Math.round(payment.paidAmount * 100), 0) / 100);
+      const paidDates = counted
+        .map(payment => payment.record?.paidDate)
+        .filter((date): date is string => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date))
+        .sort();
 
       let record: Omit<QuarterlyPaymentRecord, 'penalty'>;
 
@@ -94,17 +122,17 @@ export async function GET(request: NextRequest) {
           year: data.year ?? y,
           deadline: getDeadlineForQuarter(q, y).toISOString(),
           estimatedAmount: data.estimatedAmount ?? 0,
-          paidAmount: data.paidAmount ?? 0,
-          paidDate: data.paidDate ?? null,
+          paidAmount,
+          paidDate: paidDates.at(-1) ?? null,
           designatedTaxYear: Number.isInteger(data.designatedTaxYear) ? data.designatedTaxYear : null,
           paymentType: data.paymentType === 'prior_year_overpayment' ? 'prior_year_overpayment' : null,
           confirmationNumber: data.confirmationNumber ?? null,
           paymentMethod: data.paymentMethod ?? null,
-          status: data.paidAmount > 0 ? 'recorded' : 'no_record',
+          status: paidAmount > 0 ? 'recorded' : 'no_record',
           notes: data.notes ?? '',
         };
       } else {
-        record = createDefaultPayment(q, y);
+        record = { ...createDefaultPayment(q, y), paidAmount, paidDate: paidDates.at(-1) ?? null };
         // A read must not create records or race a payment being saved.
       }
 
@@ -158,6 +186,8 @@ export async function POST(request: NextRequest) {
       designatedTaxYear,
       paymentType,
       priorReturnFiled,
+      paymentId: rawPaymentId,
+      recordId: rawRecordId,
     } = body;
 
     if (quarter == null || year == null || paidAmount == null || !paidDate) {
@@ -194,7 +224,57 @@ export async function POST(request: NextRequest) {
       const current = existing.exists ? existing.data()! : createDefaultPayment(q, y);
       return NextResponse.json({ ...current, penalty: null });
     }
-    const effectiveDate = applied ? getInstallmentDueDates(y)[0].dueDate : paidDate;
+    const effectiveDateFor = (taxYear: number) => applied ? getInstallmentDueDates(taxYear)[0].dueDate : paidDate;
+    const hasPaymentId = present(rawPaymentId);
+    const paymentId = hasPaymentId ? clientPaymentId(rawPaymentId) : null;
+    if (hasPaymentId && !paymentId) {
+      return NextResponse.json({ error: 'Invalid payment id' }, { status: 400 });
+    }
+    const hasRecordId = present(rawRecordId);
+    const recordId = hasRecordId && typeof rawRecordId === 'string' && LEGACY_DOC_ID.test(rawRecordId) ? rawRecordId : null;
+    if (hasRecordId && !recordId) {
+      return NextResponse.json({ error: 'Invalid payment record' }, { status: 400 });
+    }
+    const storedDesignation = designatedYear(designatedTaxYear);
+    const taxYearFor = storedDesignation ?? y;
+
+    if (paymentId) {
+      const paymentRef = collectionRef.doc(paymentId);
+      const legacyRef = recordId ? collectionRef.doc(recordId) : null;
+      const saved = await adminDb.runTransaction(async transaction => {
+        const snapshot = await transaction.get(paymentRef);
+        const priorPaid = snapshot.exists ? roundMoney(Number(snapshot.data()?.paidAmount) || 0) : 0;
+        if (snapshot.exists) {
+          return { missing: false, record: snapshot.data()! };
+        }
+        if (legacyRef) {
+          const legacy = await transaction.get(legacyRef);
+          if (!legacy.exists) return { missing: true, record: null };
+        }
+        const paidAmount = roundMoney(priorPaid + amount);
+        const record = {
+          ...createDefaultPayment(q, taxYearFor),
+          quarter: q, year: taxYearFor, paidAmount, paidDate: effectiveDateFor(taxYearFor),
+          designatedTaxYear: storedDesignation,
+          paymentType: applied ? 'prior_year_overpayment' as const : null,
+          confirmationNumber: typeof confirmationNumber === 'string' ? confirmationNumber.slice(0, 200) : null,
+          paymentMethod: typeof paymentMethod === 'string' ? paymentMethod.slice(0, 100) : null,
+          notes: typeof notes === 'string' ? notes.slice(0, 2000) : '',
+          status: paidAmount > 0 ? 'recorded' : 'no_record',
+          penalty: null,
+        };
+        transaction.set(paymentRef, { ...record, updatedAt: FieldValue.serverTimestamp() });
+        if (legacyRef) {
+          transaction.set(legacyRef, { supersededBy: paymentId, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        }
+        return { missing: false, record };
+      });
+      if (saved.missing || !saved.record) {
+        return NextResponse.json({ error: 'Payment record not found' }, { status: 404 });
+      }
+      return NextResponse.json({ ...saved.record, penalty: null });
+    }
+
     const updatedPayment = await adminDb.runTransaction(async transaction => {
       const snapshot = await transaction.get(docRef);
       const prior = snapshot.exists ? snapshot.data()! : createDefaultPayment(q, y);
@@ -202,8 +282,8 @@ export async function POST(request: NextRequest) {
       const paidAmount = (Math.round((Number(prior.paidAmount) || 0) * 100) + Math.round(amount * 100)) / 100;
       const record = {
         ...createDefaultPayment(q, y),
-        estimatedAmount, paidAmount, paidDate: effectiveDate,
-        designatedTaxYear: typeof designatedTaxYear === 'number' && Number.isInteger(designatedTaxYear) && designatedTaxYear >= 2000 && designatedTaxYear <= 2100 ? designatedTaxYear : null,
+        estimatedAmount, paidAmount, paidDate: effectiveDateFor(y),
+        designatedTaxYear: storedDesignation,
         paymentType: applied ? 'prior_year_overpayment' as const : null,
         confirmationNumber: typeof confirmationNumber === 'string' ? confirmationNumber.slice(0, 200) : null,
         paymentMethod: typeof paymentMethod === 'string' ? paymentMethod.slice(0, 100) : null,

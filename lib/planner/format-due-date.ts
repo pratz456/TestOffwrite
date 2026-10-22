@@ -10,7 +10,8 @@ export function formatPlannerDueDate(isoDate: string): string {
   return `${MONTHS[month - 1]} ${day}, ${match[1]}`;
 }
 
-export function localIsoDate(date = new Date()): string {
+export function localIsoDate(date = new Date(), timeZone?: string): string {
+  if (timeZone) return calendarIsoDate(date, timeZone);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 

@@ -5,15 +5,15 @@ import { describe, expect, it, vi } from 'vitest';
 import { EstimatedPaymentPlannerCard, PlannerCardResult } from '@/components/estimated-payment-planner-card';
 import { buildPlannerCardView, type PlannerCardView, type PlannerResultFacts } from '@/lib/planner/card-view';
 import { appliedCreditDate, defaultDesignatedTaxYear, paymentYearChoiceApplies, validatePlannerForm, type PlannerFormInput } from '@/lib/planner/form-input';
-import { calendarIsoDate, formatPlannerDueDate, formatPlannerMoney } from '@/lib/planner/format-due-date';
-import { allocateOldestFirst } from '@/lib/planner/past-due';
+import { formatPlannerDueDate, formatPlannerMoney, localIsoDate } from '@/lib/planner/format-due-date';
+import { allocateOldestFirst, plannerTaxYearForDate } from '@/lib/planner/past-due';
 import {
   AFTER_PENALTY_END_NOTE, ALL_DUE_DATES_PASSED_SENTENCE, ANNUALIZED_PAST_DUE_NOTE, PAID_LATE_SENTENCE,
   PAST_DUE_LABEL, PAST_DUE_SENTENCE, PAYMENT_DATE_OUT_OF_RANGE_ERROR, PAYMENT_TAX_YEAR_PICKER_LABEL,
   PAYMENT_TYPE_PRIOR_YEAR_OVERPAYMENT_LABEL, PER_DUE_DATE_PENALTY_SENTENCE, PER_DUE_DATE_PENALTY_SENTENCE_PAST_DUE,
   PLANNER_ADD_INCOME_PAY_LESS, PLANNER_ALREADY_COVERED, PLANNER_APPLIED_AMOUNT_LABEL, PLANNER_APPLIED_FILED_LABEL,
   PLANNER_APPLIED_PENDING, PLANNER_COULD_BE_SMALLER, PLANNER_DE_MINIMIS, PLANNER_DISMISSED, PLANNER_E1_MESSAGE,
-  PLANNER_EMPTY, PLANNER_ERROR_LOAD, PLANNER_ERROR_NEGATIVE, PLANNER_ERROR_NOT_A_NUMBER, PLANNER_ERROR_PAYMENT_DATE,
+  PLANNER_EMPTY, PLANNER_ERROR_LOAD, PLANNER_ERROR_NEGATIVE, PLANNER_ERROR_NOT_A_NUMBER,
   PLANNER_ERROR_SAVE, PLANNER_FILING_STATUS_LABEL, PLANNER_MISSING_FACTS, PLANNER_NEXT_PAYMENT, PLANNER_PENALTY_SENTENCE,
   PLANNER_ZERO_TARGET_CASE1, PLANNER_ZERO_TARGET_CASE2, Q4_FILE_AND_PAY_SENTENCE, SHOW_AFTER_PENALTY_END_NOTE,
   SHOW_ANNUALIZED_PAST_DUE_NOTE, plannerFill,
@@ -116,7 +116,9 @@ describe('v1.8 past-due planner', () => {
     expect(plannerFill(PLANNER_APPLIED_FILED_LABEL, { priorYear: 2025 })).toBe('Have you filed your 2025 return?');
     expect(PLANNER_APPLIED_PENDING).toBe('Pending until you file');
     expect(dateError).toBe('Enter a date from January 1, 2026 to April 15, 2027, and not after today.');
-    expect(PLANNER_ERROR_PAYMENT_DATE).toBe('Pick a date in {taxYear}, on or before today.');
+    const copy = readFileSync(new URL('../lib/planner/planner-copy.ts', import.meta.url), 'utf8');
+    expect(copy).not.toContain('PLANNER_ERROR_PAYMENT_DATE');
+    expect(copy).not.toContain('Pick a date in {taxYear}, on or before today.');
     expect(q4Sentence).toBe('If you file your 2026 return and pay the full balance by February 1, 2027, there\'s no penalty for the January 15 payment.');
     expect(allDueDates).toBe('All 2026 due dates have passed. Paying the rest now limits the penalty.');
     expect(plannerFill(AFTER_PENALTY_END_NOTE, { taxYear: 2026, penaltyEnd: 'April 15, 2027' })).toBe('2026 estimated payments are over. Any 2026 tax you still owe is due with your return, and tax unpaid after April 15, 2027 adds interest and a late-payment penalty');
@@ -416,6 +418,12 @@ describe('v1.8 past-due planner', () => {
     expect(w3Html).not.toContain('Paying now');
     expect(w3Html).not.toContain(q4Sentence);
     expect(w3.afterFinalHeading).toBe(plannerFill('All {taxYear} installment dates have passed', { taxYear: YEAR }));
+    expect(w3.afterFinalDetail).toBeNull();
+    expect(w3.annual).toBe('');
+    expect(w3Html).not.toContain('Remaining regular-method shortfall');
+    expect(w3Html).not.toContain('$');
+    expect(w3Html).not.toContain('8,500');
+    expect(w3Html).not.toContain('8500');
     expect(w3.afterPenaltyEndNote).toBeNull();
     const optedIn = asPlan(card(planAt('2027-04-16'), { showAfterPenaltyEndNote: true }));
     expect(optedIn.afterPenaltyEndNote).toBe(plannerFill(AFTER_PENALTY_END_NOTE, { taxYear: YEAR, penaltyEnd: 'April 15, 2027' }));
@@ -671,17 +679,80 @@ describe('v1.8 past-due planner', () => {
     expect(message('2026-10-22', '2026-10-22')).toEqual([]);
   });
 
-  it('LD1 uses the local calendar date when UTC has already moved on', () => {
+  it('LD1 uses the card calendar date when UTC has already moved on', () => {
     const instant = new Date('2027-01-16T04:00:00.000Z');
     expect(instant.toISOString().slice(0, 10)).toBe('2027-01-16');
-    expect(calendarIsoDate(instant, 'America/Los_Angeles')).toBe('2027-01-15');
-    const view = asPlan(card(planAt('2027-01-15')));
-    expect(view.next).toContain('January 15, 2027');
-    expect(view.allDueDatesPassed).toBeNull();
-    expect(view.q4FileAndPay).toBeNull();
-    expect(view.mode).not.toBe('window');
+    vi.useFakeTimers();
+    vi.setSystemTime(instant);
+    const previousTz = process.env.TZ;
+    const previousFlag = process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER;
+    process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER = 'true';
+    try {
+      const open = (timeZone: string) => {
+        const asOf = localIsoDate(new Date(), timeZone);
+        const html = decode(renderToStaticMarkup(createElement(EstimatedPaymentPlannerCard, {
+          profile: {}, onNavigate() {}, timeZone, asOf, initialPhase: 'form',
+        })));
+        return { asOf, html };
+      };
+      process.env.TZ = 'America/Los_Angeles';
+      const losAngeles = open('America/Los_Angeles');
+      expect(losAngeles.asOf).toBe('2027-01-15');
+      expect(losAngeles.html).toContain('January 15, 2027');
+      expect(losAngeles.html).toContain('Filing status for 2026');
+      const losAngelesPlan = asPlan(card(planAt(losAngeles.asOf)));
+      expect(losAngelesPlan.mode).toBe('past_due');
+      expect(losAngelesPlan.next).toContain('January 15, 2027');
+      expect(losAngelesPlan.allDueDatesPassed).toBeNull();
+      expect(losAngelesPlan.q4FileAndPay).toBeNull();
+      expect(markup(losAngelesPlan)).not.toContain('All 2026 due dates have passed');
+      process.env.TZ = 'Pacific/Kiritimati';
+      const kiritimati = open('Pacific/Kiritimati');
+      expect(kiritimati.asOf).toBe('2027-01-16');
+      expect(kiritimati.html).not.toContain('January 15, 2027');
+      expect(kiritimati.html).toContain('Filing status for 2026');
+      const kiritimatiPlan = asPlan(card(planAt(kiritimati.asOf)));
+      expect(kiritimatiPlan.mode).toBe('window');
+      expect(kiritimatiPlan.next).toBe('');
+      expect(markup(kiritimatiPlan)).not.toContain('Next payment:');
+      expect(kiritimatiPlan.q4FileAndPay).toContain('February 1, 2027');
+    } finally {
+      vi.useRealTimers();
+      if (previousTz === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTz;
+      if (previousFlag === undefined) delete process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER;
+      else process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER = previousFlag;
+    }
     const route = readFileSync(new URL('../app/api/tax/quarterly-reminders/route.ts', import.meta.url), 'utf8');
     expect(route).toContain('const asOf = isIsoDate(asOfParam) ? asOfParam : localIsoDate()');
     expect(route).not.toContain('new Date().toISOString().slice(0, 10)');
+  });
+
+  it('shows tax year 2026 on the card for January 5 and March 1 2027', () => {
+    vi.useFakeTimers();
+    const previousFlag = process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER;
+    process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER = 'true';
+    try {
+      for (const [month, day] of [[0, 5], [2, 1]] as const) {
+        vi.setSystemTime(new Date(2027, month, day, 12, 0, 0));
+        const asOf = localIsoDate();
+        expect(plannerTaxYearForDate(asOf)).toBe(2026);
+        const html = decode(renderToStaticMarkup(createElement(EstimatedPaymentPlannerCard, {
+          profile: {}, onNavigate() {}, initialPhase: 'form',
+        })));
+        const dashboardHtml = decode(renderToStaticMarkup(createElement(EstimatedPaymentPlannerCard, {
+          profile: {}, onNavigate() {}, taxYear: plannerTaxYearForDate(asOf), asOf, initialPhase: 'form',
+        })));
+        expect(html).toContain('Filing status for 2026');
+        expect(html).not.toContain('Filing status for 2027');
+        expect(html).toContain('federal return for 2025');
+        expect(dashboardHtml).toContain('Filing status for 2026');
+        expect(dashboardHtml).not.toContain('Filing status for 2027');
+      }
+    } finally {
+      vi.useRealTimers();
+      if (previousFlag === undefined) delete process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER;
+      else process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER = previousFlag;
+    }
   });
 });

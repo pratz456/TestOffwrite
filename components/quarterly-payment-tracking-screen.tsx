@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -92,6 +92,7 @@ export function QuarterlyPaymentTrackingScreen({
   const [formConfirmation, setFormConfirmation] = useState("");
   const [formPaymentMethod, setFormPaymentMethod] = useState<string>("");
   const [formNotes, setFormNotes] = useState("");
+  const recordAttemptIds = useRef<Record<number, string>>({});
 
   const fetchPayments = useCallback(async () => {
     setIsLoading(true);
@@ -139,10 +140,13 @@ export function QuarterlyPaymentTrackingScreen({
 
     setSubmittingQuarter(quarter);
     setError(null);
+    const paymentId = recordAttemptIds.current[quarter] ?? crypto.randomUUID();
+    recordAttemptIds.current[quarter] = paymentId;
     try {
       const res = await makeAuthenticatedRequest("/api/tax/quarterly-payments", {
         method: "POST",
         body: JSON.stringify({
+          paymentId,
           quarter,
           year: selectedYear,
           paidAmount: amount,
@@ -156,6 +160,7 @@ export function QuarterlyPaymentTrackingScreen({
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Failed to record payment");
       }
+      delete recordAttemptIds.current[quarter];
       await fetchPayments();
       resetForm();
     } catch (err) {
@@ -188,6 +193,7 @@ export function QuarterlyPaymentTrackingScreen({
   };
 
   const expandForm = (quarter: number) => {
+    delete recordAttemptIds.current[quarter];
     setExpandedQuarter(quarter);
     setFormAmount("");
     setFormDate(new Date().toISOString().split("T")[0]);
@@ -458,7 +464,10 @@ export function QuarterlyPaymentTrackingScreen({
                               </Button>
                               <Button
                                 variant="ghost"
-                                onClick={() => setExpandedQuarter(null)}
+                                onClick={() => {
+                                  delete recordAttemptIds.current[payment.quarter];
+                                  setExpandedQuarter(null);
+                                }}
                               >
                                 Cancel
                               </Button>

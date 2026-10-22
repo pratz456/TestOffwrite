@@ -175,7 +175,17 @@ function pastDuePlan(
     allDueDatesPassed: null, q4FileAndPay: null, afterFinalHeading: null, afterFinalDetail: null, deMinimis: null,
     afterPenaltyEndNote: null,
   };
-  if (pastDue.window === 'w3' || (inWindow && pastDue.remaining === 0 && !showPaidLate)) {
+  if (pastDue.window === 'w3') {
+    return {
+      kind: 'plan', mode: 'after_final', ...shared, ...blank,
+      annual: '',
+      afterFinalHeading: plannerFill(PLANNER_INSTALLMENTS_PASSED, { taxYear: facts.taxYear }),
+      afterFinalDetail: null,
+      deMinimis: null,
+      afterPenaltyEndNote: afterPenaltyNote(facts, pastDue),
+    };
+  }
+  if (inWindow && pastDue.remaining === 0 && !showPaidLate) {
     return {
       kind: 'plan', mode: 'after_final', ...shared, ...blank,
       afterFinalHeading: plannerFill(PLANNER_INSTALLMENTS_PASSED, { taxYear: facts.taxYear }),

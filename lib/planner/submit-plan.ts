@@ -73,6 +73,7 @@ export async function submitPlannerCard(input: PlannerFormInput, transport: Plan
     for (const payment of parsed.payments) {
       if (guard.postedPaymentIds.has(payment.clientId)) continue;
       const saved = await transport.postJson('/api/tax/quarterly-payments', {
+        paymentId: payment.clientId,
         quarter: payment.quarter, year: input.taxYear, paidAmount: payment.amount, paidDate: payment.date,
         ...(payment.designatedTaxYear == null ? {} : { designatedTaxYear: payment.designatedTaxYear }),
         ...(payment.kind === 'prior_year_overpayment' ? { paymentType: 'prior_year_overpayment', priorReturnFiled: true } : {}),

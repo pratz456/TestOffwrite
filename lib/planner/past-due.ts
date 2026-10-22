@@ -58,6 +58,17 @@ export function penaltyPeriodEndDate(taxYear: number): string {
   return `${taxYear + 1}-${pad(PENALTY_PERIOD_END_DAY.month)}-${pad(PENALTY_PERIOD_END_DAY.day)}`;
 }
 
+/**
+ * Planner tax year for a calendar date. Through the return due date (April 15),
+ * the year still in the penalty window is the prior calendar year, so January
+ * through April 15 2027 stay on tax year 2026 and do not ask for unpublished 2027 rules.
+ */
+export function plannerTaxYearForDate(asOf: string): number {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) throw new RangeError('Provide the planning date as YYYY-MM-DD.');
+  const calendarYear = Number(asOf.slice(0, 4));
+  return asOf <= penaltyPeriodEndDate(calendarYear - 1) ? calendarYear - 1 : calendarYear;
+}
+
 export function pastDueWindow(asOf: string, lastDue: string, q4AltDate: string, penaltyEnd: string): PastDueWindow {
   if (asOf <= lastDue) return 'open';
   if (asOf <= q4AltDate) return 'w1';

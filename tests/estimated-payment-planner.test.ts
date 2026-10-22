@@ -362,10 +362,12 @@ describe('planner card behavior', () => {
     const failed = await submitPlannerCard(form(), transport, guard());
     expect(failed).toMatchObject({ status: 'save_failed', message: PLANNER_ERROR_SAVE });
     let posts = 0;
+    const bodies: unknown[] = [];
     let release: () => void = () => {};
     const gate = new Promise<void>(resolve => { release = resolve; });
     const slow: PlannerTransport = {
-      async postJson(url) {
+      async postJson(url, body) {
+        if (url === '/api/tax/quarterly-payments') bodies.push(body);
         posts += url === '/api/tax/quarterly-payments' ? 1 : 0;
         await gate;
         return { ok: true, status: 200, body: {} };
@@ -382,6 +384,7 @@ describe('planner card behavior', () => {
     release();
     expect((await first).status).toBe('ready');
     expect(posts).toBe(1);
+    expect(bodies).toEqual([expect.objectContaining({ paymentId: 'pay-1', quarter: 1, year: 2026, paidAmount: 200, paidDate: '2026-04-10' })]);
   });
 
   it('E2 shows the drafted $1,000 sentence only on the 90% basis', () => {

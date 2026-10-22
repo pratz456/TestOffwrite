@@ -22,6 +22,8 @@ import { transactionNeedsCategoryReview } from '@/lib/utils/transaction-tax-revi
 import { dashboardNextSteps } from '@/lib/dashboard/next-steps';
 import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
 import EstimatedPaymentPlannerCard from '@/components/estimated-payment-planner-card';
+import { localIsoDate } from '@/lib/planner/format-due-date';
+import { plannerTaxYearForDate } from '@/lib/planner/past-due';
 import { estimatedPaymentPlannerEnabled } from '@/lib/planner/planner-flag';
 
 import {
@@ -96,6 +98,8 @@ export default function DashboardScreen({
   // Include source data in the key so even the first render after an edit cannot
   // display a result computed from the previous user's or previous records' data.
   const taxYear = new Date().getFullYear();
+  const plannerAsOf = localIsoDate();
+  const plannerYear = plannerTaxYearForDate(plannerAsOf);
   const [taxRetry, setTaxRetry] = useState(0);
   const taxInputKey = JSON.stringify({ userId, taxYear, profile, transactions, taxRetry });
   const [taxResult, setTaxResult] = useState<{ key: string; state: DashboardTaxState } | null>(null);
@@ -186,7 +190,7 @@ export default function DashboardScreen({
         />
 
         <div className="mx-auto max-w-7xl space-y-4 px-4 pb-6 pt-3 sm:px-6 lg:px-8">
-          {estimatedPaymentPlannerEnabled() && <EstimatedPaymentPlannerCard profile={profile} onNavigate={onNavigate} />}
+          {estimatedPaymentPlannerEnabled() && <EstimatedPaymentPlannerCard profile={profile} onNavigate={onNavigate} taxYear={plannerYear} asOf={plannerAsOf} />}
           <section aria-label="Transaction overview, all dates" className="grid grid-cols-2 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm sm:grid-cols-4">
             {[
               { label: 'Transactions', value: transactions.length, detail: 'All saved dates', icon: Layers3, screen: 'transactions', tone: 'text-slate-500 bg-slate-100' },

@@ -5,6 +5,7 @@ import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { getNextDueDate } from '@/lib/tax-provider/quarterly-planner';
 import { type PlannerCardView } from '@/lib/planner/card-view';
 import { formatPlannerDueDate, formatPlannerMoney, localIsoDate } from '@/lib/planner/format-due-date';
+import { plannerTaxYearForDate } from '@/lib/planner/past-due';
 import { appliedCreditDate, defaultDesignatedTaxYear, paymentDateMax, paymentYearChoiceApplies, plannerFormHasLastYearNumbers, validatePlannerForm, type PlannerPaymentDraft } from '@/lib/planner/form-input';
 import { estimatedPaymentPlannerEnabled } from '@/lib/planner/planner-flag';
 import {
@@ -76,7 +77,7 @@ export function PlannerCardResult({ view, onSeePlan, onAddIncome }: { view: Plan
       {addIncome}
     </div>}
     {view.kind === 'plan' && <div className="space-y-2">
-      <p className="text-sm text-slate-700">{view.annual}</p>
+      {view.annual ? <p className="text-sm text-slate-700">{view.annual}</p> : null}
       {view.pastDueLine && <p className="text-base font-medium text-slate-900">{view.pastDueLine}</p>}
       {view.mode !== 'window' && view.pastDueSentence && <p className="text-sm leading-6 text-slate-600">{view.pastDueSentence}</p>}
       {view.allDueDatesPassed && <p className="text-sm leading-6 text-slate-600">{view.allDueDatesPassed}</p>}
@@ -107,12 +108,16 @@ interface EstimatedPaymentPlannerCardProps {
   transport?: PlannerTransport;
   taxYear?: number;
   asOf?: string;
+  /** IANA zone for the default asOf. The device zone is used when this is omitted. */
+  timeZone?: string;
   initialPhase?: 'collapsed' | 'form' | 'dismissed';
   initialW2?: { count: number; withheld: number } | null;
   initialPayments?: PlannerPaymentDraft[];
 }
 
-export function EstimatedPaymentPlannerCard({ profile, onNavigate, transport, taxYear = new Date().getFullYear(), asOf = localIsoDate(), initialPhase = 'collapsed', initialW2 = null, initialPayments = [] }: EstimatedPaymentPlannerCardProps) {
+export function EstimatedPaymentPlannerCard({ profile, onNavigate, transport, taxYear: taxYearProp, asOf: asOfProp, timeZone, initialPhase = 'collapsed', initialW2 = null, initialPayments = [] }: EstimatedPaymentPlannerCardProps) {
+  const asOf = asOfProp ?? localIsoDate(new Date(), timeZone);
+  const taxYear = taxYearProp ?? plannerTaxYearForDate(asOf);
   const enabled = estimatedPaymentPlannerEnabled();
   const alreadySeen = profile?.firstRunPlannerCard === 'dismissed' || profile?.firstRunPlannerCard === 'completed';
   const [phase, setPhase] = useState<'collapsed' | 'form' | 'result' | 'dismissed' | 'hidden'>(alreadySeen ? 'hidden' : initialPhase);
@@ -265,8 +270,8 @@ export function EstimatedPaymentPlannerCard({ profile, onNavigate, transport, ta
             {fieldErrors[`payment-date-${payment.clientId}`] && <p className="text-sm text-red-700 sm:col-span-2">{fieldErrors[`payment-date-${payment.clientId}`]}</p>}
           </div>;
           })}
-          <button type="button" className="min-h-11 text-sm font-semibold text-blue-700" onClick={() => setPayments(rows => [...rows, { clientId: `pay-${rows.length + 1}-${Date.now()}`, date: '', amount: '' }])}>{PLANNER_ADD_PAYMENT}</button>
-          <button type="button" className="min-h-11 text-sm font-semibold text-blue-700" onClick={() => setPayments(rows => [...rows, { clientId: `applied-${rows.length + 1}-${Date.now()}`, date: appliedCreditDate(taxYear), amount: '', kind: 'prior_year_overpayment', priorReturnFiled: '' }])}>{PAYMENT_TYPE_PRIOR_YEAR_OVERPAYMENT_LABEL}</button>
+          <button type="button" className="min-h-11 text-sm font-semibold text-blue-700" onClick={() => setPayments(rows => [...rows, { clientId: crypto.randomUUID(), date: '', amount: '' }])}>{PLANNER_ADD_PAYMENT}</button>
+          <button type="button" className="min-h-11 text-sm font-semibold text-blue-700" onClick={() => setPayments(rows => [...rows, { clientId: crypto.randomUUID(), date: appliedCreditDate(taxYear), amount: '', kind: 'prior_year_overpayment', priorReturnFiled: '' }])}>{PAYMENT_TYPE_PRIOR_YEAR_OVERPAYMENT_LABEL}</button>
           <p className="text-xs leading-5 text-slate-500">{PLANNER_PAYMENTS_HELPER}</p>
         </div>
         <AmountField id="planner-projected" label={PLANNER_PROJECTED_INCOME_LABEL} helper="" value={projected} onChange={setProjected} error={fieldErrors.projectedIncome} />

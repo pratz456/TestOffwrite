@@ -95,7 +95,7 @@ describe('quarterly summary returns planner figures from reviewed facts', () => 
     expect(result.planner.nextDue).toEqual({ quarter: 3, dueDate: '2026-09-15', amountToPay: 6750, includesEarlierShortfall: true, installmentOnly: 2500 });
     expect(result.planner.underpaymentInterestIllustration.label).toContain('illustration'); expect(result.planner.underpaymentInterestIllustration.total).toBeGreaterThan(0);
     expect(result.planner.annualizedIncomeMethod.available).toBe(false);
-    expect(result.planner.assumptions.join(' ')).toContain('most recent payment date'); expect(result.planner.assumptions.join(' ')).toContain('basis selected: 100% of prior-year tax');
+    expect(result.planner.assumptions.join(' ')).toContain('credited on the date saved for that payment'); expect(result.planner.assumptions.join(' ')).toContain('basis selected: 100% of prior-year tax');
     expect(result.planner.sources.publication505).toBe('https://www.irs.gov/publications/p505');
     expect(result.quarters[0].recommended).not.toBe(Math.round(expected.form1040.totalTax / 4 * 100) / 100);
   });

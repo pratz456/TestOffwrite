@@ -79,7 +79,6 @@ export const PLANNER_DE_MINIMIS = 'This year\'s estimated tax minus withholding 
 
 export const PLANNER_ERROR_NOT_A_NUMBER = 'Enter a dollar amount, like 8500.';
 export const PLANNER_ERROR_NEGATIVE = 'This amount can\'t be below 0.';
-export const PLANNER_ERROR_PAYMENT_DATE = 'Pick a date in {taxYear}, on or before today.';
 export const PAYMENT_DATE_OUT_OF_RANGE_ERROR = 'Enter a date from January 1, {taxYear} to April 15, {nextYear}, and not after today.';
 
 export const PAST_DUE_LABEL = 'Past due, paying sooner lowers the penalty';
