@@ -25,6 +25,13 @@ const HELD_UNTIL_TAX_CORRECTIONS = [
   'freelancer-tax-mistakes-cost-money',
 ];
 
+/** Named here, not imported from the sitemap module. */
+const EXPLICIT_SITEMAP_HOLDS = [
+  'home-office-deduction-guide',
+  '1099-forms-explained',
+  'depreciation-recapture-selling-business-assets',
+];
+
 describe('public sitemap', () => {
   const posts = getAllPosts();
   const entries = buildPublicSitemap(posts, baseUrl, staticLastModified);
@@ -42,7 +49,7 @@ describe('public sitemap', () => {
       expect(entry?.lastModified).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(String(entry?.lastModified)).not.toContain('2030-01-01');
     }
-    for (const slug of [...HELD_UNTIL_TAX_CORRECTIONS, ...NOINDEX_BLOG_SLUGS]) {
+    for (const slug of [...HELD_UNTIL_TAX_CORRECTIONS, ...NOINDEX_BLOG_SLUGS, ...EXPLICIT_SITEMAP_HOLDS]) {
       expect(urls, slug).not.toContain(`${baseUrl}/blog/${slug}`);
     }
     expect(published).toHaveLength(21);

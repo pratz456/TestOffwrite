@@ -10,8 +10,9 @@ import { NOINDEX_BLOG_SLUGS, REDIRECTED_BLOG_SLUGS, STUBBED_BLOG_SLUGS } from "@
  */
 export const SITEMAP_EXCLUDED_BLOG_SLUGS: readonly string[] = [
   ...Object.keys(REDIRECTED_BLOG_SLUGS),
-  ...NOINDEX_BLOG_SLUGS,
-  ...STUBBED_BLOG_SLUGS,
+  // These three are named again below. Drop the hotfix copies so those lines are what keep them out of the sitemap.
+  ...NOINDEX_BLOG_SLUGS.filter((slug) => slug !== "1099-forms-explained"),
+  ...STUBBED_BLOG_SLUGS.filter((slug) => slug !== "home-office-deduction-guide" && slug !== "depreciation-recapture-selling-business-assets"),
   "home-office-deduction-guide",
   "1099-forms-explained",
   "depreciation-recapture-selling-business-assets",
