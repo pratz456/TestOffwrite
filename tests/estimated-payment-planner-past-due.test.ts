@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { EstimatedPaymentPlannerCard, PlannerCardResult } from '@/components/estimated-payment-planner-card';
 import { buildPlannerCardView, type PlannerCardView, type PlannerResultFacts } from '@/lib/planner/card-view';
 import { appliedCreditDate, defaultDesignatedTaxYear, paymentYearChoiceApplies, validatePlannerForm, type PlannerFormInput } from '@/lib/planner/form-input';
@@ -328,6 +328,53 @@ describe('v1.8 past-due planner', () => {
     expect(view.pastDueLine).toContain(PAST_DUE_LABEL);
     expect(view.pastDueSentence).toBe(PAST_DUE_SENTENCE);
     expect(view.paidLate).toBeNull();
+  });
+
+  it('PD7b lets one payment span two installments, oldest unpaid first', () => {
+    const asOf = '2026-10-22';
+    const paymentDate = '2026-09-15';
+    const annual = 8500;
+    const installment = 2125;
+    const payment = 3000;
+    const spillover = payment - installment;
+    const q2Remaining = installment - spillover;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2020-06-01T15:00:00Z'));
+    try {
+      const bare = planAt(asOf, [], { priorTax: annual });
+      const parts = partsOf(bare);
+      const dueDates = bare.installments.map(row => row.dueDate);
+      expect(bare.requiredAnnualPayment.requiredAnnualPayment).toBe(annual);
+      expect(parts).toEqual([installment, installment, installment, installment]);
+      expect(dueDates).toEqual(['2026-04-15', '2026-06-15', '2026-09-15', '2027-01-15']);
+      expect(paymentDate < asOf && asOf < dueDates[3]).toBe(true);
+      expect(asOf).not.toBe(new Date().toISOString().slice(0, 10));
+      const plan = planAt(asOf, [pay(payment, paymentDate, 3)], { priorTax: annual });
+      expect(plan.asOf).toBe(asOf);
+      const rows = plan.pastDue!.installments;
+      expect(rows[0].balance).toBe(0);
+      expect(rows[0].paidLate).toBe(true);
+      expect(rows[0].shortAtDue).toBe(installment);
+      expect(spillover).toBe(875);
+      expect(rows[1].balance).toBe(q2Remaining);
+      expect(rows[1].balance).toBe(1250);
+      expect(rows[1].shortAtDue).toBe(installment);
+      expect(installment - rows[1].balance).toBe(spillover);
+      expect(rows[1].dueDate < paymentDate).toBe(true);
+      expect(rows[2].balance).toBe(installment);
+      expect(rows[2].shortAtDue).toBe(installment);
+      expect(plan.pastDue!.amount).toBe(3375);
+      expect(plan.pastDue!.amount).toBe(rows[0].balance + rows[1].balance + rows[2].balance);
+      expect(plan.pastDue!.nextOnly).toBe(installment);
+      expect(plan.pastDue!.nextDueDate).toBe('2027-01-15');
+      const view = asPlan(card(plan));
+      expect(view.next).toBe(plannerFill(PLANNER_NEXT_PAYMENT, {
+        nextAmount: formatPlannerMoney(installment), nextDueDate: 'January 15, 2027',
+      }));
+      expect(view.pastDueLine).toBe(`${PAST_DUE_LABEL}: ${formatPlannerMoney(3375)}`);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('PD8 through PD12 follow the three windows, including the optional April line', () => {
