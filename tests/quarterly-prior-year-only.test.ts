@@ -139,6 +139,38 @@ describe('prior-year-only quarterly plan when dependent credit review blocks the
     expect(result.quarters.map((quarter: { recommended: number }) => quarter.recommended)).toEqual([2250, 2250, 2250, 2250]);
   });
 
+  // Joint last year, separate this year. Saved prior-year facts have no filing-status field — PriorYearFacts is prior-year tax, AGI, and the 12-month answer — so nothing can read last year's joint status. §6654(d)(1)(C)(ii) uses this year's status.
+  it('uses 110% at $100,000 prior-year AGI when this year is married filing separately', async () => {
+    state.profile = { filing_status: 'married_filing_separately' };
+    state.records.tax_organizers = [organizer({ ...PRIOR_YEAR_FACTS, priorYearAGI: '100000', dependents: '1' })];
+    const result = await (await quarterly(req())).json();
+    expect(result.priorYearOnly).toBe(true);
+    expect(result.filingStatus).toBe('married_filing_separately');
+    expect(result.safeHarborBasis).toBe('prior_year_110');
+    expect(result.planner.requiredAnnualPayment).toMatchObject({
+      basis: 'prior_year_110',
+      requiredAnnualPayment: 11000,
+      priorYear: { agi: 100000, agiThreshold: 75000, multiplier: 1.1 },
+    });
+    expect(result.quarters.map((quarter: { recommended: number }) => quarter.recommended)).toEqual([2250, 2250, 2250, 2250]);
+  });
+
+  // Separate last year, joint this year. There is still no prior-year filing-status input, so nothing can read last year's separate status.
+  it('uses 100% at $100,000 prior-year AGI when this year is married filing jointly', async () => {
+    state.profile = { filing_status: 'married_filing_jointly' };
+    state.records.tax_organizers = [organizer({ ...PRIOR_YEAR_FACTS, priorYearAGI: '100000', dependents: '1' })];
+    const result = await (await quarterly(req())).json();
+    expect(result.priorYearOnly).toBe(true);
+    expect(result.filingStatus).toBe('married_filing_jointly');
+    expect(result.safeHarborBasis).toBe('prior_year_100');
+    expect(result.planner.requiredAnnualPayment).toMatchObject({
+      basis: 'prior_year_100',
+      requiredAnnualPayment: 10000,
+      priorYear: { agi: 100000, agiThreshold: 150000, multiplier: 1 },
+    });
+    expect(result.quarters.map((quarter: { recommended: number }) => quarter.recommended)).toEqual([2000, 2000, 2000, 2000]);
+  });
+
   it('returns the original 422 when prior-year facts are missing', async () => {
     state.records.tax_organizers = [organizer({ dependents: '1' })];
     const annualResponse = await annual(req());
