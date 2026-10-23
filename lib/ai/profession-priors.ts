@@ -315,7 +315,7 @@ export const PROFESSION_PRIORS: readonly ProfessionPrior[] = [
       t('supplies_small_tools', 'Linens, oils, lotions and laundry for them are supplies (line 22)', E.supplies),
       t('equipment', 'Tables and chairs are assets (de minimis at or under $2,500 per item)', E.assets),
       N.licenses, N.ceMaintain,
-      t('dues_and_memberships', 'Association dues that include liability coverage are deductible (dues on other expenses, line 27a for 2023 and 2024 and line 27b for 2025 and later, or insurance line 15)', E.dues.concat(E.insurance)),
+      t('dues_and_memberships', 'Association dues that include liability coverage are deductible (dues on other expenses, line 27a for 2024 and earlier and line 27b for 2025 and later, or insurance line 15)', E.dues.concat(E.insurance)),
       N.mileage,
       t('other', 'Your own massages, spa treatments and wellness are personal', E.personal),
     ],
@@ -432,7 +432,7 @@ export const PROFESSION_PRIORS: readonly ProfessionPrior[] = [
       N.softwareBusiness,
       t('home_office', 'Inventory storage space at home is deductible without the exclusive-use test when the home is the only fixed business location', E.home),
       t('taxes_licenses', 'Sales tax collected from buyers and remitted is neither income nor expense; sales tax you owe as the seller is line 23', E.taxes),
-      t('other', 'Postage and shipping paid for orders is a business expense (other expenses, line 27a for 2023 and 2024 and line 27b for 2025 and later) or part of cost of goods sold', E.general),
+      t('other', 'Postage and shipping paid for orders is a business expense (other expenses, line 27a for 2024 and earlier and line 27b for 2025 and later) or part of cost of goods sold', E.general),
     ],
     merchants: ['Shopify', 'Etsy', 'Amazon Seller', 'Faire', 'Printful', 'Uline', 'Pirate Ship', 'USPS'],
     auditTraps: [
@@ -500,7 +500,7 @@ export const PROFESSION_PRIORS: readonly ProfessionPrior[] = [
       t('supplies_small_tools', 'Fuel for mowers and equipment, plants, mulch and fertilizer for jobs are supplies, separate from truck fuel', E.supplies),
       t('vehicle_expense', 'The truck and trailer use actual expenses or the standard mileage rate, never both; equipment fuel is not a vehicle expense', E.mileage),
       N.contractors, N.licenses, N.liability,
-      t('repairs_maintenance', 'Repairs that keep tools and equipment working are line 21 (an overhaul or replacement may be a capital improvement); dump and disposal fees are other expenses (line 27a for 2023 and 2024 and line 27b for 2025 and later)', E.general.concat(['capital-263'])),
+      t('repairs_maintenance', 'Repairs that keep tools and equipment working are line 21 (an overhaul or replacement may be a capital improvement); dump and disposal fees are other expenses (line 27a for 2024 and earlier and line 27b for 2025 and later)', E.general.concat(['capital-263'])),
     ],
     merchants: ['SiteOne', 'Home Depot', 'John Deere', 'Stihl dealer', 'Shell', 'Sunbelt Rentals', 'Angi', 'Progressive Commercial'],
     auditTraps: [
@@ -556,7 +556,7 @@ export const PROFESSION_PRIORS: readonly ProfessionPrior[] = [
     keywords: ['insurance agent', 'insurance broker', 'insurance', 'financial advisor', 'financial planner', 'financial consultant', 'wealth', 'annuity', 'life insurance', 'medicare agent', 'benefits broker', 'registered representative'],
     summary: 'Commission-based sales under carrier appointments; licensing, E&O, lead generation, client meals and gifts, and driving to clients.',
     typical: [
-      t('other', 'State licenses, appointments and CE are line 23 and other expenses (line 27a for 2023 and 2024 and line 27b for 2025 and later); E&O is line 15', E.taxes.concat(E.insurance, E.education)),
+      t('other', 'State licenses, appointments and CE are line 23 and other expenses (line 27a for 2024 and earlier and line 27b for 2025 and later); E&O is line 15', E.taxes.concat(E.insurance, E.education)),
       t('advertising_marketing', 'Leads, mailers and seminars promoting your practice are advertising (line 8)', E.ads),
       N.clientMeals, N.gifts, N.mileage, N.softwareBusiness, N.homeOffice,
       t('bank_and_payment_fees', 'Commission chargebacks reduce income; a full-time life insurance agent may be a statutory employee whose Schedule C income is not subject to SE tax', E.records),
