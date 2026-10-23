@@ -84,6 +84,7 @@ export function StateTaxCalculatorScreen({ userProfile }: StateTaxCalculatorScre
   const [filingStatus, setFilingStatus] = useState<StateFilingStatus>(() => normalizeFilingStatus(userProfile?.filing_status));
   const [businessProfit, setBusinessProfit] = useState<string>(() => { const n = parseAmount(userProfile?.business_income); return n > 0 ? String(Math.round(n)) : ""; });
   const [wages, setWages] = useState<string>(() => { const n = parseAmount(userProfile?.w2_income); return n > 0 ? String(Math.round(n)) : ""; });
+  const [ownSocialSecurityWages, setOwnSocialSecurityWages] = useState<string>("");
   const [otherIncome, setOtherIncome] = useState<string>("");
 
   useEffect(() => {
@@ -92,6 +93,7 @@ export function StateTaxCalculatorScreen({ userProfile }: StateTaxCalculatorScre
 
   const profit = parseAmount(businessProfit);
   const w2Wages = parseAmount(wages);
+  const w2SocialSecurityWages = parseAmount(ownSocialSecurityWages);
   const other = parseAmount(otherIncome);
   const year = Number(taxYear);
   const hasInput = Boolean(stateCode) && profit + w2Wages + other > 0;
@@ -99,10 +101,12 @@ export function StateTaxCalculatorScreen({ userProfile }: StateTaxCalculatorScre
   const estimate = useMemo(() => hasInput
     ? estimateStateTax({
       stateCode, taxYear: year, filingStatus,
-      federalAGI: federalAgiForStateEstimate({ stateCode, taxYear: year, scheduleCNetProfit: profit, w2Wages, otherIncome: other }),
+      federalAGI: federalAgiForStateEstimate({
+        stateCode, taxYear: year, scheduleCNetProfit: profit, w2Wages, w2SocialSecurityWages, otherIncome: other,
+      }),
       scheduleCNetProfit: profit, w2Wages, otherIncome: other,
     })
-    : null, [hasInput, stateCode, year, filingStatus, profit, w2Wages, other]);
+    : null, [hasInput, stateCode, year, filingStatus, profit, w2Wages, w2SocialSecurityWages, other]);
 
   const notices = useMemo(() => stateCode
     ? businessTaxNotices({ stateCode, city: profileStateCode === stateCode ? profileLocation.city : undefined, taxYear: year })
@@ -167,6 +171,7 @@ export function StateTaxCalculatorScreen({ userProfile }: StateTaxCalculatorScre
               <Info aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               Federal AGI is approximated as the sum of these amounts; Schedule 1 adjustments are not applied here. The Tax overview uses your saved records instead.
             </p>
+            <AmountField id="own-ss-wages" label="Your own W-2 Social Security wages (box 3)" value={ownSocialSecurityWages} onChange={setOwnSocialSecurityWages} />
           </CardContent>
         </Card>
 

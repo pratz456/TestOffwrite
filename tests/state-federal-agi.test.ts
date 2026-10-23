@@ -28,22 +28,37 @@ describe('federal AGI for the state planning estimate', () => {
     expect(withOther).toBe(47467.61);
   });
 
-  it('deducts only half of the Medicare portion when W-2 wages are above the Social Security wage base', () => {
+  it('deducts only half of the Medicare portion when the taxpayer’s own Box 3 wages are above the Social Security wage base', () => {
     const taxYear = 2026;
     const profit = 50000;
     const wageBase = getTaxRatesAndLimits(taxYear).socialSecurityWageBase;
     expect(wageBase).toBe(184500);
-    const w2Wages = wageBase + 15500;
-    const se = calcScheduleSE({ scheduleCNetProfit: profit, taxYear }, 'single', w2Wages);
+    const w2SocialSecurityWages = wageBase + 15500;
+    const se = calcScheduleSE({ scheduleCNetProfit: profit, taxYear }, 'single', w2SocialSecurityWages);
     expect(se.socialSecurityTax).toBe(0);
     expect(se.medicareTax).toBe(1339.08);
     expect(se.totalSETax).toBe(1339.08);
     expect(se.halfSEDeduction).toBe(669.54);
     const federalAGI = federalAgiForStateEstimate({
-      stateCode: 'NY', taxYear, scheduleCNetProfit: profit, w2Wages, otherIncome: 0,
+      stateCode: 'NY', taxYear, scheduleCNetProfit: profit, w2Wages: 0, w2SocialSecurityWages, otherIncome: 0,
     });
-    expect(federalAGI).toBe(round2(profit + w2Wages - se.halfSEDeduction));
-    expect(federalAGI).toBe(249330.46);
+    expect(federalAGI).toBe(round2(profit - se.halfSEDeduction));
+    expect(federalAGI).toBe(49330.46);
+  });
+
+  it('keeps Box 1 wages in AGI and does not use them as the Social Security wage base', () => {
+    const taxYear = 2026;
+    const profit = 50000;
+    const w2Wages = 200000;
+    const capped = calcScheduleSE({ scheduleCNetProfit: profit, taxYear }, 'single', w2Wages);
+    const uncapped = calcScheduleSE({ scheduleCNetProfit: profit, taxYear }, 'single', 0);
+    expect(capped.socialSecurityTax).toBe(0);
+    expect(uncapped.halfSEDeduction).toBe(3532.39);
+    const federalAGI = federalAgiForStateEstimate({
+      stateCode: 'GA', taxYear, scheduleCNetProfit: profit, w2Wages, w2SocialSecurityWages: 0, otherIncome: 0,
+    });
+    expect(federalAGI).toBe(round2(profit + w2Wages - uncapped.halfSEDeduction));
+    expect(federalAGI).toBe(246467.61);
   });
 
   it('does not deduct when Schedule C profit is $300', () => {

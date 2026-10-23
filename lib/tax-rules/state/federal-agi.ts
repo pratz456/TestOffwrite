@@ -22,8 +22,15 @@ export interface StatePlanningFederalAgiInput {
   stateCode: string;
   taxYear: number;
   scheduleCNetProfit: number;
+  /** W-2 Box 1 wages included in the AGI sum. Not the Social Security wage base. */
   w2Wages: number;
   otherIncome: number;
+  /**
+   * The taxpayer's own W-2 Box 3 Social Security wages. This is the only amount
+   * applied to the Social Security wage base. Omit it and the wage base is
+   * unreduced; Box 1 is not a substitute, and a spouse's wages are not included.
+   */
+  w2SocialSecurityWages?: number;
 }
 
 /**
@@ -37,19 +44,20 @@ export interface StatePlanningFederalAgiInput {
  * self-employment tax in that helper, so the deduction is zero. Zero or
  * negative Schedule C profit also produces no deduction.
  *
- * `w2Wages` is the screen's Box 1 amount, passed through as W-2 Social
- * Security wages for the wage-base cap. The screen does not collect Box 3.
+ * Box 1 wages stay in the AGI sum. The Social Security wage-base cap uses
+ * `w2SocialSecurityWages` (the taxpayer's own Box 3) and nothing else.
  */
 export function federalAgiForStateEstimate(input: StatePlanningFederalAgiInput): number {
   const profit = finite(input.scheduleCNetProfit);
   const w2Wages = finite(input.w2Wages);
   const otherIncome = finite(input.otherIncome);
+  const ownSocialSecurityWages = Math.max(0, finite(input.w2SocialSecurityWages ?? 0));
   const gross = profit + w2Wages + otherIncome;
   if (profit <= 0 || !stateUsesFederalAgiIncomeBase(input.stateCode, input.taxYear)) return round2(gross);
   const halfSEDeduction = calcScheduleSE(
     { scheduleCNetProfit: profit, taxYear: input.taxYear },
     'single',
-    Math.max(0, w2Wages),
+    ownSocialSecurityWages,
   ).halfSEDeduction;
   return round2(gross - halfSEDeduction);
 }
