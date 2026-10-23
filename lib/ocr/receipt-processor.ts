@@ -94,25 +94,176 @@ function allowsMonthPeriod(token: string, dotted: boolean): boolean {
   return !dotted || token === 'sept' || token.length === 3;
 }
 
-/** Lines that are not the purchase date. Whole words, a check number, and "visit by". Order already covers an order placed line. */
-const DATE_LINE_EXCLUSION = /\b(?:returns?|until|valid|through|thru|expires?|expiration|expiring|expiry|offer|due|printed|print|order|table|invoice|inv|ref|ticket|exp|shipped|ship|delivered|delivery|statement|arrival|exchange)\b|\bcheck\s*#|\bvisit\s+by\b/i;
-/** Words that mark a purchase line. "date" is not one of them. */
-const PURCHASE_WORD = /\b(?:purchased|purchase|transaction|sale|check-out|checkout|paid)\b/i;
-/** "Date" at the start of the line, as in "Date:" or "Date 01/05/2026". */
-const DATE_LABEL_AT_START = /^\s*date\b/i;
-/** "date" also counts inside Purchase Date, Transaction Date, and Sale Date. */
-const NAMED_DATE_LABEL = /\b(?:purchase|transaction|sale)\s+date\b/i;
-
-function lineHasPurchaseLabel(line: string): boolean {
-  return PURCHASE_WORD.test(line) || DATE_LABEL_AT_START.test(line) || NAMED_DATE_LABEL.test(line);
-}
+/**
+ * A skip phrase drops a date only when it sits on the same line, directly before
+ * the date or directly after it. The gap may be spaces and : # , . - only.
+ * "invoice #" may also have its invoice number in that gap. "order #" and "check #" may not.
+ */
+const SKIP_PHRASES = [
+  'returns accepted until',
+  'estimated delivery date',
+  'expiration date',
+  'delivery date',
+  'exchange by',
+  'member since',
+  'order placed',
+  'print date',
+  'ship date',
+  'visit by',
+  'check-in',
+  'due date',
+  'ship by',
+  'expiration',
+  'delivered',
+  'delivery',
+  'expiring',
+  'printed',
+  'returns',
+  'shipped',
+  'through',
+  'written',
+  'arrival',
+  'expires',
+  'invoice #',
+  'order #',
+  'statement',
+  'check #',
+  'expiry',
+  'offer',
+  'order',
+  'return',
+  'table',
+  'ticket',
+  'until',
+  'valid',
+  'thru',
+  'due',
+  'exp',
+  'inv',
+  'ref',
+];
+/** Tier 1 outranks tier 2, which outranks tier 3. The longest phrase next to the date wins, so "date" inside "payment date" or "invoice date" is not its own label. */
+const LABEL_PHRASES: Array<{ text: string; tier: number }> = [
+  { text: 'payment date', tier: 1 },
+  { text: 'payment', tier: 1 },
+  { text: 'paid', tier: 1 },
+  { text: 'purchase date', tier: 2 },
+  { text: 'transaction date', tier: 2 },
+  { text: 'sale date', tier: 2 },
+  { text: 'check-out', tier: 2 },
+  { text: 'purchased', tier: 2 },
+  { text: 'checkout', tier: 2 },
+  { text: 'purchase', tier: 2 },
+  { text: 'transaction', tier: 2 },
+  { text: 'invoice date', tier: 3 },
+  { text: 'sale', tier: 2 },
+  { text: 'date', tier: 2 },
+];
 
 type ReceiptDateCandidate = { raw: string; index: number; iso: string; line: string };
+type TieredDate = ReceiptDateCandidate & { tier: number };
 
 function lineAt(text: string, index: number): string {
   const start = text.lastIndexOf('\n', index - 1) + 1;
   const next = text.indexOf('\n', index);
   return text.slice(start, next === -1 ? text.length : next);
+}
+
+function lineStartAt(text: string, index: number): number {
+  return text.lastIndexOf('\n', index - 1) + 1;
+}
+
+function phraseSource(phrase: string): string {
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ #/g, '\\s*#').replace(/ /g, '\\s+');
+  const start = /^\w/.test(phrase) ? '\\b' : '';
+  const end = /\w$/.test(phrase) ? '\\b' : '';
+  return `${start}${escaped}${end}`;
+}
+
+/** Spaces and : # , . - only, or an invoice number when this phrase is "invoice #". */
+function gapAllows(gap: string, invoiceNumber: boolean): boolean {
+  if (/^[ \t:#,\.\-]*$/.test(gap)) return true;
+  return invoiceNumber && /^[ \t:#,\.\-]*\d+[ \t:#,\.\-]*$/.test(gap);
+}
+
+function adjacentMatchLength(line: string, dateStart: number, dateEnd: number, phrase: string, invoiceNumber: boolean): number {
+  const pattern = new RegExp(phraseSource(phrase), 'gi');
+  let match: RegExpExecArray | null;
+  let longest = 0;
+  while ((match = pattern.exec(line)) !== null) {
+    const start = match.index;
+    const end = start + match[0].length;
+    const before = end <= dateStart && gapAllows(line.slice(end, dateStart), invoiceNumber);
+    const after = start >= dateEnd && gapAllows(line.slice(dateEnd, start), false);
+    if ((before || after) && match[0].length > longest) longest = match[0].length;
+    if (match[0].length === 0) break;
+  }
+  return longest;
+}
+
+function dateIsSkipped(line: string, dateStart: number, dateEnd: number): boolean {
+  return SKIP_PHRASES.some(phrase => adjacentMatchLength(line, dateStart, dateEnd, phrase, phrase === 'invoice #') > 0);
+}
+
+function labelTier(line: string, dateStart: number, dateEnd: number): number {
+  let tier = 0;
+  let length = 0;
+  for (const label of LABEL_PHRASES) {
+    const size = adjacentMatchLength(line, dateStart, dateEnd, label.text, false);
+    if (size > length) {
+      length = size;
+      tier = label.tier;
+    }
+  }
+  return tier;
+}
+
+function spanOf(text: string, candidate: ReceiptDateCandidate): { dateStart: number; dateEnd: number } {
+  const dateStart = candidate.index - lineStartAt(text, candidate.index);
+  return { dateStart, dateEnd: dateStart + candidate.raw.length };
+}
+
+function withoutAdjacentSkips(text: string, candidates: ReceiptDateCandidate[]): TieredDate[] {
+  const kept: TieredDate[] = [];
+  for (const candidate of candidates) {
+    const { dateStart, dateEnd } = spanOf(text, candidate);
+    if (dateIsSkipped(candidate.line, dateStart, dateEnd)) continue;
+    kept.push({ ...candidate, tier: labelTier(candidate.line, dateStart, dateEnd) });
+  }
+  return kept;
+}
+
+/** Keep the best tier present. Tier 1 beats tier 2, which beats tier 3. Unlabeled dates stay only when nothing is labeled. */
+function highestTier(candidates: TieredDate[]): TieredDate[] {
+  const labeled = candidates.filter(candidate => candidate.tier > 0);
+  if (labeled.length === 0) return candidates;
+  const best = Math.min(...labeled.map(candidate => candidate.tier));
+  return candidates.filter(candidate => candidate.tier === best);
+}
+
+function hasPaidOrPayment(text: string): boolean {
+  return /\b(?:paid|payment)\b/i.test(text);
+}
+
+function hasDueLine(text: string): boolean {
+  return text.split('\n').some(line => /\bdue\b/i.test(line));
+}
+
+function balanceDueAboveZero(text: string): boolean {
+  const amount = /balance\s+due\b[^0-9$]*\$?\s*(\d+(?:\.\d+)?)/i.exec(text);
+  return amount !== null && Number(amount[1]) > 0;
+}
+
+/** An invoice date alone is not a purchase date when the bill is still due and nothing was paid. */
+function dropUnpaidInvoice(text: string, candidates: TieredDate[]): TieredDate[] {
+  const onlyInvoiceDate = candidates.length > 0 && candidates.every(candidate => candidate.tier === 3);
+  if (onlyInvoiceDate && !hasPaidOrPayment(text) && (hasDueLine(text) || balanceDueAboveZero(text))) return [];
+  return candidates;
+}
+
+function datesInOneYear(candidates: TieredDate[]): TieredDate[] {
+  const years = new Set(candidates.map(candidate => candidate.iso.slice(0, 4)));
+  return years.size > 1 ? [] : candidates;
 }
 
 function monthToken(raw: string): string | null {
@@ -128,21 +279,6 @@ function purchaseYearAllowed(iso: string): boolean {
   const year = Number(iso.slice(0, 4));
   const currentYear = new Date().getFullYear();
   return year >= 2000 && year <= currentYear + 1;
-}
-
-function withoutSkippedDateLines(candidates: ReceiptDateCandidate[]): ReceiptDateCandidate[] {
-  return candidates.filter(candidate => !DATE_LINE_EXCLUSION.test(candidate.line));
-}
-
-function withPurchaseLabelPreference(candidates: ReceiptDateCandidate[]): ReceiptDateCandidate[] {
-  const labeled = candidates.filter(candidate => lineHasPurchaseLabel(candidate.line));
-  return labeled.length > 0 ? labeled : candidates;
-}
-
-function withoutConflictingUnlabeledYears(candidates: ReceiptDateCandidate[]): ReceiptDateCandidate[] {
-  const labeled = candidates.filter(candidate => lineHasPurchaseLabel(candidate.line));
-  const years = new Set((labeled.length > 0 ? labeled : candidates).map(candidate => candidate.iso.slice(0, 4)));
-  return years.size > 1 ? [] : candidates;
 }
 
 function earliestDateText(candidates: ReceiptDateCandidate[]): string {
@@ -354,13 +490,9 @@ export class ReceiptProcessor {
   }
 
   private extractDate(text: string): string {
-    return earliestDateText(
-      withoutConflictingUnlabeledYears(
-        withPurchaseLabelPreference(
-          withoutSkippedDateLines(this.dateCandidates(text)),
-        ),
-      ),
-    );
+    const candidates = this.dateCandidates(text);
+    const kept = datesInOneYear(dropUnpaidInvoice(text, highestTier(withoutAdjacentSkips(text, candidates))));
+    return earliestDateText(kept);
   }
 
   private dateCandidates(text: string): ReceiptDateCandidate[] {

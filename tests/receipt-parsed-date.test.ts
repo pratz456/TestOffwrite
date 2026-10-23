@@ -108,7 +108,6 @@ const CHOSEN: Array<[string, string]> = [
   ['Dec 30, 2025\nReturns accepted until 01/29/2026\nTotal $12.34', '2025-12-30'],
   ['Dec 28, 2025\nOffer valid thru 2026-01-31\nTotal $12.34', '2025-12-28'],
   ['Check-out 12/31/2025\nFolio printed 2026-01-02\nTotal $12.34', '2025-12-31'],
-  ['December 31, 2025\nRewards expire 1-31-26\nTotal $12.34', '2025-12-31'],
   ['Return by Feb 4, 2026\nDate: Jan 5, 2026\nTotal $12.34', '2026-01-05'],
   ['Jan 5, 2026\n03/15/2026\nTotal $12.34', '2026-01-05'],
   ['Paid 2026-01-15T10:00:00Z\nTotal $12.34', '2026-01-15'],
@@ -160,11 +159,39 @@ const SHIPPING: Array<[string, string, string]> = [
   ['12/30/2025\nDelivered 01/05/2026\nTotal $12.34', '12/30/2025', '2025-12-30'],
   ['12/30/2025\nStatement 01/05/2026\nTotal $12.34', '12/30/2025', '2025-12-30'],
   ['12/30/2025\nArrival 01/05/2026\nTotal $12.34', '12/30/2025', '2025-12-30'],
-  ['Transaction Date 12/31/2025\nPayment Date 01/02/2026\nTotal $12.34', '12/31/2025', '2025-12-31'],
 ];
-const LABELED_TWO_YEARS = [
-  'Date: 12/31/2025\nPaid 01/02/2026\nTotal $12.34',
-  'Date: 01/05/2026\nPaid 12/30/2025\nTotal $12.34',
+const NEXT_TO_DATE: Array<[string, string, string]> = [
+  ['Order #4471  01/15/2026 10:42\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Table 5  Server Ann  01/15/2026 7:42 PM\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Check #1042  Jan 15, 2026\nTotal $12.34', 'Jan 15, 2026', '2026-01-15'],
+  ['REF 556677  01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Ticket 0042  Date 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Ship to: Ann  01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+];
+const STILL_DROPPED = [
+  'Order placed 12/29/2025\nTotal $12.34',
+  'exp 12/31/2027\nTotal $12.34',
+  'Returns accepted until 01/29/2026\nTotal $12.34',
+  'Visit by Jun 30 2026\nTotal $12.34',
+  'Check #1/15/2026\nTotal $12.34',
+  'Order 10-22-4471\nTotal $12.34',
+  'Paid, due 01/05/2026\nTotal $12.34',
+];
+const TIERS: Array<[string, string, string]> = [
+  ['Invoice date Jan 15, 2026\nTotal $12.34', 'Jan 15, 2026', '2026-01-15'],
+  ['Invoice date 12/15/2025\nPaid 01/10/2026\nTotal $12.34', '01/10/2026', '2026-01-10'],
+  ['Date: 12/31/2025\nPaid 01/02/2026\nTotal $12.34', '01/02/2026', '2026-01-02'],
+  ['Date: 01/05/2026\nPaid 12/30/2025\nTotal $12.34', '12/30/2025', '2025-12-30'],
+  ['Transaction Date 12/31/2025\nPayment Date 01/02/2026\nTotal $12.34', '01/02/2026', '2026-01-02'],
+  ['Check-in 01/02/2026\nCheck-out 01/05/2026\nTotal $12.34', '01/05/2026', '2026-01-05'],
+  ['Member since 2026-01-10\nMar 2, 2026\nTotal $12.34', 'Mar 2, 2026', '2026-03-02'],
+  ['Rx written 01/02/2026\nFilled 01/09/2026\nTotal $12.34', '01/09/2026', '2026-01-09'],
+];
+const NO_DATE = [
+  'Invoice # 4471 01/15/2026\nTotal $12.34',
+  'Invoice date 12/15/2025\nDue 01/14/2026\nBalance due $400',
+  'December 31, 2025\nRewards expire 1-31-26\nTotal $12.34',
+  'Date: 12/31/2025\nSale 01/02/2026\nTotal $12.34',
 ];
 const RULING: Array<[string, string]> = [
   ['Order placed 12/29/2025\nPaid Jan 2, 2026\nTotal $12.34', '2026-01-02'],
@@ -391,7 +418,38 @@ describe('OCR save uses the printed calendar day', () => {
     expect((await response.json()).transaction.date).toBe('2026-01-05');
   });
 
-  it.each(LABELED_TWO_YEARS)('saves no date when labeled dates span two years in %j', async text => {
+  it.each(NEXT_TO_DATE)('keeps a date that is not beside the skip phrase in %j', async (text, raw, iso) => {
+    const extracted = extractDate(text);
+    expect(extracted).toBe(raw);
+    expect(normalizeDateToISO(extracted)).toBe(iso);
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({ date: iso }));
+    expect((await response.json()).transaction.date).toBe(iso);
+  });
+
+  it.each(STILL_DROPPED)('drops a date that sits next to a skip phrase in %j', async text => {
+    expect(extractDate(text)).toBe('');
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: 'Enter a real receipt date before saving' });
+    expect(mocks.createTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each(TIERS)('keeps the highest purchase tier in %j', async (text, raw, iso) => {
+    const extracted = extractDate(text);
+    expect(extracted).toBe(raw);
+    expect(normalizeDateToISO(extracted)).toBe(iso);
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({ date: iso }));
+    expect((await response.json()).transaction.date).toBe(iso);
+  });
+
+  it.each(NO_DATE)('saves no date for %j', async text => {
     expect(extractDate(text)).toBe('');
     worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
     const response = await POST(request());
