@@ -6,7 +6,10 @@ import { convertTransactionsToCSV } from '@/lib/reports/transaction-export';
 import { buildFederalTaxSnapshot } from '@/lib/tax-rules/federal-tax-snapshot';
 import { sumExpensesForQuarter, sumIncomeForQuarter, sumPotentialExpensesForQuarter } from '@/lib/tax-provider/quarterly-estimates';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
-import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
+import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
+import { dashboardRecordStatus } from '@/lib/dashboard/record-summary';
+import { prioritizeTransactionReview } from '@/lib/transactions/review-priority';
+import { formatRecordedTransactionAmount } from '@/lib/transactions/amount-display';
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
 
 const confirmed = (category: string, amount = 10, date = '2026-06-15') => ({
@@ -576,6 +579,36 @@ describe('Plaid category codes on Schedule C', () => {
     }
   });
 
+  it('insurance and financial planning show on the review list with their amounts and stay out of Schedule C totals', () => {
+    const rows = [
+      ['GENERAL_SERVICES_INSURANCE', 18],
+      ['SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS', 42.5],
+    ] as const;
+    const printed = rows.map(([category, amount]) => {
+      const record = { ...confirmed(category, amount, '2026-06-15'), iso_currency_code: 'USD' };
+      const schedule = aggregateScheduleC([record], '2026', CATEGORY_MAP, { mode: 'confirmed-only' });
+      const reviewList = prioritizeTransactionReview([record].filter(transactionNeedsCategoryReview));
+      expect(reviewList, category).toEqual([record]);
+      expect(transactionNeedsTaxReview(record), category).toBe(true);
+      expect(dashboardRecordStatus(record), category).toBe('review');
+      expect(schedule.lineItemsArray, category).toEqual([]);
+      expect(schedule.totalDeductible, category).toBe(0);
+      expect(schedule.totalExpenses, category).toBe(0);
+      return {
+        category,
+        line: 'none',
+        deductible: schedule.totalDeductible,
+        reviewAmount: record.amount,
+        shown: formatRecordedTransactionAmount(record),
+      };
+    });
+    console.log(`REVIEW_MOVED ${JSON.stringify(printed)}`);
+    expect(printed).toEqual([
+      { category: 'GENERAL_SERVICES_INSURANCE', line: 'none', deductible: 0, reviewAmount: 18, shown: '$18.00' },
+      { category: 'SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS', line: 'none', deductible: 0, reviewAmount: 42.5, shown: '$42.50' },
+    ]);
+  });
+
   it('financial planning stays on the review list with its amount and no line', () => {
     expect(CATEGORY_MAP.SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS).toBeUndefined();
     const financial = confirmed('SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS', 42.5, '2026-06-15');
@@ -853,8 +886,12 @@ describe('Plaid category codes on Schedule C', () => {
   });
 
   it('SERVICE_EDUCATION gives 27a for a 2024 date and 27b for a 2025 date', () => {
-    expect(lineAndDeductible('SERVICE_EDUCATION', '2024')).toEqual({ line: ['27a'], deductible: 10 });
-    expect(lineAndDeductible('SERVICE_EDUCATION', '2025')).toEqual({ line: ['27b'], deductible: 10 });
+    for (const code of ['SERVICE_EDUCATION', 'GENERAL_SERVICES_EDUCATION']) {
+      expect(lineAndDeductible(code, '2023'), code).toEqual({ line: ['27a'], deductible: 10 });
+      expect(lineAndDeductible(code, '2024'), code).toEqual({ line: ['27a'], deductible: 10 });
+      expect(lineAndDeductible(code, '2025'), code).toEqual({ line: ['27b'], deductible: 10 });
+      expect(lineAndDeductible(code, '2026'), code).toEqual({ line: ['27b'], deductible: 10 });
+    }
     expect(publishedOtherExpensesLine('27a', 2022)).toEqual({ line: '27a', needsReview: true });
     expect(lineAndDeductible('SERVICE_EDUCATION', '2022')).toEqual({ line: ['27a'], deductible: 10 });
     const invalid = confirmed('SERVICE_EDUCATION', 10, '2024-13-45');
@@ -916,6 +953,7 @@ describe('Plaid category codes on Schedule C', () => {
           line: result.lineItemsArray.map(item => item.lineCode).join('') || 'none',
           deductible: result.totalDeductible,
           quarterly: sumExpensesForQuarter([record], year, 2, 'UTC').confirmed_deductible_expenses,
+          reviewAmount: 0,
         };
       });
       return {
@@ -944,6 +982,9 @@ describe('Plaid category codes on Schedule C', () => {
     expect(printed.y2026.priorDeductible).toBe(35);
     expect(printed.y2025.perRecord.map(row => row.deductible)).toEqual([10, 5, 10, 10]);
     expect(printed.y2026.perRecord.map(row => row.deductible)).toEqual([5, 5, 10, 10]);
+    expect(printed.y2024.perRecord.map(row => row.reviewAmount)).toEqual([0, 0, 0, 0]);
+    expect(printed.y2025.perRecord.map(row => row.reviewAmount)).toEqual([0, 0, 0, 0]);
+    expect(printed.y2026.perRecord.map(row => row.reviewAmount)).toEqual([0, 0, 0, 0]);
   });
 
   it('every old map key keeps its line on the 2026 map', () => {
