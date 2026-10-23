@@ -6,7 +6,7 @@
  * the model never writes an amount, a rule or a tax figure the user sees.
  */
 import type { OutputType } from './analyzeTransaction';
-import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { CATEGORY_MAP, CONDITIONAL_BUSINESS_CATEGORIES, resolveCategoryTreatment, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
 import { OTHER_EXPENSES_UNNUMBERED_LABEL, OTHER_EXPENSES_YEAR_FREE_LINE, otherExpensesYearPrint, printedScheduleCLine } from '@/lib/schedule-c/export-lines';
 import { isAllowlistedOtherExpenses, isEnergyBuildings27b, isUnrecognized27Label, resolveScheduleCPrint } from '@/lib/schedule-c/line-labels';
 import { chargeTaxYear } from '@/lib/reports/transaction-export';
@@ -178,15 +178,47 @@ const FLOW_HEADLINES: Record<string, string> = {
 
 const LINE_NAMES: Record<string, string> = Object.fromEntries(Object.values(CATEGORY_MAP).map(entry => [entry.line, entry.name]));
 
-export type ScheduleCRowContext = { reviewStatus?: unknown; category?: unknown };
+export type ScheduleCRowContext = {
+  reviewStatus?: unknown;
+  category?: unknown;
+  amount?: unknown;
+  merchant_name?: unknown;
+  merchant?: unknown;
+  name?: unknown;
+  description?: unknown;
+  is_deductible?: unknown;
+  id?: unknown;
+  schedule_c_recurring?: unknown;
+  peers?: readonly ScheduleCTransactionLike[];
+};
 
-/** Map a review category or a stored WriteOff category to its Schedule C line code. */
-export function categoryScheduleCLine(value: unknown): string | null {
+function storedCategory(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  const trimmed = value.trim();
+  if (CATEGORY_MAP[trimmed] || CONDITIONAL_BUSINESS_CATEGORIES.has(trimmed) || trimmed === 'GENERAL_MERCHANDISE_PHARMACY') return trimmed;
+  return reviewCategory(trimmed)?.recordedCategory ?? trimmed;
+}
+
+function treatmentFor(category: unknown, row?: ScheduleCRowContext) {
+  const probe: ScheduleCTransactionLike = {
+    amount: typeof row?.amount === 'number' ? row.amount : Number.NaN,
+    date: '',
+    category: storedCategory(category),
+    is_deductible: typeof row?.is_deductible === 'boolean' ? row.is_deductible : null,
+    merchant_name: typeof row?.merchant_name === 'string' ? row.merchant_name : typeof row?.merchant === 'string' ? row.merchant : typeof row?.name === 'string' ? row.name : undefined,
+    description: typeof row?.description === 'string' ? row.description : undefined,
+    schedule_c_recurring: row?.schedule_c_recurring === true,
+    id: typeof row?.id === 'string' ? row.id : undefined,
+  };
+  return resolveCategoryTreatment(probe, row?.peers ?? [probe]);
+}
+
+/** Map a review category or a stored WriteOff category to its Schedule C line code. Amount, merchant and description decide software and equipment. */
+export function categoryScheduleCLine(value: unknown, row?: ScheduleCRowContext): string | null {
   if (typeof value !== 'string' || !value.trim()) return null;
-  const direct = CATEGORY_MAP[value]?.line;
-  if (direct) return direct;
-  const recorded = reviewCategory(value)?.recordedCategory;
-  return recorded ? CATEGORY_MAP[recorded]?.line ?? null : null;
+  const treatment = treatmentFor(value, row);
+  if (treatment.personal || treatment.needsMoreInformation || !treatment.line) return null;
+  return treatment.line;
 }
 
 /** Printed sentence for one internal line. otherExpensesYearPrint supplies the code: 27a for 2017 through 2024, 27b for 2025 and later. 2016 and earlier, and a missing or unusable charge year, print no line. */
@@ -227,9 +259,29 @@ function isStoredOtherExpensesSentence(value: string): boolean {
  * isSuppliedOtherExpenses is the gate that used to accept any parenthetical. Energy and any other parenthetical return no line.
  * A category that maps to Other expenses then prints by charge year. Confirmation does not change this order.
  */
+function suppliedLineCode(value: string): string | null {
+  const match = /^(?:schedule c )?(?:line )?(\d{1,2}[a-z]?)\b/i.exec(value.trim());
+  return match ? match[1].toLowerCase() : null;
+}
+
 export function scheduleCLineFor(result: ExplainableResult, chargeDate: unknown, row?: ScheduleCRowContext): string | null {
+  const treatment = treatmentFor(row?.category ?? result.category, row);
+  if (treatment.personal || treatment.needsMoreInformation) return null;
   const supplied = text(result.schedule_c_line, 120);
-  const categoryLine = categoryScheduleCLine(row?.category ?? result.category);
+  const categoryLine = treatment.line;
+  if (categoryLine === '27a' || categoryLine === '27b') {
+    if (supplied && isEnergyBuildings27b(supplied)) return null;
+    if (!supplied) {
+      const kind = result.transaction_kind ?? 'expense';
+      if ((kind !== 'expense' && kind !== 'unknown') || result.is_deductible === false) return null;
+    }
+    return lineSentence('27a', chargeDate);
+  }
+  if (categoryLine && supplied) {
+    if (isEnergyBuildings27b(supplied) || isUnrecognized27Label(supplied)) return null;
+    const suppliedCode = suppliedLineCode(supplied);
+    if (suppliedCode && suppliedCode !== categoryLine.toLowerCase()) return lineSentence(categoryLine, chargeDate);
+  }
   if (supplied && isSuppliedOtherExpenses(supplied)) return lineSentence('27a', chargeDate);
   if (supplied && isEnergyBuildings27b(supplied)) return null;
   if (supplied && isUnrecognized27Label(supplied) && categoryLine !== '27a' && categoryLine !== '27b') return null;
@@ -250,8 +302,11 @@ export function scheduleCLineFor(result: ExplainableResult, chargeDate: unknown,
 
 /** True when this row must show Needs more information instead of a Schedule C line. */
 export function otherExpensesNeedsMoreInformation(result: ExplainableResult, chargeDate: unknown, row?: ScheduleCRowContext): boolean {
+  const treatment = treatmentFor(row?.category ?? result.category, row);
+  if (treatment.needsMoreInformation) return true;
+  if (treatment.personal) return false;
   const supplied = text(result.schedule_c_line, 120);
-  const categoryLine = categoryScheduleCLine(row?.category ?? result.category);
+  const categoryLine = treatment.line;
   const decision = resolveScheduleCPrint({ categoryLine, label: supplied });
   if (decision.kind === 'needs-more-information') return true;
   if (decision.kind !== 'other-expenses' && !(decision.kind === 'line' && (decision.line === '27a' || decision.line === '27b'))) return false;
@@ -401,7 +456,12 @@ export function composeExplanation({ result, transaction, profile, taxYear }: Co
   }
   const subject = merchant && amountLabel ? ` — ${merchant}, ${amountLabel}` : merchant ? ` — ${merchant}` : '';
   const chargeDate = tx.date ?? tx.datetime;
-  const row = { reviewStatus: tx.review_status, category: tx.category ?? result.category };
+  const row = {
+    reviewStatus: tx.review_status, category: tx.category ?? result.category,
+    amount: tx.amount ?? tx.amount_usd, merchant_name: tx.merchant_name ?? tx.merchant ?? tx.name,
+    description: tx.description, is_deductible: tx.is_deductible ?? result.is_deductible, id: tx.id,
+    schedule_c_recurring: tx.schedule_c_recurring,
+  };
   const scheduleCLine = scheduleCLineFor(result, chargeDate, row);
   const withholdLine = otherExpensesNeedsMoreInformation(result, chargeDate, row);
   return {

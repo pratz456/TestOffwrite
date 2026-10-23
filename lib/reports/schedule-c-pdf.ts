@@ -42,7 +42,9 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
     pdf.section('Complete confirmed-transaction appendix');
     const rows = data.lineItems.flatMap(item => item.transactions.map(tx => {
       const contribution = aggregateScheduleC([tx], String(data.taxYear), CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible;
-      return [tx.date, tx.merchant_name || tx.id || 'Unnamed record', scheduleCExportLine(item.lineCode, data.taxYear), money(tx.amount), money(contribution)];
+      const merchant = String(tx.merchant_name || tx.id || 'Unnamed record');
+      const note = typeof tx.schedule_c_export_note === 'string' ? tx.schedule_c_export_note : '';
+      return [tx.date, note ? `${merchant}. ${note}` : merchant, scheduleCExportLine(item.lineCode, data.taxYear), money(tx.amount), money(contribution)];
     }));
     for (const tx of withheld) {
       rows.push([tx.date ?? '', tx.merchant_name || tx.id || 'Unnamed record', '', money(tx.amount), money(0)]);

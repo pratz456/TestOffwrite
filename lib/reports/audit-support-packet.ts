@@ -1,7 +1,7 @@
 import { readBankHistoryReviewSummary, type BankHistoryReviewSummary } from '@/lib/plaid/reconnect-summary';
 import { adminDb } from '@/lib/firebase/admin';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
-import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { CATEGORY_MAP, resolveCategoryTreatment, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
 import { printedScheduleCLine, scheduleCLineCsvCell } from '@/lib/schedule-c/export-lines';
 import { resolveScheduleCPrint } from '@/lib/schedule-c/line-labels';
 import { BUSINESS_STANDARD_MILEAGE_RATES, businessMileageRateForDate, summarizeBusinessMileage } from '@/lib/tax-rules/mileage-rates';
@@ -168,13 +168,29 @@ function savedAuditLabel(record: ExportRecord): string | null {
   return typeof raw === 'string' && raw.trim() ? raw : null;
 }
 
+function auditCategory(record: ExportRecord): string {
+  return Array.isArray(record.category) ? record.category.join(' > ') : typeof record.category === 'string' ? record.category : '';
+}
+
+function auditTreatment(record: ExportRecord, peers: readonly ExportRecord[]) {
+  const category = auditCategory(record);
+  const amount = transactionAmount(record);
+  return resolveCategoryTreatment({
+    ...record,
+    amount: amount ?? Number.NaN,
+    date: exportDate(record.date ?? record.datetime) ?? '',
+    category,
+    is_deductible: record.is_deductible === true,
+  } as ScheduleCTransactionLike, peers as ScheduleCTransactionLike[]);
+}
+
 /**
  * Same precedence as aggregateScheduleC: energy, then an Other-expenses category, then an allowlisted label, then Needs more information.
  * A category mapped to any other line keeps that line, including when the saved label is an allowlisted 27a or 27b.
  * Withheld rows leave the line blank and record Needs more information on the advisory, not as a line.
+ * Ruled categories pass their line in. Unmapped categories keep the base map lookup, which is no line.
  */
-function auditScheduleCLine(category: string, label: string | null, taxYear: number | null, advisories: string[]): string | null {
-  const categoryLine = CATEGORY_MAP[category]?.line ?? null;
+function auditScheduleCLine(category: string, label: string | null, taxYear: number | null, advisories: string[], categoryLine: string | null = CATEGORY_MAP[category]?.line ?? null): string | null {
   const decision = resolveScheduleCPrint({ categoryLine, label });
   const withhold = () => {
     advisories.push(AUDIT_NEEDS_MORE_INFORMATION);
@@ -198,7 +214,7 @@ function auditScheduleCLine(category: string, label: string | null, taxYear: num
 }
 
 /** One confirmed deduction paired with the records on file and the §274(d) elements still missing. */
-export function buildEvidenceRecord(record: ExportRecord, context: { uid: string; tripsByDate: Map<string, number>; yearTripCount: number; receiptsByTransaction: Map<string, ExportRecord[]> }): AuditEvidenceRecord {
+export function buildEvidenceRecord(record: ExportRecord, context: { uid: string; tripsByDate: Map<string, number>; yearTripCount: number; receiptsByTransaction: Map<string, ExportRecord[]>; peers?: readonly ExportRecord[] }): AuditEvidenceRecord {
   const identity = String(record.trans_id ?? record.id ?? '');
   const date = exportDate(record.date ?? record.datetime)!;
   const amount = transactionAmount(record)!;
@@ -254,13 +270,22 @@ export function buildEvidenceRecord(record: ExportRecord, context: { uid: string
     if (record.documentation_status === 'partial' || record.documentation_status === 'missing') advisories.push(`Owner marked documentation as ${record.documentation_status}.`);
     if (businessUse !== null && businessUse !== 100) advisories.push(`Mixed-use allocation of ${businessUse}% recorded. Keep the basis for the allocation.`);
   }
+  const treatment = auditTreatment(record, context.peers ?? [record]);
+  let scheduleCLine: string | null = null;
+  if (treatment.needsMoreInformation) {
+    if (direction !== 'credit') advisories.push(AUDIT_NEEDS_MORE_INFORMATION);
+  } else if (!treatment.personal) {
+    const categoryLine = treatment.unmapped ? (CATEGORY_MAP[category]?.line ?? null) : treatment.line;
+    scheduleCLine = auditScheduleCLine(category, savedAuditLabel(record), chargeTaxYear(record.date ?? record.datetime), advisories, categoryLine);
+    if (direction !== 'credit' && scheduleCLine && treatment.exportNote) advisories.push(treatment.exportNote);
+  }
   const source: ReviewSource = record.review_source === 'ai_confirmed' || record.review_source === 'user_corrected' ? record.review_source : 'unknown';
   return {
     reference: String(record.exportReference ?? exportReference('transaction', `${context.uid}/${record.recordPath ?? identity}`)),
     transactionId: identity,
     detailPath: `/protected?screen=transaction-detail&transactionId=${encodeURIComponent(identity)}&from=reports`,
     date, merchant: text(record.merchant_name ?? record.merchant ?? record.name, 300) ?? 'Unnamed record', amount, direction, currency: 'USD',
-    category, categoryLabel: humanize(category), scheduleCLine: auditScheduleCLine(category, savedAuditLabel(record), chargeTaxYear(record.date ?? record.datetime), advisories),
+    category, categoryLabel: humanize(category), scheduleCLine,
     substantiation: { category: type, label: rule.label, strict: rule.strict, status: missing.length ? 'needs_records' : 'complete', missing, advisories },
     businessPurpose: purpose, attendees, clientProject,
     travel: { destination, datesRecorded }, mileage, linkedTrips, receipts, receiptDeclaredOutsideApp: declared,
@@ -347,7 +372,7 @@ export function assembleAuditSupportPacket(uid: string, year: number, inputs: Au
     const key = text(receipt.transactionId, 600); if (!key) continue;
     receiptsByTransaction.set(key, [...(receiptsByTransaction.get(key) ?? []), receipt]);
   }
-  const deductions = confirmed.map(record => buildEvidenceRecord(record, { uid, tripsByDate, yearTripCount: trips.length, receiptsByTransaction }))
+  const deductions = confirmed.map(record => buildEvidenceRecord(record, { uid, tripsByDate, yearTripCount: trips.length, receiptsByTransaction, peers: confirmed }))
     .sort((a, b) => a.date.localeCompare(b.date) || a.reference.localeCompare(b.reference));
   const byStatus: AuditSupportPacket['summary']['byStatus'] = { complete: { count: 0, amount: 0 }, needs_records: { count: 0, amount: 0 } };
   const categories = new Map<SubstantiationCategory, AuditSupportPacket['summary']['byCategory'][number]>();

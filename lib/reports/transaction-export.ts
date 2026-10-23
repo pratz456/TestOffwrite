@@ -1,4 +1,4 @@
-import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { resolveCategoryTreatment, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
 import { scheduleCLineCsvCell } from '@/lib/schedule-c/export-lines';
 import { resolveScheduleCPrint } from '@/lib/schedule-c/line-labels';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
@@ -96,7 +96,14 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
     if (equipment && typeof equipment === 'object' && 'business_use_percentage' in equipment) businessUse['equipment_details.business_use_percentage'] = equipment.business_use_percentage;
     const adjustments = Object.fromEntries(['deduction_override', 'deductible_amount', 'deduction_amount', 'deductible_amount_override', 'deduction_percentage'].filter(key => record[key] !== undefined).map(key => [key, record[key]]));
     const receiptPath = typeof rawPath === 'string' ? validateReceiptPreviewPath(rawPath) : null;
-    const lines = scheduleCCells(record, lineYear, CATEGORY_MAP[category]?.line ?? null);
+    const treatment = resolveCategoryTreatment({ ...record, amount: amount ?? Number.NaN, date: date ?? '', category, is_deductible: deductible } as ScheduleCTransactionLike, records as ScheduleCTransactionLike[]);
+    const lines = treatment.personal
+      ? { recorded: '', mapped: '', audit: typeof (record.schedule_c_line ?? record.scheduleC_line) === 'string' ? String(record.schedule_c_line ?? record.scheduleC_line) : '', needsMore: false }
+      : treatment.needsMoreInformation
+        ? { recorded: '', mapped: '', audit: typeof (record.schedule_c_line ?? record.scheduleC_line) === 'string' ? String(record.schedule_c_line ?? record.scheduleC_line) : '', needsMore: true }
+        : scheduleCCells(record, lineYear, treatment.line);
+    const exportNote = !lines.needsMore && treatment.exportNote ? treatment.exportNote : '';
+    const notes = [typeof record.notes === 'string' ? record.notes : '', exportNote].filter(Boolean).join(' ');
     const review = [!date && 'Missing/invalid date', amount === null && 'Missing/invalid amount',
       !record.iso_currency_code && !record.unofficial_currency_code && 'Currency not recorded',
       record.pending === true && 'Pending record; reconcile posted transaction',
@@ -114,7 +121,7 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
       record.pending === true ? 'Yes' : record.pending === false ? 'No' : 'Not recorded',
       lines.recorded, lines.mapped, lines.audit, record.business_purpose,
       record.user_classification_reason, record.deductible_reason ?? record.deduction_reason, record.deduction_score ?? record.ai_confidence,
-      record.receipt_filename, receiptPath, record.notes, Object.keys(businessUse).length ? businessUse : '', Object.keys(adjustments).length ? adjustments : '', review,
+      record.receipt_filename, receiptPath, notes, Object.keys(businessUse).length ? businessUse : '', Object.keys(adjustments).length ? adjustments : '', review,
     ].map(csvCell).join(',');
   })].join('\r\n');
 }
