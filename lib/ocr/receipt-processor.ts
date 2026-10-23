@@ -1,4 +1,5 @@
 import Tesseract from 'tesseract.js';
+import { safeYMD } from '@/lib/schedule-c/taxDate';
 
 export interface ReceiptData {
   merchant: string;
@@ -190,10 +191,12 @@ export class ReceiptProcessor {
   private extractDate(text: string): string {
     // Look for various date patterns
     const datePatterns = [
-      /\b(\d{4}-\d{1,2}-\d{1,2})\b/g, // YYYY-MM-DD before short hyphenated dates
+      /\b(\d{4}-\d{1,2}-\d{1,2})(?!\d)/g, // YYYY-MM-DD before short hyphenated dates, including a time suffix
+      /\b(\d{4}\/\d{1,2}\/\d{1,2})\b/g, // year first, before a shorter slash date inside it
       /(\d{1,2}\/\d{1,2}\/\d{2,4})/g, // MM/DD/YYYY or MM/DD/YY
       /(\d{1,2}-\d{1,2}-\d{2,4})/g, // MM-DD-YYYY
       /(\w{3,9}\s+\d{1,2},?\s+\d{2,4})/g, // Month DD, YYYY
+      /(\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?),?\s+\d{4})/gi, // 1 Jan 2026
     ];
     
     for (const pattern of datePatterns) {
@@ -352,19 +355,11 @@ export class ReceiptProcessor {
     return { direction: 'expense', confidence: 0.55 };
   }
 
-  private normalizeDateToISO(dateLike: any): string | null {
+  private normalizeDateToISO(dateLike: unknown): string | null {
     try {
-      if (!dateLike) return null;
-      if (typeof dateLike === 'string') {
-        const d = new Date(dateLike);
-        if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
-        // If it's already YYYY-MM-DD-ish, just grab the prefix.
-        if (/^\d{4}-\d{2}-\d{2}/.test(dateLike)) return dateLike.slice(0, 10);
-        return null;
-      }
-      if (dateLike instanceof Date) return dateLike.toISOString().split('T')[0];
-      if (typeof dateLike === 'number') return new Date(dateLike).toISOString().split('T')[0];
-      return null;
+      // Printed receipt text is a civil day. Date and number values are instants;
+      // safeYMD documents why those use the UTC calendar day.
+      return safeYMD(dateLike);
     } catch {
       return null;
     }

@@ -1,3 +1,4 @@
+import { safeYMD } from '@/lib/schedule-c/taxDate';
 import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { AiExplanation } from '@/lib/transactions/review-proposals';
@@ -454,8 +455,19 @@ export async function createTransaction(
     const transId = transactionData.trans_id || `trans_${Date.now()}`;
     const docRef = doc(db, "user_profiles", userId, "accounts", accountId, "transactions", transId);
 
+    const rawDate = transactionData.date;
+    const hasDate = rawDate !== undefined && rawDate !== null && !(typeof rawDate === 'string' && rawDate.trim() === '');
+    let normalized = transactionData;
+    if (hasDate) {
+      const parsed = safeYMD(rawDate);
+      if (!parsed) {
+        return { data: null, error: new Error('Provide the transaction date as a calendar day.') };
+      }
+      normalized = { ...transactionData, date: parsed };
+    }
+
     const newTransaction = {
-      ...transactionData,
+      ...normalized,
       trans_id: transId,
       userId: userId,
       account_id: accountId,
