@@ -22,6 +22,12 @@ export const EXPORT_RECORDS = 'user_export_records';
 export const EXPORT_SEQUENCES = 'user_export_sequences';
 /** One document per export id until that export's record commits. Admin SDK only. */
 export const EXPORT_PENDING = 'user_export_pending';
+/**
+ * Written only when a reservation times out, so the in flight counter
+ * transaction retries and leaves the sequence unchanged.
+ */
+const RESERVATION_VOIDS = 'user_export_reservation_voids';
+/** Shared wait for the sequence reservation, the marker write, and the record write. */
 export const EXPORT_RECORD_WRITE_TIMEOUT_MS = 4000;
 
 /**
@@ -39,7 +45,8 @@ export interface ExportRecordDocument extends ScheduleCExportSnapshot {
   exportedAt: string;
   sha256: string;
   /**
-   * Monotonic per user and tax year. Assigned when the record is written.
+   * Monotonic per user and tax year. Reserved when the file is served.
+   * The record write stores this value and does not assign another one.
    * Absent on records saved before sequences existed.
    */
   exportSequence: number;
@@ -101,67 +108,117 @@ export function parseExportSnapshot(data: Record<string, unknown> | undefined): 
   return { rulesVersion: data.rulesVersion, exportedAt: data.exportedAt, lineTotals, totalDeductible: data.totalDeductible, charges };
 }
 
-/** Milliseconds for a server Date or a Firestore Timestamp. Missing values stay unknown. */
-function markerCreatedAtMillis(value: unknown): number | null {
-  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : null;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (value && typeof value === 'object' && typeof (value as { toMillis?: unknown }).toMillis === 'function') {
-    const millis = (value as { toMillis: () => number }).toMillis();
-    return typeof millis === 'number' && Number.isFinite(millis) ? millis : null;
-  }
-  return null;
+/**
+ * Reserves the next sequence for this user and year. A void document means
+ * the caller already gave up, so the transaction writes nothing: a commit
+ * that lands after the wait cannot create a sequence, a marker, or a record.
+ * The void read and the counter read both finish before any write.
+ */
+async function reserveExportSequence(uid: string, taxYear: number | null, exportId: string): Promise<number | null> {
+  const counterRef = adminDb.collection(EXPORT_SEQUENCES).doc(sequenceDocId(uid, taxYear));
+  const voidRef = adminDb.collection(RESERVATION_VOIDS).doc(exportId);
+  return adminDb.runTransaction(async tx => {
+    const abandoned = await tx.get(voidRef);
+    const counter = await tx.get(counterRef);
+    if (abandoned.exists) return null;
+    const current = counter.exists ? assignedSequence(counter.data()?.next) ?? 0 : 0;
+    const exportSequence = current + 1;
+    tx.set(counterRef, { uid, taxYear, next: exportSequence });
+    return exportSequence;
+  });
 }
 
 /**
- * Writes the pending marker for this export id before the file is served.
- * createdAt is the server clock at that write. A marker write error is logged
- * and does not block the download.
+ * Waits up to 4 seconds for the sequence reservation. Failure and timeout
+ * log one line and write no marker, no record, and no sequence. The download
+ * still proceeds. A reservation that finishes after the wait is voided so
+ * its commit does not move the counter.
  */
-export async function beginPendingExport(uid: string, taxYear: number): Promise<string> {
-  const exportId = randomUUID();
+async function reserveExportSequenceWithin(uid: string, taxYear: number | null, exportId: string): Promise<number | null> {
+  const voidRef = adminDb.collection(RESERVATION_VOIDS).doc(exportId);
+  let settled = false;
+  const attempt = reserveExportSequence(uid, taxYear, exportId);
+  return new Promise(resolve => {
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      console.error('Export sequence reservation failed or timed out', exportId);
+      voidRef.set({ voided: true }).then(
+        () => resolve(null),
+        () => resolve(null),
+      );
+    }, EXPORT_RECORD_WRITE_TIMEOUT_MS);
+    attempt.then(
+      sequence => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(sequence);
+      },
+      () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        console.error('Export sequence reservation failed or timed out', exportId);
+        resolve(null);
+      },
+    );
+  });
+}
+
+/** Writes the pending marker after the file exists and before it is served. */
+async function writeMarkerWithin(uid: string, taxYear: number | null, exportId: string, exportSequence: number): Promise<void> {
+  let timedOut = false;
+  const write = adminDb.collection(EXPORT_PENDING).doc(exportId).set({
+    uid, taxYear, exportId, createdAt: new Date(), exportSequence,
+  }).then(
+    () => undefined,
+    (error: unknown) => {
+      if (timedOut) console.error('Pending export marker write failed after the write timed out and was unconfirmed', exportId, error);
+      else throw error;
+    },
+  );
   try {
-    await adminDb.collection(EXPORT_PENDING).doc(exportId).set({
-      uid, taxYear, exportId, createdAt: new Date(),
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        timedOut = true;
+        reject(new Error('Pending export marker write timed out'));
+      }, EXPORT_RECORD_WRITE_TIMEOUT_MS);
+      write.then(
+        () => { clearTimeout(timer); resolve(); },
+        (error: unknown) => { clearTimeout(timer); reject(error); },
+      );
     });
   } catch (error) {
-    console.error('Pending export marker was not written', exportId, error);
+    if (timedOut) console.error('Pending export marker write timed out and is unconfirmed', exportId);
+    else console.error('Pending export marker was not written', exportId, error);
   }
-  return exportId;
 }
 
 /**
- * Assigns the next exportSequence for this user and year and writes the record.
- * The same transaction deletes this export's pending marker and every marker
- * for that user and year whose createdAt is earlier than or equal to this
- * export's marker. A marker created later stays, so a newer export still in
- * flight keeps its marker. The counter read and the pending query both finish
- * before any write. A late commit still clears the markers it owns, and
- * overlapping exports cannot share a sequence.
+ * Writes the record with the sequence reserved at serve time.
+ * Deletes this export's marker and every marker for that user and year
+ * whose reserved sequence is earlier than or equal to this one. A marker
+ * with a higher sequence stays, so a newer export still in flight keeps
+ * its marker. The pending query finishes before any write.
  */
-async function writeExportRecord(record: Omit<ExportRecordDocument, 'exportSequence'>, exportId: string): Promise<void> {
-  const counterRef = adminDb.collection(EXPORT_SEQUENCES).doc(sequenceDocId(record.uid, record.taxYear));
+async function writeExportRecord(record: ExportRecordDocument, exportId: string): Promise<void> {
   const recordRef = adminDb.collection(EXPORT_RECORDS).doc();
   const pendingRef = adminDb.collection(EXPORT_PENDING).doc(exportId);
   const pendingQuery = adminDb.collection(EXPORT_PENDING).where('uid', '==', record.uid).where('taxYear', '==', record.taxYear);
   await adminDb.runTransaction(async tx => {
-    const counter = await tx.get(counterRef);
     const pending = await tx.get(pendingQuery);
-    const current = counter.exists ? assignedSequence(counter.data()?.next) ?? 0 : 0;
-    const exportSequence = current + 1;
-    const own = pending.docs.find(doc => doc.id === exportId);
-    const ownCreatedAt = markerCreatedAtMillis(own?.data()?.createdAt);
+    const ownSequence = record.exportSequence;
     const clearing = new Set<string>();
     for (const doc of pending.docs) {
       if (doc.id === exportId) {
         clearing.add(doc.ref.path);
         continue;
       }
-      if (ownCreatedAt === null) continue;
-      const createdAt = markerCreatedAtMillis(doc.data()?.createdAt);
-      if (createdAt !== null && createdAt <= ownCreatedAt) clearing.add(doc.ref.path);
+      const sequence = assignedSequence(doc.data()?.exportSequence);
+      if (sequence !== null && sequence <= ownSequence) clearing.add(doc.ref.path);
     }
-    tx.set(counterRef, { uid: record.uid, taxYear: record.taxYear, next: exportSequence });
-    tx.set(recordRef, plainDocument({ ...record, exportSequence }));
+    tx.set(recordRef, plainDocument(record));
     for (const doc of pending.docs) {
       if (clearing.has(doc.ref.path)) tx.delete(doc.ref);
     }
@@ -172,16 +229,18 @@ async function writeExportRecord(record: Omit<ExportRecordDocument, 'exportSeque
 /**
  * Waits up to 4 seconds for the record transaction. The download continues
  * either way. A timeout means the commit is unconfirmed: it may still land
- * and clear the pending marker. A rejected transaction is logged as failed.
+ * and clear the pending marker. A rejection after that timeout is logged
+ * with the export id. A rejection inside the wait is logged as failed.
  */
-export async function safeWriteExportRecord(record: Omit<ExportRecordDocument, 'exportSequence'>, exportId: string): Promise<void> {
+async function safeWriteExportRecord(record: ExportRecordDocument, exportId: string): Promise<void> {
   let timedOut = false;
   const write = writeExportRecord(record, exportId).then(
     () => {
       if (timedOut) console.error('Export record committed after the write timed out and was unconfirmed', exportId);
     },
     (error: unknown) => {
-      if (!timedOut) throw error;
+      if (timedOut) console.error('Export record write failed after the write timed out and was unconfirmed', exportId, error);
+      else throw error;
     },
   );
   try {
@@ -199,6 +258,25 @@ export async function safeWriteExportRecord(record: Omit<ExportRecordDocument, '
     if (timedOut) console.error('Export record write timed out and is unconfirmed', exportId);
     else console.error('Export record write failed', error);
   }
+}
+
+/**
+ * Reserves the serve time sequence, writes the marker, then writes the record.
+ * The file is already built. A reservation failure or timeout logs one line
+ * and writes nothing else, so this download cannot set or change the held total.
+ */
+export async function recordServedExport(record: Omit<ExportRecordDocument, 'exportSequence'>): Promise<void> {
+  const exportId = randomUUID();
+  let exportSequence: number | null;
+  try {
+    exportSequence = await reserveExportSequenceWithin(record.uid, record.taxYear, exportId);
+  } catch {
+    console.error('Export sequence reservation failed or timed out', exportId);
+    return;
+  }
+  if (exportSequence === null) return;
+  await writeMarkerWithin(record.uid, record.taxYear, exportId, exportSequence);
+  await safeWriteExportRecord({ ...record, exportSequence }, exportId);
 }
 
 export async function readTaxYearConfirmation(uid: string, year: number): Promise<TaxYearConfirmation | null> {
@@ -263,21 +341,21 @@ export async function readLatestExportRecord(uid: string, year: number): Promise
 }
 
 /**
- * A pending marker blocks a held year only when it is newer than the latest
- * confirmed export for that user and year. A marker whose createdAt is older
- * than that record's exportedAt is ignored, and a marker with no createdAt
- * counts as older than any record written after it. While a newer marker
- * remains, callers must not compare the year with an older export.
+ * A pending marker blocks a held year only when its reserved sequence is
+ * higher than the latest confirmed record. A marker with no sequence counts
+ * as older than any record written after it. While a newer marker remains,
+ * callers must not compare the year with an older export. The file builder
+ * still reads the stored record directly and does not use this null prior.
  */
 export async function readHeldYearExport(uid: string, year: number): Promise<{ prior: ScheduleCExportSnapshot | null; latestExportUnrecorded: boolean }> {
   const pending = await adminDb.collection(EXPORT_PENDING).where('uid', '==', uid).where('taxYear', '==', year).get();
   const latest = await rankLatestExport(uid, year);
-  const latestExportedAt = latest ? Date.parse(latest.exportedAt) : Number.NaN;
   const blocking = pending.docs.some(doc => {
-    if (!latest || !Number.isFinite(latestExportedAt)) return true;
-    const createdAt = markerCreatedAtMillis(doc.data()?.createdAt);
-    if (createdAt === null) return false;
-    return createdAt > latestExportedAt;
+    if (!latest) return true;
+    const sequence = assignedSequence(doc.data()?.exportSequence);
+    if (sequence === null) return false;
+    if (latest.exportSequence === null) return true;
+    return sequence > latest.exportSequence;
   });
   if (blocking) return { prior: null, latestExportUnrecorded: true };
   return { prior: latest?.snapshot ?? null, latestExportUnrecorded: false };

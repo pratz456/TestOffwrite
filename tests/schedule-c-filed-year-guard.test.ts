@@ -21,13 +21,18 @@ import {
   setScheduleCClockForTests,
   shouldHoldYear,
 } from '@/lib/schedule-c/filed-year';
-import { readHeldYearExport, readLatestExportRecord, safeWriteExportRecord } from '@/lib/schedule-c/export-record';
+import { readHeldYearExport, readLatestExportRecord } from '@/lib/schedule-c/export-record';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
 const harness = vi.hoisted(() => ({
   failWrites: false,
   failPending: false,
+  failReservation: false,
+  throwBuild: false,
   recordWriteDelayMs: 0,
+  recordWriteRejectAfterMs: 0,
+  reservationDelayMs: 0,
+  markerWriteDelayMs: 0,
   beforeRecordWrite: null as null | (() => Promise<void>),
   uid: 'owner',
   authed: true,
@@ -52,6 +57,16 @@ vi.mock('@/lib/firebase/profiles-server', () => ({
 vi.mock('@/lib/reports/tax-export-transactions', () => ({
   readTaxExportTransactions: async () => harness.transactions,
 }));
+vi.mock('@/lib/reports/schedule-c-csv', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/reports/schedule-c-csv')>();
+  return {
+    ...actual,
+    generateScheduleCCSV: (...args: Parameters<typeof actual.generateScheduleCCSV>) => {
+      if (harness.throwBuild) throw new Error('csv build failed');
+      return actual.generateScheduleCCSV(...args);
+    },
+  };
+});
 vi.mock('@/lib/reports/export-records', async importOriginal => {
   const actual = await importOriginal<typeof import('@/lib/reports/export-records')>();
   return { ...actual, readOwnedTransactions: async () => harness.csvTransactions };
@@ -74,7 +89,10 @@ vi.mock('@/lib/firebase/admin', async () => {
           const document = open(id);
           const write = document.set.bind(document);
           document.set = async (data: Record<string, unknown>) => {
-            if (harness.failPending && name === 'user_export_pending') throw new Error('pending marker store unavailable');
+            if (name === 'user_export_pending' && harness.failPending) throw new Error('pending marker store unavailable');
+            if (name === 'user_export_pending' && harness.markerWriteDelayMs > 0) {
+              await new Promise(resolve => setTimeout(resolve, harness.markerWriteDelayMs));
+            }
             return write(data);
           };
           return document;
@@ -83,16 +101,36 @@ vi.mock('@/lib/firebase/admin', async () => {
       },
       doc: (path: string) => db.doc(path),
       runTransaction(work: (tx: unknown) => Promise<unknown>) {
-        if (harness.failWrites) return Promise.reject(new Error('export record store unavailable'));
-        const run = () => harness.beforeRecordWrite
-          ? harness.beforeRecordWrite().then(() => db.runTransaction(work))
-          : db.runTransaction(work);
-        if (harness.recordWriteDelayMs > 0) {
-          return new Promise((resolve, reject) => {
-            setTimeout(() => { run().then(resolve, reject); }, harness.recordWriteDelayMs);
-          });
-        }
-        return run();
+        let delayedReservation = false;
+        return db.runTransaction(async (tx: { get: (target: { path?: string }) => Promise<unknown>; set: (target: unknown, data: Record<string, unknown>, options?: { merge?: boolean }) => unknown; delete: (target: unknown) => unknown }) => {
+          const wrapped = {
+            get: async (target: { path?: string }) => {
+              const path = typeof target?.path === 'string' ? target.path : '';
+              if (path.startsWith('user_export_sequences/')) {
+                if (harness.failReservation) throw new Error('export sequence reservation failed');
+                if (harness.reservationDelayMs > 0 && !delayedReservation) {
+                  delayedReservation = true;
+                  await new Promise(resolve => setTimeout(resolve, harness.reservationDelayMs));
+                }
+              }
+              if (path === 'user_export_pending') {
+                if (harness.beforeRecordWrite) await harness.beforeRecordWrite();
+                if (harness.recordWriteRejectAfterMs > 0) {
+                  await new Promise(resolve => setTimeout(resolve, harness.recordWriteRejectAfterMs));
+                  throw new Error('export record store unavailable');
+                }
+                if (harness.failWrites) throw new Error('export record store unavailable');
+                if (harness.recordWriteDelayMs > 0) {
+                  await new Promise(resolve => setTimeout(resolve, harness.recordWriteDelayMs));
+                }
+              }
+              return tx.get(target);
+            },
+            set: (target: unknown, data: Record<string, unknown>, options?: { merge?: boolean }) => tx.set(target, data, options),
+            delete: (target: unknown) => tx.delete(target),
+          };
+          return work(wrapped);
+        });
       },
     },
   };
@@ -125,6 +163,13 @@ function pendingMarkers(): Record<string, unknown>[] {
   const db = harness.db;
   expect(db).toBeTruthy();
   return [...db!.records.entries()].filter(([key]) => key.startsWith('user_export_pending/')).map(([, value]) => value);
+}
+function seedCounter(next: number, year = 2025, uid = 'owner') {
+  const id = createHash('sha256').update(`${uid}\0${year}`).digest('hex');
+  harness.db!.records.set(`user_export_sequences/${id}`, { uid, taxYear: year, next });
+}
+function counterNext(): unknown[] {
+  return [...harness.db!.records.entries()].filter(([key]) => key.startsWith('user_export_sequences/')).map(([, value]) => value.next);
 }
 async function saveExportLog(id: string, kind: string, totalDeductible: number, chargeId: string, exportedAt = CLOCK.toISOString(), exportSequence?: number) {
   const { adminDb } = await import('@/lib/firebase/admin');
@@ -194,7 +239,12 @@ beforeEach(async () => {
   resetRateLimitStore();
   harness.failWrites = false;
   harness.failPending = false;
+  harness.failReservation = false;
+  harness.throwBuild = false;
   harness.recordWriteDelayMs = 0;
+  harness.recordWriteRejectAfterMs = 0;
+  harness.reservationDelayMs = 0;
+  harness.markerWriteDelayMs = 0;
   harness.beforeRecordWrite = null;
   vi.useRealTimers();
   harness.authed = true;
@@ -618,25 +668,24 @@ describe('filed year guard', () => {
     expect(csv).toContain('SERVICE_ADVERTISING,8,100,100');
   });
 
-  it('assigns distinct sequences when two exports commit together', async () => {
-    const stamped = CLOCK.toISOString();
-    const record = (kind: 'schedule-c-pdf' | 'schedule-c-csv', total: number, id: string) => safeWriteExportRecord({
-      uid: 'owner', kind, taxYear: 2025, rulesVersion: 'v0', exportedAt: stamped, sha256: id,
-      lineTotals: [{ line: '8', amount: total }], totalDeductible: total,
-      charges: [{ id, line: '8', amount: total }],
-    }, id);
-    await Promise.all([record('schedule-c-pdf', 40, 'pdf'), record('schedule-c-csv', 100, 'csv')]);
+  it('assigns distinct sequences when two exports are served together', async () => {
+    harness.transactions = [confirmed({ id: 'ad1', amount: 40, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    const [first, second] = await Promise.all([
+      scheduleCExport(exportBody({ year: 2025, format: 'csv' })),
+      scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false })),
+    ]);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
     const rows = savedExports().filter(row => row.kind === 'schedule-c-pdf' || row.kind === 'schedule-c-csv');
     expect(rows).toHaveLength(2);
-    expect(rows.map(row => row.exportedAt)).toEqual([stamped, stamped]);
     expect(rows.map(row => row.exportSequence).sort((left, right) => Number(left) - Number(right))).toEqual([1, 2]);
-    const higher = rows.find(row => row.exportSequence === 2);
-    expect((await readLatestExportRecord('owner', 2025))?.totalDeductible).toBe(higher?.totalDeductible);
     expect(new Set(rows.map(row => row.exportSequence)).size).toBe(2);
+    expect((await readLatestExportRecord('owner', 2025))?.totalDeductible).toBe(40);
   });
 
   it('keeps the pending marker and skips the older export when the record write throws', async () => {
     await saveExportLog('older', 'schedule-c-pdf', 100, 'ad1', CLOCK.toISOString(), 1);
+    seedCounter(1);
     harness.transactions = [confirmed({ id: 'ad1', amount: 250, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
     harness.failWrites = true;
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -770,6 +819,7 @@ describe('filed year guard', () => {
     releases[0]();
     expect((await older).status).toBe(200);
     expect(pendingMarkers().map(marker => marker.exportId)).toEqual([newerMarker?.exportId]);
+    expect(newerMarker?.exportSequence).toBeGreaterThan(Number(olderMarker.exportSequence));
     expect(savedExports().map(row => row.totalDeductible)).toEqual([40]);
     expect(await readHeldYearExport('owner', 2025)).toEqual({ prior: null, latestExportUnrecorded: true });
     const stillBlocked = await readFiledYear(new NextRequest('http://localhost/api/tax/schedule-c/filed-year?year=2025'));
@@ -786,14 +836,14 @@ describe('filed year guard', () => {
     expect(recorded.prior).toMatchObject({ totalDeductible: 90, charges: [{ id: 'ad1', line: '8', amount: 90 }] });
   });
 
-  it('does not let a stale or undated pending marker block a later export record', async () => {
+  it('does not let a stale or unsequenced pending marker block a later export record', async () => {
     await saveExportLog('latest', 'schedule-c-pdf', 80, 'ad1', CLOCK.toISOString(), 3);
     const { adminDb } = await import('@/lib/firebase/admin');
     await adminDb.collection('user_export_pending').doc('older').set({
-      uid: 'owner', taxYear: 2025, exportId: 'older', createdAt: new Date(CLOCK.getTime() - 1),
+      uid: 'owner', taxYear: 2025, exportId: 'older', exportSequence: 1, createdAt: new Date(),
     });
-    await adminDb.collection('user_export_pending').doc('same-time').set({
-      uid: 'owner', taxYear: 2025, exportId: 'same-time', createdAt: new Date(CLOCK.getTime()),
+    await adminDb.collection('user_export_pending').doc('same-sequence').set({
+      uid: 'owner', taxYear: 2025, exportId: 'same-sequence', exportSequence: 3, createdAt: new Date(),
     });
     await adminDb.collection('user_export_pending').doc('legacy').set({
       uid: 'owner', taxYear: 2025, exportId: 'legacy',
@@ -806,9 +856,185 @@ describe('filed year guard', () => {
     expect((await filed.json()).latestExportUnrecorded).toBe(false);
 
     await adminDb.collection('user_export_pending').doc('newer').set({
-      uid: 'owner', taxYear: 2025, exportId: 'newer', createdAt: new Date(CLOCK.getTime() + 1),
+      uid: 'owner', taxYear: 2025, exportId: 'newer', exportSequence: 4, createdAt: new Date(),
     });
     expect(await readHeldYearExport('owner', 2025)).toEqual({ prior: null, latestExportUnrecorded: true });
     expect(pendingMarkers()).toHaveLength(4);
+  });
+
+  it('builds the file from the stored record while a marker is open and keeps that held total', async () => {
+    await saveExportLog('held', 'schedule-c-pdf', 100, 'ad1', CLOCK.toISOString(), 1);
+    seedCounter(1);
+    const { adminDb } = await import('@/lib/firebase/admin');
+    await adminDb.collection('user_export_pending').doc('open').set({
+      uid: 'owner', taxYear: 2025, exportId: 'open', exportSequence: 2, createdAt: new Date(),
+    });
+    harness.transactions = [confirmed({ id: 'ad1', amount: 250, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    const blocked = await readFiledYear(new NextRequest('http://localhost/api/tax/schedule-c/filed-year?year=2025'));
+    expect(await blocked.json()).toEqual({ prior: null, latestExportUnrecorded: true, confirmedRulesVersion: null });
+    const response = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+    expect(response.status).toBe(200);
+    const csv = await response.text();
+    expect(csv).toContain('SERVICE_ADVERTISING,8,100,100');
+    expect(csv).not.toContain('SERVICE_ADVERTISING,8,250,250');
+    expect(pendingMarkers()).toHaveLength(0);
+    expect(savedExports().every(row => row.totalDeductible === 100)).toBe(true);
+    const held = await readHeldYearExport('owner', 2025);
+    expect(held.latestExportUnrecorded).toBe(false);
+    expect(held.prior?.totalDeductible).toBe(100);
+  });
+
+  it('keeps the later served export as the latest record when it commits first', async () => {
+    const releases: Array<() => void> = [];
+    harness.beforeRecordWrite = () => new Promise(resolve => { releases.push(resolve); });
+    const ready = async (pending: number) => {
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        if (pendingMarkers().length === pending && releases.length === pending) return;
+        await new Promise(resolve => setTimeout(resolve, 5));
+      }
+      throw new Error(`export did not reach the record write with ${pending} markers`);
+    };
+    harness.transactions = [confirmed({ id: 'ad1', amount: 40, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    const servedFirst = scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+    await ready(1);
+    harness.transactions = [confirmed({ id: 'ad1', amount: 90, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    const servedSecond = scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+    await ready(2);
+    releases[1]();
+    expect((await servedSecond).status).toBe(200);
+    releases[0]();
+    expect((await servedFirst).status).toBe(200);
+    const firstRecord = savedExports().find(row => row.totalDeductible === 40);
+    const secondRecord = savedExports().find(row => row.totalDeductible === 90);
+    expect(secondRecord?.exportSequence).toBeGreaterThan(Number(firstRecord?.exportSequence));
+    const held = await readHeldYearExport('owner', 2025);
+    expect(held.latestExportUnrecorded).toBe(false);
+    expect(held.prior?.totalDeductible).toBe(90);
+    expect((await readLatestExportRecord('owner', 2025))?.totalDeductible).toBe(90);
+  });
+
+  it('logs a build failure, returns the existing error, and writes no marker', async () => {
+    harness.throwBuild = true;
+    harness.transactions = [confirmed({ id: 'ad1', amount: 80, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const response = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'Could not create the Schedule C preparer summary. Please retry.' });
+    expect(error).toHaveBeenCalledWith('Schedule C export file was not built', expect.any(Error));
+    expect(pendingMarkers()).toHaveLength(0);
+    expect(savedExports()).toHaveLength(0);
+    expect(counterNext()).toEqual([]);
+  });
+
+  it('logs a late record rejection with the export id', async () => {
+    vi.useFakeTimers();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    harness.recordWriteRejectAfterMs = 5000;
+    harness.transactions = [confirmed({ id: 'ad1', amount: 80, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    try {
+      const pending = scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+      await vi.advanceTimersByTimeAsync(4000);
+      const response = await pending;
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('SERVICE_ADVERTISING');
+      const exportId = pendingMarkers()[0]?.exportId;
+      expect(exportId).toEqual(expect.any(String));
+      expect(savedExports()).toHaveLength(0);
+      expect(error).toHaveBeenCalledWith('Export record write timed out and is unconfirmed', exportId);
+      expect(error).not.toHaveBeenCalledWith('Export record write failed after the write timed out and was unconfirmed', exportId, expect.any(Error));
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(error).toHaveBeenCalledWith('Export record write failed after the write timed out and was unconfirmed', exportId, expect.any(Error));
+      expect(pendingMarkers()).toHaveLength(1);
+      expect(savedExports()).toHaveLength(0);
+    } finally {
+      harness.recordWriteRejectAfterMs = 0;
+      await vi.advanceTimersByTimeAsync(10000);
+      vi.useRealTimers();
+    }
+  });
+
+  it('serves the file when the marker write times out and logs the export id', async () => {
+    vi.useFakeTimers();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    harness.markerWriteDelayMs = 5000;
+    harness.transactions = [confirmed({ id: 'ad1', amount: 80, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    let settled = false;
+    const pending = scheduleCExport(exportBody({ year: 2025, format: 'csv' })).then(response => {
+      settled = true;
+      return response;
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(settled).toBe(true);
+      const response = await pending;
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('SERVICE_ADVERTISING');
+      const timedOut = error.mock.calls.find(call => call[0] === 'Pending export marker write timed out and is unconfirmed');
+      expect(timedOut?.[1]).toEqual(expect.any(String));
+      expect(String(timedOut?.[1]).length).toBeGreaterThan(0);
+    } finally {
+      harness.markerWriteDelayMs = 0;
+      await vi.advanceTimersByTimeAsync(10000);
+      vi.useRealTimers();
+    }
+  });
+
+  it('serves the stored total when sequence reservation times out and leaves no sequence', async () => {
+    await saveExportLog('held', 'schedule-c-pdf', 100, 'ad1', CLOCK.toISOString(), 1);
+    seedCounter(1);
+    harness.transactions = [confirmed({ id: 'ad1', amount: 250, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    harness.reservationDelayMs = 5000;
+    vi.useFakeTimers();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const pending = scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+      await vi.advanceTimersByTimeAsync(4000);
+      const response = await pending;
+      expect(response.status).toBe(200);
+      const csv = await response.text();
+      expect(csv).toContain('SERVICE_ADVERTISING,8,100,100');
+      expect(csv).not.toContain('SERVICE_ADVERTISING,8,250,250');
+      expect(pendingMarkers()).toHaveLength(0);
+      expect(savedExports()).toEqual([expect.objectContaining({ totalDeductible: 100, exportSequence: 1 })]);
+      expect(counterNext()).toEqual([1]);
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(error).toHaveBeenCalledWith('Export sequence reservation failed or timed out', expect.any(String));
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(pendingMarkers()).toHaveLength(0);
+      expect(savedExports()).toHaveLength(1);
+      expect(counterNext()).toEqual([1]);
+      expect(error).toHaveBeenCalledTimes(1);
+      harness.reservationDelayMs = 0;
+      vi.useRealTimers();
+      const next = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+      expect(next.status).toBe(200);
+      expect(savedExports().map(row => row.exportSequence).sort((left, right) => Number(left) - Number(right))).toEqual([1, 2]);
+      expect(savedExports().every(row => row.totalDeductible === 100)).toBe(true);
+      expect((await readLatestExportRecord('owner', 2025))?.totalDeductible).toBe(100);
+      expect((await readHeldYearExport('owner', 2025)).latestExportUnrecorded).toBe(false);
+      expect(error).toHaveBeenCalledTimes(1);
+    } finally {
+      harness.reservationDelayMs = 0;
+      vi.useRealTimers();
+    }
+  });
+
+  it('serves the stored total when sequence reservation rejects and writes nothing', async () => {
+    await saveExportLog('held', 'schedule-c-pdf', 100, 'ad1', CLOCK.toISOString(), 1);
+    seedCounter(1);
+    harness.transactions = [confirmed({ id: 'ad1', amount: 250, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    harness.failReservation = true;
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const response = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('SERVICE_ADVERTISING,8,100,100');
+    expect(pendingMarkers()).toHaveLength(0);
+    expect(savedExports()).toEqual([expect.objectContaining({ totalDeductible: 100, exportSequence: 1 })]);
+    expect(counterNext()).toEqual([1]);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith('Export sequence reservation failed or timed out', expect.any(String));
+    const held = await readHeldYearExport('owner', 2025);
+    expect(held.latestExportUnrecorded).toBe(false);
+    expect(held.prior?.totalDeductible).toBe(100);
   });
 });
