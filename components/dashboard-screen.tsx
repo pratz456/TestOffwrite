@@ -197,6 +197,10 @@ export default function DashboardScreen({
                 <span className="mt-0.5 block text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">{metric.value.toLocaleString()}</span>
                 <span className="mt-0.5 hidden text-[11px] leading-4 text-slate-500 sm:block">{metric.detail}</span></span>
             </button>)}
+            <p className="col-span-2 border-t border-slate-100 px-3 py-2 text-xs text-slate-600 sm:col-span-4 sm:px-4">
+              Needs more information <span className="text-sm font-semibold tabular-nums text-slate-900">{recordSummary.needsMoreInformationCount.toLocaleString()}</span>
+              <span className="mt-0.5 block text-[11px] leading-4 text-slate-500">Unreadable dates stay out of every total.</span>
+            </p>
           </section>
 
           <div className="grid items-start gap-4 lg:grid-cols-[1.05fr_1fr]">

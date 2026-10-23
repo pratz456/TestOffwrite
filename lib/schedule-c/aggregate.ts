@@ -15,9 +15,9 @@
  *
  * PDF generation path: app/api/tax/schedule-c/export/route.ts reads
  * readTaxExportTransactions, then aggregateScheduleC, then pdf-lib.
- * Schedule C totals have no Needs more information bucket. That label is the
- * AI deduction status in lib/ai/analysis-persistence.ts. Charges with no valid
- * charge day are listed on `undated` and counted in no year.
+ * Charges with no valid charge day are listed on `undated` and reported as
+ * `needsMoreInformation`. They are in no year's dollar total. The count is
+ * what keeps an unreadable date from disappearing out of the totals.
  */
 
 import { chargeYear } from './taxDate';
@@ -188,6 +188,8 @@ export interface AggregateScheduleCResult<T = ScheduleCTransactionLike> {
   counts: { deductible: number; year: number };
   /** Non-superseded charges with no valid charge day. They are in no year's totals. */
   undated: T[];
+  /** Same rows as `undated`. An unreadable date is counted here and in no dollar total. */
+  needsMoreInformation: number;
 }
 
 export type AggregateScheduleCMode = 'default' | 'confirmed-only';
@@ -293,5 +295,6 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
     lineItemsArray,
     counts: { deductible: deductibleTransactions.length, year: yearTransactions.length },
     undated,
+    needsMoreInformation: undated.length,
   };
 }

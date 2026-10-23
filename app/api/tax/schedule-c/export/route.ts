@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
     return new NextResponse(Buffer.from(bytes), { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="Schedule_C_${year}_WriteOff.pdf"`, 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     if (error instanceof IncomeReconciliationRequiredError) return NextResponse.json(incomeReconciliationReviewBody(error, year), { status: 422 });
-    if (error instanceof ExportReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
+    if (error instanceof ExportReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code, ...(error.needsMoreInformation ? { needsMoreInformation: error.needsMoreInformation } : {}) }, { status: 422 });
     return NextResponse.json({ error: 'Could not create the Schedule C preparer summary. Please retry.' }, { status: 503 });
   }
 }

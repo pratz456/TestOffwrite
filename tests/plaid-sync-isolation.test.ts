@@ -128,7 +128,9 @@ describe('per-item transaction sync', () => {
     expect(formatTransactionDate(stored.date)).toBe('-');
     expect(formatTransactionDate('Jan 5, 2025')).toBe('-');
     const row = { id: 'legacy-date', amount: 100, date: stored.date, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', iso_currency_code: 'USD', is_deductible: true, review_status: 'confirmed' };
-    expect(aggregateScheduleC([row], '2025', CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible).toBe(0);
-    expect(aggregateScheduleC([row], '2026', CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible).toBe(0);
+  expect(aggregateScheduleC([row], '2025', CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible).toBe(0);
+  expect(aggregateScheduleC([row], '2025', CATEGORY_MAP, { mode: 'confirmed-only' }).needsMoreInformation).toBe(1);
+  expect(aggregateScheduleC([row], '2026', CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible).toBe(0);
+  expect(aggregateScheduleC([row], '2026', CATEGORY_MAP, { mode: 'confirmed-only' }).needsMoreInformation).toBe(1);
   });
 });

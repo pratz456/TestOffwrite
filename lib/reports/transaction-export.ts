@@ -6,6 +6,15 @@ import { isSupersededRecord } from '@/lib/transactions/record-scope';
 export type ExportRecord = Record<string, unknown>;
 export class ExportReviewRequiredError extends Error {
   readonly code = 'EXPORT_REVIEW_REQUIRED';
+  readonly needsMoreInformation?: number;
+  constructor(message: string, needsMoreInformation?: number) {
+    super(message);
+    this.needsMoreInformation = needsMoreInformation;
+  }
+}
+/** Non-superseded rows whose charge day cannot be read. They are in no year export. */
+export function needsMoreInformationCount(records: readonly ExportRecord[]): number {
+  return records.filter(record => !isSupersededRecord(record) && !chargeDay(record)).length;
 }
 export function exportYear(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined;
@@ -17,8 +26,9 @@ export function exportDate(value: unknown): string | null {
 }
 export function selectExportYear(records: ExportRecord[], year?: number): ExportRecord[] {
   if (year === undefined) return [...records];
+  const needsMoreInformation = needsMoreInformationCount(records);
   if (records.some(record => !chargeDay(record))) {
-    throw new ExportReviewRequiredError('Some saved transactions have missing or invalid dates. Correct them before exporting a selected year, or download all records for review.');
+    throw new ExportReviewRequiredError('Some saved transactions have missing or invalid dates. Correct them before exporting a selected year, or download all records for review.', needsMoreInformation);
   }
   return records.filter(record => chargeDay(record)?.startsWith(`${year}-`));
 }
@@ -57,7 +67,7 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
     if (equipment && typeof equipment === 'object' && 'business_use_percentage' in equipment) businessUse['equipment_details.business_use_percentage'] = equipment.business_use_percentage;
     const adjustments = Object.fromEntries(['deduction_override', 'deductible_amount', 'deduction_amount', 'deductible_amount_override', 'deduction_percentage'].filter(key => record[key] !== undefined).map(key => [key, record[key]]));
     const receiptPath = typeof rawPath === 'string' ? validateReceiptPreviewPath(rawPath) : null;
-    const review = [!date && 'Missing/invalid date', amount === null && 'Missing/invalid amount',
+    const review = [!date && 'Needs more information', !date && 'Missing/invalid date', amount === null && 'Missing/invalid amount',
       !record.iso_currency_code && !record.unofficial_currency_code && 'Currency not recorded',
       record.pending === true && 'Pending record; reconcile posted transaction',
       isSupersededRecord(record) && 'Superseded duplicate of an earlier bank record; excluded from WriteOff totals',

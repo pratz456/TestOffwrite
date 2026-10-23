@@ -35,6 +35,8 @@ describe('charge day shared by Schedule C totals and the export', () => {
     expect(year2025.totalDeductible).toBe(200);
     expect(year2025.lineItemsArray.flatMap(item => item.transactions).map(row => row.id).sort()).toEqual(['date-object', 'timestamp']);
     expect(year2024.undated.map(row => row.id).sort()).toEqual(['empty-date', 'impossible-day', 'impossible-month', 'junk', 'missing']);
+    expect(year2024.needsMoreInformation).toBe(5);
+    expect(year2025.needsMoreInformation).toBe(5);
     expect(chargeDay({ datetime: '2024-12-31T15:00:00Z' })).toBe('2024-12-31');
     expect(safeTaxYear('2025-13-40')).toBeNull();
     expect(safeTaxYear('2025-02-30')).toBeNull();

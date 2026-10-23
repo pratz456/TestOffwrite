@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
       'Cache-Control': 'private, no-store',
     } });
   } catch (error) {
-    if (error instanceof ExportReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
+    if (error instanceof ExportReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code, ...(error.needsMoreInformation ? { needsMoreInformation: error.needsMoreInformation } : {}) }, { status: 422 });
     return NextResponse.json({ error: 'Could not load a complete export. Please retry.' }, { status: 503 });
   }
 }

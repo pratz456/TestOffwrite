@@ -1,7 +1,6 @@
 import { getAnalysisProfile } from '@/lib/ai/profile-context';
 import { getTransactionsServer } from '@/lib/firebase/transactions-server';
-import { chargeYear } from '@/lib/schedule-c/taxDate';
-import { ASSISTANT_TRANSACTION_LIMIT, assistantProfileFacts, mentionedMerchantFacts, merchantCandidates, type AssistantContext } from './context';
+import { ASSISTANT_TRANSACTION_LIMIT, assistantProfileFacts, mentionedMerchantFacts, merchantCandidates, needsMoreInformationCount, type AssistantContext } from './context';
 
 /** Fields the merchant aggregate and the review flag need; identity fields are always projected. */
 const TRANSACTION_FIELDS = [
@@ -23,11 +22,7 @@ export async function loadAssistantContext(uid: string, message: string, taxYear
       : Promise.resolve([]),
   ]);
   const profile = assistantProfileFacts((profileResult?.data as Record<string, unknown> | null) ?? null);
-  const undatedCount = rows.filter(row => {
-    const owner = row.userId ?? row.user_id;
-    if (typeof owner === 'string' && owner && owner !== uid) return false;
-    return chargeYear(row) === null;
-  }).length;
+  const undatedCount = needsMoreInformationCount(rows, uid);
   return {
     profile,
     merchant: rows.length ? mentionedMerchantFacts({ message, rows, taxYear, uid }) : null,

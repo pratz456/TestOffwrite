@@ -174,6 +174,15 @@ function rowYear(row: { date?: unknown; datetime?: unknown }): number | null {
   return chargeYear(row);
 }
 
+/** Rows whose charge day cannot be read. They are in no tax-year merchant total. */
+export function needsMoreInformationCount(rows: readonly { date?: unknown; datetime?: unknown; userId?: unknown; user_id?: unknown }[], uid?: string): number {
+  return rows.filter(row => {
+    const owner = row.userId ?? row.user_id;
+    if (uid && typeof owner === 'string' && owner && owner !== uid) return false;
+    return chargeYear(row) === null;
+  }).length;
+}
+
 function cents(value: unknown): number | null {
   const amount = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
   return Number.isFinite(amount) ? Math.round(amount * 100) : null;
@@ -297,7 +306,7 @@ export function composeForYou(context: AssistantContext | null | undefined, topi
 
   const undatedCount = context.undatedCount ?? 0;
   if (undatedCount > 0) {
-    sentences.push(`${undatedCount} saved charge${undatedCount === 1 ? '' : 's'} ${undatedCount === 1 ? 'has' : 'have'} no valid charge date, so ${undatedCount === 1 ? 'it is' : 'they are'} in no tax year and ${undatedCount === 1 ? 'needs' : 'need'} more information before a deduction method applies.`);
+    sentences.push(`Needs more information: ${undatedCount} saved charge${undatedCount === 1 ? '' : 's'} ${undatedCount === 1 ? 'has' : 'have'} no valid charge date, so ${undatedCount === 1 ? 'it is' : 'they are'} in no tax year and a deduction method cannot be applied.`);
   }
 
   if (!sentences.length) return null;
