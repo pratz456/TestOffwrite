@@ -1,7 +1,4 @@
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { PDFPage } from 'pdf-lib';
@@ -9,10 +6,21 @@ import { CATEGORY_MAP, aggregateScheduleC, type ScheduleCTransactionLike } from 
 import { safeTaxYear } from '@/lib/schedule-c/taxDate';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
-import { POST as scheduleCExport } from '@/app/api/tax/schedule-c/export/route';
+import { confirmTaxYear, POST as scheduleCExport } from '@/app/api/tax/schedule-c/export/route';
+import { GET as readFiledYear } from '@/app/api/tax/schedule-c/filed-year/route';
 import { GET as transactionsCsv } from '@/app/api/transactions/export-csv/route';
 import { POST as userDataExport } from '@/app/api/user/export/route';
 import { GET as planningPdf } from '@/app/api/reports/profit-loss/route';
+import {
+  comparisonScreenWording,
+  currentScheduleCRules,
+  decideScheduleCExport,
+  frozenScheduleCRules,
+  registerScheduleCRules,
+  setCurrentScheduleCRulesForTests,
+  setScheduleCClockForTests,
+  shouldHoldYear,
+} from '@/lib/schedule-c/filed-year';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
 const harness = vi.hoisted(() => ({
@@ -67,21 +75,6 @@ vi.mock('@/lib/firebase/admin', async () => {
 const CLOCK = new Date('2026-07-15T15:00:00.000Z');
 const clock = () => CLOCK;
 
-type GuardModule = {
-  shouldHoldYear: (uid: string, year: number) => boolean;
-  comparisonScreenWording: (year: number) => string;
-  decideScheduleCExport: (input: {
-    uid: string;
-    year: number;
-    transactions: ScheduleCTransactionLike[];
-    prior: { rulesVersion: string; lineTotals: { line: string; amount: number }[]; totalDeductible: number; charges: { id: string; line: string; amount: number }[] } | null;
-    confirmedRulesVersion: string | null;
-  }) => { held: boolean; totalDeductible: number; comparison: { notice: string; loweringRules: { reason: string; amount: number }[]; movedCharges: { id: string; reason: string }[]; lineChanges: { line: string; oldAmount: number; newAmount: number; change: number }[] } | null };
-  frozenScheduleCRules: () => RuleSet;
-  currentScheduleCRules: () => RuleSet;
-  registerScheduleCRules: (rules: RuleSet) => void;
-};
-
 type RuleSet = {
   version: string;
   categoryMap: typeof CATEGORY_MAP;
@@ -89,33 +82,6 @@ type RuleSet = {
   readYear: (value: unknown) => number | null;
   aggregate: typeof aggregateScheduleC;
 };
-
-type FiledYearHooks = {
-  setScheduleCClockForTests: (next: (() => Date) | null) => void;
-  setCurrentScheduleCRulesForTests: (rules: RuleSet | null) => void;
-};
-
-const filedYearSource = join(dirname(fileURLToPath(import.meta.url)), '../lib/schedule-c/filed-year.ts');
-let filedYear: FiledYearHooks | null = null;
-
-async function loadGuard(): Promise<GuardModule> {
-  return await import('@/lib/schedule-c/export-lines') as GuardModule;
-}
-
-async function loadFiledYearHooks(): Promise<FiledYearHooks | null> {
-  if (!existsSync(filedYearSource)) return null;
-  const hooks = await import('@/lib/schedule-c/filed-year');
-  if (typeof hooks.setScheduleCClockForTests !== 'function' || typeof hooks.setCurrentScheduleCRulesForTests !== 'function') return null;
-  return hooks;
-}
-
-function canInjectRules(guard: GuardModule): boolean {
-  return filedYear !== null
-    && typeof guard.frozenScheduleCRules === 'function'
-    && typeof guard.currentScheduleCRules === 'function'
-    && typeof guard.registerScheduleCRules === 'function'
-    && typeof guard.decideScheduleCExport === 'function';
-}
 
 const confirmed = (fields: ScheduleCTransactionLike): ScheduleCTransactionLike => ({
   review_status: 'confirmed', is_deductible: true, tax_review_required: false, merchant_name: 'Secret Merchant', ...fields,
@@ -162,16 +128,16 @@ function project(result: ReturnType<typeof aggregateScheduleC>) {
     })),
   };
 }
-function mealsRules(guard: GuardModule): RuleSet {
-  const frozen = guard.frozenScheduleCRules();
+function mealsRules(): RuleSet {
+  const frozen = frozenScheduleCRules();
   const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: '24b', name: 'Meals', code: '24b' } };
   return {
     version: 'v1', categoryMap, readDate: frozen.readDate, readYear: frozen.readYear,
     aggregate: (txs, year, map = categoryMap, options) => frozen.aggregate(txs, year, map, options),
   };
 }
-function shiftedDateRules(guard: GuardModule): RuleSet {
-  const frozen = guard.frozenScheduleCRules();
+function shiftedDateRules(): RuleSet {
+  const frozen = frozenScheduleCRules();
   const readDate = (value: unknown) => {
     if (value === '1 January 2025') {
       const original = frozen.readDate(value);
@@ -200,9 +166,8 @@ beforeEach(async () => {
   harness.transactions = [];
   harness.csvTransactions = [];
   harness.db?.records.clear();
-  filedYear = await loadFiledYearHooks();
-  filedYear?.setScheduleCClockForTests(clock);
-  filedYear?.setCurrentScheduleCRulesForTests(null);
+  setScheduleCClockForTests(clock);
+  setCurrentScheduleCRulesForTests(null);
 });
 
 describe('filed year guard', () => {
@@ -216,12 +181,10 @@ describe('filed year guard', () => {
   ];
 
   it('A. v0 and current rules match for 2024, 2025 and 2026', async () => {
-    const guard = await loadGuard();
-    if (canInjectRules(guard)) {
-      expect(guard.shouldHoldYear('owner', 2025)).toBe(true);
-      expect(() => guard.registerScheduleCRules({ ...guard.frozenScheduleCRules(), version: 'v0' })).toThrow(/frozen/);
-      const frozen = guard.frozenScheduleCRules();
-      const current = guard.currentScheduleCRules();
+      expect(shouldHoldYear('owner', 2025)).toBe(true);
+      expect(() => registerScheduleCRules({ ...frozenScheduleCRules(), version: 'v0' })).toThrow(/frozen/);
+      const frozen = frozenScheduleCRules();
+      const current = currentScheduleCRules();
       expect(current.version).toBe('v0');
       expect(frozen.categoryMap).toEqual(CATEGORY_MAP);
       expect(current.categoryMap).toEqual(CATEGORY_MAP);
@@ -243,7 +206,6 @@ describe('filed year guard', () => {
         const newPdf = await generateScheduleCPlanningPDF({ ...shared, lineItems: newResult.lineItemsArray });
         expect(Buffer.from(oldPdf).equals(Buffer.from(newPdf))).toBe(true);
       }
-    }
     harness.transactions = [confirmed({ id: 'ad2025', amount: 100, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
     expect((await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }))).status).toBe(200);
     expect(savedExports()).toEqual(expect.arrayContaining([
@@ -252,8 +214,7 @@ describe('filed year guard', () => {
   });
 
   it('B. holds 2025 on v0 until the year is confirmed', async () => {
-    const guard = await loadGuard();
-    if (canInjectRules(guard)) filedYear!.setCurrentScheduleCRulesForTests(mealsRules(guard));
+    setCurrentScheduleCRulesForTests(mealsRules());
     harness.transactions = [confirmed({ id: 'ad1', amount: 100, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
     const view = capturePdf();
     const response = await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }));
@@ -271,9 +232,7 @@ describe('filed year guard', () => {
     expect(csv).toContain('8,100.00,0.00,down 100.00');
     expect(csv).toContain('24b,0.00,50.00,up 50.00');
     expect(csv).toContain('ad1,line changed');
-    const route = await import('@/app/api/tax/schedule-c/export/route');
-    expect(typeof route.confirmTaxYear).toBe('function');
-    const confirmedYear = await route.confirmTaxYear(exportBody({ uid: 'owner', year: 2025 }));
+    const confirmedYear = await confirmTaxYear(exportBody({ uid: 'owner', year: 2025 }));
     expect(confirmedYear.status).toBe(200);
     expect(harness.db!.records.get('user_tax_year_confirmations/owner_2025')).toMatchObject({ uid: 'owner', year: 2025, rulesVersion: 'v1' });
     const after = capturePdf();
@@ -285,17 +244,12 @@ describe('filed year guard', () => {
   });
 
   it('C. keeps printed 2024 and 2025 totals until a moved date is confirmed', async () => {
-    const guard = await loadGuard();
     if (process.env.TZ === 'Asia/Tokyo') expect(safeTaxYear('1 January 2025')).toBe(2024);
     if (process.env.TZ === 'America/Los_Angeles') expect(safeTaxYear('1 January 2025')).toBe(2025);
-    let frozen: ReturnType<GuardModule['frozenScheduleCRules']> | null = null;
-    let current: ReturnType<GuardModule['currentScheduleCRules']> | null = null;
-    if (canInjectRules(guard)) {
-      frozen = guard.frozenScheduleCRules();
-      filedYear!.setCurrentScheduleCRulesForTests(shiftedDateRules(guard));
-      current = guard.currentScheduleCRules();
-      expect(frozen.readYear('1 January 2025')).not.toBe(current.readYear('1 January 2025'));
-    }
+    const frozen = frozenScheduleCRules();
+    setCurrentScheduleCRulesForTests(shiftedDateRules());
+    const current = currentScheduleCRules();
+    expect(frozen.readYear('1 January 2025')).not.toBe(current.readYear('1 January 2025'));
     harness.transactions = [
       confirmed({ id: 'y2024', amount: 10, date: '2024-06-01', category: 'TRANSPORTATION_FUEL' }),
       confirmed({ id: 'y2025', amount: 20, date: '2025-06-01', category: 'TRANSPORTATION_FUEL' }),
@@ -305,34 +259,26 @@ describe('filed year guard', () => {
       const view = capturePdf();
       const response = await scheduleCExport(exportBody({ year, format: 'pdf', includeAppendix: false }));
       expect(response.status).toBe(200);
-      if (frozen && current) {
-        const expected = frozen.aggregate(harness.transactions, String(year), frozen.categoryMap, { mode: 'confirmed-only' }).totalDeductible;
-        const shifted = current.aggregate(harness.transactions, String(year), current.categoryMap, { mode: 'confirmed-only' }).totalDeductible;
-        expect(expected).not.toBe(shifted);
-        expect(subtotal(view.text())).toBe(`$${expected.toFixed(2)}`);
-      }
+      const expected = frozen.aggregate(harness.transactions, String(year), frozen.categoryMap, { mode: 'confirmed-only' }).totalDeductible;
+      const shifted = current.aggregate(harness.transactions, String(year), current.categoryMap, { mode: 'confirmed-only' }).totalDeductible;
+      expect(expected).not.toBe(shifted);
+      expect(subtotal(view.text())).toBe(`$${expected.toFixed(2)}`);
       expect(view.flat()).toContain('boundary');
       expect(view.flat()).toContain('date read differently');
       expect(view.flat()).not.toContain('what you filed');
     }
-    const route = await import('@/app/api/tax/schedule-c/export/route');
-    if (current && typeof route.confirmTaxYear === 'function') {
-      for (const year of [2024, 2025]) {
-        expect((await route.confirmTaxYear(exportBody({ year }))).status).toBe(200);
-        const expected = current.aggregate(harness.transactions, String(year), current.categoryMap, { mode: 'confirmed-only' }).totalDeductible;
-        const view = capturePdf();
-        expect((await scheduleCExport(exportBody({ year, format: 'pdf', includeAppendix: false }))).status).toBe(200);
-        expect(subtotal(view.text())).toBe(`$${expected.toFixed(2)}`);
-      }
+    for (const year of [2024, 2025]) {
+      expect((await confirmTaxYear(exportBody({ year }))).status).toBe(200);
+      const expected = current.aggregate(harness.transactions, String(year), current.categoryMap, { mode: 'confirmed-only' }).totalDeductible;
+      const view = capturePdf();
+      expect((await scheduleCExport(exportBody({ year, format: 'pdf', includeAppendix: false }))).status).toBe(200);
+      expect(subtotal(view.text())).toBe(`$${expected.toFixed(2)}`);
     }
   });
 
   it('D. a 2026 export uses the current rules with no hold', async () => {
-    const guard = await loadGuard();
-    if (canInjectRules(guard)) {
-      expect(guard.shouldHoldYear('owner', 2026)).toBe(true);
-      filedYear!.setCurrentScheduleCRulesForTests(mealsRules(guard));
-    }
+    expect(shouldHoldYear('owner', 2026)).toBe(true);
+    setCurrentScheduleCRulesForTests(mealsRules());
     harness.transactions = [confirmed({ id: 'now1', amount: 100, date: '2026-03-01', category: 'SERVICE_ADVERTISING' })];
     const view = capturePdf();
     const response = await scheduleCExport(exportBody({ year: 2026, format: 'pdf', includeAppendix: false }));
@@ -344,8 +290,6 @@ describe('filed year guard', () => {
   });
 
   it('E. records each download once, survives a failed write, and confirms only the signed in user', async () => {
-    const guard = await loadGuard();
-    const route = await import('@/app/api/tax/schedule-c/export/route');
     harness.transactions = [confirmed({ id: 'fee1', amount: 30, date: '2025-04-01', category: 'BANK_FEES_ATM_FEES' })];
     harness.csvTransactions = [{ id: 'fee1', amount: 30, date: '2025-04-01', category: 'BANK_FEES_ATM_FEES', is_deductible: true, merchant_name: 'Secret Merchant' }];
     const pdf = await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }));
@@ -379,20 +323,19 @@ describe('filed year guard', () => {
     expect(error).toHaveBeenCalledWith('Export record write failed', expect.any(Error));
     harness.failWrites = false;
     harness.authed = false;
-    expect((await route.confirmTaxYear(exportBody({ year: 2025 }))).status).toBe(401);
+    expect((await confirmTaxYear(exportBody({ year: 2025 }))).status).toBe(401);
     harness.authed = true;
-    const rejected = await route.confirmTaxYear(exportBody({ uid: 'someone-else', year: 2025 }));
+    const rejected = await confirmTaxYear(exportBody({ uid: 'someone-else', year: 2025 }));
     expect(rejected.status).toBe(403);
     expect([...harness.db!.records.keys()].some(key => key.startsWith('user_tax_year_confirmations/'))).toBe(false);
-    const accepted = await route.confirmTaxYear(exportBody({ uid: 'owner', year: 2025 }));
+    const accepted = await confirmTaxYear(exportBody({ uid: 'owner', year: 2025 }));
     expect(accepted.status).toBe(200);
     expect(harness.db!.records.get('user_tax_year_confirmations/owner_2025')).toEqual({
-      uid: 'owner', year: 2025, rulesVersion: guard.currentScheduleCRules().version, confirmedAt: CLOCK.toISOString(),
+      uid: 'owner', year: 2025, rulesVersion: currentScheduleCRules().version, confirmedAt: CLOCK.toISOString(),
     });
   });
 
   it('F. compares a later download with the stored export after a charge changes', async () => {
-    const guard = await loadGuard();
     const charge = confirmed({ id: 'resync', amount: 100, date: '2025-05-01', category: 'SERVICE_ADVERTISING' });
     harness.transactions = [charge];
     const first = capturePdf();
@@ -400,7 +343,7 @@ describe('filed year guard', () => {
     expect(subtotal(first.text())).toBe('$100.00');
     expect(savedExports()[0]).toMatchObject({ totalDeductible: 100, charges: [{ id: 'resync', line: '8', amount: 100 }] });
     charge.amount = 250;
-    const recomputed = guard.frozenScheduleCRules().aggregate(harness.transactions, '2025', CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible;
+    const recomputed = frozenScheduleCRules().aggregate(harness.transactions, '2025', CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible;
     expect(recomputed).toBe(250);
     const second = capturePdf();
     const response = await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }));
@@ -418,15 +361,12 @@ describe('filed year guard', () => {
   });
 
   it('names a charge moved to Needs more information once', async () => {
-    const guard = await loadGuard();
-    if (canInjectRules(guard)) {
-      const frozen = guard.frozenScheduleCRules();
-      const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: 'Needs more information', name: 'Needs more information', code: 'Needs more information' } };
-      filedYear!.setCurrentScheduleCRulesForTests({
-        version: 'v1', categoryMap, readDate: frozen.readDate, readYear: frozen.readYear,
-        aggregate: (txs, year, map = categoryMap, options) => frozen.aggregate(txs, year, map, options),
-      });
-    }
+    const frozen = frozenScheduleCRules();
+    const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: 'Needs more information', name: 'Needs more information', code: 'Needs more information' } };
+    setCurrentScheduleCRulesForTests({
+      version: 'v1', categoryMap, readDate: frozen.readDate, readYear: frozen.readYear,
+      aggregate: (txs, year, map = categoryMap, options) => frozen.aggregate(txs, year, map, options),
+    });
     const moved = [confirmed({ id: 'inflow1', amount: -40, date: '2025-02-01', category: 'SERVICE_ADVERTISING' })];
     harness.transactions = moved;
     const view = capturePdf();
@@ -435,33 +375,30 @@ describe('filed year guard', () => {
     expect(flat).toContain('inflow1');
     expect(flat).toContain('moved to Needs more information');
     expect(flat).not.toContain('what you filed');
-    if (canInjectRules(guard)) {
-      const decision = guard.decideScheduleCExport({
-        uid: 'owner', year: 2025, confirmedRulesVersion: null, prior: null, transactions: moved,
-      });
-      expect(decision.comparison?.movedCharges).toEqual([{ id: 'inflow1', reason: 'moved to Needs more information' }]);
-      expect(decision.comparison?.notice).toContain('awaiting copy approval');
-      expect(decision.comparison?.notice).not.toMatch(/[-–—]/);
-    }
+    const decision = decideScheduleCExport({
+      uid: 'owner', year: 2025, confirmedRulesVersion: null, prior: null, transactions: moved,
+    });
+    const comparison = decision.comparison;
+    expect(comparison).toBeTruthy();
+    expect(comparison!.movedCharges).toEqual([{ id: 'inflow1', reason: 'moved to Needs more information' }]);
+    expect(comparison!.notice).toContain('awaiting copy approval');
+    expect(comparison!.notice).not.toMatch(/[-–—]/);
   });
 
   it('lists each rule that lowers 2025 on its own line', async () => {
-    const guard = await loadGuard();
-    if (canInjectRules(guard)) {
-      const frozen = guard.frozenScheduleCRules();
-      const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: '24b', name: 'Meals', code: '24b' } };
-      const readDate = (value: unknown) => value === '2025-04-01' ? '2024-04-01' : frozen.readDate(value);
-      const readYear = (value: unknown) => {
-        const ymd = readDate(value);
-        return ymd ? Number(ymd.slice(0, 4)) : null;
-      };
-      filedYear!.setCurrentScheduleCRulesForTests({
-        version: 'v1', categoryMap, readDate, readYear,
-        aggregate: (txs, year, map = categoryMap, options) => frozen.aggregate(txs.map(tx => (
-          tx.date === '2025-04-01' ? { ...tx, date: '2024-04-01' } : tx
-        )), year, map, options),
-      });
-    }
+    const frozen = frozenScheduleCRules();
+    const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: '24b', name: 'Meals', code: '24b' } };
+    const readDate = (value: unknown) => value === '2025-04-01' ? '2024-04-01' : frozen.readDate(value);
+    const readYear = (value: unknown) => {
+      const ymd = readDate(value);
+      return ymd ? Number(ymd.slice(0, 4)) : null;
+    };
+    setCurrentScheduleCRulesForTests({
+      version: 'v1', categoryMap, readDate, readYear,
+      aggregate: (txs, year, map = categoryMap, options) => frozen.aggregate(txs.map(tx => (
+        tx.date === '2025-04-01' ? { ...tx, date: '2024-04-01' } : tx
+      )), year, map, options),
+    });
     harness.transactions = [
       confirmed({ id: 'ad', amount: 100, date: '2025-06-01', category: 'SERVICE_ADVERTISING' }),
       confirmed({ id: 'fuel', amount: 30, date: '2025-04-01', category: 'TRANSPORTATION_FUEL' }),
@@ -475,30 +412,26 @@ describe('filed year guard', () => {
     expect(flat).not.toContain('lowered the total by $80.00');
     expect(flat.toLowerCase()).not.toContain('what you filed');
     expect(flat.toLowerCase()).not.toContain('amend');
-    if (canInjectRules(guard)) {
-      expect(guard.comparisonScreenWording(2025)).toBe('your 2025 total under the rules at the time, on your current data');
-      const decision = guard.decideScheduleCExport({
-        uid: 'owner', year: 2025, confirmedRulesVersion: null, prior: null, transactions: harness.transactions,
-      });
-      expect(decision.comparison?.loweringRules).toEqual([
-        { reason: 'line changed', amount: 50 },
-        { reason: 'date read differently', amount: 30 },
-      ]);
-      const notice = decision.comparison?.notice ?? '';
-      expect(notice).toContain('your 2025 total under the rules at the time, on your current data');
-      expect(notice).toContain('Line changed lowered the total by $50.00.');
-      expect(notice).toContain('Date read differently lowered the total by $30.00.');
-      expect(notice).not.toContain('lowered the total by $80.00');
-    }
+    expect(comparisonScreenWording(2025)).toBe('your 2025 total under the rules at the time, on your current data');
+    const decision = decideScheduleCExport({
+      uid: 'owner', year: 2025, confirmedRulesVersion: null, prior: null, transactions: harness.transactions,
+    });
+    const comparison = decision.comparison;
+    expect(comparison).toBeTruthy();
+    expect(comparison!.loweringRules).toEqual([
+      { reason: 'line changed', amount: 50 },
+      { reason: 'date read differently', amount: 30 },
+    ]);
+    expect(comparison!.notice).toContain('your 2025 total under the rules at the time, on your current data');
+    expect(comparison!.notice).toContain('Line changed lowered the total by $50.00.');
+    expect(comparison!.notice).toContain('Date read differently lowered the total by $30.00.');
+    expect(comparison!.notice).not.toContain('lowered the total by $80.00');
   });
 
   it('G. a 2025 export keeps the old total and the moved charge list until confirm', async () => {
-    const guard = await loadGuard();
     expect(savedExports()).toHaveLength(0);
-    if (canInjectRules(guard)) {
-      expect(guard.shouldHoldYear('owner', 2025)).toBe(true);
-      filedYear!.setCurrentScheduleCRulesForTests(mealsRules(guard));
-    }
+    expect(shouldHoldYear('owner', 2025)).toBe(true);
+    setCurrentScheduleCRulesForTests(mealsRules());
     harness.transactions = [confirmed({ id: 'ad1', amount: 100, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
     const first = capturePdf();
     expect((await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }))).status).toBe(200);
@@ -506,30 +439,29 @@ describe('filed year guard', () => {
     expect(subtotal(first.text())).toBe('$100.00');
     expect(first.flat()).toContain('ad1');
     expect(savedExports()).toHaveLength(1);
-    if (canInjectRules(guard)) {
-      expect(guard.shouldHoldYear('owner', 2025)).toBe(true);
-      const prior = {
-        rulesVersion: String(savedExports()[0].rulesVersion),
-        lineTotals: savedExports()[0].lineTotals as { line: string; amount: number }[],
-        totalDeductible: Number(savedExports()[0].totalDeductible),
-        charges: savedExports()[0].charges as { id: string; line: string; amount: number }[],
-      };
-      const stillHeld = guard.decideScheduleCExport({
-        uid: 'owner', year: 2025, transactions: harness.transactions, prior, confirmedRulesVersion: null,
-      });
-      expect(stillHeld.held).toBe(true);
-      expect(stillHeld.totalDeductible).toBe(100);
-      expect(stillHeld.comparison?.movedCharges).toEqual([{ id: 'ad1', reason: 'line changed' }]);
-    }
+    expect(shouldHoldYear('owner', 2025)).toBe(true);
+    const prior = {
+      rulesVersion: String(savedExports()[0].rulesVersion),
+      lineTotals: savedExports()[0].lineTotals as { line: string; amount: number }[],
+      totalDeductible: Number(savedExports()[0].totalDeductible),
+      charges: savedExports()[0].charges as { id: string; line: string; amount: number }[],
+    };
+    const stillHeld = decideScheduleCExport({
+      uid: 'owner', year: 2025, transactions: harness.transactions, prior, confirmedRulesVersion: null,
+    });
+    expect(stillHeld.held).toBe(true);
+    expect(stillHeld.totalDeductible).toBe(100);
+    const moved = stillHeld.comparison;
+    expect(moved).toBeTruthy();
+    expect(moved!.movedCharges).toEqual([{ id: 'ad1', reason: 'line changed' }]);
     const second = capturePdf();
     expect((await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }))).status).toBe(200);
     expect(second.flat()).toContain('line changed');
     expect(subtotal(second.text())).toBe('$100.00');
     expect(second.flat()).toContain('ad1');
     expect(savedExports()).toHaveLength(2);
-    if (canInjectRules(guard)) expect(guard.shouldHoldYear('owner', 2025)).toBe(true);
-    const route = await import('@/app/api/tax/schedule-c/export/route');
-    expect((await route.confirmTaxYear(exportBody({ uid: 'owner', year: 2025 }))).status).toBe(200);
+    expect(shouldHoldYear('owner', 2025)).toBe(true);
+    expect((await confirmTaxYear(exportBody({ uid: 'owner', year: 2025 }))).status).toBe(200);
     const confirmedView = capturePdf();
     expect((await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }))).status).toBe(200);
     expect(subtotal(confirmedView.text())).toBe('$50.00');
@@ -574,7 +506,7 @@ describe('filed year guard', () => {
     expect((await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }))).status).toBe(200);
     expect(subtotal(nextPdf.text())).toBe('$100.00');
     const csvClock = new Date(Date.parse(scheduleCExportedAt || CLOCK.toISOString()) + 1000);
-    filedYear?.setScheduleCClockForTests(() => csvClock);
+    setScheduleCClockForTests(() => csvClock);
     const csv = await (await scheduleCExport(exportBody({ year: 2025, format: 'csv' }))).text();
     expect(csv).toContain('SERVICE_ADVERTISING,8,100,100');
     const csvRecord = savedExports().find(row => row.kind === 'schedule-c-csv');
@@ -588,19 +520,14 @@ describe('filed year guard', () => {
   });
 
   it('a saved older rules version leaves the 2025 export held', async () => {
-    const guard = await loadGuard();
-    if (canInjectRules(guard)) filedYear!.setCurrentScheduleCRulesForTests(mealsRules(guard));
+    setCurrentScheduleCRulesForTests(mealsRules());
     const { adminDb } = await import('@/lib/firebase/admin');
     await adminDb.collection('user_tax_year_confirmations').doc('owner_2025').set({
       uid: 'owner', year: 2025, rulesVersion: 'v0', confirmedAt: CLOCK.toISOString(),
     });
-    const filedYearRoute = join(dirname(fileURLToPath(import.meta.url)), '../app/api/tax/schedule-c/filed-year/route.ts');
-    if (existsSync(filedYearRoute)) {
-      const readRoute = await import('@/app/api/tax/schedule-c/filed-year/route');
-      const read = await readRoute.GET(new NextRequest('http://localhost/api/tax/schedule-c/filed-year?year=2025'));
-      expect(read.status).toBe(200);
-      expect(await read.json()).toMatchObject({ confirmedRulesVersion: 'v0' });
-    }
+    const read = await readFiledYear(new NextRequest('http://localhost/api/tax/schedule-c/filed-year?year=2025'));
+    expect(read.status).toBe(200);
+    expect(await read.json()).toMatchObject({ confirmedRulesVersion: 'v0' });
     harness.transactions = [confirmed({ id: 'ad1', amount: 100, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
     const view = capturePdf();
     expect((await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }))).status).toBe(200);

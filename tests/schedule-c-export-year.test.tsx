@@ -1,7 +1,5 @@
-import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { frozenScheduleCRules, setCurrentScheduleCRulesForTests, setScheduleCClockForTests } from '@/lib/schedule-c/filed-year';
 
 // Real component handlers with a minimal hook scheduler; network/downloads are
 // mocked. This verifies selected-year propagation, not browser PDF rendering.
@@ -79,19 +77,13 @@ beforeEach(async () => {
   vi.stubGlobal('fetch', harness.fetch.mockResolvedValue(new Response('synthetic-pdf', { headers: { 'content-type': 'application/pdf' } })));
   vi.stubGlobal('window', { URL: { createObjectURL: (blob: Blob) => { harness.blob = blob; return 'blob:synthetic'; }, revokeObjectURL: vi.fn() } });
   vi.stubGlobal('document', { createElement: () => harness.download, body: { appendChild: vi.fn(), removeChild: vi.fn() } });
-  if (existsSync(filedYearSource)) {
-    const hooks = await import('@/lib/schedule-c/filed-year');
-    if (typeof hooks.setScheduleCClockForTests === 'function') hooks.setScheduleCClockForTests(() => new Date('2026-07-15T15:00:00.000Z'));
-  }
+  setScheduleCClockForTests(() => new Date('2026-07-15T15:00:00.000Z'));
 });
-const filedYearSource = join(dirname(fileURLToPath(import.meta.url)), '../lib/schedule-c/filed-year.ts');
 afterEach(async () => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  if (!existsSync(filedYearSource)) return;
-  const hooks = await import('@/lib/schedule-c/filed-year');
-  if (typeof hooks.setCurrentScheduleCRulesForTests === 'function') hooks.setCurrentScheduleCRulesForTests(null);
-  if (typeof hooks.setScheduleCClockForTests === 'function') hooks.setScheduleCClockForTests(() => new Date('2026-07-15T15:00:00.000Z'));
+  setCurrentScheduleCRulesForTests(null);
+  setScheduleCClockForTests(() => new Date('2026-07-15T15:00:00.000Z'));
 });
 
 describe('Schedule C supported-year selection', () => {
@@ -101,17 +93,12 @@ describe('Schedule C supported-year selection', () => {
   ];
 
   async function showYear(input: typeof props, year: string) {
-    const lines = await import('@/lib/schedule-c/export-lines');
-    const hooks = existsSync(filedYearSource) ? await import('@/lib/schedule-c/filed-year') : null;
-    const canInject = typeof lines.frozenScheduleCRules === 'function' && typeof hooks?.setCurrentScheduleCRulesForTests === 'function';
-    if (canInject && hooks) {
-      const frozen = lines.frozenScheduleCRules();
-      const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: '24b', name: 'Meals', code: '24b' }, SERVICE_SUBSCRIPTION: { line: '24b', name: 'Meals', code: '24b' } };
-      hooks.setCurrentScheduleCRulesForTests({
-        version: 'v1', categoryMap, readDate: frozen.readDate, readYear: frozen.readYear,
-        aggregate: (txs, yearArg, map = categoryMap, options) => frozen.aggregate(txs, yearArg, map, options),
-      });
-    }
+    const frozen = frozenScheduleCRules();
+    const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: '24b', name: 'Meals', code: '24b' }, SERVICE_SUBSCRIPTION: { line: '24b', name: 'Meals', code: '24b' } };
+    setCurrentScheduleCRulesForTests({
+      version: 'v1', categoryMap, readDate: frozen.readDate, readYear: frozen.readYear,
+      aggregate: (txs, yearArg, map = categoryMap, options) => frozen.aggregate(txs, yearArg, map, options),
+    });
     const select = walk(render(input)).find(node => node.type === 'select');
     select.props.onChange({ target: { value: year } });
     render(input);
@@ -189,16 +176,12 @@ describe('Schedule C supported-year selection', () => {
       }
       return new Response('synthetic-pdf', { headers: { 'content-type': 'application/pdf' } });
     });
-    const lines = await import('@/lib/schedule-c/export-lines');
-    const hooks = existsSync(filedYearSource) ? await import('@/lib/schedule-c/filed-year') : null;
-    if (typeof lines.frozenScheduleCRules === 'function' && hooks) {
-      const frozen = lines.frozenScheduleCRules();
-      const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: '24b', name: 'Meals', code: '24b' } };
-      hooks.setCurrentScheduleCRulesForTests({
-        version: 'v1', categoryMap, readDate: frozen.readDate, readYear: frozen.readYear,
-        aggregate: (txs, yearArg, map = categoryMap, options) => frozen.aggregate(txs, yearArg, map, options),
-      });
-    }
+    const frozen = frozenScheduleCRules();
+    const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: '24b', name: 'Meals', code: '24b' } };
+    setCurrentScheduleCRulesForTests({
+      version: 'v1', categoryMap, readDate: frozen.readDate, readYear: frozen.readYear,
+      aggregate: (txs, yearArg, map = categoryMap, options) => frozen.aggregate(txs, yearArg, map, options),
+    });
     const fallback = await openYear(edited, '2025');
     expect(fallback).toContain('your 2025 total under the rules at the time, on your current data');
     expect(fallback.toLowerCase()).not.toContain('last export');
@@ -221,10 +204,8 @@ describe('Schedule C supported-year selection', () => {
         tree = mod.default();
       }
       const screen = walk(tree).find(node => node?.props && Object.prototype.hasOwnProperty.call(node.props, 'confirmedRulesVersion'));
-      return screen?.props?.confirmedRulesVersion;
-    } catch (error) {
-      if (!(error instanceof ReferenceError)) throw error;
-      return undefined;
+      expect(screen).toBeTruthy();
+      return screen.props.confirmedRulesVersion;
     } finally {
       harness.slots = savedSlots;
       harness.effects = savedEffects;
