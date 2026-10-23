@@ -36,9 +36,10 @@ function reference(path: string): object {
     delete: () => mocks.receiptDelete(path),
   };
 }
-function request() {
+function request(uploadTimeZone?: string) {
   const body = new FormData();
   body.append('file', new File([PNG], 'receipt.png', { type: 'image/png' }));
+  if (uploadTimeZone !== undefined) body.append('uploadTimeZone', uploadTimeZone);
   return new NextRequest('https://staging.example/api/receipts/process', { method: 'POST', body });
 }
 function ocrDate(date: string) {
@@ -89,5 +90,27 @@ describe('OCR receipt save requires a real calendar day', () => {
       merchant_name: 'Synthetic Stationery', amount: 23.45, date,
     }));
     expect((await response.json()).transaction.date).toBe(date);
+  });
+
+  it('stores a valid upload zone and passes it into OCR', async () => {
+    ocrDate('2026-09-15');
+    const response = await POST(request('America/Los_Angeles'));
+    expect(response.status).toBe(200);
+    expect(mocks.processReceipt).toHaveBeenCalledWith(expect.any(Buffer), 'America/Los_Angeles');
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({
+      date: '2026-09-15', uploadTimeZone: 'America/Los_Angeles',
+    }));
+  });
+
+  it('drops a missing or invalid upload zone', async () => {
+    ocrDate('2026-09-15');
+    const missing = await POST(request());
+    expect(missing.status).toBe(200);
+    expect(mocks.processReceipt).toHaveBeenCalledWith(expect.any(Buffer), undefined);
+    expect((mocks.createTransaction.mock.calls.at(-1)?.[2] as { uploadTimeZone?: string }).uploadTimeZone).toBeUndefined();
+    const invalid = await POST(request('Not/AZone'));
+    expect(invalid.status).toBe(200);
+    expect(mocks.processReceipt).toHaveBeenLastCalledWith(expect.any(Buffer), undefined);
+    expect((mocks.createTransaction.mock.calls.at(-1)?.[2] as { uploadTimeZone?: string }).uploadTimeZone).toBeUndefined();
   });
 });

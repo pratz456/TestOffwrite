@@ -23,8 +23,8 @@ import { receiptProcessor } from '@/lib/ocr/receipt-processor';
 import { POST } from '../app/api/receipts/process/route';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
-const normalizeDateToISO = (value: unknown) =>
-  (receiptProcessor as unknown as { normalizeDateToISO(dateLike: unknown): string | null }).normalizeDateToISO(value);
+const normalizeDateToISO = (value: unknown, userTimeZone?: string) =>
+  (receiptProcessor as unknown as { normalizeDateToISO(dateLike: unknown, userTimeZone?: string): string | null }).normalizeDateToISO(value, userTimeZone);
 const extractDate = (text: string) =>
   (receiptProcessor as unknown as { extractDate(text: string): string }).extractDate(text);
 
@@ -280,10 +280,31 @@ function streetReceipt(input: string) {
 function recognized(line: string) {
   worker.recognize.mockResolvedValue({ data: { text: receiptText(line), confidence: 95 } });
 }
-function request() {
+function request(uploadTimeZone?: string) {
   const body = new FormData();
   body.append('file', new File([PNG], 'receipt.png', { type: 'image/png' }));
+  if (uploadTimeZone !== undefined) body.append('uploadTimeZone', uploadTimeZone);
   return new NextRequest('https://staging.example/api/receipts/process', { method: 'POST', body });
+}
+async function saveInstant(instant: Date | number, uploadTimeZone?: string) {
+  const processor = receiptProcessor as unknown as {
+    parseReceiptText(text: string): { merchant: string; amount: number; date: Date | number; category: string; items: [] };
+  };
+  const original = processor.parseReceiptText;
+  processor.parseReceiptText = () => ({
+    merchant: 'SYNTHETIC OFFICE STORE', amount: 12.34, date: instant, category: 'other', items: [],
+  });
+  try {
+    worker.recognize.mockResolvedValue({ data: { text: 'synthetic', confidence: 95 } });
+    const response = await POST(request(uploadTimeZone));
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as {
+      amount: number; date: string; deductionStatus?: string; tax_review_required?: boolean; uploadTimeZone?: string;
+      year?: unknown; taxYear?: unknown; tax_year?: unknown;
+    } | undefined;
+    return { response, saved };
+  } finally {
+    processor.parseReceiptText = original;
+  }
 }
 async function expectUndatedReceipt(text: string, amount?: number) {
   worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
@@ -585,6 +606,62 @@ describe('OCR save uses the printed calendar day', () => {
   it.each(REFUSED)('saves OCR text %s with no readable date', async input => {
     expect(extractDate(receiptText(input))).toBe('');
     await expectUndatedReceipt(receiptText(input), 25);
+  });
+
+  it('saves a Los Angeles upload at 2027-01-01T07:30:00Z as 2026-12-31', async () => {
+    const instant = new Date('2027-01-01T07:30:00Z');
+    expect(normalizeDateToISO(instant, 'America/Los_Angeles')).toBe('2026-12-31');
+    expect(normalizeDateToISO(instant, 'UTC')).toBe('2027-01-01');
+    const dated = await saveInstant(instant, 'America/Los_Angeles');
+    expect(dated.response.status).toBe(200);
+    expect(dated.saved).toMatchObject({ date: '2026-12-31', uploadTimeZone: 'America/Los_Angeles', amount: 12.34 });
+    expect(dated.saved?.deductionStatus).toBeUndefined();
+    const numbered = await saveInstant(instant.getTime(), 'America/Los_Angeles');
+    expect(numbered.saved?.date).toBe('2026-12-31');
+    expect(numbered.saved?.uploadTimeZone).toBe('America/Los_Angeles');
+  });
+
+  it('keeps a no-zone row at 18:00Z on the shared calendar day', async () => {
+    const instant = new Date('2027-01-01T18:00:00Z');
+    expect(normalizeDateToISO(instant)).toBe('2027-01-01');
+    const dated = await saveInstant(instant);
+    expect(dated.response.status).toBe(200);
+    expect(dated.saved).toMatchObject({ date: '2027-01-01', amount: 12.34 });
+    expect(dated.saved?.uploadTimeZone).toBeUndefined();
+    expect(dated.saved?.deductionStatus).toBeUndefined();
+    const invalid = await saveInstant(instant.getTime(), 'Not/AZone');
+    expect(invalid.saved?.date).toBe('2027-01-01');
+    expect(invalid.saved?.uploadTimeZone).toBeUndefined();
+  });
+
+  it('saves a no-zone row at 05:00Z in Needs more information', async () => {
+    const instant = new Date('2027-01-01T05:00:00Z');
+    expect(normalizeDateToISO(instant)).toBeNull();
+    expect(normalizeDateToISO(instant.getTime())).toBeNull();
+    const dated = await saveInstant(instant);
+    expect(dated.response.status).toBe(200);
+    expect(dated.saved?.date).toBe('');
+    expect(dated.saved?.deductionStatus).toBe('Needs more information');
+    expect(dated.saved?.tax_review_required).toBe(true);
+    expect(dated.saved?.uploadTimeZone).toBeUndefined();
+    expect(dated.saved?.year).toBeUndefined();
+    expect(dated.saved?.taxYear).toBeUndefined();
+    expect(dated.saved?.tax_year).toBeUndefined();
+    expect(dated.saved?.amount).toBe(12.34);
+    const numbered = await saveInstant(instant.getTime(), 'Not/AZone');
+    expect(numbered.saved?.date).toBe('');
+    expect(numbered.saved?.deductionStatus).toBe('Needs more information');
+    expect(numbered.saved?.uploadTimeZone).toBeUndefined();
+  });
+
+  it('stores the upload zone without changing a printed date', async () => {
+    const text = 'SYNTHETIC OFFICE STORE\n01/15/2026\nTotal $12.34';
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+    const response = await POST(request('America/Los_Angeles'));
+    expect(response.status).toBe(200);
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({
+      date: '2026-01-15', uploadTimeZone: 'America/Los_Angeles',
+    }));
   });
 
   it('saves a receipt that has no date', async () => {

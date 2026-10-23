@@ -69,16 +69,10 @@ function ianaTimeZone(value: string | undefined): string | undefined {
   }
 }
 
-/**
- * Calendar day of an instant in an explicit IANA zone.
- * The zone is read with Intl.DateTimeFormat. The process clock is not used.
- * A missing or unknown zone returns null.
- */
-function localCalendarDay(date: Date, timeZone: string | undefined): string | null {
-  const zone = ianaTimeZone(timeZone);
-  if (!zone || !Number.isFinite(date.getTime())) return null;
+/** Calendar day of an instant in one IANA zone. The process clock is not used. */
+function dayInZone(date: Date, timeZone: string): string | null {
   const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: zone,
+    timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -87,6 +81,20 @@ function localCalendarDay(date: Date, timeZone: string | undefined): string | nu
   const month = Number(parts.find(part => part.type === 'month')?.value);
   const day = Number(parts.find(part => part.type === 'day')?.value);
   return calendarDay(year, month, day);
+}
+
+/**
+ * Calendar day of an instant.
+ * A valid upload zone wins. A missing or unknown zone keeps the day only when
+ * Pacific/Pago_Pago and America/St_Thomas agree. The process clock is not used.
+ */
+function localCalendarDay(date: Date, timeZone: string | undefined): string | null {
+  if (!Number.isFinite(date.getTime())) return null;
+  const zone = ianaTimeZone(timeZone);
+  if (zone) return dayInZone(date, zone);
+  const pagoPago = dayInZone(date, 'Pacific/Pago_Pago');
+  const stThomas = dayInZone(date, 'America/St_Thomas');
+  return pagoPago && pagoPago === stThomas ? pagoPago : null;
 }
 
 /** Clock time by parts. An hour such as 25 is rejected. The date is not shifted through local time. */
@@ -532,7 +540,8 @@ export class ReceiptProcessor {
         data: {
           merchant: receiptData.merchant || 'Unknown Merchant',
           amount: receiptData.amount || 0,
-          // An unreadable date stays blank. A Date or timestamp needs the caller supplied zone.
+          // An unreadable date stays blank. A Date or a timestamp uses the upload zone,
+          // then the shared day in Pacific/Pago_Pago and America/St_Thomas.
           date: this.normalizeDateToISO(receiptData.date, userTimeZone) || '',
           category: receiptData.category,
           items: receiptData.items,
