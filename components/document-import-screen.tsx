@@ -12,6 +12,7 @@ import {
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import { DocumentImageConsent, type DocumentImageFallbackReason } from "@/components/document-image-consent";
 import { DOCUMENT_IMAGE_CONSENT_REQUIRED } from "@/lib/onboarding/document-import-consent";
+import { socialSecurityWageBase } from "@/lib/tax-rules/public-calculators";
 
 interface Props {
   user: { id: string; email?: string };
@@ -32,7 +33,7 @@ interface FieldDef {
   isMonetary: boolean;
   isCritical: boolean;      // Wrong value = IRS notice
   warningIfZero?: string;
-  sanityCheck?: (v: number, allFields: Record<string, any>) => string | null;
+  sanityCheck?: (v: number, allFields: Record<string, any>, taxYear?: number) => string | null;
 }
 
 const W2_FIELDS: FieldDef[] = [
@@ -103,12 +104,13 @@ const W2_FIELDS: FieldDef[] = [
     flowsTo: "Not deducted from income - already paid through payroll",
     isMonetary: true,
     isCritical: false,
-    sanityCheck: (v, f) => {
-      if (f.box3SocialSecurityWages) {
-        const expected = Math.min(f.box3SocialSecurityWages, 176100) * 0.062;
-        if (Math.abs(v - expected) > 50) {
-          return `Box 4 ($${v.toLocaleString()}) differs from expected SS withholding of $${Math.round(expected).toLocaleString()} - verify this is correct`;
-        }
+    sanityCheck: (v, f, taxYear) => {
+      if (!f.box3SocialSecurityWages || taxYear == null || !Number.isFinite(taxYear)) return null;
+      const wageBase = socialSecurityWageBase(taxYear);
+      if (wageBase == null) return null;
+      const expected = Math.min(f.box3SocialSecurityWages, wageBase) * 0.062;
+      if (Math.abs(v - expected) > 50) {
+        return `Box 4 ($${v.toLocaleString()}) differs from expected SS withholding of $${Math.round(expected).toLocaleString()} - verify this is correct`;
       }
       return null;
     },
@@ -400,7 +402,9 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
     if (!def.sanityCheck || !editedFields[def.key]) return null;
     const val = typeof editedFields[def.key] === "number" ? editedFields[def.key] : parseFloat(String(editedFields[def.key]));
     if (isNaN(val)) return null;
-    return def.sanityCheck(val, editedFields);
+    const formYear = Number(editedFields.taxYear);
+    const taxYear = Number.isInteger(formYear) ? formYear : Number(year);
+    return def.sanityCheck(val, editedFields, taxYear);
   };
 
   const fieldConf = result?.extracted?.fieldConfidence || {};
