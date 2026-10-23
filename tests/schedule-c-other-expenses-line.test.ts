@@ -422,8 +422,7 @@ describe('Schedule C other expenses line follows the tax year', () => {
   });
 
   it('shows 27b for a 2025 category line, so a year-blind shown line fails this check', () => {
-    expect(scheduleCLineFor({ category: 'dues_and_memberships', transaction_kind: 'expense', status: 'ok' } as never, 2025)).toBe('Schedule C line 27b (Other expenses)');
-    expect(scheduleCLineFor(education, 2025)).toBeNull();
+    expect(scheduleCLineFor(education, 2025)).toBe('Schedule C line 27b (Other expenses)');
   });
 
   it('a record with no date and tax_year 2025 is blank and flagged on every path', () => {

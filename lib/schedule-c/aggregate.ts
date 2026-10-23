@@ -143,11 +143,12 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'SERVICE_CLEANING_AND_MAINTENANCE': { line: '27a', name: 'Other expenses', code: '27a' },
   'SERVICE_PROFESSIONAL_DUES': { line: '27a', name: 'Other expenses', code: '27a' },
   'SERVICE_MEMBERSHIPS': { line: '27a', name: 'Other expenses', code: '27a' },
+  'SERVICE_EDUCATION': { line: '27a', name: 'Other expenses', code: '27a' },
 };
 
 /**
- * Real Plaid detailed codes with no Schedule C line until the user picks one.
- * isAwaitingScheduleCLine reads this set. These codes are not map keys.
+ * Real Plaid detailed codes left on the current fallback.
+ * Aggregation does not read this set. These codes are not map keys.
  */
 export const REVIEW_REQUIRED_PLAID_CODES: ReadonlySet<string> = new Set([
   // Loan principal is never deductible. v2 adds buy now pay later, cash advances, and earned wage access.
@@ -335,15 +336,14 @@ export function isRestaurantMealAt100Percent(category: string, taxYear: number |
   return category === 'FOOD_AND_DRINK_RESTAURANT' && (taxYear === 2021 || taxYear === 2022);
 }
 
-/** Moved off the map into review. SERVICE_EDUCATION is not a Plaid code, so it is not in REVIEW_REQUIRED_PLAID_CODES. */
-const MOVED_AWAITING_SCHEDULE_C_LINE = new Set([
-  'SERVICE_EDUCATION',
+const AWAITING_SCHEDULE_C_LINE = new Set([
+  'GENERAL_SERVICES_INSURANCE',
   'SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS',
 ]);
 
-/** Review codes and the two moved categories have no Schedule C line until the user picks one. */
+/** These two categories stay on the review list. Aggregation gives them no Schedule C line. */
 export function isAwaitingScheduleCLine(category: string): boolean {
-  return REVIEW_REQUIRED_PLAID_CODES.has(category) || MOVED_AWAITING_SCHEDULE_C_LINE.has(category);
+  return AWAITING_SCHEDULE_C_LINE.has(category);
 }
 
 /**

@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { aggregateScheduleC, CATEGORY_MAP, CATEGORY_MAP_EFFECTIVE_YEAR, CATEGORY_MAP_FROM_2026, categoryMapForTaxYear, isBusinessExpense, LEGACY_FOOD_CATEGORY_VALUES, PERSONAL_PLAID_CODES, PLAID_BANK_SYNC_MAP, REVIEW_REQUIRED_PLAID_CODES } from '@/lib/schedule-c/aggregate';
-import { OTHER_EXPENSES_27B_FIRST_YEAR, otherExpensesLine } from '@/lib/schedule-c/other-expenses-line';
+import { OTHER_EXPENSES_27B_FIRST_YEAR, otherExpensesLine, publishedOtherExpensesLine, resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
+import { convertTransactionsToCSV } from '@/lib/reports/transaction-export';
 import { buildFederalTaxSnapshot } from '@/lib/tax-rules/federal-tax-snapshot';
 import { sumExpensesForQuarter, sumIncomeForQuarter, sumPotentialExpensesForQuarter } from '@/lib/tax-provider/quarterly-estimates';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
@@ -116,6 +117,7 @@ const KNOWN_NON_PLAID_KEYS = [
   'SERVICE_ADVERTISING',
   'SERVICE_CLEANING_AND_MAINTENANCE',
   'SERVICE_CONSULTING',
+  'SERVICE_EDUCATION',
   'SERVICE_ELECTRICITY',
   'SERVICE_FREELANCE_SERVICES',
   'SERVICE_GAS',
@@ -202,15 +204,20 @@ describe('Plaid category codes on Schedule C', () => {
     }
   });
 
-  it('review codes stay off the 2026 map and a confirmed record has no line', () => {
+  it('review codes stay off the 2026 map and only insurance and financial planning have no line', () => {
+    const noLine = new Set(['GENERAL_SERVICES_INSURANCE', 'SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS']);
     for (const code of REVIEW_REQUIRED_PLAID_CODES) {
       expect(PLAID_BANK_SYNC_MAP[code], code).toBeUndefined();
       expect(CATEGORY_MAP_FROM_2026[code], code).toBeUndefined();
       const result = confirmedLine(code, 10);
-      expect(result.lineItemsArray, code).toEqual([]);
-      expect(result.lineItems['27a'], code).toBeUndefined();
-      expect(result.lineItems['27b'], code).toBeUndefined();
-      expect(result.totalDeductible, code).toBe(0);
+      if (noLine.has(code)) {
+        expect(result.lineItemsArray, code).toEqual([]);
+        expect(result.totalDeductible, code).toBe(0);
+      } else {
+        expect(result.lineItems['27b']?.lineCode, code).toBe('27b');
+        expect(result.lineItems['27a'], code).toBeUndefined();
+        expect(result.totalDeductible, code).toBe(10);
+      }
     }
   });
 
@@ -613,6 +620,7 @@ describe('Plaid category codes on Schedule C', () => {
       ['SERVICE_SHIPPING', '22'],
       ['SERVICE_STORAGE', '18'],
       ['SERVICE_REPAIRS_AND_MAINTENANCE', '21'],
+      ['SERVICE_EDUCATION', '27a'],
       ['SERVICE_SECURITY', '17'],
     ];
     for (const [code, line] of unchanged) {
@@ -652,8 +660,11 @@ describe('Plaid category codes on Schedule C', () => {
       expect(Object.hasOwn(CATEGORY_MAP_FROM_2026, code), code).toBe(false);
       expect(Object.hasOwn(PLAID_BANK_SYNC_MAP, code), code).toBe(false);
       expect(REVIEW_REQUIRED_PLAID_CODES.has(code), code).toBe(true);
-      expect(lineAndDeductible(code, '2026'), code).toEqual({ line: [], deductible: 0 });
-      expect(lineAndDeductible(code, '2024'), code).toEqual({ line: [], deductible: 0 });
+      expect(lineAndDeductible(code, '2022'), code).toEqual({ line: ['27a'], deductible: 10 });
+      expect(lineAndDeductible(code, '2023'), code).toEqual({ line: ['27a'], deductible: 10 });
+      expect(lineAndDeductible(code, '2024'), code).toEqual({ line: ['27a'], deductible: 10 });
+      expect(lineAndDeductible(code, '2025'), code).toEqual({ line: ['27b'], deductible: 10 });
+      expect(lineAndDeductible(code, '2026'), code).toEqual({ line: ['27b'], deductible: 10 });
       expect(isBusinessExpense({ amount: 10, date: '2026-06-15', category: code, is_deductible: null, pending: false }), code).toBe(false);
     }
   });
@@ -749,17 +760,17 @@ describe('Plaid category codes on Schedule C', () => {
       parking: quarter('TRANSPORTATION_PARKING', 2024),
     }).toEqual({ coffee: 0, restaurant: 5, atm: 10, parking: 0 });
     expect({ schedule: schedule(2025), quarterly: quarterly(2025), undecided: undecidedCount(2025) }).toEqual({
-      schedule: 25,
+      schedule: 35,
       quarterly: 15,
       undecided: 3,
     });
     expect({ schedule: schedule(2026), quarterly: quarterly(2026), undecided: undecidedCount(2026) }).toEqual({
-      schedule: 20,
+      schedule: 30,
       quarterly: 20,
       undecided: 3,
     });
     expect({ schedule: schedule(2024), quarterly: quarterly(2024), undecided: undecidedCount(2024) }).toEqual({
-      schedule: 25,
+      schedule: 35,
       quarterly: 15,
       undecided: 3,
     });
@@ -837,31 +848,32 @@ describe('Plaid category codes on Schedule C', () => {
     expect(lineAndDeductible('FOOD_AND_DRINK_COFFEE_SHOP', '2025')).toEqual({ line: ['24b'], deductible: 5 });
     expect(lineAndDeductible('FOOD_AND_DRINK_COFFEE_SHOP', '2026')).toEqual({ line: ['24b'], deductible: 5 });
     expect(REVIEW_REQUIRED_PLAID_CODES.has('TRANSPORTATION_GAS')).toBe(true);
-    expect(lineAndDeductible('TRANSPORTATION_GAS', '2026')).toEqual({ line: [], deductible: 0 });
+    expect(lineAndDeductible('TRANSPORTATION_GAS', '2026')).toEqual({ line: ['27b'], deductible: 10 });
     expect(isBusinessExpense({ amount: 10, date: '2026-06-15', category: 'TRANSPORTATION_GAS', is_deductible: null, pending: false })).toBe(false);
   });
 
-  it('each review code and the two moved codes has no line', () => {
-    const moved = ['SERVICE_EDUCATION', 'SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS'] as const;
-    const codes = [...new Set([...REVIEW_REQUIRED_PLAID_CODES, ...moved])];
-    expect(REVIEW_REQUIRED_PLAID_CODES.has('SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS')).toBe(true);
-    expect(REVIEW_REQUIRED_PLAID_CODES.has('SERVICE_EDUCATION')).toBe(false);
-    expect(Object.hasOwn(CATEGORY_MAP, 'SERVICE_EDUCATION')).toBe(false);
-    expect(Object.hasOwn(CATEGORY_MAP_FROM_2026, 'SERVICE_EDUCATION')).toBe(false);
-    expect(codes).toHaveLength(REVIEW_REQUIRED_PLAID_CODES.size + 1);
-    for (const code of codes) {
-      for (const year of ['2024', '2025', '2026']) {
-        expect(lineAndDeductible(code, year), `${code} ${year}`).toEqual({ line: [], deductible: 0 });
-      }
-      expect(isBusinessExpense({
-        amount: 10,
-        date: '2026-06-15',
-        category: code,
-        is_deductible: true,
-        review_status: 'confirmed',
-        pending: false,
-      }), code).toBe(false);
-    }
+  it('SERVICE_EDUCATION gives 27a for a 2024 date and 27b for a 2025 date', () => {
+    expect(lineAndDeductible('SERVICE_EDUCATION', '2024')).toEqual({ line: ['27a'], deductible: 10 });
+    expect(lineAndDeductible('SERVICE_EDUCATION', '2025')).toEqual({ line: ['27b'], deductible: 10 });
+    expect(publishedOtherExpensesLine('27a', 2022)).toEqual({ line: '27a', needsReview: true });
+    expect(lineAndDeductible('SERVICE_EDUCATION', '2022')).toEqual({ line: ['27a'], deductible: 10 });
+    const invalid = confirmed('SERVICE_EDUCATION', 10, '2024-13-45');
+    const grouped = aggregateScheduleC([invalid], '2024', CATEGORY_MAP, { mode: 'confirmed-only' });
+    expect(grouped.lineItemsArray).toEqual([]);
+    expect(grouped.totalDeductible).toBe(0);
+    expect(publishedOtherExpensesLine('27a', resolveOtherExpensesYear(invalid))).toEqual({ line: null, needsReview: true });
+    const flagged = convertTransactionsToCSV([{
+      ...confirmed('TRANSPORTATION_GAS', 10, '2022-06-15'),
+      schedule_c_line: '27a',
+    }]);
+    const blank = convertTransactionsToCSV([{
+      ...invalid,
+      schedule_c_line: '27a',
+    }]);
+    expect(flagged).toContain('27a');
+    expect(flagged).toContain('Tax treatment unresolved; exclude from confirmed deduction totals');
+    expect(blank).toContain('Tax treatment unresolved; exclude from confirmed deduction totals');
+    expect(blank.split('\n')[1]?.split(',')[13]).toBe('');
   });
 
   it('prints the federal snapshot for a single filer with 50000 receipts', () => {
@@ -888,13 +900,13 @@ describe('Plaid category codes on Schedule C', () => {
       const sample = rows(year);
       const withSample = snap(year, sample);
       const baseline = snap(year, []);
-      // Prior amounts for this sample: coffee and parking were other expenses at 100 percent.
-      // Confirmed 2025 coffee already keeps that amount. A membership record stands in for a removed 10.
+      // Prior amount for this sample: confirmed 2026 coffee was other expenses at 100 percent.
+      // Confirmed 2024 and 2025 coffee already keep that amount. Parking stays other expenses at 100 percent.
       const priorRows = [
         year >= 2026 ? confirmed('SERVICE_MEMBERSHIPS', 10, `${year}-06-15`) : sample[0],
         sample[1],
         sample[2],
-        confirmed('SERVICE_MEMBERSHIPS', 10, `${year}-06-15`),
+        sample[3],
       ];
       const prior = snap(year, priorRows);
       const perRecord = sample.map(record => {
@@ -924,14 +936,14 @@ describe('Plaid category codes on Schedule C', () => {
     };
     const printed = { y2024: pack(2024), y2025: pack(2025), y2026: pack(2026) };
     console.log(`FEDERAL_SNAPSHOT ${JSON.stringify(printed)}`);
-    expect(printed.y2024.deductible).toBe(25);
+    expect(printed.y2024.deductible).toBe(35);
     expect(printed.y2024.priorDeductible).toBe(35);
-    expect(printed.y2025.deductible).toBe(25);
+    expect(printed.y2025.deductible).toBe(35);
     expect(printed.y2025.priorDeductible).toBe(35);
-    expect(printed.y2026.deductible).toBe(20);
+    expect(printed.y2026.deductible).toBe(30);
     expect(printed.y2026.priorDeductible).toBe(35);
-    expect(printed.y2025.perRecord.map(row => row.deductible)).toEqual([10, 5, 10, 0]);
-    expect(printed.y2026.perRecord.map(row => row.deductible)).toEqual([5, 5, 10, 0]);
+    expect(printed.y2025.perRecord.map(row => row.deductible)).toEqual([10, 5, 10, 10]);
+    expect(printed.y2026.perRecord.map(row => row.deductible)).toEqual([5, 5, 10, 10]);
   });
 
   it('every old map key keeps its line on the 2026 map', () => {
