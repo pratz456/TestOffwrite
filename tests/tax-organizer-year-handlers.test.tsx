@@ -262,6 +262,9 @@ describe('compact organizer sections', () => {
     expect(vehicleCopy).toContain('These questions decide only whether the personal share goes on Schedule 1-A');
     expect(vehicleCopy).toContain('When you took out the loan, did you expect to use this vehicle personally more than half the time you expect to own it?');
     expect(vehicleCopy).toContain('An answer of no keeps that share off Schedule 1-A');
+    expect(vehicleCopy).toContain('spouse or relative');
+    expect(vehicleCopy).not.toContain('Where should this car loan interest be deducted?');
+    expect(vehicleCopy).not.toContain('A qualifying car can instead put all of the interest on Schedule 1-A');
     expect(vehicleCopy).not.toContain('Did you pay interest on a loan for a new personal-use passenger vehicle?');
     expect(vehicleCopy).not.toContain('Passenger vehicle loan interest (personal use)');
     expect(vehicleCopy).not.toContain('Is the vehicle used for personal purposes rather than in your business?');
@@ -295,32 +298,5 @@ describe('compact organizer sections', () => {
     expect(switched.props.taxYear).toBe(2025);
     expect(text(OBBBADeductionFields(switched.props))).toContain('Your saved answers belong to another tax year');
     expect(text(section(tree, 'Working Families Tax Cuts deductions').props.children[0])).not.toContain('charitable gifts');
-  });
-
-  it('shows a blank placement choice only for a qualifying car', () => {
-    const qualifying = reviewedOBBBADeductionFacts(2026, {
-      hasVehicleLoanInterest: 'yes', vehicleLoanInterestAmount: '1000', vehicleLoanAfter2024: 'yes', vehicleNewUSAssembled: 'yes',
-      vehicleExpectedPersonalUseOver50AtPurchase: 'yes', vehicleLoanQualified: 'yes', vehicleVIN: SYNTHETIC_VIN,
-    });
-    const fields = (percent: number, extra: Record<string, string> = {}) => OBBBADeductionFields({
-      taxYear: 2026, filingStatus: 'single', onChange() {},
-      vehicleBusinessUsePercentage: percent,
-      value: extra.vehicleExpectedPersonalUseOver50AtPurchase || extra.vehicleNewUSAssembled
-        ? reviewedOBBBADeductionFacts(2026, {
-          hasVehicleLoanInterest: 'yes', vehicleLoanInterestAmount: '1000', vehicleLoanAfter2024: 'yes', vehicleNewUSAssembled: 'yes',
-          vehicleExpectedPersonalUseOver50AtPurchase: 'yes', vehicleLoanQualified: 'yes', vehicleVIN: SYNTHETIC_VIN, ...extra,
-        })
-        : qualifying,
-    });
-    const choiceLabel = 'Where should this car loan interest be deducted?';
-    const shown = fields(30);
-    expect(text(shown)).toContain(choiceLabel);
-    expect(text(shown)).toContain('draft, awaiting copy approval. This choice starts blank.');
-    const select = walk(shown).find(node => node.props['aria-label'] === choiceLabel);
-    expect(select?.props.value).toBe('');
-    expect(text(fields(60))).not.toContain(choiceLabel);
-    expect(text(fields(50))).not.toContain(choiceLabel);
-    expect(text(fields(30, { vehicleExpectedPersonalUseOver50AtPurchase: 'no' }))).not.toContain(choiceLabel);
-    expect(text(fields(30, { vehicleNewUSAssembled: 'no' }))).not.toContain(choiceLabel);
   });
 });

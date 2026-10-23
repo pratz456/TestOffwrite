@@ -185,61 +185,59 @@ describe('car loan interest is deducted in one place', () => {
     expect(result.lineItems).toEqual([{ line: '16b', amount: 600 }]);
   });
 
-  it('keeps the split when an older saved answer has no placement choice', () => {
+  it('puts 300 on line 16b and at most 700 on Schedule 1-A when expected and actual business use are 30 percent', () => {
     const result = place(vehicle('1000'), { vehicleBusinessUsePercentage: 30 });
     expect(result.scheduleCLine16b).toBe(300);
     expect(result.vehicleLoanInterest.amountReported).toBe(700);
     expect(result.vehicleLoanInterest.deduction).toBeLessThanOrEqual(700);
     expect(result.vehicleLoanInterest.deduction).toBe(700);
     expect(result.needsMoreInformation).toEqual([]);
-    expect(JSON.parse(reviewedOBBBADeductionFacts(2026, vehicle('1000')))).not.toHaveProperty('vehicleLoanInterestPlacement');
-  });
-
-  it('puts 300 on line 16b and at most 700 on Schedule 1-A when the split choice is saved', () => {
-    const result = place(vehicle('1000', { vehicleLoanInterestPlacement: 'split' }), { vehicleBusinessUsePercentage: 30 });
-    expect(result.scheduleCLine16b).toBe(300);
-    expect(result.vehicleLoanInterest.amountReported).toBe(700);
-    expect(result.vehicleLoanInterest.deduction).toBeLessThanOrEqual(700);
-    expect(result.vehicleLoanInterest.deduction).toBe(700);
-    expect(result.needsMoreInformation).toEqual([]);
-  });
-
-  it('puts 0 on line 16b and at most 1000 on Schedule 1-A when all interest is placed there', () => {
-    const result = place(vehicle('1000', { vehicleLoanInterestPlacement: 'schedule_1a' }), { vehicleBusinessUsePercentage: 30 });
-    expect(result.scheduleCLine16b).toBe(0);
-    expect(result.lineItems).toEqual([]);
-    expect(result.vehicleLoanInterest.amountReported).toBe(1000);
-    expect(result.vehicleLoanInterest.deduction).toBeLessThanOrEqual(1000);
-    expect(result.vehicleLoanInterest.deduction).toBe(1000);
     expect(result.scheduleCLine16b + result.vehicleLoanInterest.deduction).toBeLessThanOrEqual(1000);
-    expect(result.needsMoreInformation).toEqual([]);
+    expect(JSON.parse(reviewedOBBBADeductionFacts(2026, vehicle('1000')))).not.toHaveProperty('vehicleLoanInterestPlacement');
+    const saved = JSON.parse(reviewedOBBBADeductionFacts(2026, vehicle('1000'))) as Record<string, unknown>;
+    saved.vehicleLoanInterestPlacement = 'schedule_1a';
+    const ignored = calculateOBBBADeductions({
+      taxYear: 2026, filingStatus: 'single', agi: 100000, scheduleCNetProfit: 60000, usingStandardDeduction: true,
+      vehicleBusinessUsePercentage: 30,
+      organizer: { obbbaDeductionFacts: JSON.stringify(saved) },
+    });
+    expect(ignored.scheduleCLine16b).toBe(300);
+    expect(ignored.vehicleLoanInterest.deduction).toBe(700);
+    expect(ignored.needsMoreInformation).toEqual([]);
   });
 
-  it('does not default a blank placement choice', () => {
-    const result = place(vehicle('1000', { vehicleLoanInterestPlacement: '' }), { vehicleBusinessUsePercentage: 30 });
-    expect(result.scheduleCLine16b).toBe(0);
-    expect(result.vehicleLoanInterest.deduction).toBe(0);
-    expect(result.vehicleLoanInterest.amountReported).toBe(0);
-    expect(result.needsMoreInformation).toEqual([{
-      amount: 1000,
-      note: 'draft, awaiting copy approval. Choose the business share on Schedule C line 16b and the rest on Schedule 1-A, or all of the interest on Schedule 1-A. The same dollar is never counted in both places.',
-    }]);
-  });
-
-  it('puts 600 on line 16b and 0 on Schedule 1-A when a new car is 60 percent business', () => {
-    const result = place(vehicle('1000'), { vehicleBusinessUsePercentage: 60 });
+  it('puts 600 on line 16b and 0 on Schedule 1-A when expected business use is 60 percent', () => {
+    const result = place(vehicle('1000', { vehicleExpectedPersonalUseOver50AtPurchase: 'no' }), { vehicleBusinessUsePercentage: 60 });
     expect(result.scheduleCLine16b).toBe(600);
     expect(result.vehicleLoanInterest.deduction).toBe(0);
-    expect(result.vehicleLoanInterest.amountReported).toBe(0);
     expect(result.needsMoreInformation).toEqual([]);
+    expect(result.scheduleCLine16b + result.vehicleLoanInterest.deduction).toBeLessThanOrEqual(1000);
   });
 
-  it('puts 0 on Schedule 1-A when personal use is exactly half', () => {
-    const result = place(vehicle('1000'), { vehicleBusinessUsePercentage: 50 });
-    expect(result.scheduleCLine16b).toBe(500);
+  it('puts 0 on Schedule 1-A when expected personal use is exactly half', () => {
+    const result = place(vehicle('1000', { vehicleExpectedPersonalUseOver50AtPurchase: 'no' }), { vehicleBusinessUsePercentage: 30 });
+    expect(result.scheduleCLine16b).toBe(300);
     expect(result.vehicleLoanInterest.deduction).toBe(0);
-    expect(result.vehicleLoanInterest.amountReported).toBe(0);
     expect(result.needsMoreInformation).toEqual([]);
+    expect(result.scheduleCLine16b + result.vehicleLoanInterest.deduction).toBeLessThanOrEqual(1000);
+  });
+
+  it('still qualifies when expected business use is 30 percent and this year is 70 percent', () => {
+    const result = place(vehicle('1000'), { vehicleBusinessUsePercentage: 70 });
+    expect(result.scheduleCLine16b).toBe(700);
+    expect(result.vehicleLoanInterest.amountReported).toBe(300);
+    expect(result.vehicleLoanInterest.deduction).toBeLessThanOrEqual(300);
+    expect(result.vehicleLoanInterest.deduction).toBe(300);
+    expect(result.needsMoreInformation).toEqual([]);
+    expect(result.scheduleCLine16b + result.vehicleLoanInterest.deduction).toBeLessThanOrEqual(1000);
+  });
+
+  it('puts 200 on line 16b and 0 on Schedule 1-A when expected business use is 60 percent and this year is 20 percent', () => {
+    const result = place(vehicle('1000', { vehicleExpectedPersonalUseOver50AtPurchase: 'no' }), { vehicleBusinessUsePercentage: 20 });
+    expect(result.scheduleCLine16b).toBe(200);
+    expect(result.vehicleLoanInterest.deduction).toBe(0);
+    expect(result.needsMoreInformation).toEqual([]);
+    expect(result.scheduleCLine16b + result.vehicleLoanInterest.deduction).toBeLessThanOrEqual(1000);
   });
 
   it('puts all of a fully business car on line 16b and leaves Schedule 1-A at 0', () => {
@@ -342,8 +340,8 @@ describe('federal snapshot reduces Schedule C profit by the business share', () 
     expect(snapshot.income.totalDeductible).toBe(360);
     expect(snapshot.income.scheduleCNetProfit).toBe(99640);
     expect(snapshot.obbbaDeductions?.scheduleCLine16b).toBe(360);
-    expect(snapshot.obbbaDeductions?.vehicleLoanInterest.deduction).toBe(0);
-    expect(snapshot.result.vehicleLoanInterestDeduction).toBe(0);
+    expect(snapshot.obbbaDeductions?.vehicleLoanInterest.deduction).toBe(240);
+    expect(snapshot.result.vehicleLoanInterestDeduction).toBe(240);
     expect(snapshot.obbbaDeductions?.needsMoreInformation).toEqual([]);
   });
 });

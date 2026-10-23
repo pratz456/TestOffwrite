@@ -14,15 +14,7 @@ import { NON_ITEMIZER_CHARITY_FIRST_YEAR, SCHEDULE_1A_FIRST_YEAR, SCHEDULE_1A_LA
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import { AdjustmentEligibilityFields } from "@/components/adjustment-eligibility-fields";
 
-interface Props {
-  user: { id: string; email?: string };
-  onBack: () => void;
-  onNavigate?: (screen: string) => void;
-  /** Profile `vehicle_business_use_percentage`. Hides the car-loan placement choice when the share is not qualifying. */
-  vehicleBusinessUsePercentage?: unknown;
-  /** Profile `business_vehicle.business_use_percentage`. */
-  businessVehicleBusinessUsePercentage?: unknown;
-}
+interface Props { user: { id: string; email?: string }; onBack: () => void; onNavigate?: (screen: string) => void; }
 
 const FILING_STATUSES = [
   { value: "single", label: "Single" },
@@ -129,7 +121,7 @@ const readOrganizerYear = async (targetYear: number): Promise<OrgAnswers> => {
 
 const STEPS = ["Personal facts", "Income", "Deductions", "Life events", "Prior year"];
 
-export function TaxOrganizerScreen({ user, vehicleBusinessUsePercentage, businessVehicleBusinessUsePercentage }: Props) {
+export function TaxOrganizerScreen({ user }: Props) {
   const [year, setYear] = useState(Math.min(2026, Math.max(2024, new Date().getFullYear())));
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<OrgAnswers>(EMPTY);
@@ -652,7 +644,7 @@ export function TaxOrganizerScreen({ user, vehicleBusinessUsePercentage, busines
                 ? `Tips, overtime, vehicle loan interest${year >= NON_ITEMIZER_CHARITY_FIRST_YEAR ? ", charitable gifts" : ""} · ${factsSummary(answers.obbbaDeductionFacts, ["hasQualifiedTips", "hasW2Overtime", "hasVehicleLoanInterest", ...(year >= NON_ITEMIZER_CHARITY_FIRST_YEAR ? ["hasNonItemizerCharity"] : [])], "claimed")}`
                 : `Apply to ${SCHEDULE_1A_FIRST_YEAR}–${SCHEDULE_1A_LAST_YEAR} returns only`, (
                 <div className="[&_section]:border-0 [&_section]:p-0">
-                  <OBBBADeductionFields taxYear={year} filingStatus={answers.filingStatus} value={answers.obbbaDeductionFacts} onChange={value => set("obbbaDeductionFacts", value)} vehicleBusinessUsePercentage={vehicleBusinessUsePercentage} businessVehicleBusinessUsePercentage={businessVehicleBusinessUsePercentage} />
+                  <OBBBADeductionFields taxYear={year} filingStatus={answers.filingStatus} value={answers.obbbaDeductionFacts} onChange={value => set("obbbaDeductionFacts", value)} />
                 </div>
               ))}
             </CardContent>
