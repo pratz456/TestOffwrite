@@ -22,9 +22,9 @@ import {
 } from '@/lib/firebase/income-reconciliations-server';
 import { ExportDataUnavailableError } from '@/lib/reports/export-records';
 import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
-import { INCOME_SOURCE_KINDS, NOT_BUSINESS_REASONS, PAYMENT_METHOD_HINTS, RECONCILIATION_DECISION_TYPES, toCents } from '@/lib/tax-rules/income-reconciliation';
-import { CONFIRM_FORMS_REQUIRED, STALE_APP_REFRESH } from '@/lib/tax-rules/income-reconciliation-copy';
-import { prepareReconciliationDecision, summarizeIncomeReconciliation } from '@/lib/tax-rules/income-reconciliation-response';
+import { formsConfirmationError, INCOME_SOURCE_KINDS, NOT_BUSINESS_REASONS, PAYMENT_METHOD_HINTS, RECONCILIATION_DECISION_TYPES } from '@/lib/tax-rules/income-reconciliation';
+import { STALE_APP_REFRESH } from '@/lib/tax-rules/income-reconciliation-copy';
+import { isLegacySamePaymentsResave, prepareReconciliationDecision, summarizeIncomeReconciliation } from '@/lib/tax-rules/income-reconciliation-response';
 import { kNotBusinessIncomeEnabled } from '@/lib/tax-rules/reconciliation-feature';
 
 const NO_STORE = { 'Cache-Control': 'private, no-store' };
@@ -40,7 +40,13 @@ const decisionInput = z.object({
   notBusinessParts: z.array(z.object({
     reason: z.enum(NOT_BUSINESS_REASONS),
     amount: z.number().finite().positive().max(1_000_000_000),
-  })).max(2).optional().default([]),
+  })).max(2).superRefine((parts, ctx) => {
+    const seen = new Set<string>();
+    parts.forEach((part, index) => {
+      if (seen.has(part.reason)) ctx.addIssue({ code: 'custom', message: 'Each reason can be used once.', path: [index, 'reason'] });
+      seen.add(part.reason);
+    });
+  }).optional().default([]),
   paymentMethodHint: z.enum(PAYMENT_METHOD_HINTS).optional(),
   explicitChoice: z.literal(true),
   confirmedFormsTotal: amountInput.optional(),
@@ -56,14 +62,8 @@ const invalidBody = () => {
 
 /** Same payments that joins two or more 1099s must echo the form total the dialog showed. The value is checked, not stored. */
 function requireFormsConfirmation(decision: string, sources: ReadonlyArray<{ kind: string; amount: number }>, confirmedFormsTotal: number | undefined) {
-  if (decision !== 'same_payments') return null;
-  const forms = sources.filter(source => source.kind === 'form_1099');
-  if (forms.length < 2) return null;
-  const expected = forms.reduce((total, form) => total + toCents(form.amount), 0);
-  if (confirmedFormsTotal === undefined || toCents(confirmedFormsTotal) !== expected) {
-    return NextResponse.json({ error: CONFIRM_FORMS_REQUIRED }, { status: 400 });
-  }
-  return null;
+  const error = formsConfirmationError(decision, sources, confirmedFormsTotal);
+  return error ? NextResponse.json({ error }, { status: 400 }) : null;
 }
 
 function readJson(request: NextRequest) {
@@ -151,7 +151,9 @@ export async function PATCH(request: NextRequest) {
     const existing = await getOwnedIncomeReconciliationDecision(user.uid, id);
     if (existing.taxYear !== taxYear) return NextResponse.json({ error: 'A decision stays with the tax year it was recorded for. Remove it and record a decision for the other year.' }, { status: 400 });
     const records = await readIncomeSourceRecords(user.uid, taxYear);
-    const prepared = prepareReconciliationDecision(taxYear, records, { id, ...input });
+    const prepared = prepareReconciliationDecision(taxYear, records, { id, ...input }, {
+      keepLegacySamePayments: isLegacySamePaymentsResave(existing, input),
+    });
     if (!prepared.ok) return NextResponse.json({ error: prepared.reason }, { status: prepared.status });
     const unconfirmed = requireFormsConfirmation(prepared.stored.decision, prepared.stored.sources, confirmedFormsTotal);
     if (unconfirmed) return unconfirmed;

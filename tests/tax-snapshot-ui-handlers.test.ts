@@ -488,7 +488,7 @@ describe('filing hub Schedule C export guidance', () => {
     { label: '1099-NEC · Synthetic client', amount: 10000 },
   ] }];
 
-  it('R-28 shows the reconcile card and opens the review path', async () => {
+  it('shows the reconcile card and opens the review path', async () => {
     harness.request.mockImplementation((url: string) => url.includes('/api/tax/schedule-c/export')
       ? Promise.resolve(response({ error: 'Review income sources before calculating tax', code: 'INCOME_RECONCILIATION_REQUIRED', conflicts, reviewPath }, 422))
       : requests(url));
@@ -510,7 +510,7 @@ describe('filing hub Schedule C export guidance', () => {
     expect(text(tree)).not.toContain('Export failed. Please retry.');
   });
 
-  it('R-29 leaves other export 422 responses on the existing error', async () => {
+  it('leaves other export 422 responses on the existing error', async () => {
     const message = 'Duplicate transaction identifiers exist in saved records.';
     harness.request.mockImplementation((url: string) => url.includes('/api/tax/schedule-c/export')
       ? Promise.resolve(response({ error: message, code: 'EXPORT_REVIEW_REQUIRED' }, 422))

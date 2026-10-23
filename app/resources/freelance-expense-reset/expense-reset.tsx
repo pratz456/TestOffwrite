@@ -48,13 +48,13 @@ export default function ExpenseReset() {
       </section>
       <p className={styles.details}>Also have a salaried job? Keep that paperwork distinct from your freelance records. Having a receipt—or a work-related purchase—does not by itself establish deductibility.</p>
       <section className={styles.cta}>
-        <div><h2>Make the next tax season less of a scramble.</h2><p>Explore WriteOff or talk with Pratham about where your expense records get stuck.</p></div>
+        <div><h2>Make the next tax season less of a scramble.</h2><p>Explore WriteOff or ask where your expense records get stuck.</p></div>
         <div className={styles.actions}>
           <a className={styles.button} href="https://writeoffapp.com">Explore WriteOff ↗</a>
           <button className={styles.secondary} onClick={() => window.print()}>Print checklist</button>
         </div>
       </section>
-      <p className={styles.foot}>writeoffapp.com · <a href="https://calendly.com/shahpratham99/30min">Book a founder conversation</a><br />
+      <p className={styles.foot}>writeoffapp.com · <a href="https://writeoffapp.com">Book a founder conversation</a><br />
         General organization guide, September 2026. For recordkeeping requirements, see the <a href="https://www.irs.gov/businesses/small-businesses-self-employed/what-kind-of-records-should-i-keep">IRS supporting-records guidance</a> and <a href="https://www.irs.gov/publications/p583">Publication 583</a>. This checklist does not decide tax eligibility. Checkmarks last until this page is closed or refreshed.
       </p>
     </main>

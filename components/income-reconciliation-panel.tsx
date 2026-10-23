@@ -33,7 +33,7 @@ interface IncomeReconciliationPanelProps {
 }
 
 const fmt = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const changeNoticeKey = (id: string) => `r10_5LegacyNecReopen.changeNoticeDismissedAt.${id}`;
+const changeNoticeKey = (id: string) => `legacyNecReopen.changeNoticeDismissedAt.${id}`;
 const readChangeNoticeDismissedAt = (id: string) => {
   try { return typeof localStorage === "undefined" ? null : localStorage.getItem(changeNoticeKey(id)); } catch { return null; }
 };

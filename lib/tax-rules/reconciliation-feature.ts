@@ -13,16 +13,16 @@ export function kNotBusinessIncomeEnabled(): boolean {
 }
 
 /**
- * R10.5 switch `r10_5LegacyNecReopen`. Off unless the environment value is exactly "1".
- * Off: a saved same-payments decision that joins only 1099-NECs keeps counting, and the
+ * Legacy 1099-NEC reopen switch `legacyNecReopen`. Off unless the environment value is exactly "1".
+ * Off: a saved same-payments decision that joins two or more 1099-NECs keeps counting, and the
  * Reconcile tab shows a non-blocking warning. Export is not blocked.
- * On, current year: that decision reopens as a conflict, both forms count, and export can 422.
- * On, 2025 or earlier: the saved total stays and a filing note is shown.
+ * On, current year, forms only: that decision reopens as a conflict, both forms count, and export can 422.
+ * On, 2025 or earlier: every legacy same-payments shape keeps its saved total and a filing note is shown.
  * New saves of that decision are rejected either way.
  * Read at call time. Off by default.
  */
-export function r10_5LegacyNecReopen(): boolean {
-  return process.env.r10_5LegacyNecReopen === '1';
+export function legacyNecReopen(): boolean {
+  return process.env.legacyNecReopen === '1';
 }
 
 /**
@@ -30,7 +30,8 @@ export function r10_5LegacyNecReopen(): boolean {
  * Off unless the environment value is exactly "1".
  * Off: every saved or confirmed decision counts as it did before, and export
  * does not gain a 422 for that decision. The Reconcile tab does not ask again.
- * On: a same_payments decision with version missing or 1 asks once to confirm.
+ * On: a same_payments decision for the current tax year, with version missing or 1, asks once.
+ * A year that may already be filed never asks. Confirming keeps the saved total.
  * Read at call time. Off by default.
  */
 export function legacyDecisionReconfirm(): boolean {

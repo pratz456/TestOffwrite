@@ -83,7 +83,7 @@ describe('Schedule C supported-year selection', () => {
     expect(harness.download.click).toHaveBeenCalledOnce();
   });
 
-  it('R-27 shows the income reconciliation card instead of a toast', async () => {
+  it('shows the income reconciliation card instead of a toast', async () => {
     const reviewPath = '/protected?screen=income-tracking&tab=reconcile&year=2026';
     harness.fetch.mockResolvedValue(new Response(JSON.stringify({
       error: 'Review income sources before calculating tax', code: 'INCOME_RECONCILIATION_REQUIRED',
@@ -112,7 +112,7 @@ describe('Schedule C supported-year selection', () => {
     expect(harness.download.click).not.toHaveBeenCalled();
   });
 
-  it('R-56 shows the same card when the CSV export is blocked', async () => {
+  it('shows the same card when the CSV export is blocked', async () => {
     const reviewPath = '/protected?screen=income-tracking&tab=reconcile&year=2026';
     harness.fetch.mockResolvedValue(new Response(JSON.stringify({
       error: 'Review income sources before calculating tax', code: 'INCOME_RECONCILIATION_REQUIRED',
@@ -133,7 +133,7 @@ describe('Schedule C supported-year selection', () => {
     expect(harness.download.click).not.toHaveBeenCalled();
   });
 
-  it('R-29 keeps other 422 responses on the toast and off the reconcile card', async () => {
+  it('keeps other 422 responses on the toast and off the reconcile card', async () => {
     const message = 'Duplicate transaction identifiers exist in saved records.';
     harness.fetch.mockResolvedValue(new Response(JSON.stringify({ error: message, code: 'EXPORT_REVIEW_REQUIRED' }), { status: 422, headers: { 'content-type': 'application/json' } }));
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -143,7 +143,7 @@ describe('Schedule C supported-year selection', () => {
     expect(walk(render()).find(node => node.type === IncomeReconciliationExportCard)).toBeUndefined();
   });
 
-  it('R-34 shows the legacy confirmation notice without disabling export', async () => {
+  it('shows the legacy confirmation notice without disabling export', async () => {
     harness.api.mockResolvedValue(Response.json({ decisions: [{ needsReconfirm: true }] }));
     render();
     await new Promise<void>(resolve => setImmediate(resolve));

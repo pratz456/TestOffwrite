@@ -16,10 +16,10 @@
 import {
   DECISION_LABEL_CORRECTED, DECISION_LABEL_NOT_BUSINESS, ERR_CORRECTED_NEEDS_TWO_NEC, ERR_CORRECTED_PICK,
   ERR_CORRECTED_SAME_PAYER, ERR_CORRECTED_SUM, ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED,
-  ERR_SAME_NEEDS_K, ERR_SELECT_BUSINESS_RECORDS, ERR_SUM_MISMATCH, fillIncomeCopy,
+  CONFIRM_FORMS_REQUIRED, ERR_SAME_NEEDS_K, ERR_SELECT_BUSINESS_RECORDS, ERR_SUM_MISMATCH, fillIncomeCopy,
   LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_NEC_WARNING,
 } from './income-reconciliation-copy';
-import { r10_5LegacyNecReopen, reconciliationYearMayAlreadyBeFiled } from './reconciliation-feature';
+import { legacyNecReopen, reconciliationYearMayAlreadyBeFiled } from './reconciliation-feature';
 
 export const INCOME_SOURCE_KINDS = ['form_1099', 'gross_receipt', 'transaction'] as const;
 export type IncomeSourceKind = (typeof INCOME_SOURCE_KINDS)[number];
@@ -91,6 +91,16 @@ export interface IncomeReconciliationConflict {
 
 export const sourceKey = (ref: Pick<IncomeSourceRef, 'kind' | 'id'>) => `${ref.kind}:${ref.id}`;
 export const toCents = (amount: number) => Math.round(amount * 100);
+
+/** Same payments that joins two or more 1099s must echo the form total the dialog showed. The value is checked, not stored. */
+export function formsConfirmationError(decision: string, sources: ReadonlyArray<{ kind: string; amount: number }>, confirmedFormsTotal: number | undefined): string | null {
+  if (decision !== 'same_payments') return null;
+  const forms = sources.filter(source => source.kind === 'form_1099');
+  if (forms.length < 2) return null;
+  const expected = forms.reduce((total, form) => total + toCents(form.amount), 0);
+  if (confirmedFormsTotal === undefined || toCents(confirmedFormsTotal) !== expected) return CONFIRM_FORMS_REQUIRED;
+  return null;
+}
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const isFiniteAmount = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const publicRef = (candidate: IncomeSourceCandidate) => ({ kind: candidate.kind, id: candidate.id, amount: candidate.amount, label: candidate.label });
@@ -168,10 +178,10 @@ const okCheck = (
  */
 export interface ReconciliationValidateOptions {
   /**
-   * New saves always reject a same-payments decision made of only 1099-NECs.
-   * A stored decision for the current year is rejected only when the R10.5 flag
-   * is on. Pass false to keep counting a decision that was saved before that rule,
-   * including a prior year that may already be filed.
+   * New saves always reject a same-payments decision made of two or more 1099-NECs.
+   * A stored decision for the current year is rejected only when the legacy NEC
+   * reopen switch is on. Pass false to keep counting a decision that was saved
+   * before that rule, including a prior year that may already be filed.
    */
   rejectNecOnlySamePayments?: boolean;
 }
@@ -217,7 +227,7 @@ export function validateReconciliationDecision(
     const [first, second] = forms;
     const payerA = (first.payerName ?? '').trim();
     const payerB = (second.payerName ?? '').trim();
-    if (payerA.toLowerCase() !== payerB.toLowerCase()) {
+    if (!payerA || !payerB || payerA.toLowerCase() !== payerB.toLowerCase()) {
       return { ok: false, reason: fillIncomeCopy(ERR_CORRECTED_SAME_PAYER, { payerA: payerA || 'Unknown payer', payerB: payerB || 'Unknown payer' }) };
     }
     if (!decision.correctedFormId || !forms.some(form => form.id === decision.correctedFormId)) return { ok: false, reason: ERR_CORRECTED_PICK };
@@ -303,6 +313,21 @@ export function validateReconciliationDecision(
   return okCheck(gross, feeCents, kinds, resolved);
 }
 
+/**
+ * A saved same-payments decision the 1099-NEC rule would reject: two or more 1099-NEC
+ * forms, with or without the deposits or direct income that match them.
+ */
+function legacyNecSamePayments(decision: IncomeReconciliationDecision, candidates: ReadonlyMap<string, IncomeSourceCandidate>): boolean {
+  if (decision.decision !== 'same_payments' || decision.sources.length < 2) return false;
+  const resolved: IncomeSourceCandidate[] = [];
+  for (const ref of decision.sources) {
+    const candidate = candidates.get(sourceKey(ref));
+    if (!candidate) return false;
+    resolved.push(candidate);
+  }
+  return !samePaymentsAllowed(resolved);
+}
+
 /** Two or more 1099-NEC forms and no other records. One NEC plus its deposits is not this case. */
 function necOnlySamePayments(decision: IncomeReconciliationDecision, candidates: ReadonlyMap<string, IncomeSourceCandidate>): boolean {
   if (decision.decision !== 'same_payments' || decision.sources.length < 2) return false;
@@ -338,9 +363,9 @@ export interface IncomeReconciliationResolution {
   conflicts: IncomeReconciliationConflict[];
   /** Non-blocking notes. A prior-year NEC-only same-payments flag lives here and does not change the total. */
   notices: string[];
-  /** Saved NEC-only same-payments decisions that keep counting while the R10.5 switch is off. */
+  /** Saved same-payments decisions with two or more 1099-NECs that keep counting while the reopen switch is off. */
   legacyNecWarningIds: string[];
-  /** Current-year NEC-only same-payments decisions reopened while the R10.5 switch is on. */
+  /** Current-year NEC-only same-payments decisions reopened while the reopen switch is on. */
   reopenedNecDecisionIds: string[];
 }
 
@@ -362,7 +387,7 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
   const appliedDecisionIds: string[] = [];
   let reconciledCents = 0;
   let returnsCents = 0;
-  const reopenNecOnly = r10_5LegacyNecReopen();
+  const reopenNecOnly = legacyNecReopen();
   for (const record of decisions) {
     const decision = normalizeReconciliationDecision(record);
     const decisionId = typeof record.id === 'string' ? record.id : 'unknown';
@@ -372,8 +397,9 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
     }
     const necOnly = necOnlySamePayments(decision, byKey);
     const filedYear = reconciliationYearMayAlreadyBeFiled(decision.taxYear);
+    const protectFiledLegacy = legacyNecSamePayments(decision, byKey) && filedYear;
     const check = validateReconciliationDecision(decision, byKey, claimedBy, {
-      rejectNecOnlySamePayments: reopenNecOnly && !(necOnly && filedYear),
+      rejectNecOnlySamePayments: reopenNecOnly && !protectFiledLegacy,
     });
     if (!check.ok) {
       const reopenedNow = reopenNecOnly && necOnly && !filedYear && check.reason === ERR_SAME_NEEDS_K;
@@ -395,7 +421,7 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
       });
       continue;
     }
-    if (reopenNecOnly && necOnly && filedYear) notices.push(LEGACY_NEC_PRIOR_YEAR_NOTE);
+    if (reopenNecOnly && protectFiledLegacy) notices.push(LEGACY_NEC_PRIOR_YEAR_NOTE);
     const necForms = check.sources.filter(source => source.kind === 'form_1099' && source.formType === '1099-NEC').length;
     if (!reopenNecOnly && decision.decision === 'same_payments' && necForms >= 2) {
       notices.push(LEGACY_NEC_WARNING);

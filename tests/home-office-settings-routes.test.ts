@@ -207,7 +207,7 @@ describe('worksheet and estimate routes share the 422 review contract', () => {
   });
 });
 
-describe('R-24 profit paths use Schedule C line 3', () => {
+describe('profit paths use Schedule C line 3', () => {
   it('gives the SE loader and the home office route the net receipts, not the 1099-K gross', async () => {
     await postHomeOffice(json('settings/home-office', completeFacts));
     store.rows.gross_receipts = [];

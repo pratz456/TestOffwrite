@@ -1,8 +1,8 @@
 import { IncomeReconciliationRequiredError, listIncomeSourceCandidates, type IncomeRecord } from './business-income';
 import { CORRECTED_ORIGINAL_BADGE, LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_WARNING } from './income-reconciliation-copy';
-import { legacyDecisionReconfirm } from './reconciliation-feature';
+import { legacyDecisionReconfirm, reconciliationYearMayAlreadyBeFiled } from './reconciliation-feature';
 import {
-  normalizeReconciliationDecision, resolveIncomeSources, sourceKey, validateReconciliationDecision,
+  normalizeReconciliationDecision, resolveIncomeSources, sourceKey, toCents, validateReconciliationDecision,
   type FeeExpenseCandidate, type IncomeReconciliationConflict, type IncomeSourceCandidate, type IncomeSourceRef,
   type NotBusinessPart, type OutsideScheduleCItem, type PaymentMethodHint, type ReconciliationDecisionType,
   type ReplacedForm,
@@ -50,9 +50,9 @@ export interface SavedDecisionView {
   decidedAt: string | null;
   /** False when the decision no longer matches the current records and is reported as a conflict. */
   applied: boolean;
-  /** True only while legacyDecisionReconfirm is on, for a same_payments decision with version missing or 1. */
+  /** True only while legacyDecisionReconfirm is on, for a current-year same_payments decision with version missing or 1. */
   needsReconfirm: boolean;
-  /** Non-blocking warning while r10_5LegacyNecReopen is off. */
+  /** Non-blocking warning while legacyNecReopen is off. */
   legacyNecWarning?: string;
   /** One-time notice while a current-year NEC-only decision is reopened. Dismissal is view state, not stored on the decision. */
   changeNotice?: string;
@@ -104,7 +104,11 @@ function decisionView(record: IncomeRecord, appliedIds: ReadonlySet<string>, war
     countedAmount: typeof record.countedAmount === 'number' && Number.isFinite(record.countedAmount) ? record.countedAmount : null,
     decidedAt: str(record.decidedAt) || null,
     applied: appliedIds.has(id),
-    needsReconfirm: legacyDecisionReconfirm() && record.decision === 'same_payments' && (record.version === undefined || record.version === null || record.version === 1),
+    needsReconfirm: legacyDecisionReconfirm()
+      && record.decision === 'same_payments'
+      && (record.version === undefined || record.version === null || record.version === 1)
+      && typeof record.taxYear === 'number'
+      && !reconciliationYearMayAlreadyBeFiled(record.taxYear),
     ...(warningIds.has(id) ? { legacyNecWarning: LEGACY_NEC_WARNING } : {}),
     ...(reopenedIds.has(id) ? { changeNotice: LEGACY_NEC_CHANGE_NOTICE } : {}),
   };
@@ -183,7 +187,26 @@ export type DecisionPreparation =
  * saved decisions before it is stored. Labels and amounts are captured from the
  * records as they are now, so a later edit to a record surfaces as a stale decision.
  */
-export function prepareReconciliationDecision(taxYear: number, records: IncomeSourceRecords, request: DecisionRequest): DecisionPreparation {
+/** A PATCH that repeats a saved same-payments decision, source for source. New saves are not this. */
+export function isLegacySamePaymentsResave(
+  existing: { decision?: unknown; sources?: unknown } | null | undefined,
+  request: { decision: string; sources: ReadonlyArray<{ kind: string; id: string }> },
+): boolean {
+  if (!existing || existing.decision !== 'same_payments' || request.decision !== 'same_payments' || !Array.isArray(existing.sources)) return false;
+  const key = (source: { kind?: unknown; id?: unknown }) => `${source.kind}:${source.id}`;
+  const saved = existing.sources.flatMap(source => (source && typeof source === 'object' ? [key(source as { kind?: unknown; id?: unknown })] : []));
+  const next = request.sources.map(source => key(source));
+  saved.sort();
+  next.sort();
+  return saved.length > 0 && saved.length === next.length && saved.every((item, index) => item === next[index]);
+}
+
+export function prepareReconciliationDecision(
+  taxYear: number,
+  records: IncomeSourceRecords,
+  request: DecisionRequest,
+  options: { keepLegacySamePayments?: boolean } = {},
+): DecisionPreparation {
   let candidates: IncomeSourceCandidate[];
   try {
     candidates = listIncomeSourceCandidates(taxYear, records.transactions, records.receipts, records.forms).candidates;
@@ -196,15 +219,18 @@ export function prepareReconciliationDecision(taxYear: number, records: IncomeSo
   const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate] as const));
   const check = validateReconciliationDecision({
     ...request, taxYear, notBusinessParts: request.notBusinessParts ?? [],
-  }, byKey, claimedBy, { rejectNecOnlySamePayments: true });
+  }, byKey, claimedBy, { rejectNecOnlySamePayments: !options.keepLegacySamePayments });
   if (!check.ok) return { ok: false, status: 400, reason: check.reason };
+  const notBusinessParts = request.decision === 'k_not_business_income'
+    ? request.notBusinessParts.map(part => ({ reason: part.reason, amount: toCents(part.amount) / 100 }))
+    : [];
   return {
     ok: true,
     stored: {
       taxYear, decision: request.decision, note: request.note,
       sources: check.sources.map(source => ({ kind: source.kind, id: source.id, amount: source.amount, label: source.label })),
       platformFeeAmount: check.feeCents / 100,
-      notBusinessParts: request.decision === 'k_not_business_income' ? request.notBusinessParts : [],
+      notBusinessParts,
       ...(request.paymentMethodHint ? { paymentMethodHint: request.paymentMethodHint } : {}),
       ...(request.decision === 'corrected_form_replaces' && request.correctedFormId ? { correctedFormId: request.correctedFormId } : {}),
       countedAmount: check.countedCents / 100,

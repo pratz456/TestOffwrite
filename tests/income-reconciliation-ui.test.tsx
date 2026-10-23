@@ -37,9 +37,10 @@ import { IncomeReconciliationPanel } from '../components/income-reconciliation-p
 import { TaxPreviewScreen } from '../components/tax-preview-screen';
 import { incomeScreenTab, incomeScreenYear } from '../components/income-tracking-screen';
 import { protectedScreenUrl } from '../lib/navigation/protected-screens';
-import { prepareReconciliationDecision, summarizeIncomeReconciliation, type IncomeSourceRecords } from '../lib/tax-rules/income-reconciliation-response';
+import { formsConfirmationError } from '../lib/tax-rules/income-reconciliation';
+import { isLegacySamePaymentsResave, prepareReconciliationDecision, summarizeIncomeReconciliation, type IncomeSourceRecords } from '../lib/tax-rules/income-reconciliation-response';
 import {
-  COMPARE_DIFF, COMPARE_SAME_AMOUNT, COMPARE_TITLE, CONFIRM_FORMS_REQUIRED, CONFIRM_SAME_BACK, CONFIRM_SAME_TITLE, CONFIRM_SAME_YES,
+  COMPARE_DIFF, COMPARE_SAME_AMOUNT, COMPARE_TITLE, CONFIRM_SAME_BACK, CONFIRM_SAME_TITLE, CONFIRM_SAME_YES,
   CORRECTED_ORIGINAL_BADGE, CORRECTED_PICK_QUESTION, CORRECTED_PREVIEW, DECISION_HELP_CORRECTED, DECISION_LABEL_CORRECTED,
   DECISION_LABEL_NOT_BUSINESS, ERR_REASON_AMOUNT, GUIDE_ANSWER_APP, GUIDE_ANSWER_BANK, GUIDE_HINT_APP, GUIDE_HINT_BANK,
   GUIDE_QUESTION, LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_TITLE, LEGACY_RECONFIRM_YES, LEGACY_NEC_WARNING, NO_CHOICE_YET, NO_FORM_NO_INCOME, PANEL_FORMS_NOTE,
@@ -93,26 +94,22 @@ function api(url: string, init?: RequestInit): Promise<Response> {
     return Promise.resolve(Response.json({ success: true }));
   }
   const id = method === 'PATCH' ? body.id : `d${++nextId}`;
+  const existing = method === 'PATCH' ? records.decisions.find(decision => decision.id === id) : undefined;
   const prepared = prepareReconciliationDecision(2026, records, {
     id, decision: body.decision, sources: body.sources, platformFeeAmount: body.platformFeeAmount ?? 0, note: body.note ?? '',
     notBusinessParts: body.notBusinessParts ?? [], ...(body.paymentMethodHint ? { paymentMethodHint: body.paymentMethodHint } : {}),
     ...(body.correctedFormId ? { correctedFormId: body.correctedFormId } : {}),
-  });
+  }, { keepLegacySamePayments: isLegacySamePaymentsResave(existing, { decision: body.decision, sources: body.sources ?? [] }) });
   if (!prepared.ok) return Promise.resolve(Response.json({ error: prepared.reason }, { status: prepared.status }));
-  if (body.decision === 'same_payments') {
-    const forms = (body.sources as Array<{ kind: string; amount: number }>).filter(source => source.kind === 'form_1099');
-    const expected = forms.reduce((total, source) => total + Math.round(source.amount * 100), 0);
-    if (forms.length >= 2 && Math.round(Number(body.confirmedFormsTotal) * 100) !== expected) {
-      return Promise.resolve(Response.json({ error: CONFIRM_FORMS_REQUIRED }, { status: 400 }));
-    }
-  }
+  const confirmationError = formsConfirmationError(prepared.stored.decision, prepared.stored.sources, body.confirmedFormsTotal);
+  if (confirmationError) return Promise.resolve(Response.json({ error: confirmationError }, { status: 400 }));
   records.decisions = [...records.decisions.filter(decision => decision.id !== id), { id, ...prepared.stored, decidedAt: '2026-04-01T12:00:00.000Z', version: 2, choiceConfirmedAt: '2026-04-01T12:00:00.000Z' }];
   return Promise.resolve(Response.json({ success: true, id, countedAmount: prepared.stored.countedAmount }, { status: method === 'PATCH' ? 200 : 201 }));
 }
 beforeEach(() => {
   harness.slots = []; harness.cursor = 0; harness.effects = []; harness.request.mockReset(); harness.navigate.mockReset(); harness.changed.mockReset();
   harness.request.mockImplementation(api);
-  delete process.env.r10_5LegacyNecReopen;
+  delete process.env.legacyNecReopen;
   delete process.env.legacyDecisionReconfirm;
   records.transactions = []; records.receipts = [receipt('r1', 12000)]; records.forms = [form('k1', 12000)]; records.decisions = []; nextId = 0;
 });
@@ -275,11 +272,11 @@ const FLAG = 'NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME';
 const radios = (tree: Element) => walk(tree).filter(node => node.props?.type === 'radio');
 const clickText = (tree: Element, label: string) => walk(tree).find(node => typeof node.props?.onClick === 'function' && text(node) === label)!.props.onClick();
 
-describe('reconciliation choice, guide question and Tax Watch rulings', () => {
+describe('reconciliation choice and guide question', () => {
   beforeEach(() => { process.env[FLAG] = '1'; });
   afterEach(() => { delete process.env[FLAG]; });
 
-  it('R-01 starts with no decision selected', async () => {
+  it('starts with no decision selected', async () => {
     records.receipts = [];
     records.forms = [form('k1', 10000), form('n1', 10000, '1099-NEC', 'Synthetic client')];
     render(panel); await flush();
@@ -291,7 +288,7 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     expect(preview(tree)).toBe(NO_CHOICE_YET);
   });
 
-  it('R-02 clears the decision after a save', async () => {
+  it('clears the decision after a save', async () => {
     records.forms = [form('k1', 10000), form('n1', 4000, '1099-NEC', 'Synthetic client')];
     records.receipts = [];
     render(panel); await flush();
@@ -302,7 +299,7 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     expect(radios(tree).some(node => node.props.checked)).toBe(false);
   });
 
-  it('R-03 opens an unknown saved decision with nothing selected', async () => {
+  it('opens an unknown saved decision with nothing selected', async () => {
     records.decisions = [{ id: 'mystery', taxYear: 2026, decision: 'unknown', platformFeeAmount: null, countedAmount: null, decidedAt: '2026-02-01T00:00:00.000Z', sources: [], notBusinessParts: [] }];
     render(panel); await flush();
     byLabel(render(panel), 'Edit decision: Unrecognized decision').props.onClick();
@@ -311,7 +308,7 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     expect(radios(tree).some(node => node.props.checked)).toBe(false);
   });
 
-  it('R-04 refuses to save two equal forms as one amount without a choice', async () => {
+  it('refuses to save two equal forms as one amount without a choice', async () => {
     records.receipts = [];
     records.forms = [form('k1', 12000), form('n1', 12000, '1099-NEC', 'Synthetic client')];
     render(panel); await flush();
@@ -326,7 +323,7 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     expect(records.decisions).toEqual([]);
   });
 
-  it('R-06 shows the guide question only after a 1099 is selected', async () => {
+  it('shows the guide question only after a 1099 is selected', async () => {
     records.receipts = [];
     records.forms = [form('k1', 7500)];
     records.transactions = [deposit('t1', 4000), deposit('t2', 3500)];
@@ -338,7 +335,7 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     expect(text(render(panel))).toContain(GUIDE_QUESTION);
   });
 
-  it('R-07 and R-08 show guide hints without selecting a decision', async () => {
+  it('shows guide hints without selecting a decision', async () => {
     records.receipts = [];
     records.forms = [form('k1', 10000), form('n1', 10000, '1099-NEC', 'Synthetic client')];
     render(panel); await flush();
@@ -354,7 +351,7 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     expect(radios(tree).some(node => node.props.checked)).toBe(false);
   });
 
-  it('R-09 saves without a guide answer and stores no payment hint', async () => {
+  it('saves without a guide answer and stores no payment hint', async () => {
     records.receipts = [receipt('r1', 10000)];
     records.forms = [form('k1', 10000)];
     render(panel); await flush();
@@ -370,7 +367,7 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     expect(records.decisions[0].paymentMethodHint).toBeUndefined();
   });
 
-  it('R-20 disables save until a checked reason has an amount', async () => {
+  it('disables save until a checked reason has an amount', async () => {
     records.receipts = [];
     records.transactions = [deposit('t1', 800)];
     records.forms = [form('k1', 1000)];
@@ -382,6 +379,68 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     expect(walk(tree).find(node => node.props?.type === 'submit')!.props.disabled).toBe(true);
     await submit(tree);
     expect(text(render(panel))).toContain(ERR_REASON_AMOUNT);
+  });
+
+  it('does not ask about a legacy NEC same-payments decision while reconfirm is off, and never asks for 2025', async () => {
+    delete process.env.legacyDecisionReconfirm;
+    for (const withDeposit of [false, true]) {
+      harness.slots = [];
+      records.receipts = [];
+      records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
+      records.transactions = withDeposit ? [deposit('t1', 12000)] : [];
+      const sources = [
+        { kind: 'form_1099', id: 'n1', amount: 12000, label: '1099-NEC · Client A' },
+        { kind: 'form_1099', id: 'n2', amount: 12000, label: '1099-NEC · Client B' },
+        ...(withDeposit ? [{ kind: 'transaction', id: 't1', amount: 12000, label: 'Bank income · Synthetic platform payout' }] : []),
+      ];
+      records.decisions = [{ id: 'legacy', taxYear: 2026, decision: 'same_payments', platformFeeAmount: null, countedAmount: 12000, decidedAt: '2026-02-01T00:00:00.000Z', version: 1, sources }];
+      render(panel); await flush();
+      expect(text(render(panel))).not.toContain(LEGACY_RECONFIRM_TITLE);
+      expect(text(render(panel))).toContain('$12,000.00');
+    }
+    harness.slots = [];
+    records.transactions = [];
+    records.decisions = [{ id: 'legacy', taxYear: 2025, decision: 'same_payments', platformFeeAmount: null, countedAmount: 12000, decidedAt: '2025-02-01T00:00:00.000Z', version: 1,
+      sources: [{ kind: 'form_1099', id: 'n1', amount: 12000 }, { kind: 'form_1099', id: 'n2', amount: 12000 }] }];
+    process.env.legacyDecisionReconfirm = '1';
+    render(panelFor(2025)); await flush();
+    expect(text(render(panelFor(2025)))).not.toContain(LEGACY_RECONFIRM_TITLE);
+    delete process.env.legacyDecisionReconfirm;
+  });
+
+  it('saves yes for a NEC-only decision and for two NECs plus deposits and keeps the saved total', async () => {
+    process.env.legacyDecisionReconfirm = '1';
+    delete process.env.legacyNecReopen;
+    try {
+      for (const withDeposit of [false, true]) {
+        harness.slots = [];
+        harness.request.mockClear();
+        records.receipts = [];
+        records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
+        records.transactions = withDeposit ? [deposit('t1', 12000)] : [];
+        const sources = [
+          { kind: 'form_1099', id: 'n1', amount: 12000, label: '1099-NEC · Client A' },
+          { kind: 'form_1099', id: 'n2', amount: 12000, label: '1099-NEC · Client B' },
+          ...(withDeposit ? [{ kind: 'transaction', id: 't1', amount: 12000, label: 'Bank income · Synthetic platform payout' }] : []),
+        ];
+        records.decisions = [{ id: 'legacy', taxYear: 2026, decision: 'same_payments', platformFeeAmount: null, countedAmount: 12000, decidedAt: '2026-02-01T00:00:00.000Z', version: 1, sources }];
+        render(panel); await flush();
+        expect(text(render(panel))).toContain(LEGACY_RECONFIRM_TITLE);
+        clickText(render(panel), LEGACY_RECONFIRM_YES);
+        clickText(render(panel), fillIncomeCopy(CONFIRM_SAME_YES, { counted: '$12,000.00' }));
+        await flush();
+        const sent = harness.request.mock.calls.find(([, options]) => options?.method === 'PATCH');
+        expect(sent).toBeTruthy();
+        expect(JSON.parse(String(sent![1].body))).toMatchObject({ decision: 'same_payments', confirmedFormsTotal: 24000 });
+        expect(records.decisions[0]).toMatchObject({ countedAmount: 12000, version: 2 });
+        const after = text(render(panel));
+        expect(after).toContain('$12,000.00');
+        expect(after).not.toContain(LEGACY_RECONFIRM_TITLE);
+        expect(after).not.toContain('$24,000.00');
+      }
+    } finally {
+      delete process.env.legacyDecisionReconfirm;
+    }
   });
 
   it('does not ask about a saved same-payments decision while legacy reconfirm is off', async () => {
@@ -396,7 +455,7 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     expect(shown).not.toContain('on hold');
   });
 
-  it('R-31 confirms a legacy same-payments decision once', async () => {
+  it('confirms a legacy same-payments decision once', async () => {
     process.env.legacyDecisionReconfirm = '1';
     records.decisions = [{ id: 'legacy', taxYear: 2026, decision: 'same_payments', platformFeeAmount: null, countedAmount: 12000, decidedAt: '2026-02-01T00:00:00.000Z', version: 1,
       sources: [{ kind: 'form_1099', id: 'k1', amount: 12000, label: '1099-K · Synthetic platform' }, { kind: 'gross_receipt', id: 'r1', amount: 12000, label: 'Direct income · Synthetic platform' }] }];
@@ -413,7 +472,7 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     expect(after).toContain('Applied');
   });
 
-  it('R-32 opens a legacy decision for a new answer with nothing selected', async () => {
+  it('opens a legacy decision for a new answer with nothing selected', async () => {
     process.env.legacyDecisionReconfirm = '1';
     records.decisions = [{ id: 'legacy', taxYear: 2026, decision: 'same_payments', platformFeeAmount: null, countedAmount: 12000, decidedAt: '2026-02-01T00:00:00.000Z', version: 1,
       sources: [{ kind: 'form_1099', id: 'k1', amount: 12000, label: '1099-K · Synthetic platform' }, { kind: 'gross_receipt', id: 'r1', amount: 12000, label: 'Direct income · Synthetic platform' }] }];
@@ -424,7 +483,7 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     expect(radios(tree).some(node => node.props.checked)).toBe(false);
   });
 
-  it('R-36 shows the corrected threshold copy', async () => {
+  it('shows the corrected threshold copy', async () => {
     render(panel); await flush();
     const content = text(render(panel));
     expect(content).toContain(PANEL_FORMS_NOTE);
@@ -432,7 +491,7 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     expect(content).not.toContain('only above $20,000 and 200 transactions');
   });
 
-  it('R-39 offers the not-business decision for a single 1099-K and counts personal outside Schedule C', async () => {
+  it('offers the not-business decision for a single 1099-K and counts personal outside Schedule C', async () => {
     records.receipts = [];
     records.forms = [form('k1', 900)];
     render(panel); await flush();
@@ -467,7 +526,7 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     expect(text(render(panel))).not.toContain('on hold');
   });
 
-  it('shows the v1.1 corrected-form label and keeps the code name off the label', async () => {
+  it('shows the corrected-form label and keeps the code name off the label', async () => {
     expect(DECISION_LABEL_CORRECTED).toBe('A corrected 1099-NEC replaces the original');
     expect(CORRECTED_ORIGINAL_BADGE).toBe('Original, replaced by a corrected form. Kept, not counted.');
     expect(DECISION_HELP_CORRECTED).toBe('Use this when a client sent you a corrected 1099-NEC. We count the corrected form and keep the original in your records without counting it.');
@@ -499,11 +558,11 @@ function classNames(node: unknown): string[] {
 }
 const posts = () => harness.request.mock.calls.filter(([, init]) => init?.method === 'POST' || init?.method === 'PATCH');
 
-describe('v1.1 confirm step, compare and corrected form', () => {
+describe('confirm step, compare and corrected form', () => {
   beforeEach(() => { process.env[FLAG] = '1'; });
   afterEach(() => { delete process.env[FLAG]; });
 
-  it('R-41 saves two forms as separate income in one request', async () => {
+  it('saves two forms as separate income in one request', async () => {
     records.receipts = [];
     records.forms = [form('k1', 12000), form('n1', 12000, '1099-NEC', 'Client A')];
     render(panel); await flush();
@@ -521,7 +580,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
     expect(summary).not.toContain('on hold');
   });
 
-  it('R-45 never makes separate income take more clicks than same payments', async () => {
+  it('never makes separate income take more clicks than same payments', async () => {
     const clicks = async (kinds: Array<'separate_income' | 'same_payments'>, labels: string[]) => {
       harness.slots = []; harness.request.mockClear();
       render(panel); await flush();
@@ -562,7 +621,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
     expect(separateC).toBeLessThanOrEqual(sameC);
   });
 
-  it('R-47 and R-48 ask before counting two forms once, and going back sends nothing', async () => {
+  it('asks before counting two forms once, and going back sends nothing', async () => {
     records.receipts = [];
     records.forms = [form('k1', 12000), form('n1', 12000, '1099-NEC', 'Client A')];
     render(panel); await flush();
@@ -596,7 +655,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
     expect(radios(closed).filter(node => node.props.name === 'reconciliation-decision').some(node => node.props.checked)).toBe(false);
   });
 
-  it('R-49 saves once after the confirm button', async () => {
+  it('saves once after the confirm button', async () => {
     records.receipts = [];
     records.forms = [form('k1', 12000), form('n1', 12000, '1099-NEC', 'Client A')];
     render(panel); await flush();
@@ -613,7 +672,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
     expect(text(render(panel))).not.toContain('on hold');
   });
 
-  it('R-52 confirms a legacy two-form decision before the PATCH', async () => {
+  it('confirms a legacy two-form decision before the PATCH', async () => {
     process.env.legacyDecisionReconfirm = '1';
     records.receipts = [];
     records.forms = [form('k1', 12000), form('n1', 12000, '1099-NEC', 'Client A')];
@@ -626,7 +685,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
     expect(text(dialog(open))).toContain("Your forms report $24,000.00. We'll count $12,000.00 on line 1.");
   });
 
-  it('R-53 shows the payer and form type on separate lines without truncation', async () => {
+  it('shows the payer and form type on separate lines without truncation', async () => {
     const payer = 'Synthetic platform payer name that is seventy characters long exactly!';
     expect(payer).toHaveLength(70);
     records.receipts = [];
@@ -642,7 +701,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
     for (const row of rows) expect(classNames(row)).not.toContain('truncate');
   });
 
-  it('R-54 compares two forms and switches to a strip at three, without choosing', async () => {
+  it('compares two forms and switches to a strip at three, without choosing', async () => {
     records.receipts = [];
     records.forms = [form('k1', 12000), form('n1', 11400, '1099-NEC', 'Client A')];
     render(panel); await flush();
@@ -679,7 +738,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
   });
 
   it('lets one 1099-NEC and its bank deposit stay on same payments', async () => {
-    process.env.r10_5LegacyNecReopen = '1';
+    process.env.legacyNecReopen = '1';
     records.receipts = [];
     records.transactions = [deposit('t1', 10000)];
     records.forms = [form('n1', 10000, '1099-NEC', 'Client A')];
@@ -696,8 +755,8 @@ describe('v1.1 confirm step, compare and corrected form', () => {
     expect(text(render(panel))).not.toContain('$20,000.00');
   });
 
-  it('shows the NEC review warning on the Reconcile tab while R10.5 is off', async () => {
-    delete process.env.r10_5LegacyNecReopen;
+  it('shows the NEC review warning on the Reconcile tab while the reopen switch is off', async () => {
+    delete process.env.legacyNecReopen;
     const sources = [{ kind: 'form_1099', id: 'n1', amount: 12000 }, { kind: 'form_1099', id: 'n2', amount: 12000 }];
     records.receipts = [];
     records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
@@ -719,7 +778,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
     records.receipts = [];
     records.forms = forms;
     records.decisions = [{ id: 'd1', taxYear: 2026, decision: 'same_payments', version: 1, platformFeeAmount: null, countedAmount: 12000, sources }];
-    process.env.r10_5LegacyNecReopen = '1';
+    process.env.legacyNecReopen = '1';
     render(panel); await flush();
     const currentTree = render(panel);
     const current = text(currentTree);
@@ -746,10 +805,10 @@ describe('v1.1 confirm step, compare and corrected form', () => {
     expect(prior).not.toContain('on hold');
     expect(prior).not.toContain(LEGACY_NEC_REOPEN_REASON);
     expect(JSON.stringify(records.decisions)).toBe(before);
-    delete process.env.r10_5LegacyNecReopen;
+    delete process.env.legacyNecReopen;
   });
 
-  it('R-75 shows the change notice once and keeps the reopen reason after dismiss and reload', async () => {
+  it('shows the change notice once and keeps the reopen reason after dismiss and reload', async () => {
     const store = new Map<string, string>();
     vi.stubGlobal('localStorage', {
       getItem: (key: string) => store.get(key) ?? null,
@@ -762,7 +821,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
       records.receipts = [];
       records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
       records.decisions = [{ id: 'd1', taxYear: 2026, decision: 'same_payments', version: 1, platformFeeAmount: null, countedAmount: 12000, sources }];
-      process.env.r10_5LegacyNecReopen = '1';
+      process.env.legacyNecReopen = '1';
       render(panel); await flush();
       const first = render(panel);
       expect(text(first)).toContain(LEGACY_NEC_CHANGE_NOTICE);
@@ -772,7 +831,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
       const dismissed = text(render(panel));
       expect(dismissed).not.toContain(LEGACY_NEC_CHANGE_NOTICE);
       expect(dismissed).toContain(LEGACY_NEC_REOPEN_REASON);
-      expect(store.get('r10_5LegacyNecReopen.changeNoticeDismissedAt.d1')).toBeTruthy();
+      expect(store.get('legacyNecReopen.changeNoticeDismissedAt.d1')).toBeTruthy();
       expect(JSON.stringify(records.decisions)).not.toContain('changeNoticeDismissedAt');
       harness.slots = [];
       render(panel); await flush();
@@ -782,11 +841,11 @@ describe('v1.1 confirm step, compare and corrected form', () => {
       expect(reloaded).toContain('$24,000.00');
     } finally {
       vi.unstubAllGlobals();
-      delete process.env.r10_5LegacyNecReopen;
+      delete process.env.legacyNecReopen;
     }
   });
 
-  it('R-58 disables same payments for two 1099-NECs from one payer or two', async () => {
+  it('disables same payments for two 1099-NECs from one payer or two', async () => {
     for (const payer of ['Client B', 'Client A']) {
       harness.slots = [];
       records.receipts = [];
@@ -807,7 +866,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
     expect(text(render(panel))).toContain('$24,000.00');
   });
 
-  it('R-65 keeps the corrected-form pick blank until the user chooses one', async () => {
+  it('keeps the corrected-form pick blank until the user chooses one', async () => {
     records.receipts = [];
     records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12500, '1099-NEC', 'Client A')];
     render(panel); await flush();
@@ -825,7 +884,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
     expect(walk(render(panel)).find(node => node.props?.type === 'submit')!.props.disabled).toBe(false);
   });
 
-  it('R-68 saves a corrected form without matching the amounts or opening the confirm dialog', async () => {
+  it('saves a corrected form without matching the amounts or opening the confirm dialog', async () => {
     records.receipts = [];
     records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12500, '1099-NEC', 'Client A')];
     render(panel); await flush();
@@ -845,7 +904,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
 });
 
 describe('tax preview reconcile link', () => {
-  it('R-57 opens income records on the reconcile tab from reviewPath or the helper', async () => {
+  it('opens income records on the reconcile tab from reviewPath or the helper', async () => {
     const reviewPath = '/protected?screen=income-tracking&tab=reconcile&year=2026';
     const screen = () => TaxPreviewScreen({ user: { id: 'owner' }, onBack() {}, onNavigate: harness.navigate });
     harness.request.mockResolvedValue(Response.json({ error: 'Review income sources', code: 'INCOME_RECONCILIATION_REQUIRED', conflicts: [], reviewPath }, { status: 422 }));
