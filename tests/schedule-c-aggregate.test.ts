@@ -239,12 +239,13 @@ describe('vehicle costs count only a business use percent from 0 through 100', (
     ['NaN', 'nan', 0, true],
     ['75 string', 'string', 0, true],
     ['0', 'zero', 0, false],
+    ['40', 'partial', 0.4, false],
     ['100', 'full', 1, false],
     ['150', 'high', 0, true],
     ['-5', 'negative', 0, true],
   ] as const;
 
-  function vehicle(category: string, amount: number, share: 'omit' | 'nan' | 'string' | 'zero' | 'full' | 'high' | 'negative'): Tx {
+  function vehicle(category: string, amount: number, share: 'omit' | 'nan' | 'string' | 'zero' | 'partial' | 'full' | 'high' | 'negative'): Tx {
     const row: Tx = {
       amount,
       date: '2026-09-15',
@@ -258,6 +259,7 @@ describe('vehicle costs count only a business use percent from 0 through 100', (
     if (share === 'nan') row.business_use_percentage = Number.NaN;
     if (share === 'string') row.business_use_percentage = '75';
     if (share === 'zero') row.business_use_percentage = 0;
+    if (share === 'partial') row.business_use_percentage = 40;
     if (share === 'full') row.business_use_percentage = 100;
     if (share === 'high') row.business_use_percentage = 150;
     if (share === 'negative') row.business_use_percentage = -5;
