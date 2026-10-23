@@ -7,6 +7,7 @@
  */
 import type { OutputType } from './analyzeTransaction';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { readStoredScheduleCLineText } from '@/lib/schedule-c/other-expenses-line';
 import { reviewCategory } from '@/lib/transactions/ai-review-contract';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 import { SUPPORTED_TAX_YEARS, type SupportedTaxYear } from '@/lib/tax-rules/federal-year-rules';
@@ -175,7 +176,7 @@ const LINE_NAMES: Record<string, string> = Object.fromEntries(Object.values(CATE
 
 /** Prefer the policy's placement; otherwise the export taxonomy line for the suggested category. */
 export function scheduleCLineFor(result: ExplainableResult): string | null {
-  const supplied = text(result.schedule_c_line, 120);
+  const supplied = readStoredScheduleCLineText(text(result.schedule_c_line, 120));
   if (supplied) {
     if (/^(schedule|form|not)\b/i.test(supplied)) return supplied;
     if (/^\d{1,2}[a-z]?$/.test(supplied)) return `Schedule C line ${supplied}${LINE_NAMES[supplied] ? ` (${LINE_NAMES[supplied]})` : ''}`;
@@ -354,7 +355,7 @@ export function normalizeExplanation(value: unknown): TransactionExplanation | n
   const estimatedTaxEffect: EstimatedTaxEffect | null = low !== null && high !== null && effect.label === ESTIMATE_LABEL
     ? { low: Math.min(low, high), high: Math.max(low, high), label: ESTIMATE_LABEL, basis: text(effect.basis, 400) ?? '' } : null;
   return {
-    headline, why, yourFacts: strings(data.yourFacts), scheduleCLine: text(data.scheduleCLine, 120),
+    headline, why, yourFacts: strings(data.yourFacts), scheduleCLine: readStoredScheduleCLineText(text(data.scheduleCLine, 120)),
     estimatedTaxEffect, strengthen: strings(data.strengthen), nextQuestion: text(data.nextQuestion, 300),
   };
 }

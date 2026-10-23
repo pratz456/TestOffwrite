@@ -1151,11 +1151,11 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     invariants: TEXT,
   },
   {
-    id: 'aiga-dues-designer-ok', title: 'AIGA professional association dues complete as dues (line 27a)',
+    id: 'aiga-dues-designer-ok', title: 'AIGA professional association dues complete as dues (line 27b)',
     transaction: tx('aiga-dues-designer-ok', 'AIGA', 150, { business_purpose: 'Annual AIGA professional design association membership dues' }),
     context: SOLE_PROPRIETOR,
     modelOutput: deduction('dues_and_memberships', ['dues-274a3'], 'The recorded AIGA professional association dues are an ordinary cost of the design business. Keep the dues receipt.', 'Recorded professional association dues.'),
-    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'dues_and_memberships', deductible_percent: 100, schedule_c_line: '27a', evidence_includes: ['dues-274a3'] },
+    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'dues_and_memberships', deductible_percent: 100, schedule_c_line: '27b', evidence_includes: ['dues-274a3'] },
     invariants: OK_DEDUCTION,
   },
   {

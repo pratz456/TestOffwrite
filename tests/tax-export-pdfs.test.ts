@@ -100,8 +100,8 @@ describe('Schedule C real PDF and request integrity', () => {
     const view = inspectText(); expect((await scheduleC(request({ year: 2026, includeAppendix: false }))).status).toBe(200);
     expect(view.text()).not.toContain('PRIVATE-DETAIL-MARKER'); expect(view.text()).toContain('omitted at your request');
   });
-  it('uses the actual changed OtherExpenses line reference by year', () => {
-    expect(scheduleCExportLine('27a', 2024)).toBe('27a'); expect(scheduleCExportLine('27a', 2025)).toBe('27b'); expect(scheduleCExportLine('24b', 2026)).toBe('24b');
+  it('prints other expenses as line 27b for every year and leaves other lines alone', () => {
+    expect(scheduleCExportLine('27a', 2024)).toBe('27b'); expect(scheduleCExportLine('27a', 2025)).toBe('27b'); expect(scheduleCExportLine('24b', 2026)).toBe('24b');
   });
 });
 
