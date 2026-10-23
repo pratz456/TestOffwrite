@@ -45,11 +45,13 @@ function realIsoDay(day: string): string | null {
 }
 
 /**
- * NN/NN/YYYY. One part over 12 has only one valid reading. Equal parts are that day.
- * Both parts 12 or under and different can be read two ways, so the day stays unreadable.
+ * NN/NN/YYYY with the year last.
+ * One part over 12 has only one valid reading. Equal parts are that day.
+ * Both parts 12 or under and different stay unreadable. A year first date
+ * never uses this rule: 2025/13/01 is an impossible month, not January 13.
  */
 function numericSlashDay(text: string): string | null {
-  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(text);
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
   if (!match) return null;
   const first = Number(match[1]);
   const second = Number(match[2]);
@@ -66,13 +68,16 @@ function numericSlashDay(text: string): string | null {
 
 /**
  * Calendar day of a charge, using the same rules as the transaction export Tax Date.
- * Leading and trailing spaces are ignored. A real YYYY-MM-DD is kept. An ISO
- * timestamp, a trailing Z, or a space and a time (hours and minutes, seconds
- * optional) uses that same written day when the first ten characters round-trip
- * through noon UTC. A year first slash date YYYY/MM/DD is that written day.
- * A numeric slash date NN/NN/YYYY counts only when one reading is possible:
- * one part over 12, or both parts equal. Two different parts that are both
- * 12 or under stay unreadable. An impossible day stays unreadable.
+ * Leading and trailing spaces are ignored. A real year, month, and day written
+ * with hyphens is kept. The month and the day may be one or two digits, so
+ * 2025-1-5 is 2025-01-05. An ISO timestamp, a trailing Z, or a space and a time
+ * (hours and minutes, seconds optional) uses that same written day. The day is
+ * the numbers in the string. An offset does not move it, and the noon UTC
+ * round trip only rejects an impossible day. A year first slash date is
+ * YYYY/MM/DD with a two digit month and day. 2025/13/01 stays unreadable.
+ * A numeric slash date has the year last. It counts when one reading is
+ * possible: one part over 12, or both parts equal. Two different parts that
+ * are both 12 or under stay unreadable. An impossible day stays unreadable.
  * An English month name, full or abbreviated, with the day before or after it,
  * is that written day. A weekday prefix and a clock time do not change the day.
  * Impossible days, blanks, and junk are undated. Save time, upload time, and
@@ -90,14 +95,13 @@ export function calendarChargeDay(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const text = value.trim();
   if (!text) return null;
-  if (/^\d{4}-\d{2}-\d{2}(?:$|T|Z$| \d{2}:\d{2}(?::\d{2})?(?:\s*[AaPp][Mm])?)/.test(text)) {
-    return realIsoDay(text.slice(0, 10));
-  }
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|T|Z$| \d{2}:\d{2}(?::\d{2})?(?:\s*[AaPp][Mm])?)/.exec(text);
+  if (iso) return realIsoDay(`${iso[1]}-${pad2(Number(iso[2]))}-${pad2(Number(iso[3]))}`);
   const slash = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(text);
   if (slash) return realIsoDay(`${slash[1]}-${slash[2]}-${slash[3]}`);
   const numeric = numericSlashDay(text);
   if (numeric) return numeric;
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(text)) return null;
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(text)) return null;
   return writtenMonthDay(text);
 }
 
@@ -106,29 +110,10 @@ export function calendarChargeDay(value: unknown): string | null {
  * (including an empty or invalid string), otherwise `datetime`. No valid day
  * means the charge is undated. created_at, updated_at, and today are never read.
  */
-export function chargeDateSource(record: { date?: unknown; datetime?: unknown } | null | undefined): unknown {
-  if (record == null || typeof record !== 'object') return undefined;
-  return record.date !== undefined && record.date !== null ? record.date : record.datetime;
-}
-
-/** Date text as received. A blank is `missing`. This is not a parsed charge day. */
-export function receivedChargeDateText(record: { date?: unknown; datetime?: unknown } | null | undefined): string {
-  const source = chargeDateSource(record);
-  if (source === undefined || source === null) return 'missing';
-  if (typeof source === 'string') return source.trim() === '' ? 'missing' : source;
-  if (typeof source === 'number') return Number.isFinite(source) ? String(source) : 'missing';
-  if (source instanceof Date) return Number.isFinite(source.getTime()) ? source.toISOString() : 'missing';
-  if (typeof source === 'object' && 'toDate' in source && typeof (source as { toDate?: unknown }).toDate === 'function') {
-    try {
-      const date = (source as { toDate: () => Date }).toDate();
-      if (date instanceof Date && Number.isFinite(date.getTime())) return date.toISOString();
-    } catch { /* unreadable timestamp */ }
-  }
-  return 'missing';
-}
-
 export function chargeDay(record: { date?: unknown; datetime?: unknown } | null | undefined): string | null {
-  return calendarChargeDay(chargeDateSource(record));
+  if (record == null || typeof record !== 'object') return null;
+  const source = record.date !== undefined && record.date !== null ? record.date : record.datetime;
+  return calendarChargeDay(source);
 }
 
 /** Year of the charge day, or null when the charge is undated. Never the current year. */

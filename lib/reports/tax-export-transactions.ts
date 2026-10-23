@@ -1,6 +1,7 @@
 import { readOwnedTransactions } from './export-records';
 import { selectExportYear, transactionAmount, ExportReviewRequiredError } from './transaction-export';
-import { chargeDay, receivedChargeDateText } from '@/lib/schedule-c/taxDate';
+import { receivedChargeDateText } from '@/lib/schedule-c/received-date-text';
+import { chargeDay } from '@/lib/schedule-c/taxDate';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
 

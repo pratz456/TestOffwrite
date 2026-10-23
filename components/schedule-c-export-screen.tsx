@@ -1,7 +1,7 @@
 "use client";
 
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
-import { receivedChargeDateText } from '@/lib/schedule-c/taxDate';
+import { receivedChargeDateText } from '@/lib/schedule-c/received-date-text';
 import { SCHEDULE_C_UNREADABLE_DATE_NOTICE, unreadableChargeOutAndIn } from '@/lib/reports/schedule-c-unreadable-notice';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';

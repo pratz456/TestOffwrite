@@ -1,6 +1,6 @@
 import { aggregateScheduleC, CATEGORY_MAP, type LineItemSummary, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
-import { receivedChargeDateText } from '@/lib/schedule-c/taxDate';
+import { receivedChargeDateText } from '@/lib/schedule-c/received-date-text';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 import { SCHEDULE_C_UNREADABLE_DATE_NOTICE, unreadableChargeOutAndIn } from './schedule-c-unreadable-notice';
 
