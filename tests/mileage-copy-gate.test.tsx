@@ -155,7 +155,7 @@ function renderScreen(component: () => unknown): string {
 const owner = { id: 'owner', email: 'owner@example.test', user_metadata: { name: 'Owner' } };
 const switches = [undefined, 'true', '0'] as const;
 
-function useSwitch(value: string | undefined) {
+function applyCopySwitch(value: string | undefined) {
   if (value === undefined) vi.unstubAllEnvs();
   else vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', value);
 }
@@ -180,7 +180,7 @@ describe('mileage copy switch off matches the base screens and errors', () => {
     const mileageTexts: string[] = [];
     const settingsTexts: string[] = [];
     for (const value of switches) {
-      useSwitch(value);
+      applyCopySwitch(value);
       harness.slots = [];
       mileageTexts.push(renderScreen(() => MileageTrackerScreen({ user: { id: 'owner' }, onBack: vi.fn() })));
       harness.slots = [];
@@ -250,7 +250,7 @@ describe('mileage copy switch off matches the base screens and errors', () => {
       : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const tripBody = { userId: 'owner', date: '2026-03-01', startLocation: 'Home', endLocation: 'Client', miles: 8, businessPurpose: 'Client meeting', roundTrip: false };
     for (const value of switches) {
-      useSwitch(value);
+      applyCopySwitch(value);
       database.fail = true;
       expect((await (await readMileage(request('https://writeoff.test/api/mileage?userId=owner', undefined, 'GET'))).json()).error).toBe('Failed to fetch mileage trips');
       expect((await (await createMileage(request('https://writeoff.test/api/mileage', { userId: 'owner' }))).json()).error).toBe('Provide valid locations, a date (YYYY-MM-DD), and positive finite miles.');
