@@ -87,7 +87,10 @@ const fake = vi.hoisted(() => {
 
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: fake.adminDb }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'owner' }, error: null }) }));
-vi.mock('@/lib/ai/learning-engine', () => ({ aiLearningEngine: { recordCorrection: async () => undefined } }));
+vi.mock('@/lib/ai/learning-engine', async () => {
+  const { learningMerchantKey } = await import('@/lib/ai/merchant-key');
+  return { aiLearningEngine: { recordCorrection: async () => undefined }, learningMerchantKey };
+});
 
 import { GET as listTransactions } from '@/app/api/transactions/route';
 import { PUT as updateOne } from '@/app/api/transactions/[id]/route';

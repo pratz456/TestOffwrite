@@ -43,7 +43,9 @@ describe('charge day shared by Schedule C totals and the export', () => {
   it('uses the same charge day for the export tax date as for the year total', () => {
     const dated = rows.filter(row => chargeYear(row) !== null);
     const undated = rows.filter(row => chargeYear(row) === null);
-    expect(selectExportYear(dated, 2024).map(row => row.id).sort()).toEqual(['date-only', 'datetime-only']);
+    let exported2024: ReturnType<typeof selectExportYear> = [];
+    expect(() => { exported2024 = selectExportYear(dated, 2024); }).not.toThrow();
+    expect(exported2024.map(row => row.id).sort()).toEqual(['date-only', 'datetime-only']);
     expect(selectExportYear(dated, 2025).map(row => row.id).sort()).toEqual(['date-object', 'timestamp']);
     for (const row of dated) {
       const day = chargeDay(row);

@@ -38,8 +38,9 @@ describe('bounded assistant transaction reader', () => {
   });
   it('returns an invalid charge date as undated instead of dropping it', async () => {
     h.results.set('userId', [doc('one', { userId: 'owner', date: '2026-02-30', created_at: '2026-06-15T12:00:00Z' })]);
-    const rows = await readAssistantTransactions('owner');
-    expect(rows).toEqual([expect.objectContaining({ date: '', needsMoreInformation: true, deductionStatus: 'Needs more information' })]);
+    await expect(readAssistantTransactions('owner')).resolves.toEqual([
+      expect.objectContaining({ date: '', needsMoreInformation: true, deductionStatus: 'Needs more information' }),
+    ]);
   });
   it('takes the newest 500 across both owner spellings without double-counting the same document', async () => {
     h.results.set('userId', Array.from({ length: 500 }, (_, i) => doc(`old-${i}`, { userId: 'owner', date: '2026-01-01' })));
