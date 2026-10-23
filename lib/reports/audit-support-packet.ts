@@ -3,8 +3,7 @@ import { adminDb } from '@/lib/firebase/admin';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
-import { publishedOtherExpensesLine } from '@/lib/schedule-c/other-expenses-line';
-import { safeTaxYear } from '@/lib/schedule-c/taxDate';
+import { publishedOtherExpensesLine, resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
 import { BUSINESS_STANDARD_MILEAGE_RATES, businessMileageRateForDate, summarizeBusinessMileage } from '@/lib/tax-rules/mileage-rates';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
@@ -221,7 +220,7 @@ export function buildEvidenceRecord(record: ExportRecord, context: { uid: string
   }
   const source: ReviewSource = record.review_source === 'ai_confirmed' || record.review_source === 'user_corrected' ? record.review_source : 'unknown';
   const mappedLine = CATEGORY_MAP[category]?.line ?? null;
-  const lineYear = safeTaxYear(date);
+  const lineYear = resolveOtherExpensesYear(record);
   const publishedLine = typeof mappedLine === 'string' ? publishedOtherExpensesLine(mappedLine, lineYear) : null;
   const scheduleCLine = publishedLine && (publishedLine.needsReview || publishedLine.line !== mappedLine)
     ? publishedLine.line

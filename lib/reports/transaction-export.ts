@@ -1,7 +1,6 @@
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
-import { publishedOtherExpensesLine } from '@/lib/schedule-c/other-expenses-line';
-import { safeTaxYear } from '@/lib/schedule-c/taxDate';
+import { publishedOtherExpensesLine, resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 
@@ -65,7 +64,7 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
     if (equipment && typeof equipment === 'object' && 'business_use_percentage' in equipment) businessUse['equipment_details.business_use_percentage'] = equipment.business_use_percentage;
     const adjustments = Object.fromEntries(['deduction_override', 'deductible_amount', 'deduction_amount', 'deductible_amount_override', 'deduction_percentage'].filter(key => record[key] !== undefined).map(key => [key, record[key]]));
     const receiptPath = typeof rawPath === 'string' ? validateReceiptPreviewPath(rawPath) : null;
-    const year = safeTaxYear(record.date ?? record.datetime);
+    const year = resolveOtherExpensesYear(record);
     let otherExpensesNeedsReview = false;
     const shownLine = (line: unknown) => {
       if (typeof line !== 'string' || !line) return line ?? '';

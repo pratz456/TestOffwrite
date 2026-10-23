@@ -1,9 +1,10 @@
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { PDFPage } from 'pdf-lib';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
-import { OTHER_EXPENSES_27B_FIRST_YEAR, otherExpensesLine, readStoredAiScheduleCLines } from '@/lib/schedule-c/other-expenses-line';
+import { OTHER_EXPENSES_27B_FIRST_YEAR, otherExpensesLine, otherExpensesTaxYearFallback, readStoredAiScheduleCLines, resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
@@ -396,5 +397,138 @@ describe('Schedule C other expenses line follows the tax year', () => {
     expect(unmapped.lineItemsArray).toEqual([expect.objectContaining({ lineCode: '27b', lineName: 'Other expenses', deductible: 3.25, total: 3.25 })]);
     expect(unmapped.totalDeductible).toBe(3.25);
     expect(unmapped.lineItems['27a']).toBeUndefined();
+  });
+
+  const education = { category: 'education_training', transaction_kind: 'expense', status: 'ok' } as never;
+
+  it('hides a saved 27a when the explanation has no year', () => {
+    expect(scheduleCLineFor({ schedule_c_line: '27a', category: 'other', transaction_kind: 'expense', status: 'ok' } as never, null)).toBeNull();
+  });
+
+  it('hides the category other-expenses line when the explanation has no year', () => {
+    expect(scheduleCLineFor(education, null)).toBeNull();
+  });
+
+  it('hides a stored other-expenses label when the saved explanation has no year', () => {
+    const payload = {
+      headline: 'Likely deductible: Other expenses',
+      why: 'The saved analysis placed this cost with other expenses.',
+      scheduleCLine: 'Schedule C line 27a (Other expenses)',
+    };
+    expect(normalizeExplanation(payload, null)?.scheduleCLine).toBeNull();
+  });
+
+  it('shows 27b for a 2025 category line, so a year-blind shown line fails this check', () => {
+    expect(scheduleCLineFor(education, 2025)).toBe('Schedule C line 27b (Other expenses)');
+  });
+
+  it('a record with no date and tax_year 2025 is blank and flagged on every path', () => {
+    const record = {
+      id: 'tax-year-only',
+      amount: OTHER_EXPENSE_AMOUNT,
+      category: 'SERVICE_EDUCATION',
+      merchant_name: 'TAX-YEAR-ONLY',
+      schedule_c_line: '27a',
+      tax_year: 2025,
+      taxYear: 2025,
+      ai_tax_year: 2025,
+      ai_schedule_c_line: '27a',
+      ai_suggestion: { schedule_c_line: '27a', scheduleCLine: '27a', taxYear: 2025 },
+      ai: { schedule_c_line: '27a', tax_year: 2025 },
+      ai_explanation: {
+        headline: 'Likely deductible: Other expenses',
+        why: 'The saved analysis placed this cost with other expenses.',
+        scheduleCLine: 'Schedule C line 27a (Other expenses)',
+      },
+    };
+    expect(resolveOtherExpensesYear(record)).toBeNull();
+    expect(otherExpensesTaxYearFallback(record)).toBe(2025);
+    expect(resolveOtherExpensesYear({ date: '', datetime: null, date_iso: '2025-03-01' })).toBe(2025);
+    expect(resolveOtherExpensesYear({ date: '2024-13-45', datetime: '2025-06-01' })).toBeNull();
+    const columns = csvColumns(record);
+    expect(columns[4]).toBe('80.25');
+    expect(columns[13]).toBe('');
+    expect(columns[14]).toBe('');
+    expect(columns[CSV_REVIEW]).toContain(LINE_REVIEW);
+    expect(suggestionScheduleCLine(record)).toBeNull();
+    expect(suggestionOtherExpensesNeedsReview(record)).toBe(true);
+    const evidence = evidenceFor(record);
+    expect(evidence.scheduleCLine).toBeNull();
+    expect(evidence.substantiation.status).toBe('needs_records');
+    expect(evidence.amount).toBe(OTHER_EXPENSE_AMOUNT);
+    const read = readStoredAiScheduleCLines(record);
+    expect(read.ai_schedule_c_line).toBeNull();
+    expect(read.ai_suggestion.schedule_c_line).toBeNull();
+    expect(read.ai_suggestion.scheduleCLine).toBeNull();
+    expect(read.ai.schedule_c_line).toBeNull();
+    expect(read.ai_explanation.scheduleCLine).toBeNull();
+    expect(record.ai_schedule_c_line).toBe('27a');
+    expect(record.schedule_c_line).toBe('27a');
+    expect(normalizeExplanation(record.ai_explanation, resolveOtherExpensesYear(record))?.scheduleCLine).toBeNull();
+    expect(scheduleCLineFor({ schedule_c_line: '27a', category: 'education_training', transaction_kind: 'expense', status: 'ok' } as never, resolveOtherExpensesYear(record))).toBeNull();
+    const source = readFileSync('lib/schedule-c/other-expenses-line.ts', 'utf8');
+    const start = source.indexOf('export function resolveOtherExpensesYear');
+    const resolver = source.slice(start, source.indexOf('\n/**', start));
+    expect(resolver).not.toContain('otherExpensesTaxYearFallback');
+    expect(resolver).not.toContain('tax_year');
+    expect(resolver).not.toContain('ai_tax_year');
+  });
+
+  function invalidDateRecord(date: string) {
+    return {
+      id: `invalid-${date}`,
+      amount: OTHER_EXPENSE_AMOUNT,
+      date,
+      category: 'SERVICE_EDUCATION',
+      merchant_name: 'INVALID-DATE',
+      schedule_c_line: '27a',
+      is_deductible: true as const,
+      ai_suggestion: { schedule_c_line: '27a' },
+    };
+  }
+
+  function expectBlankFlag(date: string) {
+    const record = invalidDateRecord(date);
+    expect(resolveOtherExpensesYear(record)).toBeNull();
+    const columns = csvColumns(record);
+    expect(columns[4]).toBe('80.25');
+    expect(columns[13]).toBe('');
+    expect(columns[14]).toBe('');
+    expect(columns[CSV_REVIEW]).toContain(LINE_REVIEW);
+    expect(suggestionScheduleCLine(record)).toBeNull();
+    expect(suggestionOtherExpensesNeedsReview(record)).toBe(true);
+    const evidence = evidenceFor(record);
+    expect(evidence.scheduleCLine).toBeNull();
+    expect(evidence.substantiation.status).toBe('needs_records');
+    expect(evidence.amount).toBe(OTHER_EXPENSE_AMOUNT);
+    expect(record.schedule_c_line).toBe('27a');
+  }
+
+  it('treats an impossible ISO date as no year and flags the line', () => {
+    expectBlankFlag('2024-13-45');
+  });
+
+  it('treats a non-ISO date as no year and flags the line', () => {
+    expectBlankFlag('1/1/2025');
+  });
+
+  it('keeps the calendar date in a positive offset where local year parsing shifts', () => {
+    const script = `
+      import { resolveOtherExpensesYear } from './lib/schedule-c/other-expenses-line.ts';
+      const shifted = new Date('2024-12-31T12:00:00.000Z').getFullYear();
+      if (shifted === 2024) throw new Error('timezone did not shift the local year: ' + shifted);
+      const year = resolveOtherExpensesYear({ date: '2024-12-31' });
+      if (year !== 2024) throw new Error('date-only year ' + year);
+      const stamped = resolveOtherExpensesYear({ date: '2024-12-31T23:59:59-10:00' });
+      if (stamped !== 2024) throw new Error('timestamp year ' + stamped);
+      if (resolveOtherExpensesYear({ date: '2024-13-45' }) !== null) throw new Error('invalid ISO date resolved');
+      if (resolveOtherExpensesYear({ date: '1/1/2025' }) !== null) throw new Error('non-ISO date resolved');
+    `;
+    const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', script], {
+      cwd: process.cwd(),
+      env: { ...process.env, TZ: 'Pacific/Auckland' },
+      encoding: 'utf8',
+    });
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
   });
 });

@@ -1,6 +1,7 @@
 /**
  * Schedule C other expenses (Part V, carried from line 48).
- * 2024 and earlier: other expenses is line 27a, and line 27b is Form 7205.
+ * 2023 and 2024: other expenses is line 27a, and line 27b is Form 7205.
+ * On the 2022 form, line 27b was reserved, so a pre-2023 record stays 27a and needs review.
  * 2025 and later: those lines swap. Form 7205 never receives a user amount.
  * https://www.irs.gov/pub/irs-prior/f1040sc--2024.pdf
  * https://www.irs.gov/pub/irs-prior/f1040sc--2025.pdf
@@ -8,7 +9,6 @@
  * Saved analyses may store either code. Readers do not write them back.
  * Both codes mean other expenses, and the shown line comes from the tax year.
  */
-import { safeTaxYear } from './taxDate';
 
 /**
  * First tax year on which Schedule C other expenses is line 27b.
@@ -45,15 +45,75 @@ function isOtherExpensesCode(line: string): boolean {
   return code === '27a' || code === '27b';
 }
 
+function isLeapYear(year: number): boolean {
+  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+}
+
+function isCalendarDay(year: number, month: number, day: number): boolean {
+  if (month < 1 || month > 12 || day < 1) return false;
+  const lengths = [31, isLeapYear(year) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day <= lengths[month - 1];
+}
+
+/** Calendar year of one ISO date. The date part is used as written, with no time zone shift. */
+function otherExpensesYearFromDate(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:$|T)/.exec(value.trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  return isCalendarDay(year, month, day) ? year : null;
+}
+
+/**
+ * Year for the other-expenses line. The transaction date only.
+ * otherExpensesTaxYearFallback is the unused tax_year switch. This function does not call it.
+ */
+export function resolveOtherExpensesYear(record: object | null | undefined): number | null {
+  if (record == null || typeof record !== 'object') return null;
+  const source = record as Record<string, unknown>;
+  for (const key of ['date', 'datetime', 'date_iso'] as const) {
+    const value = source[key];
+    if (value == null || value === '') continue;
+    return otherExpensesYearFromDate(value);
+  }
+  return null;
+}
+
+/**
+ * tax_year when a date is missing. Not used for the shown line.
+ * A model tax year is not read. The later switch is to call this from resolveOtherExpensesYear.
+ */
+export function otherExpensesTaxYearFallback(record: object | null | undefined): number | null {
+  if (record == null || typeof record !== 'object') return null;
+  const source = record as Record<string, unknown>;
+  for (const value of [source.tax_year, source.taxYear]) {
+    const year = typeof value === 'number' ? value : typeof value === 'string' && /^\d{4}$/.test(value.trim()) ? Number(value) : NaN;
+    if (Number.isInteger(year) && year >= 1900 && year <= 2200) return year;
+  }
+  return null;
+}
+
 /** A stored 27a or 27b is other expenses. The returned code is the year's line. */
 export function readStoredScheduleCLine<T extends string | null | undefined>(line: T, taxYear: number): T {
   if (typeof line === 'string' && isOtherExpensesCode(line)) return otherExpensesLine(taxYear) as T;
   return line;
 }
 
-/** A saved line code, or the composed "Schedule C line …" label on ai_explanation. */
-export function readStoredScheduleCLineText<T extends string | null | undefined>(value: T, taxYear: number): T {
+function lineForResolvedYear<T extends string | null | undefined>(line: T, taxYear: number | null): T | null {
+  if (typeof line !== 'string') return line;
+  if (taxYear == null || !Number.isFinite(taxYear)) return isOtherExpensesCode(line) ? null : line;
+  return readStoredScheduleCLine(line, taxYear);
+}
+
+/** A saved line code, or the composed "Schedule C line …" label on ai_explanation. No year blanks 27a and 27b. */
+export function readStoredScheduleCLineText<T extends string | null | undefined>(value: T, taxYear: number | null): T | null {
   if (typeof value !== 'string') return value;
+  if (taxYear == null || !Number.isFinite(taxYear)) {
+    if (isOtherExpensesCode(value) || value.includes('Schedule C line 27a') || value.includes('Schedule C line 27b')) return null;
+    return value;
+  }
   const code = readStoredScheduleCLine(value, taxYear);
   if (code !== value) return code;
   const shown = `Schedule C line ${otherExpensesLine(taxYear)}`;
@@ -61,34 +121,16 @@ export function readStoredScheduleCLineText<T extends string | null | undefined>
   return (next === value ? value : next) as T;
 }
 
-function recordTaxYear(record: Record<string, any>): number | null {
-  const fromDate = safeTaxYear(record.date ?? record.datetime);
-  if (fromDate != null) return fromDate;
-  const suggestion = record.ai_suggestion;
-  const candidates = [
-    record.taxYear,
-    record.tax_year,
-    record.ai_tax_year,
-    suggestion && typeof suggestion === 'object' ? suggestion.taxYear : undefined,
-  ];
-  for (const value of candidates) {
-    const year = typeof value === 'number' ? value : typeof value === 'string' && /^\d{4}$/.test(value.trim()) ? Number(value) : NaN;
-    if (Number.isInteger(year) && year >= 1900 && year <= 2200) return year;
-  }
-  return null;
-}
-
 /**
  * Read-time view of ai_* line fields. Returns the same object when the stored
- * codes already match the record's tax year, and never mutates the saved record.
- * Without a tax year the stored codes are left as they are.
+ * codes already match the record's date year, and never mutates the saved record.
+ * Without a transaction date, stored 27a and 27b are blank.
  */
 export function readStoredAiScheduleCLines<T extends Record<string, any>>(record: T): T {
-  const taxYear = recordTaxYear(record);
-  if (taxYear == null) return record;
+  const taxYear = resolveOtherExpensesYear(record);
   const patch: Record<string, unknown> = {};
   if (typeof record.ai_schedule_c_line === 'string') {
-    const line = readStoredScheduleCLine(record.ai_schedule_c_line, taxYear);
+    const line = lineForResolvedYear(record.ai_schedule_c_line, taxYear);
     if (line !== record.ai_schedule_c_line) patch.ai_schedule_c_line = line;
   }
   const suggestion = record.ai_suggestion;
@@ -96,7 +138,7 @@ export function readStoredAiScheduleCLines<T extends Record<string, any>>(record
     const suggestionPatch: Record<string, unknown> = {};
     for (const key of ['scheduleCLine', 'schedule_c_line'] as const) {
       if (typeof suggestion[key] === 'string') {
-        const line = readStoredScheduleCLine(suggestion[key] as string, taxYear);
+        const line = lineForResolvedYear(suggestion[key] as string, taxYear);
         if (line !== suggestion[key]) suggestionPatch[key] = line;
       }
     }
@@ -107,7 +149,7 @@ export function readStoredAiScheduleCLines<T extends Record<string, any>>(record
     const aiPatch: Record<string, unknown> = {};
     for (const key of ['scheduleCLine', 'schedule_c_line'] as const) {
       if (typeof ai[key] === 'string') {
-        const line = readStoredScheduleCLine(ai[key] as string, taxYear);
+        const line = lineForResolvedYear(ai[key] as string, taxYear);
         if (line !== ai[key]) aiPatch[key] = line;
       }
     }

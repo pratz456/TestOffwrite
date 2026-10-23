@@ -6,8 +6,7 @@ import type { TransactionExplanation } from '@/lib/ai/explanation';
 import type { Transaction } from '@/lib/firebase/transactions';
 import { learningMerchantKey } from '@/lib/ai/merchant-key';
 import { reviewCategory, type AiReviewSuggestion, type ReviewCategory } from './ai-review-contract';
-import { publishedOtherExpensesLine } from '@/lib/schedule-c/other-expenses-line';
-import { safeTaxYear } from '@/lib/schedule-c/taxDate';
+import { publishedOtherExpensesLine, resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
 import { AI_PROPOSAL_CONFIRMED_REASON, AI_PROPOSAL_REJECTED_REASON } from './tax-decision';
 
 /** Plain-language explanation saved on a transaction by the explanation writer. */
@@ -49,7 +48,7 @@ function publishedSuggestionLine(transaction: ReviewRecord) {
   const suggestion = transaction.ai_suggestion as SuggestionWithProposal | null | undefined;
   const raw = cleanText(suggestion?.schedule_c_line) ?? cleanText(suggestion?.scheduleCLine);
   if (!raw) return null;
-  return publishedOtherExpensesLine(raw, safeTaxYear(transaction.date ?? transaction.datetime));
+  return publishedOtherExpensesLine(raw, resolveOtherExpensesYear(transaction));
 }
 
 export function suggestionScheduleCLine(transaction: ReviewRecord): string | null {

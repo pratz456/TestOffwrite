@@ -7,7 +7,7 @@
  */
 import type { OutputType } from './analyzeTransaction';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
-import { readStoredScheduleCLineText } from '@/lib/schedule-c/other-expenses-line';
+import { publishedOtherExpensesLine, readStoredScheduleCLineText, resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { reviewCategory } from '@/lib/transactions/ai-review-contract';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
@@ -176,14 +176,18 @@ const FLOW_HEADLINES: Record<string, string> = {
 const LINE_NAMES: Record<string, string> = Object.fromEntries(Object.values(CATEGORY_MAP).map(entry => [entry.line, entry.name]));
 if (LINE_NAMES['27a']) LINE_NAMES['27b'] = LINE_NAMES['27a'];
 
-function shownLine(line: string, taxYear: number | null): string {
-  return taxYear == null ? line : scheduleCExportLine(line, taxYear);
+function shownLine(line: string, taxYear: number | null): string | null {
+  const published = publishedOtherExpensesLine(line, taxYear);
+  if (published.line == null) return null;
+  return taxYear == null ? published.line : scheduleCExportLine(published.line, taxYear);
 }
 
 /** Prefer the policy's placement; otherwise the export taxonomy line for the suggested category. */
 export function scheduleCLineFor(result: ExplainableResult, taxYear?: number | null): string | null {
   const year = typeof taxYear === 'number' && Number.isFinite(taxYear) ? taxYear : null;
-  const supplied = year == null ? text(result.schedule_c_line, 120) : readStoredScheduleCLineText(text(result.schedule_c_line, 120), year);
+  const raw = text(result.schedule_c_line, 120);
+  const supplied = raw == null ? null : readStoredScheduleCLineText(raw, year);
+  if (raw && supplied == null) return null;
   if (supplied) {
     if (/^(schedule|form|not)\b/i.test(supplied)) return supplied;
     if (/^\d{1,2}[a-z]?$/.test(supplied)) return `Schedule C line ${supplied}${LINE_NAMES[supplied] ? ` (${LINE_NAMES[supplied]})` : ''}`;
@@ -195,7 +199,9 @@ export function scheduleCLineFor(result: ExplainableResult, taxYear?: number | n
   const recorded = reviewCategory(result.category)?.recordedCategory;
   const entry = recorded ? CATEGORY_MAP[recorded] : undefined;
   if (!entry) return null;
-  return `Schedule C line ${shownLine(entry.line, year)} (${entry.name})`;
+  const shown = shownLine(entry.line, year);
+  if (!shown) return null;
+  return `Schedule C line ${shown} (${entry.name})`;
 }
 
 function headlineFor(result: ExplainableResult, label: string | undefined): string {
@@ -344,7 +350,7 @@ export function composeExplanation({ result, transaction, profile, taxYear }: Co
     headline: `${headlineFor(result, category?.label)}${subject}`,
     why: whyFor(result),
     yourFacts: facts,
-    scheduleCLine: scheduleCLineFor(result, taxYear),
+    scheduleCLine: scheduleCLineFor(result, resolveOtherExpensesYear(transaction)),
     estimatedTaxEffect: estimate,
     strengthen: strengthenFor(result),
     nextQuestion: result.questions?.map(question => text(question, 300)).find(Boolean) ?? null,
@@ -363,7 +369,7 @@ export function normalizeExplanation(value: unknown, taxYear?: number | null): T
   const estimatedTaxEffect: EstimatedTaxEffect | null = low !== null && high !== null && effect.label === ESTIMATE_LABEL
     ? { low: Math.min(low, high), high: Math.max(low, high), label: ESTIMATE_LABEL, basis: text(effect.basis, 400) ?? '' } : null;
   return {
-    headline, why, yourFacts: strings(data.yourFacts), scheduleCLine: typeof taxYear === 'number' && Number.isFinite(taxYear) ? readStoredScheduleCLineText(text(data.scheduleCLine, 120), taxYear) : text(data.scheduleCLine, 120),
+    headline, why, yourFacts: strings(data.yourFacts), scheduleCLine: readStoredScheduleCLineText(text(data.scheduleCLine, 120), typeof taxYear === 'number' && Number.isFinite(taxYear) ? taxYear : null),
     estimatedTaxEffect, strengthen: strings(data.strengthen), nextQuestion: text(data.nextQuestion, 300),
   };
 }
