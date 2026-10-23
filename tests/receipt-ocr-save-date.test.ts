@@ -36,10 +36,11 @@ function reference(path: string): object {
     delete: () => mocks.receiptDelete(path),
   };
 }
-function request(uploadTimeZone?: string) {
+function request(uploadTimeZone?: string, fields: Record<string, string> = {}) {
   const body = new FormData();
   body.append('file', new File([PNG], 'receipt.png', { type: 'image/png' }));
   if (uploadTimeZone !== undefined) body.append('uploadTimeZone', uploadTimeZone);
+  for (const [name, value] of Object.entries(fields)) body.append(name, value);
   return new NextRequest('https://staging.example/api/receipts/process', { method: 'POST', body });
 }
 function ocrDate(date: string) {
@@ -100,6 +101,51 @@ describe('OCR receipt save requires a real calendar day', () => {
     expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({
       date: '2026-09-15', uploadTimeZone: 'America/Los_Angeles',
     }));
+  });
+
+  it('stores america/los_angeles as America/Los_Angeles', async () => {
+    ocrDate('2026-09-15');
+    const response = await POST(request('america/los_angeles'));
+    expect(response.status).toBe(200);
+    expect(mocks.processReceipt).toHaveBeenCalledWith(expect.any(Buffer), 'America/Los_Angeles');
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({
+      date: '2026-09-15', uploadTimeZone: 'America/Los_Angeles',
+    }));
+  });
+
+  it('stores est as the canonical zone Node returns', async () => {
+    ocrDate('2026-09-15');
+    const response = await POST(request('est'));
+    expect(response.status).toBe(200);
+    expect(mocks.processReceipt).toHaveBeenCalledWith(expect.any(Buffer), 'America/Panama');
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({
+      date: '2026-09-15', uploadTimeZone: 'America/Panama',
+    }));
+  });
+
+  it('stores the canonical zone on an attached transaction and leaves its other fields alone', async () => {
+    mocks.getTransaction.mockResolvedValue({ data: {
+      trans_id: 'owned-bank-transaction', notes: 'Existing note', merchant_name: 'Bank merchant', amount: 10, date: '2026-01-01',
+    }, error: null });
+    mocks.updateTransaction.mockResolvedValue({ data: [{ trans_id: 'owned-bank-transaction' }], error: null });
+    const response = await POST(request('america/los_angeles', { attachTransactionId: 'owned-bank-transaction' }));
+    expect(response.status).toBe(200);
+    expect(mocks.processReceipt).not.toHaveBeenCalled();
+    expect(mocks.createTransaction).not.toHaveBeenCalled();
+    const updates = mocks.updateTransaction.mock.calls.at(-1)?.[2] as Record<string, unknown>;
+    expect(mocks.updateTransaction).toHaveBeenCalledWith(owner, 'owned-bank-transaction', updates);
+    expect(updates).toEqual({
+      receipt_url: expect.stringMatching(/^\/api\/receipts\//),
+      receipt_filename: 'receipt.png',
+      notes: 'Existing note\nReceipt attached: receipt.png.',
+      uploadTimeZone: 'America/Los_Angeles',
+    });
+    const missing = await POST(request(undefined, { attachTransactionId: 'owned-bank-transaction' }));
+    expect(missing.status).toBe(200);
+    expect(mocks.updateTransaction.mock.calls.at(-1)?.[2]).not.toHaveProperty('uploadTimeZone');
+    const est = await POST(request('est', { attachTransactionId: 'owned-bank-transaction' }));
+    expect(est.status).toBe(200);
+    expect((mocks.updateTransaction.mock.calls.at(-1)?.[2] as { uploadTimeZone?: string }).uploadTimeZone).toBe('America/Panama');
   });
 
   it('drops a missing or invalid upload zone', async () => {

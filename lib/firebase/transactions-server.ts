@@ -418,6 +418,7 @@ export async function updateTransactionServerWithUserId(
     irsPublication?: string;
     irsSection?: string;
     analysisUpdatedAt?: string;
+    uploadTimeZone?: string;
   }
 ): Promise<{ data: any; error: any }> {
   try {

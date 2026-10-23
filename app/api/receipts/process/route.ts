@@ -39,12 +39,11 @@ function isRealCalendarDay(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
 }
 
-/** The browser zone, kept only when it is a real IANA name. */
+/** The browser zone, kept only when it is a real IANA name, stored as the canonical name. */
 function uploadedTimeZone(value: FormDataEntryValue | null): string | undefined {
   if (typeof value !== 'string' || value.length === 0) return undefined;
   try {
-    Intl.DateTimeFormat('en-US', { timeZone: value });
-    return value;
+    return new Intl.DateTimeFormat('en-US', { timeZone: value }).resolvedOptions().timeZone;
   } catch {
     return undefined;
   }
@@ -147,6 +146,7 @@ export async function POST(request: NextRequest) {
         receipt_url: storedReceipt.receiptUrl,
         receipt_filename: originalName,
         notes: `${existingTransaction.notes || ''}\nReceipt attached: ${originalName}.`.trim(),
+        ...(uploadTimeZone ? { uploadTimeZone } : {}),
       };
       let transaction: Transaction;
       try {

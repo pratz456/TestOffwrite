@@ -560,11 +560,11 @@ export class ReceiptProcessor {
     }
   }
 
-  async processReceiptBatch(imageFiles: (File | Buffer)[]): Promise<OCRResult[]> {
+  async processReceiptBatch(imageFiles: (File | Buffer)[], uploadTimeZone?: string): Promise<OCRResult[]> {
     const results: OCRResult[] = [];
     
     for (const file of imageFiles) {
-      const result = await this.processReceipt(file);
+      const result = await this.processReceipt(file, uploadTimeZone);
       results.push(result);
     }
     
