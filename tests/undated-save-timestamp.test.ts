@@ -6,7 +6,6 @@ import * as taxDate from '@/lib/schedule-c/taxDate';
 const { safeTaxYear } = taxDate;
 
 function chargeYear(record: { date?: unknown; datetime?: unknown } | null | undefined) {
-  expect(typeof taxDate.chargeYear).toBe('function');
   return taxDate.chargeYear(record);
 }
 import { summarizeRecordedCashFlow } from '@/lib/dashboard/cash-flow-summary';

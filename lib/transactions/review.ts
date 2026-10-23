@@ -24,8 +24,8 @@ const VEHICLE_METHODS = ['standard_mileage', 'actual_expense'] as const;
 export type VehicleDeductionMethod = typeof VEHICLE_METHODS[number];
 
 /**
- * Year of the cash-method charge day (`date`, otherwise `datetime`).
- * A missing or invalid charge day has no year. Today's year is never used.
+ * Year of the cash-method charge day. A string `date` supplies the year.
+ * A Date, a Timestamp, or a datetime-only row has no year. Today's year is never used.
  */
 export function taxYearOf(record: { date?: unknown; datetime?: unknown } | null | undefined): number | null {
   return chargeYear(record);

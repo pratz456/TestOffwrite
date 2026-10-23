@@ -10,12 +10,10 @@ const { convertTransactionsToCSV, selectExportYear } = transactionExport;
 const { assistantProfileFacts, composeForYou, mentionedMerchantFacts } = assistantContext;
 
 function exportNeedsMoreInformationCount(rows: readonly Record<string, unknown>[]) {
-  expect(typeof transactionExport.needsMoreInformationCount).toBe('function');
   return transactionExport.needsMoreInformationCount(rows);
 }
 
 function needsMoreInformationCount(rows: readonly { date?: unknown; datetime?: unknown; userId?: unknown; user_id?: unknown }[], uid?: string) {
-  expect(typeof assistantContext.needsMoreInformationCount).toBe('function');
   return assistantContext.needsMoreInformationCount(rows, uid);
 }
 

@@ -37,17 +37,19 @@ describe('monthly displayed deductions and income-tax planning estimates', () =>
     const result = buildMonthlySavings([expense({ date: '2025-12-31T23:30:00-08:00' })], 2025, .2, now);
     expect(result.monthlyData[11].deductionBasis).toBe(100);
   });
-  it('uses supported datetime-only records consistently for buckets, future filtering and years', () => {
-    const result = buildMonthlySavings([
-      expense({ date: undefined, datetime: '2026-03-01T10:00:00Z' }),
-      expense({ date: null, datetime: '2026-12-01T10:00:00Z' }),
-      expense({ date: undefined, datetime: '2025-12-31T23:30:00-08:00' }),
-    ], 2026, .2, now);
-    expect(result.monthlyData[2]).toMatchObject({ deductionBasis: 100, count: 1 });
-    expect(result.monthlyData[11].deductionBasis).toBe(0);
-    expect(result.summary.yearToDateTotal).toBe(20);
-    expect(result.diagnostics.expensesInYear).toBe(1);
-    expect(result.availableYears).toEqual([2026, 2025]);
+  it('leaves a datetime-only row undated and keeps the amount', () => {
+    const rows = [
+      expense({ date: undefined, datetime: '2026-03-01T10:00:00Z', amount: 100 }),
+      expense({ date: null, datetime: '2026-12-01T10:00:00Z', amount: 40 }),
+      expense({ date: undefined, datetime: '2025-12-31T23:30:00-08:00', amount: 25 }),
+    ];
+    expect(() => buildMonthlySavings(rows, 2026, .2, now)).toThrow(/Review missing or invalid transaction dates/);
+    expect(rows.map(row => row.amount)).toEqual([100, 40, 25]);
+    expect(rows.map(row => row.datetime)).toEqual([
+      '2026-03-01T10:00:00Z',
+      '2026-12-01T10:00:00Z',
+      '2025-12-31T23:30:00-08:00',
+    ]);
   });
   it('never advertises unsupported historical years that the monthly endpoint rejects', () => {
     const historical = expense({ date: '2023-03-01' });

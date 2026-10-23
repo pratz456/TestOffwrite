@@ -80,18 +80,27 @@ function numericSlashDay(text: string): string | null {
  * are both 12 or under stay unreadable. An impossible day stays unreadable.
  * An English month name, full or abbreviated, with the day before or after it,
  * is that written day. A weekday prefix and a clock time do not change the day.
- * Impossible days, blanks, and junk are undated. Save time, upload time, and
- * today's date are not inputs to this function.
+ * A Date or a value with toDate() is not a written day. No zone is saved for
+ * that instant, so unsavedZoneInstantDay leaves it undated. The UTC day is not
+ * used. Impossible days, blanks, and junk are undated. Save time, upload time,
+ * and today's date are not inputs to this function.
  */
+function isTimestamp(value: unknown): boolean {
+  return !!value && typeof value === 'object' && typeof (value as { toDate?: unknown }).toDate === 'function';
+}
+
+/**
+ * An instant whose zone was never saved. Date values, Firestore Timestamps,
+ * and a datetime-only row share this path. A later saved-zone feature plugs
+ * in here. Until a zone is saved, the charge is undated. The UTC day is not used.
+ */
+function unsavedZoneInstantDay(instant: unknown): null {
+  void instant;
+  return null;
+}
+
 export function calendarChargeDay(value: unknown): string | null {
-  try {
-    if (value instanceof Date) value = value.toISOString();
-    else if (value && typeof value === 'object' && 'toDate' in value && typeof (value as { toDate?: unknown }).toDate === 'function') {
-      value = (value as { toDate: () => Date }).toDate().toISOString();
-    }
-  } catch {
-    return null;
-  }
+  if (value instanceof Date || isTimestamp(value)) return unsavedZoneInstantDay(value);
   if (typeof value !== 'string') return null;
   const text = value.trim();
   if (!text) return null;
@@ -106,14 +115,18 @@ export function calendarChargeDay(value: unknown): string | null {
 }
 
 /**
- * Cash-method charge day (Treas. Reg. 1.461-1(a)(1)): `date` when it is present
- * (including an empty or invalid string), otherwise `datetime`. No valid day
- * means the charge is undated. created_at, updated_at, and today are never read.
+ * Cash-method charge day (Treas. Reg. 1.461-1(a)(1)). A string `date` is the
+ * written day. A Date or Timestamp `date` has no saved zone, so the row is
+ * undated. With no `date`, a `datetime` value is Plaid's UTC moment and uses
+ * the same unsaved-zone path, so it is undated too. An empty or invalid `date`
+ * does not fall through to `datetime`. created_at, updated_at, and today are
+ * never read.
  */
 export function chargeDay(record: { date?: unknown; datetime?: unknown } | null | undefined): string | null {
   if (record == null || typeof record !== 'object') return null;
-  const source = record.date !== undefined && record.date !== null ? record.date : record.datetime;
-  return calendarChargeDay(source);
+  if (record.date !== undefined && record.date !== null) return calendarChargeDay(record.date);
+  if (record.datetime !== undefined && record.datetime !== null) return unsavedZoneInstantDay(record.datetime);
+  return null;
 }
 
 /** Year of the charge day, or null when the charge is undated. Never the current year. */

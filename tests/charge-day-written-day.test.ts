@@ -169,15 +169,10 @@ function row(date: unknown) {
   return charge;
 }
 
-/** On this head, chargeDay and chargeYear match safeYMD and safeTaxYear. Base does not export those two. */
+/** chargeDay and chargeYear match safeYMD and safeTaxYear for a value stored on `date`. */
 function expectReadersAgree(input: unknown, day: string | null, year: number | null) {
   expect(safeYMD(input)).toBe(day);
   expect(safeTaxYear(input)).toBe(year);
-  if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.chargeYear !== 'function') {
-    expect(taxDate.chargeDay).toBeUndefined();
-    expect(taxDate.chargeYear).toBeUndefined();
-    return;
-  }
   expect(taxDate.chargeDay({ date: input })).toBe(day);
   expect(taxDate.chargeYear({ date: input })).toBe(year);
 }

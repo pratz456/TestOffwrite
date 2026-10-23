@@ -111,8 +111,8 @@ function stripUndefinedDeep<T>(value: T): T {
 
 /**
  * Normalize a single Firestore doc into Transaction shape.
- * The charge day is `date` when that field is present, otherwise `datetime`.
- * created_at, updated_at, and today never fill `date`.
+ * The charge day is a string `date`. A Date, a Timestamp, or a datetime-only
+ * row is undated. created_at, updated_at, and today never fill `date`.
  */
 export function normalizeDoc(doc: { id: string; data(): Record<string, any> }): Transaction {
   const data: any = doc.data();
