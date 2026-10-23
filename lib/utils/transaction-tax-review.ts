@@ -12,7 +12,7 @@ type ReviewableTransaction = {
   date?: unknown;
 };
 
-/** A no-line insurance or financial-planning charge stays reviewable until the user picks a line. */
+/** A no-line loan payment, tax payment, insurance, financial-planning, or groceries charge stays reviewable until the user picks a line. */
 function awaitingScheduleCLine(t: ReviewableTransaction): boolean {
   return t.is_deductible !== false && typeof t.category === 'string' && isAwaitingScheduleCLine(t.category);
 }

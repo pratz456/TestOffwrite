@@ -611,10 +611,23 @@ describe('Plaid category codes on Schedule C', () => {
   ] as const)('%s has no Schedule C line and stays on the review list with its amount', (category, amount) => {
     const record = { ...confirmed(category, amount, '2026-06-15'), iso_currency_code: 'USD' };
     const priorYear = { ...confirmed(category, amount, '2024-06-15'), iso_currency_code: 'USD' };
+    const year2025 = { ...confirmed(category, 10, '2025-06-15'), iso_currency_code: 'USD' };
     const schedule = aggregateScheduleC([record], '2026', CATEGORY_MAP, { mode: 'confirmed-only' });
     const schedule2024 = aggregateScheduleC([priorYear], '2024', CATEGORY_MAP, { mode: 'confirmed-only' });
+    const schedule2025 = aggregateScheduleC([year2025], '2025', CATEGORY_MAP, { mode: 'confirmed-only' });
     const reviewList = prioritizeTransactionReview([record].filter(transactionNeedsCategoryReview));
     const shown = formatRecordedTransactionAmount(record);
+    expect(year2025.is_deductible, '2025').toBe(true);
+    expect(year2025.review_status, '2025').toBe('confirmed');
+    expect(year2025.amount, '2025').toBe(10);
+    expect(year2025.date, '2025').toBe('2025-06-15');
+    expect(schedule2025.lineItemsArray, '2025').toEqual([]);
+    expect(schedule2025.lineItems['27a'], '2025').toBeUndefined();
+    expect(schedule2025.lineItems['27b'], '2025').toBeUndefined();
+    expect(schedule2025.totalDeductible, '2025').toBe(0);
+    expect(schedule2025.totalExpenses, '2025').toBe(0);
+    expect(transactionNeedsCategoryReview(year2025), '2025').toBe(true);
+    expect(transactionNeedsTaxReview(year2025), '2025').toBe(true);
     expect(reviewList).toEqual([record]);
     expect(reviewList[0]?.amount).toBe(amount);
     expect(transactionNeedsTaxReview(record)).toBe(true);

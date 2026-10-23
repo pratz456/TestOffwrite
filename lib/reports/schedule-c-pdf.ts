@@ -1,5 +1,5 @@
 import { aggregateScheduleC, categoryMapForTaxYear, type LineItemSummary } from '@/lib/schedule-c/aggregate';
-import { safeTaxYear } from '@/lib/schedule-c/taxDate';
+import { resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 
@@ -36,7 +36,7 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   if (data.includeAppendix) {
     pdf.section('Complete confirmed-transaction appendix');
     const rows = data.lineItems.flatMap(item => item.transactions.map(tx => {
-      const contribution = aggregateScheduleC([tx], String(data.taxYear), categoryMapForTaxYear(safeTaxYear(tx.date)), { mode: 'confirmed-only' }).totalDeductible;
+      const contribution = aggregateScheduleC([tx], String(data.taxYear), categoryMapForTaxYear(resolveOtherExpensesYear(tx)), { mode: 'confirmed-only' }).totalDeductible;
       return [tx.date, tx.merchant_name || tx.id || 'Unnamed record', scheduleCExportLine(item.lineCode, data.taxYear), money(tx.amount), money(contribution)];
     }));
     pdf.table(['Date', 'Merchant / record', 'Line', 'Signed amount', 'Contribution'], rows.length ? rows : [['', 'No confirmed records in this year', '', money(0), money(0)]], [68, 235, 35, 95, 95]);
