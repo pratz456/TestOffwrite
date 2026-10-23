@@ -223,7 +223,7 @@ function savedScheduleCLabel(tx: ScheduleCTransactionLike): string | null {
   return typeof raw === 'string' && raw.trim() ? raw : null;
 }
 
-/** Fallback bucket when the category is not in the map. 2018-2024 stay 27a. 2025 and later use 27b. Earlier years keep the internal 27a key and print no line number. */
+/** Fallback bucket when the category is not in the map. 2017-2024 stay 27a. 2025 and later use 27b. 2016 and earlier are withheld. */
 function otherExpensesLineKey(year: number | null): string {
   const print = otherExpensesYearPrint(year);
   return print.status === 'line' ? print.code : '27a';

@@ -32,7 +32,7 @@ import { CATEGORY_SCHEDULE_C_LINE, TRANSACTION_TAX_EVIDENCE } from '@/lib/ai/tra
 import { assembleAuditSupportPacket, auditSupportPacketCSV, buildEvidenceRecord, type AuditSupportPacket } from '@/lib/reports/audit-support-packet';
 import { convertTransactionsToCSV, type ExportRecord } from '@/lib/reports/transaction-export';
 import { aggregateScheduleC } from '@/lib/schedule-c/aggregate';
-import { OTHER_EXPENSES_UNNUMBERED_LABEL, OTHER_EXPENSES_YEAR_FREE_LINE, printedScheduleCLine, scheduleCExportLine } from '@/lib/schedule-c/export-lines';
+import { OTHER_EXPENSES_YEAR_FREE_LINE, printedScheduleCLine, scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { safeTaxYear, safeYMD } from '@/lib/schedule-c/taxDate';
 import { POST as form1040 } from '@/app/api/tax/form-1040/route';
 import { guidanceSource, GUIDANCE_SOURCES } from '@/lib/tax-assistant/knowledge';
@@ -172,7 +172,8 @@ describe('printed Other expenses line', () => {
     expect(printedScheduleCLine('27b', 2024)).toBe('27a');
     expect(printedScheduleCLine('27b', 2025)).toBe('27b');
     expect(printedScheduleCLine('27b', null)).toBe('');
-    expect(printedScheduleCLine('27a', 2017)).toBe(OTHER_EXPENSES_UNNUMBERED_LABEL);
+    expect(printedScheduleCLine('27a', 2016)).toBe('');
+    expect(printedScheduleCLine('27a', 2017)).toBe('27a');
     expect(printedScheduleCLine('27a', 2018)).toBe('27a');
     expect(printedScheduleCLine('27a', 2021)).toBe('27a');
     expect(exportColumns(dues({ date: '2024-06-15', schedule_c_line: '27b' }))).toEqual({ recorded: '27a', mapped: '27a' });
@@ -198,7 +199,8 @@ describe('printed Other expenses line', () => {
     expect(scheduleCLineFor(duesResult({ schedule_c_line: undefined }), '2025-04-01')).toBe('Schedule C line 27b (Other expenses)');
     expect(scheduleCLineFor(duesResult({ schedule_c_line: undefined }), '2024-12-15')).toBe('Schedule C line 27a (Other expenses)');
     expect(scheduleCLineFor(duesResult({ schedule_c_line: undefined }), '2018-06-15')).toBe('Schedule C line 27a (Other expenses)');
-    expect(scheduleCLineFor(duesResult({ schedule_c_line: undefined }), '2017-06-15')).toBe(OTHER_EXPENSES_UNNUMBERED_LABEL);
+    expect(scheduleCLineFor(duesResult({ schedule_c_line: undefined }), '2017-06-15')).toBe('Schedule C line 27a (Other expenses)');
+    expect(scheduleCLineFor(duesResult({ schedule_c_line: undefined }), '2016-06-15')).toBeNull();
     expect(scheduleCLineFor(duesResult({ schedule_c_line: undefined }), undefined)).toBeNull();
     expect(scheduleCLineFor(duesResult({ schedule_c_line: 'line 27a' }), '2025-04-01')).toBe('Schedule C line 27b (Other expenses)');
     expect(scheduleCLineFor(duesResult({ category: 'utilities_phone_internet', schedule_c_line: 'line 25' }), '2025-04-01')).toBe('Schedule C line 25');
@@ -230,7 +232,8 @@ describe('stored and supplied Other expenses sentences', () => {
     expect(shown('Schedule C line 27a (Other expenses)', '2025-06-01')).toBe('Schedule C line 27b (Other expenses)');
     expect(shown('schedule c line 27a', '2024-12-31')).toBe('Schedule C line 27a (Other expenses)');
     expect(shown('Schedule C line 27a (Other expenses)', '2018-06-15')).toBe('Schedule C line 27a (Other expenses)');
-    expect(shown('Schedule C line 27a (Other expenses)', '2017-06-15')).toBe(OTHER_EXPENSES_UNNUMBERED_LABEL);
+    expect(shown('Schedule C line 27a (Other expenses)', '2017-06-15')).toBe('Schedule C line 27a (Other expenses)');
+    expect(shown('Schedule C line 27a (Other expenses)', '2016-06-15')).toBeNull();
     expect(shown('Schedule C line 27a (Other expenses)', undefined)).toBeNull();
     expect(shown('Schedule C line 27a (other expenses)', '')).toBeNull();
     expect(shown('Schedule C line 18 (Office expense)', '2025-06-01')).toBe('Schedule C line 18 (Office expense)');
@@ -454,25 +457,32 @@ describe('energy labels and unknown parentheticals', () => {
     expect(totals.lineItems['27b']).toBeUndefined();
   });
 
-  it('prints 27a for 2018 through 2021 and no line number for 2017', () => {
-    expect(scheduleCExportLine('27a', 2017)).toBe(OTHER_EXPENSES_UNNUMBERED_LABEL);
-    expect(scheduleCExportLine('27a', 2018)).toBe('27a');
-    expect(scheduleCExportLine('27a', 2021)).toBe('27a');
-    const older = dues({ date: '2017-06-15', schedule_c_line: '27a' });
-    expect(exportColumns(older)).toEqual({ recorded: OTHER_EXPENSES_UNNUMBERED_LABEL, mapped: OTHER_EXPENSES_UNNUMBERED_LABEL });
-    expect(whereItGoes(older, 2017)).toBe(OTHER_EXPENSES_UNNUMBERED_LABEL);
-    expect(whereItGoes(older, 2017)).not.toMatch(/27a|27b/);
-    const saved2017 = normalizeExplanation({ ...SAVED_CARD, scheduleCLine: 'Schedule C line 27a (Other expenses)' }, { chargeDate: '2017-06-15' });
-    expect(saved2017?.scheduleCLine).toBe(OTHER_EXPENSES_UNNUMBERED_LABEL);
-    const numbered = dues({ date: '2018-06-15', schedule_c_line: '27a' });
-    expect(exportColumns(numbered)).toEqual({ recorded: '27a', mapped: '27a' });
-    expect(whereItGoes(numbered, 2018)).toBe('Schedule C line 27a (Other expenses)');
-    const saved2018 = normalizeExplanation({ ...SAVED_CARD, scheduleCLine: '27a' }, { chargeDate: '2018-06-15' });
-    expect(saved2018?.scheduleCLine).toBe('Schedule C line 27a (Other expenses)');
-    expect(exportColumns(dues({ date: '2021-06-15' })).recorded).toBe('27a');
-    const totals = aggregateScheduleC([older as never], '2017', undefined, { mode: 'confirmed-only' });
-    expect(totals.totalDeductible).toBe(120);
-    expect(aggregateScheduleC([numbered as never], '2018', undefined, { mode: 'confirmed-only' }).totalDeductible).toBe(120);
+  it('prints 27a for 2017 through 2024, 27b for 2025, and no line for 2016', () => {
+    const lineFor = (year: number) => year >= 2025 ? '27b' : '27a';
+    for (const year of [2017, 2024, 2025]) {
+      const code = lineFor(year);
+      const date = `${year}-06-15`;
+      const row = dues({ date, schedule_c_line: '27a' });
+      expect(scheduleCExportLine('27a', year)).toBe(code);
+      expect(printedScheduleCLine('27a', year)).toBe(code);
+      expect(exportColumns(row)).toEqual({ recorded: code, mapped: code });
+      expect(whereItGoes(row, year)).toBe(`Schedule C line ${code} (Other expenses)`);
+      expect(normalizeExplanation({ ...SAVED_CARD, scheduleCLine: 'Schedule C line 27a (Other expenses)' }, { chargeDate: date })?.scheduleCLine)
+        .toBe(`Schedule C line ${code} (Other expenses)`);
+      expect(aggregateScheduleC([row as never], String(year), undefined, { mode: 'confirmed-only' }).totalDeductible).toBe(120);
+    }
+    const earlier = dues({ date: '2016-06-15', schedule_c_line: '27a' });
+    expect(scheduleCExportLine('27a', 2016)).toBe('');
+    expect(printedScheduleCLine('27a', 2016)).toBe('');
+    expect(exportColumns(earlier)).toEqual({ recorded: '', mapped: '' });
+    expect(whereItGoes(earlier, 2016)).toBeNull();
+    expect(csvRow(convertTransactionsToCSV([earlier]))['Data Review']).toContain('Needs more information');
+    const saved2016 = normalizeExplanation({ ...SAVED_CARD, scheduleCLine: 'Schedule C line 27a (Other expenses)' }, { chargeDate: '2016-06-15' });
+    expect(saved2016?.scheduleCLine).toBeNull();
+    expect(saved2016?.headline).toBe('Needs more information');
+    const totals = aggregateScheduleC([earlier as never], '2016', undefined, { mode: 'confirmed-only' });
+    expect(totals.totalDeductible).toBe(0);
+    expect(totals.totalExpenses).toBe(0);
   });
 
   it('rejects an impossible calendar day and keeps a real leap day', () => {
