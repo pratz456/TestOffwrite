@@ -7,7 +7,8 @@ import { TAX_YEAR_2027_STATUS } from './tax-year-2027';
  * 2026 Form 1040-ES); every figure matched. Section references in the year blocks below point at
  * the paragraph of the revenue procedure that publishes the amount.
  * Annual parameters do not establish eligibility or validate a complete return.
- * 2027 is intentionally absent until the official annual figures are published.
+ * 2027 stays out of this complete parameter set. Its Social Security wage base is
+ * published in SOCIAL_SECURITY_WAGE_BASE_BY_YEAR and does not enable a 2027 estimate.
  */
 export const SUPPORTED_TAX_YEARS = [2024, 2025, 2026] as const;
 export type SupportedTaxYear = typeof SUPPORTED_TAX_YEARS[number];
@@ -106,6 +107,57 @@ const sharedSources = [
   'https://www.irs.gov/retirement-plans/cola-increases-for-dollar-limitations-on-benefits-and-contributions',
 ] as const;
 
+/**
+ * OASDI contribution and benefit base (the Social Security wage base under IRC §1402(b)(1)).
+ * One table for every reader. 2024–2026 match the bases already used by the annual rules
+ * and the SSA table at https://www.ssa.gov/oact/cola/cbb.html ($168,600 / $176,100 / $184,500).
+ */
+export const SOCIAL_SECURITY_WAGE_BASE_BY_YEAR = {
+  2024: 168600,
+  2025: 176100,
+  2026: 184500,
+  // "For earnings in 2027, this base is $192,300."
+  // https://www.ssa.gov/oact/cola/cbb.html
+  2027: 192300,
+} as const;
+
+export type SocialSecurityWageBaseYear = keyof typeof SOCIAL_SECURITY_WAGE_BASE_BY_YEAR;
+
+export function hasSocialSecurityWageBase(taxYear: number): taxYear is SocialSecurityWageBaseYear {
+  return Object.prototype.hasOwnProperty.call(SOCIAL_SECURITY_WAGE_BASE_BY_YEAR, taxYear);
+}
+
+/** Published contribution and benefit base for a year in SOCIAL_SECURITY_WAGE_BASE_BY_YEAR. */
+export function getSocialSecurityWageBase(taxYear: number): number {
+  if (!hasSocialSecurityWageBase(taxYear)) {
+    throw new RangeError(`No published Social Security wage base for tax year ${taxYear}.`);
+  }
+  return SOCIAL_SECURITY_WAGE_BASE_BY_YEAR[taxYear];
+}
+
+/** Employee OASDI rate is 6.2% of Social Security wages up to that year's contribution and benefit base (IRC §3101(a)). */
+export function expectedEmployeeSocialSecurityWithholding(socialSecurityWages: number, taxYear: number): number {
+  return Math.min(Math.max(0, socialSecurityWages), getSocialSecurityWageBase(taxYear)) * 0.062;
+}
+
+/**
+ * W-2 Box 4 sanity check. Uses the wage base for the W-2's tax year.
+ * Years outside the table are not checked, so an older form is not compared with a later base.
+ * The $50 tolerance matches the prior import check.
+ */
+export function w2Box4SocialSecurityWithholdingWarning(
+  box4Withheld: number,
+  box3SocialSecurityWages: number | null | undefined,
+  taxYear: number | null | undefined,
+): string | null {
+  if (!box3SocialSecurityWages || taxYear == null || !hasSocialSecurityWageBase(taxYear)) return null;
+  const expected = expectedEmployeeSocialSecurityWithholding(box3SocialSecurityWages, taxYear);
+  if (Math.abs(box4Withheld - expected) > 50) {
+    return `Box 4 ($${box4Withheld.toLocaleString()}) differs from expected SS withholding of $${Math.round(expected).toLocaleString()} - verify this is correct`;
+  }
+  return null;
+}
+
 const rules: Record<SupportedTaxYear, FederalTaxRules> = {
   2024: {
     taxYear: 2024, reviewedAt: '2026-09-15',
@@ -117,7 +169,7 @@ const rules: Record<SupportedTaxYear, FederalTaxRules> = {
       head_of_household: brackets([16550, 63100, 100500, 191950, 243700, 609350]),
     },
     standardDeductions: filingAmounts(14600, 29200, 14600, 21900),
-    socialSecurityWageBase: 168600, sepContributionLimit: 69000,
+    socialSecurityWageBase: SOCIAL_SECURITY_WAGE_BASE_BY_YEAR[2024], sepContributionLimit: 69000,
     childTaxCreditPerChild: 2000, refundableChildTaxCreditPerChild: 1700,
     eitcInvestmentIncomeLimit: 11600,
     eitc: eitc([632, 4213, 6960, 7830], [10330, 22720, 22720, 22720],
@@ -149,10 +201,9 @@ const rules: Record<SupportedTaxYear, FederalTaxRules> = {
     // P.L. 119-21 §70102(b) rewrote §63(c)(7) to $15,750 / $23,625 (joint = 2 × $15,750) for tax years
     // beginning after 2024, replacing the $15,000 / $30,000 / $22,500 in Rev. Proc. 2024-40 §2.15.
     standardDeductions: filingAmounts(15750, 31500, 15750, 23625),
-    // Wage base: 2025 Instructions for Schedule SE ("$176,100"); the SSA table in sharedSources
-    // refused automated access on 2026-09-18, so the IRS instructions are the verified source.
+    // Wage base: SOCIAL_SECURITY_WAGE_BASE_BY_YEAR[2025]. 2025 Instructions for Schedule SE ("$176,100").
     // SEP / §415(c)(1)(A) limit: Notice 2024-80 ($70,000).
-    socialSecurityWageBase: 176100, sepContributionLimit: 70000,
+    socialSecurityWageBase: SOCIAL_SECURITY_WAGE_BASE_BY_YEAR[2025], sepContributionLimit: 70000,
     // §24(h)(2) as amended by P.L. 119-21 §70104(a)(2): $2,200 (Rev. Proc. 2024-40 predates the
     // increase); refundable §24(d)(1)(A) amount Rev. Proc. 2024-40 §2.05: $1,700.
     childTaxCreditPerChild: 2200, refundableChildTaxCreditPerChild: 1700,
@@ -190,10 +241,10 @@ const rules: Record<SupportedTaxYear, FederalTaxRules> = {
     },
     // Rev. Proc. 2025-32 §4.14(1): $32,200 joint / $24,150 head of household / $16,100 single and MFS.
     standardDeductions: filingAmounts(16100, 32200, 16100, 24150),
-    // Wage base: 2026 Form 1040-ES self-employment tax worksheet line 5 ("Social security tax maximum
-    // income $184,500"); the SSA table itself was unreachable on 2026-09-18 (see the 2025 note).
+    // Wage base: SOCIAL_SECURITY_WAGE_BASE_BY_YEAR[2026]. 2026 Form 1040-ES worksheet line 5
+    // ("Social security tax maximum income $184,500"); SSA table $184,500.
     // SEP / §415(c)(1)(A) limit: Notice 2025-67 ($72,000).
-    socialSecurityWageBase: 184500, sepContributionLimit: 72000,
+    socialSecurityWageBase: SOCIAL_SECURITY_WAGE_BASE_BY_YEAR[2026], sepContributionLimit: 72000,
     // Rev. Proc. 2025-32 §4.05: $2,200 maximum (first indexing year under §24(h)(2)) and $1,700 refundable.
     childTaxCreditPerChild: 2200, refundableChildTaxCreditPerChild: 1700,
     // Rev. Proc. 2025-32 §4.06: table (1) amounts and the §32(i) investment income limit in (2).
@@ -236,7 +287,7 @@ export { TAX_YEAR_2027_STATUS } from './tax-year-2027';
 
 export function describeUnsupportedTaxYear(taxYear: number): string {
   if (taxYear === TAX_YEAR_2027_STATUS.taxYear) {
-    return `Tax year 2027 estimates are not available yet: the IRS and SSA have not published the 2027 bracket, standard deduction, credit and wage-base amounts (expected October–November 2026). Published 2027 health-plan figures and rules fixed by law are available for guidance. Complete estimates remain available for 2024–2026.`;
+    return `Tax year 2027 estimates are not available yet: the IRS has not published the 2027 bracket, standard deduction and credit amounts (expected October–November 2026). The Social Security wage base for 2027 is published ($${getSocialSecurityWageBase(2027).toLocaleString('en-US')}). Published 2027 health-plan figures and rules fixed by law are available for guidance. Complete estimates remain available for 2024–2026.`;
   }
   return `Tax year ${taxYear} is not supported. Published rules are available for 2024, 2025 and 2026.`;
 }

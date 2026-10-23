@@ -5,7 +5,8 @@
  * Sources (reviewed 2026-09-17):
  *   - Schedule SE: 92.35% net-earnings factor, 12.4% OASDI to the wage base, 2.9% Medicare,
  *     $400 filing threshold — https://www.irs.gov/instructions/i1040sse
- *   - OASDI wage base $176,100 (2025) / $184,500 (2026) — https://www.ssa.gov/oact/COLA/cbb.html
+ *   - OASDI wage base $176,100 (2025) / $184,500 (2026) / $192,300 (2027) — https://www.ssa.gov/oact/cola/cbb.html
+ *     2027 is published for the wage base only. This calculator still requires a complete parameter set.
  *   - Additional Medicare Tax 0.9% above $200,000 / $250,000 MFJ / $125,000 MFS (not indexed) —
  *     https://www.irs.gov/taxtopics/tc560
  *   - Standard deductions and brackets — Rev. Proc. 2024-40 as amended by P.L. 119-21 (2025) and
@@ -16,7 +17,7 @@
 import { calcScheduleSE, type ScheduleSECalculation } from '@/lib/reports/calcSE';
 import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
 import { calculateFederalIncomeTax } from './federal-brackets';
-import { getFederalTaxRules, type FederalFilingStatus } from './federal-year-rules';
+import { getFederalTaxRules, getSocialSecurityWageBase, hasSocialSecurityWageBase, type FederalFilingStatus } from './federal-year-rules';
 import { normalizeFilingStatus } from './filing-status';
 import { assertWageOwnershipScope, TaxCalculationScopeReviewRequiredError } from './calculation-scope';
 import { QBIReviewRequiredError } from './qbi';
@@ -45,8 +46,11 @@ export function additionalMedicareThreshold(filingStatus: string): number {
   return 200000;
 }
 
-export function socialSecurityWageBase(taxYear: PublicCalculatorTaxYear): number {
-  return getFederalTaxRules(taxYear).socialSecurityWageBase;
+export function socialSecurityWageBase(taxYear: PublicCalculatorTaxYear): number;
+export function socialSecurityWageBase(taxYear: number): number | null;
+/** Published OASDI wage base, or null when that year is not in the wage base table. */
+export function socialSecurityWageBase(taxYear: number): number | null {
+  return hasSocialSecurityWageBase(taxYear) ? getSocialSecurityWageBase(taxYear) : null;
 }
 
 export function standardDeduction(taxYear: PublicCalculatorTaxYear, filingStatus: string): number {

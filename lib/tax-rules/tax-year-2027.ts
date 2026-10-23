@@ -45,6 +45,16 @@ export const ACA_2027_PARAMETERS = {
   finalFplEndpointInclusive: true,
 } as const;
 
+/**
+ * Earnings required for one Social Security quarter of coverage.
+ * 2026 is $1,890 and 2027 is $1,970.
+ * https://www.ssa.gov/oact/COLA/QC.html
+ */
+export const SOCIAL_SECURITY_QUARTER_OF_COVERAGE = {
+  2026: 1890,
+  2027: 1970,
+} as const;
+
 /** P.L. 119-21 §70120: enacted 101% escalator, not an assumed inflation forecast. */
 export const SALT_2027_PARAMETERS = {
   cap: 40804,
@@ -102,7 +112,11 @@ export const TAX_YEAR_2027_STATUS = Object.freeze({
   reviewedAt: TAX_YEAR_2027_REVIEWED_AT,
   annualEstimateAvailable: false,
   coverage: 'Selected U.S. federal planning guidance; not a complete return, state coverage or e-filing support.',
-  publishedParameters: { hsa: HSA_2027_LIMITS, marketplace: ACA_2027_PARAMETERS },
+  publishedParameters: {
+    hsa: HSA_2027_LIMITS,
+    marketplace: ACA_2027_PARAMETERS,
+    socialSecurityQuarterOfCoverage: SOCIAL_SECURITY_QUARTER_OF_COVERAGE[2027],
+  },
   derivedParameters: { salt: SALT_2027_PARAMETERS },
   topics: TAX_YEAR_2027_TOPICS,
   knownByStatute: [
@@ -127,7 +141,6 @@ export const TAX_YEAR_2027_STATUS = Object.freeze({
     { item: 'EITC table and investment income limit', expected: 'IRS annual revenue procedure, typically autumn 2026' },
     { item: 'QBI thresholds and indexed minimum-deduction / active-income figures', expected: 'IRS annual revenue procedure, typically autumn 2026' },
     { item: 'Form 1099-NEC/MISC indexed reporting threshold', expected: 'IRS annual revenue procedure, typically autumn 2026' },
-    { item: 'Social Security wage base and quarter of coverage', expected: 'SSA annual announcement, typically autumn 2026' },
     { item: 'Section 179, heavy-SUV and retirement contribution limits', expected: 'IRS revenue procedure and notices, typically autumn 2026' },
     { item: 'Standard mileage rates', expected: 'IRS notice, typically late 2026' },
     { item: 'Underpayment interest rates for 2027 quarters', expected: 'Quarterly IRS announcements; later quarters cannot be filled from Q1' },

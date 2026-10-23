@@ -45,8 +45,13 @@ describe('Schedule SE reference scenarios', () => {
     expect(validateTaxSummarySettings({ scheduleCNetProfit: -5000, taxYear: 2026 })).toEqual([]);
   });
 
-  it('rejects unverified years and non-finite input', () => {
-    expect(() => calcScheduleSE({ scheduleCNetProfit: 100000, taxYear: 2027 })).toThrow();
+  it('rejects 2027 until the rest of the federal rules are published', () => {
+    expect(() => calcScheduleSE({ scheduleCNetProfit: 100000, taxYear: 2027 })).toThrow(/not published the 2027/);
+    expect(() => getTaxRatesAndLimits(2027)).toThrow(/not published the 2027/);
+  });
+
+  it('rejects years without a published wage base and non-finite input', () => {
+    expect(() => calcScheduleSE({ scheduleCNetProfit: 100000, taxYear: 2028 })).toThrow();
     expect(() => calcScheduleSE({ scheduleCNetProfit: NaN, taxYear: 2026 })).toThrow();
     expect(() => calcScheduleSE({ scheduleCNetProfit: 100000, taxYear: 2026 }, 'single', -1)).toThrow();
   });

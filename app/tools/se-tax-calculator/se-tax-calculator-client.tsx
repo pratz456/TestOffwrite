@@ -43,6 +43,7 @@ export function SETaxCalculatorClient() {
   const parsedW2SocialSecurity = Number(w2SocialSecurityWages.replace(/[,$\s]/g, ""));
   const parsedW2Medicare = Number(w2MedicareWages.replace(/[,$\s]/g, ""));
   const wageBase = socialSecurityWageBase(taxYear);
+  const announced2027WageBase = socialSecurityWageBase(2027);
   const medicareThreshold = additionalMedicareThreshold(filingStatus);
 
   const outcome = useMemo(() => {
@@ -117,7 +118,10 @@ export function SETaxCalculatorClient() {
                   ))}
                 </select>
                 <p className="mt-1 text-xs text-gray-500">
-                  Social Security wage base: {formatWhole(wageBase)} for {taxYear}. The 2027 wage base has not been announced.
+                  Social Security wage base: {formatWhole(wageBase)} for {taxYear}.{" "}
+                  {announced2027WageBase == null
+                    ? "The 2027 wage base has not been announced."
+                    : `The 2027 wage base is ${formatWhole(announced2027WageBase)}.`}
                 </p>
               </div>
 
