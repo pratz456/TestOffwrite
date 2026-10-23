@@ -1,4 +1,5 @@
 /** Client-safe review contract. Categories map to the existing export taxonomy only after user review. */
+import { readStoredAiScheduleCLines } from '@/lib/schedule-c/other-expenses-line';
 export const REVIEW_CATEGORIES = [
   { value: 'advertising_marketing', label: 'Advertising and marketing', recordedCategory: 'SERVICE_ADVERTISING' },
   { value: 'supplies_small_tools', label: 'Supplies and small tools', recordedCategory: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' },
@@ -79,12 +80,15 @@ export function recordedTransactionType(record: Record<string, any>): 'income' |
 }
 
 export function reviewHydrationFields(record: Record<string, any>) {
+  const read = readStoredAiScheduleCLines(record);
   return {
-    ai_suggestion: record.ai_suggestion ?? null,
+    ai_suggestion: read.ai_suggestion ?? null,
     // Saved beside the suggestion by analysis persistence; the review chips read them.
     ai_missing_fields: Array.isArray(record.ai_missing_fields) ? record.ai_missing_fields.filter((field: unknown) => typeof field === 'string') : [],
     ai_customized_reason: typeof record.ai_customized_reason === 'string' ? record.ai_customized_reason : null,
-    ai_explanation: record.ai_explanation && typeof record.ai_explanation === 'object' ? record.ai_explanation : null,
+    ai_explanation: read.ai_explanation && typeof read.ai_explanation === 'object' ? read.ai_explanation : null,
+    ai: read.ai ?? null,
+    ...('ai_schedule_c_line' in record ? { ai_schedule_c_line: read.ai_schedule_c_line ?? null } : {}),
     transaction_kind: record.transaction_kind,
     review_status: record.review_status,
     review_source: record.review_source,

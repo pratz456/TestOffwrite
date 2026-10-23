@@ -7,9 +7,14 @@ import { OTHER_EXPENSES_27B_FIRST_YEAR, otherExpensesLine, readStoredAiScheduleC
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
+import { convertTransactionsToCSV } from '@/lib/reports/transaction-export';
+import { normalizeExplanation, scheduleCLineFor } from '@/lib/ai/explanation';
+import { reviewHydrationFields } from '@/lib/transactions/ai-review-contract';
+import { suggestionScheduleCLine } from '@/lib/transactions/review-proposals';
+import { safeTaxYear } from '@/lib/schedule-c/taxDate';
 
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
-import { assembleAuditSupportPacket, auditSupportPacketCSV } from '@/lib/reports/audit-support-packet';
+import { assembleAuditSupportPacket, auditSupportPacketCSV, buildEvidenceRecord } from '@/lib/reports/audit-support-packet';
 
 const OTHER_EXPENSE_AMOUNT = 80.25;
 const FUEL_AMOUNT = 10;
@@ -205,12 +210,119 @@ describe('Schedule C other expenses line follows the tax year', () => {
     expect(later.ai_schedule_c_line).toBe('27a');
     expect(later.ai_explanation.scheduleCLine).toBe('Schedule C line 27a (Other expenses)');
 
+    const hydrated = reviewHydrationFields(later);
+    expect(hydrated.ai_schedule_c_line).toBe('27b');
+    expect(hydrated.ai_suggestion.scheduleCLine).toBe('27b');
+    expect(hydrated.ai.schedule_c_line).toBe('27b');
+    expect(hydrated.ai_explanation.scheduleCLine).toBe('Schedule C line 27b (Other expenses)');
+    expect(later.ai_schedule_c_line).toBe('27a');
+
+    expect(suggestionScheduleCLine({ date: '2024-06-01', ai_suggestion: early.ai_suggestion })).toBe('27a');
+    expect(suggestionScheduleCLine({ date: '2026-06-01', ai_suggestion: later.ai_suggestion })).toBe('27b');
+    expect(normalizeExplanation(later.ai_explanation, 2025)?.scheduleCLine).toBe('Schedule C line 27b (Other expenses)');
+    expect(normalizeExplanation(early.ai_explanation, 2024)?.scheduleCLine).toBe('Schedule C line 27a (Other expenses)');
+    expect(scheduleCLineFor({ schedule_c_line: '27a', category: 'other', transaction_kind: 'expense', status: 'ok' } as never, 2026)).toBe('Schedule C line 27b (Other expenses)');
+    expect(scheduleCLineFor({ schedule_c_line: '27b', category: 'other', transaction_kind: 'expense', status: 'ok' } as never, 2024)).toBe('Schedule C line 27a (Other expenses)');
+    expect(later.ai_explanation.scheduleCLine).toBe('Schedule C line 27a (Other expenses)');
+
     const sameYear = stored(2024, '27a');
     expect(readStoredAiScheduleCLines(sameYear)).toBe(sameYear);
     const laterSame = stored(2026, '27b');
     expect(readStoredAiScheduleCLines(laterSame)).toBe(laterSame);
     const unchanged = { date: '2025-06-01', ai_schedule_c_line: '24b', ai: { schedule_c_line: '18' }, amount: FUEL_AMOUNT };
     expect(readStoredAiScheduleCLines(unchanged)).toBe(unchanged);
+    expect(scheduleCLineFor({ schedule_c_line: '18', category: 'software_subscriptions', transaction_kind: 'expense', status: 'ok' } as never, 2025)).toBe('Schedule C line 18 (Office expense)');
+  });
+
+  function csvColumns(record: Record<string, unknown>): string[] {
+    return convertTransactionsToCSV([record]).split('\r\n')[1].split(',');
+  }
+
+  it('a missing date leaves a stored 27a unchanged in the CSV, the audit packet, and the suggestion, with the amount unchanged', () => {
+    const record = {
+      id: 'missing-date',
+      amount: OTHER_EXPENSE_AMOUNT,
+      category: 'SERVICE_EDUCATION',
+      merchant_name: 'OTHER-EXPENSE-MERCHANT',
+      schedule_c_line: '27a',
+      ai_suggestion: { schedule_c_line: '27a', scheduleCLine: '27a' },
+    };
+    const columns = csvColumns(record);
+    expect(columns[4]).toBe('80.25');
+    expect(columns[13]).toBe('27a');
+    expect(columns[14]).toBe('27a');
+    expect(suggestionScheduleCLine(record)).toBe('27a');
+    const evidence = buildEvidenceRecord(record, {
+      uid: 'owner',
+      tripsByDate: new Map(),
+      yearTripCount: 0,
+      receiptsByTransaction: new Map(),
+    });
+    expect(evidence.scheduleCLine).toBe('27a');
+    expect(evidence.amount).toBe(OTHER_EXPENSE_AMOUNT);
+    expect(record.schedule_c_line).toBe('27a');
+    expect(record.amount).toBe(OTHER_EXPENSE_AMOUNT);
+  });
+
+  it('keeps Dec 31 and Jan 1 on the date prefix when the offset would shift the UTC year', () => {
+    const late = '2024-12-31T23:59:59-10:00';
+    const early = '2025-01-01T00:30:00+14:00';
+    expect(safeTaxYear(late)).toBe(2024);
+    expect(safeTaxYear(early)).toBe(2025);
+    const record = (date: string) => ({
+      amount: OTHER_EXPENSE_AMOUNT,
+      date,
+      category: 'SERVICE_EDUCATION',
+      is_deductible: true as const,
+      merchant_name: 'BOUNDARY',
+      id: date,
+    });
+    const december = aggregateScheduleC([record(late)], '2024', CATEGORY_MAP, { mode: 'confirmed-only' });
+    expect(december.lineItems['27a']).toMatchObject({ lineCode: '27a', deductible: OTHER_EXPENSE_AMOUNT });
+    expect(december.lineItems['27b']).toBeUndefined();
+    expect(aggregateScheduleC([record(late)], '2025', CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible).toBe(0);
+    const january = aggregateScheduleC([record(early)], '2025', CATEGORY_MAP, { mode: 'confirmed-only' });
+    expect(january.lineItems['27b']).toMatchObject({ lineCode: '27b', deductible: OTHER_EXPENSE_AMOUNT });
+    expect(january.lineItems['27a']).toBeUndefined();
+    expect(aggregateScheduleC([record(early)], '2024', CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible).toBe(0);
+    expect(december.lineItems['27a'].deductible).toBe(january.lineItems['27b'].deductible);
+  });
+
+  it('uses the transaction date when tax_year names a different year', () => {
+    const record = {
+      amount: OTHER_EXPENSE_AMOUNT,
+      date: '2025-06-01',
+      tax_year: 2024,
+      taxYear: 2024,
+      category: 'SERVICE_EDUCATION',
+      is_deductible: true as const,
+      merchant_name: 'DATE-WINS',
+      id: 'date-wins',
+    };
+    const dated = aggregateScheduleC([record], '2025', CATEGORY_MAP, { mode: 'confirmed-only' });
+    expect(dated.lineItems['27b']).toMatchObject({ lineCode: '27b', deductible: OTHER_EXPENSE_AMOUNT });
+    expect(dated.lineItems['27a']).toBeUndefined();
+    const labeled = aggregateScheduleC([record], '2024', CATEGORY_MAP, { mode: 'confirmed-only' });
+    expect(labeled.totalDeductible).toBe(0);
+    expect(labeled.lineItems['27a']).toBeUndefined();
+    expect(labeled.lineItems['27b']).toBeUndefined();
+  });
+
+  it('prints the year line in both transaction CSV line columns and keeps the amount', () => {
+    const rows = [2024, 2025, 2026].map(year => {
+      const columns = csvColumns({
+        id: `csv-${year}`,
+        amount: OTHER_EXPENSE_AMOUNT,
+        date: `${year}-06-01`,
+        category: 'SERVICE_EDUCATION',
+        merchant_name: 'CSV-MERCHANT',
+        schedule_c_line: '27a',
+      });
+      return { amount: columns[4], recorded: columns[13], mapped: columns[14] };
+    });
+    expect(rows.map(row => row.amount)).toEqual(['80.25', '80.25', '80.25']);
+    expect(rows.map(row => row.recorded)).toEqual(['27a', '27b', '27b']);
+    expect(rows.map(row => row.mapped)).toEqual(['27a', '27b', '27b']);
   });
 
   it('2025 other expenses is line 27b, so a year switch stuck on 27a fails this check', () => {
