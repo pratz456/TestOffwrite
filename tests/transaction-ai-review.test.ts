@@ -433,6 +433,43 @@ describe('interest, vehicle property tax, and hired fares', () => {
       vi.unstubAllEnvs();
     }
   });
+  it('confirms a home start fare when the saved profile has office square footage', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      const profilePath = 'user_profiles/owner';
+      mocks.docs.set(profilePath, { ...mocks.docs.get(profilePath), home_office_sqft: 150, home_office_method: 'simplified' });
+      const profile = mocks.docs.get(profilePath)!;
+      change({ merchant_name: 'Uber', amount: 28, business_purpose: HIRED_FARE_USE.betweenWithHomeOffice, date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED', mileage_details: { start_location: 'Home', end_location: 'Client office' } });
+      change(analysisSuggestionUpdate({
+        ...result, category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9',
+      }, 1770000000000, record(), analysisProfileHash(profile, record().date), profile, { profile, taxYear: 2026 }));
+      expect(record().ai_suggestion).toMatchObject({ status: 'ok', deductiblePercent: 100, scheduleCLine: '27a' });
+      const response = await send(confirm());
+      expect(response.status).toBe(200);
+      expect(record()).toMatchObject({ category: 'HIRED_LOCAL_TRANSPORT', is_deductible: true });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('confirms a home start fare from settings square footage when the profile has no square footage', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      const profilePath = 'user_profiles/owner';
+      mocks.docs.set(`${profilePath}/settings/homeOffice`, { officeSqFt: 120, method: 'simplified' });
+      const profile = mocks.docs.get(profilePath)!;
+      const savedProfile = { ...profile, officeSqFt: 120 };
+      change({ merchant_name: 'Lyft', amount: 28, business_purpose: HIRED_FARE_USE.betweenWithHomeOffice, date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED', mileage_details: { start_location: 'Home', end_location: 'Client office' } });
+      change(analysisSuggestionUpdate({
+        ...result, category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9',
+      }, 1770000000000, record(), analysisProfileHash(profile, record().date), savedProfile, { profile, taxYear: 2026 }));
+      expect(record().ai_suggestion.scheduleCLine).toBe('27a');
+      const response = await send(confirm());
+      expect(response.status).toBe(200);
+      expect(record()).toMatchObject({ category: 'HIRED_LOCAL_TRANSPORT', is_deductible: true });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('with the switch off, car loan interest is not saved or totaled as vehicle loan interest', async () => {
     vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
     vehicleProfile('standard_mileage', 40);

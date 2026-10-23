@@ -90,6 +90,12 @@ describe('vehicle routes stay closed until the copy switch is on', () => {
     const hidden = await saveVehicle(request('https://writeoff.test/api/mileage/vehicles/car-1', { userId: 'owner' }), { params: Promise.resolve({ id: 'car-1' }) });
     expect(hidden.status).toBe(404);
     expect(await hidden.json()).toEqual({ error: unavailable });
+    const malformed = await saveVehicle(request('https://writeoff.test/api/mileage/vehicles/car-1', { userId: 'owner', name: 12 }), { params: Promise.resolve({ id: 'car-1' }) });
+    expect(malformed.status).toBe(404);
+    expect(await malformed.json()).toEqual({ error: unavailable });
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    const checked = await saveVehicle(request('https://writeoff.test/api/mileage/vehicles/car-1', { userId: 'owner', name: 12 }), { params: Promise.resolve({ id: 'car-1' }) });
+    expect(checked.status).toBe(400);
   });
 
   it('POST /api/mileage/assignments returns 404 after the userId check', async () => {
@@ -105,5 +111,11 @@ describe('vehicle routes stay closed until the copy switch is on', () => {
     const hidden = await assignTrips(request('https://writeoff.test/api/mileage/assignments', sortBody));
     expect(hidden.status).toBe(404);
     expect(await hidden.json()).toEqual({ error: unavailable });
+    const malformed = await assignTrips(request('https://writeoff.test/api/mileage/assignments', { userId: 'owner', updates: [] }));
+    expect(malformed.status).toBe(404);
+    expect(await malformed.json()).toEqual({ error: unavailable });
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    const checked = await assignTrips(request('https://writeoff.test/api/mileage/assignments', { userId: 'owner', updates: [] }));
+    expect(checked.status).toBe(400);
   });
 });

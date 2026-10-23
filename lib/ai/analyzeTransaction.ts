@@ -425,7 +425,7 @@ export function convertToEnhancedContext(userProfile: any, transactionDate: stri
     itemization_status: userProfile.itemization_status,
     business_start_date: userProfile.business_start_date,
     years_in_business: yearsInBusiness,
-    home_office_sqft: finiteNonnegative(userProfile.home_office_sqft),
+    home_office_sqft: finiteNonnegative(userProfile.home_office_sqft ?? userProfile.homeOfficeSqft),
     total_home_sqft: finiteNonnegative(userProfile.total_home_sqft),
     home_office_method: userProfile.home_office_method,
     vehicle_business_use_percentage: vehicle.businessUsePercent,

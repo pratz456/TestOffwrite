@@ -4,7 +4,8 @@ import { ACTUAL_EXPENSE_BUSINESS_SHARE } from '@/lib/ai/actual-expense-share';
 import { HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, HIRED_FARE_USE, hiredFareUsePrompt, SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
 import { analysisSuggestionUpdate, STANDARD_MILEAGE_RUNNING_COST_GATE, VEHICLE_METHOD_GATE, withheldApprovalGate, withheldMissingField } from '@/lib/ai/analysis-persistence';
 import { blankVehicle, saveVehicle } from '@/lib/mileage/vehicles';
-import type { OutputType } from '@/lib/ai/analyzeTransaction';
+import { convertToEnhancedContext, type OutputType } from '@/lib/ai/analyzeTransaction';
+import { profileHasHomeOffice } from '@/lib/profile/home-office';
 
 const approval = (patch: Partial<OutputType> = {}): OutputType => ({
   status: 'ok', transaction_kind: 'expense', category: 'software_subscriptions', is_deductible: true, expense_type: 'business', deductible_percent: 100,
@@ -268,8 +269,9 @@ describe('an engine approval the review path cannot consume is stored as the que
     expect(unanswered.deductionStatus).toBe('Needs more information');
     expect(unanswered.ai_schedule_c_line).toBeNull();
     expect(unanswered.ai_suggestion.questions).toEqual(hiredFareUsePrompt(null));
-    const homeOffice = fare('Ride to the client meeting', {}, { home_office: true });
-    expect(homeOffice.ai_suggestion.questions).toEqual(hiredFareUsePrompt({ home_office: true }));
+    const office = { home_office_sqft: 150, home_office_method: 'simplified' as const };
+    const homeOffice = fare('Ride to the client meeting', {}, office);
+    expect(homeOffice.ai_suggestion.questions).toEqual(hiredFareUsePrompt(office));
     expect(homeOffice.ai_suggestion.questions).toContain(HIRED_FARE_USE.betweenWithHomeOffice);
     expect(homeOffice.ai_suggestion.questions).not.toContain(HIRED_FARE_USE.between);
     const fromHome = fare(HIRED_FARE_USE.between, { mileage_details: { start_location: 'Home' } });
@@ -277,8 +279,48 @@ describe('an engine approval the review path cannot consume is stored as the que
     expect(fromHome.ai_schedule_c_line).toBeNull();
     expect(fromHome.ai_suggestion.questions[0]).toBe(HIRED_FARE_USE.question);
     expect(fromHome.ai_suggestion.reasoning).toBe(HIRED_FARE_USE.homeStartReason);
-    const fromHomeWithOffice = fare(HIRED_FARE_USE.betweenWithHomeOffice, { mileage_details: { start_location: 'Home' } }, { home_office: true });
+    const fromHomeWithOffice = fare(HIRED_FARE_USE.betweenWithHomeOffice, { mileage_details: { start_location: 'Home' } }, office);
     expect(fromHomeWithOffice.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, scheduleCLine: '27a' });
+    vi.unstubAllEnvs();
+  });
+
+  it('reads a real home office profile for a hired fare', () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    const fare = (purpose: string, patch: Record<string, unknown> = {}, profile: Record<string, unknown> | null = null) => analysisSuggestionUpdate(
+      approval({ category: 'vehicle_expense', schedule_c_line: '9', deductible_percent: 40 }), 1,
+      record({ amount: 28, merchant_name: 'Lyft', business_purpose: purpose, ...patch }), undefined, profile, null);
+    const office = { home_office_sqft: 150, home_office_method: 'simplified' as const };
+    const fromHome = fare(HIRED_FARE_USE.betweenWithHomeOffice, { mileage_details: { start_location: 'Home' } }, office);
+    expect(fromHome.ai_suggestion.questions).toEqual([]);
+    expect(fromHome.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, scheduleCLine: '27a' });
+    expect(fare('Ride to the client meeting', {}, office).ai_suggestion.questions).toContain(HIRED_FARE_USE.betweenWithHomeOffice);
+
+    const noSqft = { home_office_sqft: 0, home_office_method: 'actual' as const };
+    const held = fare(HIRED_FARE_USE.between, { mileage_details: { start_location: 'Home' } }, noSqft);
+    expect(held.deductionStatus).toBe('Needs more information');
+    expect(held.ai_schedule_c_line).toBeNull();
+    expect(held.ai_suggestion.questions).toContain(HIRED_FARE_USE.between);
+    expect(held.ai_suggestion.questions).not.toContain(HIRED_FARE_USE.betweenWithHomeOffice);
+    const missing = fare(HIRED_FARE_USE.between, { mileage_details: { start_location: 'Home' } }, { profession: 'Designer', state: 'CA' });
+    expect(missing.deductionStatus).toBe('Needs more information');
+    expect(missing.ai_suggestion.questions).toContain(HIRED_FARE_USE.between);
+
+    const detailsOnly = { home_office_details: { exclusive_use: true } };
+    expect(fare('Ride to the client meeting', {}, detailsOnly).ai_suggestion.questions).toContain(HIRED_FARE_USE.betweenWithHomeOffice);
+    expect(fare(HIRED_FARE_USE.betweenWithHomeOffice, { mileage_details: { start_location: 'Home' } }, detailsOnly).ai_suggestion).toMatchObject({
+      status: 'ok', isDeductible: true, deductiblePercent: 100, scheduleCLine: '27a',
+    });
+
+    expect(fare(HIRED_FARE_USE.between, {}, noSqft).ai_suggestion).toMatchObject({ status: 'ok', deductiblePercent: 100, scheduleCLine: '27a' });
+    expect(fare(HIRED_FARE_USE.betweenWithHomeOffice, {}, office).ai_suggestion).toMatchObject({ status: 'ok', deductiblePercent: 100, scheduleCLine: '27a' });
+
+    const fromOnboarding = convertToEnhancedContext({ homeOfficeSqft: 150, home_office_method: 'actual', profession: 'Designer', state: 'CA' }, '2026-09-15');
+    expect(fromOnboarding.home_office_sqft).toBe(150);
+    expect(profileHasHomeOffice(fromOnboarding)).toBe(true);
+    expect(fare(HIRED_FARE_USE.betweenWithHomeOffice, { mileage_details: { start_location: 'Home' } }, fromOnboarding).ai_suggestion.scheduleCLine).toBe('27a');
+    expect(profileHasHomeOffice(convertToEnhancedContext({ home_office_details: { method: 'simplified' }, profession: 'Designer', state: 'CA' }, '2026-09-15'))).toBe(true);
+    expect(profileHasHomeOffice({ officeSqFt: 120 })).toBe(true);
+    expect(profileHasHomeOffice({ home_office_sqft: 0 })).toBe(false);
     vi.unstubAllEnvs();
   });
 

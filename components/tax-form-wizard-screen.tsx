@@ -1,5 +1,6 @@
 "use client";
 
+import { profileHasHomeOffice } from "@/lib/profile/home-office";
 import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -142,10 +143,7 @@ function getInitialAnswers(userProfile?: any): Record<string, boolean> {
   ) {
     defaults.self_employment = true;
   }
-  if (
-    (userProfile.home_office_sqft ?? 0) > 0 ||
-    userProfile.home_office_details
-  ) {
+  if (profileHasHomeOffice(userProfile)) {
     defaults.home_office = true;
   }
 

@@ -5,7 +5,10 @@
  * default to 100%.
  */
 import { tripStartsAtHome } from '@/lib/mileage/vehicles';
+import { profileHasHomeOffice } from '@/lib/profile/home-office';
 import { ACTUAL_EXPENSE_BUSINESS_SHARE } from './actual-expense-share';
+
+export { profileHasHomeOffice } from '@/lib/profile/home-office';
 
 const VEHICLE = '(?:car|auto|automobile|vehicle|truck|van)';
 
@@ -66,20 +69,11 @@ export const HIRED_FARE_USE = {
 /** Recorded category for a local hired fare. It uses the other expenses line. */
 export const HIRED_LOCAL_TRANSPORT_CATEGORY = 'HIRED_LOCAL_TRANSPORT';
 
-const HOME_OFFICE_FLAGS = ['home_office', 'homeOffice', 'has_home_office'] as const;
-
-/** True only when a saved profile flag is strictly true. Square footage is not that flag. */
-export function profileHasHomeOffice(profile: unknown): boolean {
-  if (!profile || typeof profile !== 'object') return false;
-  const record = profile as Record<string, unknown>;
-  return HOME_OFFICE_FLAGS.some(key => record[key] === true);
-}
-
 export function hiredFareBetweenLabel(profile: unknown): string {
   return profileHasHomeOffice(profile) ? HIRED_FARE_USE.betweenWithHomeOffice : HIRED_FARE_USE.between;
 }
 
-/** The question, then the four answers, with the home office label only when that flag is true. */
+/** The question, then the four answers. The long between label is used when the profile has a home office. */
 export function hiredFareUsePrompt(profile: unknown): string[] {
   return [HIRED_FARE_USE.question, HIRED_FARE_USE.overnight, hiredFareBetweenLabel(profile), HIRED_FARE_USE.commute, HIRED_FARE_USE.personal];
 }

@@ -4,6 +4,7 @@ import { finiteUsePercent, VEHICLE_ACTUAL_EXPENSE_CATEGORY, VEHICLE_LOAN_INTERES
 import { analysisInputHash } from '@/lib/ai/analysis-persistence';
 import { analysisProfileHash } from '@/lib/ai/profile-context';
 import { hiredFareChoiceFromRecord, hiredFareStartedAtHome, hiredVehicleFare, HIRED_LOCAL_TRANSPORT_CATEGORY, profileHasHomeOffice, standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
+import { withHomeOfficeSources } from '@/lib/profile/home-office';
 import { invalidateTaxpayerContextCache } from '@/lib/ai/taxpayer-context-server';
 import { TRANSACTION_TAX_POLICY_VERSION } from '@/lib/ai/transaction-tax-policy';
 import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
@@ -83,7 +84,9 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
   const ref = accountRef.collection('transactions').doc(id);
   const profileRef = adminDb.doc(`user_profiles/${uid}`);
   const reviewed = await adminDb.runTransaction(async tx => {
-    const [account, snapshot, profile] = await Promise.all([tx.get(accountRef), tx.get(ref), tx.get(profileRef)]);
+    const [account, snapshot, profile, settingsSnap] = await Promise.all([
+      tx.get(accountRef), tx.get(ref), tx.get(profileRef), tx.get(adminDb.doc(`${profileRef.path}/settings/homeOffice`)),
+    ]);
     const data = snapshot.data();
     const matchesOwner = (record: Record<string, unknown>) => [record.userId, record.user_id].some(value => value === uid) &&
       [record.userId, record.user_id].every(value => value == null || value === uid);
@@ -103,6 +106,7 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
     let source: 'ai_confirmed' | 'user_corrected';
     let confirmedSuggestion: AiReviewSuggestion | null = null;
     const profileData = profile.exists ? profile.data() as LegacyVehicleProfile : null;
+    const fareProfile = withHomeOfficeSources(profileData, settingsSnap.exists ? settingsSnap.data() : null);
     const vehicles = await loadVehicles(tx, profileRef);
     if (input.action === 'confirm') {
       if (data.review_status === 'confirmed' && data.review_source === 'ai_confirmed' && data.review_suggestion_id === input.suggestionId) {
@@ -132,7 +136,7 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
         const suggestionShare = finiteUsePercent(suggestion.deductiblePercent);
         const cost = vehicleCostShare(data, profileData, vehicles);
         const settledLocalFare = mileageVehicleCopyEnabled() && suggestion.scheduleCLine === '27a' && suggestion.deductiblePercent === 100 &&
-          hiredFareChoiceFromRecord(data) === 'between' && !(hiredFareStartedAtHome(data) === true && !profileHasHomeOffice(profileData));
+          hiredFareChoiceFromRecord(data) === 'between' && !(hiredFareStartedAtHome(data) === true && !profileHasHomeOffice(fareProfile));
         if (cost && suggestionShare === cost.share) {
           deduction = true;
         } else if (settledLocalFare) {
@@ -170,7 +174,7 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       }
       const localWorkFare = mileageVehicleCopyEnabled() && deduction === true && hiredVehicleFare(chargeText(data)) && hiredFareChoiceFromRecord(data) === 'between';
       const startedAtHome = hiredFareStartedAtHome(data);
-      if (localWorkFare && !(startedAtHome === true && !profileHasHomeOffice(profileData))) {
+      if (localWorkFare && !(startedAtHome === true && !profileHasHomeOffice(fareProfile))) {
         recordedCategory = HIRED_LOCAL_TRANSPORT_CATEGORY;
       } else if (deduction === true && cost && (cost.kind === 'loan_interest' || cost.kind === 'property_tax') && shareMatches) {
         recordedCategory = cost.kind === 'property_tax' ? VEHICLE_PROPERTY_TAX_CATEGORY : VEHICLE_LOAN_INTEREST_CATEGORY;

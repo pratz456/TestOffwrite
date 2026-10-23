@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
 import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { vehicleFromDocument, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
+import { withHomeOfficeSources } from '@/lib/profile/home-office';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 import { analyzeTransactionWithRetry, convertToEnhancedContext, findMissingUserFields, type TransactionInput } from './analyzeTransaction';
 import { getAIProviderStatus } from './provider-status';
@@ -246,7 +247,10 @@ export async function processAnalysisTask(taskId: string, generation: string): P
 
   return adminDb.runTransaction(async tx => {
     const vehicleRead = readVehicles(tx, ref.profile);
-    const [task, record, job, profile, vehicles] = await Promise.all([tx.get(taskRef), tx.get(ref.transaction), tx.get(ref.job), tx.get(ref.profile), vehicleRead]);
+    const [task, record, job, profile, vehicles, settingsSnap] = await Promise.all([
+      tx.get(taskRef), tx.get(ref.transaction), tx.get(ref.job), tx.get(ref.profile), vehicleRead,
+      tx.get(adminDb.doc(`${ref.profile.path}/settings/homeOffice`)),
+    ]);
     const work = task.data();
     if (!work || work.generation !== generation || work.leaseToken !== claim.lease.token) return { status: 'obsolete', retry: false };
     const data = record.data();
@@ -259,7 +263,8 @@ export async function processAnalysisTask(taskId: string, generation: string): P
     tx.update(taskRef, { status, lastErrorCode: code, nextAttemptAt: retry ? now + Math.min(60_000 * (2 ** (claim.attempts - 1)), 300_000) : null,
       leaseToken: null, finishedAt: retry ? null : now });
     const vehicleId = typeof data?.vehicleId === 'string' ? data.vehicleId : typeof data?.vehicle_id === 'string' ? data.vehicle_id : null;
-    if (current && result.success) tx.update(ref.transaction, analysisSuggestionUpdate(result.result, now, data, claim.profileHash, claim.context, {
+    const fareProfile = withHomeOfficeSources(claim.context, profile.exists ? profile.data() : null, settingsSnap.exists ? settingsSnap.data() : null);
+    if (current && result.success) tx.update(ref.transaction, analysisSuggestionUpdate(result.result, now, data, claim.profileHash, fareProfile, {
       vehicles, vehicleId, profile: legacyProfile(profile.data()),
     }));
     else if (data?.analysisLeaseToken === claim.lease.token) tx.update(ref.transaction, {

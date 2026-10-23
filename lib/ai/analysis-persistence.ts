@@ -4,6 +4,7 @@ import { adminDb } from '@/lib/firebase/admin';
 import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { vehicleFromDocument, vehicleMethodForTaxYear, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
 import { hiredFareChoiceFromRecord, hiredFarePurpose, hiredFarePurposeText, hiredFareStartedAtHome, hiredFareUsePrompt, hiredVehicleFare, HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, HIRED_FARE_USE, profileHasHomeOffice, SEPARATE_VEHICLE_COST_SHARE, standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
+import { withHomeOfficeSources } from '@/lib/profile/home-office';
 import { ACTUAL_EXPENSE_BUSINESS_SHARE, finiteUsePercent } from '@/lib/ai/actual-expense-share';
 import type { OutputType } from './analyzeTransaction';
 import { composeExplanation, type ExplainableResult, type ExplanationProfile } from './explanation';
@@ -393,8 +394,9 @@ export async function persistAnalysisSuggestion(ref: DocumentReference, result: 
       const docs = (vehicleSnap as { docs?: Array<{ id: string; data: () => Record<string, unknown> }> }).docs;
       return Array.isArray(docs) ? docs.map(doc => vehicleFromDocument(doc.id, doc.data())) : undefined;
     }).catch(() => undefined) : Promise.resolve(undefined);
-    const [snap, currentProfile, vehicles] = await Promise.all([
-      tx.get(ref), tx.get(profileRef), vehicleRead,
+    const settingsRead = tx.get(adminDb.doc(`${profileRef.path}/settings/homeOffice`)).catch(() => null);
+    const [snap, currentProfile, vehicles, settingsSnap] = await Promise.all([
+      tx.get(ref), tx.get(profileRef), vehicleRead, settingsRead,
     ]);
     if (!snap.exists || !isAnalysisLeaseCurrent(snap.data()!, lease)) return { status: 'stale' as const };
     // Profile edits can change both the decision and displayed tax effect while the model runs.
@@ -403,7 +405,8 @@ export async function persistAnalysisSuggestion(ref: DocumentReference, result: 
     const profileData = currentProfile.data() as Record<string, unknown>;
     const nested = profileData.business_vehicle;
     const vehicleId = typeof snap.data()!.vehicleId === 'string' ? snap.data()!.vehicleId : typeof snap.data()!.vehicle_id === 'string' ? snap.data()!.vehicle_id : null;
-    const update = analysisSuggestionUpdate(result, Date.now(), snap.data()!, profileHash, profile, {
+    const settings = settingsSnap && settingsSnap.exists ? settingsSnap.data() : null;
+    const update = analysisSuggestionUpdate(result, Date.now(), snap.data()!, profileHash, withHomeOfficeSources(profile, profileData, settings), {
       vehicles,
       vehicleId,
       profile: {
