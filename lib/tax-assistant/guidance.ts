@@ -2,6 +2,7 @@ import type OpenAI from 'openai';
 import { GUIDANCE_TOPICS, modelSelectionSchema, priorMessages, type AssistantRequest, type GuidanceTopic, type ModelAssessment } from './contract';
 import { assistantContextForModel, composeForYou, type AssistantContext } from './context';
 import { guidanceSource, SELECTABLE_TOPICS, sourcesForYear, yearNotice, type SelectableTopic } from './knowledge';
+import { withOtherExpensesLine } from '@/lib/schedule-c/other-expenses-line';
 import { redactIdentifierText } from '@/lib/security/identifier-redaction';
 
 /**
@@ -18,7 +19,7 @@ export function topicAnswer(topic: GuidanceTopic, taxYear: number): string {
   const source = guidanceSource(topic);
   const answer = typeof source?.answer === 'function' ? source.answer(taxYear) : source?.answer ?? '';
   const parts = [answer];
-  if (source?.placement) parts.push(`**Where it goes:** ${source.placement}.`);
+  if (source?.placement) parts.push(`**Where it goes:** ${withOtherExpensesLine(source.placement, taxYear)}.`);
   if (source?.records?.length) parts.push(`**Keep:** ${source.records.join('; ')}.`);
   return parts.join('\n\n');
 }

@@ -6,6 +6,7 @@ import type { TransactionExplanation } from '@/lib/ai/explanation';
 import type { Transaction } from '@/lib/firebase/transactions';
 import { learningMerchantKey } from '@/lib/ai/merchant-key';
 import { reviewCategory, type AiReviewSuggestion, type ReviewCategory } from './ai-review-contract';
+import { publishedOtherExpensesLine, resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
 import { AI_PROPOSAL_CONFIRMED_REASON, AI_PROPOSAL_REJECTED_REASON } from './tax-decision';
 
 /** Plain-language explanation saved on a transaction by the explanation writer. */
@@ -22,7 +23,7 @@ type SuggestionWithProposal = AiReviewSuggestion & {
 /** Loose on purpose: the detail screen carries its own partial transaction shape. */
 interface ReviewRecord {
   id?: string; trans_id?: string; merchant_name?: string; amount?: number; pending?: boolean | null; is_deductible?: boolean | null;
-  business_purpose?: string | null; review_status?: string; category?: string;
+  date?: string; datetime?: string; business_purpose?: string | null; review_status?: string; category?: string;
   ai_suggestion?: AiReviewSuggestion | null; ai_missing_fields?: string[]; ai_customized_reason?: string | null; ai?: unknown;
 }
 
@@ -43,9 +44,20 @@ export function proposedBusinessPurpose(transaction: ReviewRecord): string | nul
   return proposal;
 }
 
-export function suggestionScheduleCLine(transaction: ReviewRecord): string | null {
+function publishedSuggestionLine(transaction: ReviewRecord) {
   const suggestion = transaction.ai_suggestion as SuggestionWithProposal | null | undefined;
-  return cleanText(suggestion?.schedule_c_line) ?? cleanText(suggestion?.scheduleCLine);
+  const raw = cleanText(suggestion?.schedule_c_line) ?? cleanText(suggestion?.scheduleCLine);
+  if (!raw) return null;
+  return publishedOtherExpensesLine(raw, resolveOtherExpensesYear(transaction));
+}
+
+export function suggestionScheduleCLine(transaction: ReviewRecord): string | null {
+  return publishedSuggestionLine(transaction)?.line ?? null;
+}
+
+/** True when a stored other-expenses line has no usable year, or the year is before the confirmed line. */
+export function suggestionOtherExpensesNeedsReview(transaction: ReviewRecord): boolean {
+  return publishedSuggestionLine(transaction)?.needsReview === true;
 }
 
 /** Facts the last analysis asked for, wherever the analyzer saved them. */

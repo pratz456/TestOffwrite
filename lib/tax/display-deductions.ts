@@ -1,4 +1,5 @@
-import { aggregateScheduleC, CATEGORY_MAP, isConfirmedScheduleCExpense, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
+import { aggregateScheduleC, categoryMapForTaxYear, isConfirmedScheduleCExpense, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
+import { resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
 import { exportDate } from '@/lib/reports/transaction-export';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
@@ -20,6 +21,10 @@ export function summarizeConfirmedDeductions<T extends object>(records: readonly
   for (const original of records) {
     const record = original as Record<string, unknown>;
     if (!isConfirmedScheduleCExpense(record as unknown as ScheduleCTransactionLike)) continue;
+    if (resolveOtherExpensesYear(record) == null) {
+      reviewMessage = 'Review missing or invalid transaction dates before showing confirmed deduction totals.';
+      continue;
+    }
     const date = exportDate(record.date ?? record.datetime);
     if (!date) {
       reviewMessage = 'Review missing or invalid transaction dates before showing confirmed deduction totals.';
@@ -55,7 +60,7 @@ export function summarizeConfirmedDeductions<T extends object>(records: readonly
       continue;
     }
     const normalized = { ...record, amount, date, category: typeof record.category === 'string' ? record.category : '' } as ScheduleCTransactionLike;
-    const contribution = aggregateScheduleC([normalized], date.slice(0, 4), CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible;
+    const contribution = aggregateScheduleC([normalized], date.slice(0, 4), categoryMapForTaxYear(resolveOtherExpensesYear(normalized)), { mode: 'confirmed-only' }).totalDeductible;
     contributions.set(original, contribution);
     deductionCents += Math.round(contribution * 100);
     recordedCents += Math.round(amount * 100);

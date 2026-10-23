@@ -12,6 +12,7 @@
  */
 import type { TransactionInput } from './analyzeTransaction';
 import type { ExpenseCategory } from './transaction-tax-policy';
+import { publishedOtherExpensesLine, resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
 
 export const MERCHANT_DISPOSITIONS = [
   /** Overwhelmingly a business tool for self-employed users; still needs the user's one-tap purpose confirmation. */
@@ -650,6 +651,12 @@ export function findMerchantEntry(descriptor: string): MerchantIntelligenceEntry
 
 const CREDIT_QUESTION = 'Money came into the account from this merchant. Is this a payout of your sales or earnings (business income at the gross amount, before fees), a refund of an earlier purchase, or a transfer?';
 
+/** Catalog 27a and 27b both mean other expenses. The returned line follows the transaction date. No date returns nothing. */
+function publishedScheduleCLine(line: string | null, transaction: Partial<TransactionInput>): string | null {
+  if (!line) return line;
+  return publishedOtherExpensesLine(line, resolveOtherExpensesYear(transaction)).line;
+}
+
 /**
  * Best available merchant knowledge for a transaction. A credit (negative amount) from any
  * merchant is a payout, refund or transfer question rather than an expense disposition.
@@ -664,7 +671,7 @@ export function merchantIntelligence(transaction: Partial<TransactionInput>): Me
   if (matched) {
     const paysOut = credit && matched.disposition !== 'transfer_or_deposit';
     return {
-      name: matched.name, category: paysOut ? null : matched.category, scheduleCLine: paysOut ? null : matched.scheduleCLine,
+      name: matched.name, category: paysOut ? null : matched.category, scheduleCLine: paysOut ? null : publishedScheduleCLine(matched.scheduleCLine, transaction),
       disposition: paysOut ? 'transfer_or_deposit' : matched.disposition,
       defaultPurpose: paysOut ? null : matched.defaultPurpose ?? null,
       question: paysOut ? CREDIT_QUESTION : matched.question ?? null,
@@ -675,7 +682,7 @@ export function merchantIntelligence(transaction: Partial<TransactionInput>): Me
   if (plaidMapping) {
     const paysOut = credit && plaidMapping.disposition !== 'transfer_or_deposit';
     return {
-      name: null, category: paysOut ? null : plaidMapping.category, scheduleCLine: paysOut ? null : plaidMapping.scheduleCLine,
+      name: null, category: paysOut ? null : plaidMapping.category, scheduleCLine: paysOut ? null : publishedScheduleCLine(plaidMapping.scheduleCLine, transaction),
       disposition: paysOut ? 'transfer_or_deposit' : plaidMapping.disposition,
       defaultPurpose: paysOut ? null : plaidMapping.defaultPurpose ?? null,
       question: paysOut ? CREDIT_QUESTION : plaidMapping.question ?? null,
