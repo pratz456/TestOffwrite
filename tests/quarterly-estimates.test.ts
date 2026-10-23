@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { Timestamp } from 'firebase-admin/firestore';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { chargeDay, chargeYear } from '@/lib/schedule-c/taxDate';
+import { selectExportYear } from '@/lib/reports/transaction-export';
 import { aggregateQuarterlyEstimatesForYear, getLocalTransactionDate, sumIncomeForQuarter, sumExpensesForQuarter, sumPotentialExpensesForQuarter, type QuarterlyTransactionLike } from '@/lib/tax-provider/quarterly-estimates';
 
 const baseOptions = { filingStatus: 'single' as const, w2Income: 0, otherIncome: 0 };
@@ -338,4 +341,170 @@ describe('Quarterly estimated tax helpers', () => {
 
 it('legacy quarterly projection requires reviewed full-year and timing facts', () => {
   expect(() => aggregateQuarterlyEstimatesForYear([], 2026, 'UTC', baseOptions)).toThrow('Review your full-year');
+});
+
+const zones = ['America/Los_Angeles', 'Asia/Tokyo'] as const;
+
+function incomeRow(id: string, extra: Record<string, unknown>, amount = -10): QuarterlyTransactionLike {
+  return { id, trans_id: id, account_id: 'a1', amount, category: 'income', pending: false, is_deductible: null, ...extra };
+}
+
+function expectNoScheduleCYear(row: QuarterlyTransactionLike, amount: number) {
+  for (const year of ['2024', '2025']) {
+    const scheduleC = aggregateScheduleC([row], year, CATEGORY_MAP, { mode: 'confirmed-only' });
+    expect(scheduleC.totalDeductible).toBe(0);
+    expect(scheduleC.counts.year).toBe(0);
+    expect(scheduleC.lineItemsArray).toEqual([]);
+    expect(scheduleC.needsMoreInformation).toBe(1);
+    expect(scheduleC.undated[0].amount).toBe(amount);
+  }
+}
+
+describe('estimate boundary and undated income', () => {
+  it('counts a boundary only when the US zones disagree on the calendar day', async () => {
+    const cases = [
+      { label: '2025-06-15T12:00Z', datetime: '2025-06-15T12:00Z', year: 2025, boundaryCount: 0 },
+      { label: '2025-06-15T18:00Z', datetime: '2025-06-15T18:00Z', year: 2025, boundaryCount: 0 },
+      { label: '1735716600', datetime: 1735716600, year: 2024, boundaryCount: 1 },
+      { label: '1735727400', datetime: 1735727400, year: 2024, boundaryCount: 1 },
+    ] as const;
+    for (const zone of zones) {
+      for (const item of cases) {
+        const row = incomeRow(item.label, { datetime: item.datetime });
+        expect(chargeDay(row)).toBeNull();
+        expect(chargeYear(row)).toBeNull();
+        expect(getLocalTransactionDate(row, zone)).toBeNull();
+        expect(yearIncome([row], item.year, zone)).toBe(10);
+        expect(yearIncome([row], item.year === 2024 ? 2025 : 2024, zone)).toBe(0);
+        expectNoScheduleCYear(row, -10);
+        const api = await import('@/lib/tax-provider/quarterly-estimates');
+        const result = api.sumIncomeForYear([row], item.year, zone);
+        expect(result.grossIncome).toBe(10);
+        expect(result.undatedIncome).toEqual({ count: 1, total: 10, boundaryCount: item.boundaryCount });
+        expect(result.undatedExpenses).toEqual({ count: 0, total: 0 });
+        const other = api.sumIncomeForYear([row], item.year === 2024 ? 2025 : 2024, zone);
+        expect(other.grossIncome).toBe(0);
+        expect(other.undatedIncome).toEqual({ count: 0, total: 0, boundaryCount: 0 });
+        const placed = api.incomeRowForEstimate(row, zone, item.year);
+        expect(placed.placedWithoutDate).toBe(true);
+        expect(placed[api.ROW_FLAG_FIELD]).toBe(true);
+        expect(placed[api.UNDATED_ROW_FLAG]).toBe(true);
+        expect(row).not.toHaveProperty('placedWithoutDate');
+        expect(chargeDay(row)).toBeNull();
+      }
+    }
+    const api = await import('@/lib/tax-provider/quarterly-estimates');
+    expect(api.ROW_FLAG_FIELD).toBe('placedWithoutDate');
+    expect(api.UNDATED_ROW_FLAG).toBe('placedWithoutDate');
+    expect([...api.BOUNDARY_ZONES]).toEqual([
+      'Pacific/Pago_Pago', 'Pacific/Honolulu', 'America/Adak', 'America/Anchorage',
+      'America/Los_Angeles', 'America/Denver', 'America/Phoenix', 'America/Chicago',
+      'America/New_York', 'America/Puerto_Rico', 'America/St_Thomas',
+    ]);
+  });
+
+  it('keeps income with no moment out of gross income and on the needs a date count', async () => {
+    const shapes = [incomeRow('none', {}, -40), incomeRow('blank', { date: '' }, -40)];
+    for (const zone of zones) {
+      for (const row of shapes) {
+        expect(chargeDay(row)).toBeNull();
+        expect(chargeYear(row)).toBeNull();
+        expect(getLocalTransactionDate(row, zone)).toBeNull();
+        expect(yearIncome([row], 2025, zone)).toBe(0);
+        expectNoScheduleCYear(row, -40);
+        const result = (await import('@/lib/tax-provider/quarterly-estimates')).sumIncomeForYear([row], 2025, zone);
+        expect(result.grossIncome).toBe(0);
+        expect(result.undatedIncome).toEqual({ count: 1, total: 40, boundaryCount: 0 });
+        const review = await dateReview([row], zone, 2025);
+        expect(review.undatedIncome).toEqual({ count: 1, total: 40, boundaryCount: 0 });
+        expect(review.needsDateCopy).toContain('1 income rows need a date. Amount kept: $40.00.');
+      }
+    }
+  });
+
+  it('places a Timestamp in date and a blank date with datetime on the estimate only', async () => {
+    const june = Date.parse('2025-06-15T12:00:00.000Z');
+    const shapes = [
+      incomeRow('ts-june', { date: Timestamp.fromMillis(june) }, -25),
+      incomeRow('blank-june', { date: '', datetime: '2025-06-15T12:00:00Z' }, -25),
+      incomeRow('ts-epoch', { date: Timestamp.fromMillis(1735716600 * 1000) }, -75),
+      incomeRow('blank-epoch', { date: '', datetime: 1735716600 }, -75),
+    ];
+    for (const zone of zones) {
+      for (const row of shapes) {
+        const year = row.id.endsWith('epoch') ? 2024 : 2025;
+        const dollars = row.id.endsWith('epoch') ? 75 : 25;
+        expect(chargeDay(row)).toBeNull();
+        expect(chargeYear(row)).toBeNull();
+        expect(getLocalTransactionDate(row, zone)).toBeNull();
+        expect(yearIncome([row], year, zone)).toBe(dollars);
+        expect(yearIncome([row], year === 2024 ? 2025 : 2024, zone)).toBe(0);
+        expectNoScheduleCYear(row, -dollars);
+        const api = await import('@/lib/tax-provider/quarterly-estimates');
+        const result = api.sumIncomeForYear([row], year, zone);
+        expect(result.grossIncome).toBe(dollars);
+        expect(result.undatedIncome).toEqual({ count: 1, total: dollars, boundaryCount: year === 2024 ? 1 : 0 });
+        const placed = api.incomeRowForEstimate(row, zone, year);
+        expect(placed.placedWithoutDate).toBe(true);
+        expect(chargeDay(row)).toBeNull();
+        expect(getLocalTransactionDate(row, zone)).toBeNull();
+      }
+    }
+  });
+
+  it('does not place income when the written date is a non-empty unreadable string', () => {
+    const row = incomeRow('bad', { date: 'not-a-date', datetime: '2025-06-15T12:00:00Z' }, -15);
+    for (const zone of zones) {
+      expect(chargeDay(row)).toBeNull();
+      expect(chargeYear(row)).toBeNull();
+      expect(getLocalTransactionDate(row, zone)).toBeNull();
+      expect(yearIncome([row], 2025, zone)).toBe(0);
+    }
+  });
+
+  it('leaves a 250 dollar undated expense out of every quarter and reports the count and total', async () => {
+    const row: QuarterlyTransactionLike = {
+      id: 'exp250', trans_id: 'exp250', account_id: 'a1', amount: 250,
+      category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', datetime: '2025-06-15T12:00:00Z',
+      pending: false, is_deductible: true,
+    };
+    for (const zone of zones) {
+      expect(getLocalTransactionDate(row, zone)).toBeNull();
+      expect(chargeDay(row)).toBeNull();
+      const summary = calendarSummary([row], 2025, zone, baseOptions);
+      expect(summary.quarters.reduce((sum, item) => sum + item.confirmed_deductible_expenses, 0)).toBe(0);
+      expect(summary.quarters.reduce((sum, item) => sum + item.potential_deductions_needing_review, 0)).toBe(0);
+      expect(yearIncome([row], 2025, zone)).toBe(0);
+      const result = (await import('@/lib/tax-provider/quarterly-estimates')).sumIncomeForYear([row], 2025, zone);
+      expect(result.undatedExpenses).toEqual({ count: 1, total: 250 });
+      expect(result.grossIncome).toBe(0);
+      expect(result.undatedIncome).toEqual({ count: 0, total: 0, boundaryCount: 0 });
+    }
+  });
+
+  it('selectExportYear returns 1500 for 500 dated plus 1000 undated income in 2025', async () => {
+    const dated = incomeRow('dated', { date: '2025-03-01' }, -500);
+    const undated = incomeRow('open', { datetime: '2025-06-15T12:00:00Z' }, -1000);
+    for (const zone of zones) {
+      expect(yearIncome([dated, undated], 2025, zone)).toBe(1500);
+      expect(yearIncome([dated], 2025, zone)).toBe(500);
+    }
+    expect(() => selectExportYear([dated, undated], 2025)).not.toThrow();
+    const selected = selectExportYear([dated, undated], 2025);
+    expect(selected.map(row => row.id)).toEqual(['dated', 'open']);
+    expect(selectExportYear([dated], 2025)).toHaveLength(1);
+    for (const zone of zones) {
+      const api = await import('@/lib/tax-provider/quarterly-estimates');
+      expect(api.sumIncomeForYear([dated, undated], 2025, zone)).toMatchObject({
+        grossIncome: 1500,
+        undatedIncome: { count: 1, total: 1000, boundaryCount: 0 },
+        undatedExpenses: { count: 0, total: 0 },
+      });
+      expect(api.sumIncomeForYear([dated], 2025, zone)).toMatchObject({
+        grossIncome: 500,
+        undatedIncome: { count: 0, total: 0, boundaryCount: 0 },
+      });
+      expect(api.sumIncomeForYear(selected as QuarterlyTransactionLike[], 2025, zone).grossIncome).toBe(1500);
+    }
+  });
 });

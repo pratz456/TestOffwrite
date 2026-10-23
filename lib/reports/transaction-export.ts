@@ -1,5 +1,6 @@
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { calendarChargeDay, chargeDay } from '@/lib/schedule-c/taxDate';
+import { estimateIncomeDate, type QuarterlyTransactionLike } from '@/lib/tax-provider/quarterly-estimates';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 
@@ -38,13 +39,23 @@ export function exportDate(value: unknown): string | null {
   }
   return calendarChargeDay(value);
 }
+function estimatePlacement(record: ExportRecord): string | null {
+  if (typeof record.amount !== 'number' || typeof record.category !== 'string') return null;
+  return estimateIncomeDate(record as QuarterlyTransactionLike, 'UTC');
+}
+
 export function selectExportYear(records: ExportRecord[], year?: number): ExportRecord[] {
   if (year === undefined) return [...records];
   const needsMoreInformation = needsMoreInformationCount(records);
-  if (records.some(record => !chargeDay(record))) {
+  const blocksYear = records.some(record => !chargeDay(record) && estimatePlacement(record)?.startsWith(`${year}-`) !== true);
+  if (blocksYear) {
     throw new ExportReviewRequiredError('Some saved transactions have missing or invalid dates. Correct them before exporting a selected year, or download all records for review.', needsMoreInformation);
   }
-  return records.filter(record => chargeDay(record)?.startsWith(`${year}-`));
+  return records.filter(record => {
+    const day = chargeDay(record);
+    if (day) return day.startsWith(`${year}-`);
+    return estimatePlacement(record)?.startsWith(`${year}-`) === true;
+  });
 }
 export function csvCell(value: unknown): string {
   if (value === undefined || value === null) return '';

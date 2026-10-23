@@ -80,7 +80,7 @@ function assertDatedYearRows(records: ExportRecord[], taxYear: number) {
 /**
  * Rows for the annual estimate. A missing charge day does not throw.
  * Dated rows in other years stay out of this year's validation.
- * `selectExportYear` is unchanged and still throws for a year export.
+ * `selectExportYear` still throws when a chargeless row is not estimate-placed income for that year.
  */
 export async function readTransactionsForEstimate(uid: string, taxYear: number): Promise<{ transactions: ExportRecord[]; chargesNeedingDate: EstimateDateReview }> {
   const records = (await readOwnedTransactions(uid)).filter(record => !isSupersededRecord(record));
