@@ -185,14 +185,23 @@ function lineSentence(internalLine: string, chargeDate: unknown): string {
   return `Schedule C line ${printed}${name ? ` (${name})` : ''}`;
 }
 
+/** Bare 27a, "line 27a", or "Schedule C line 27a", with or without a parenthetical. */
+function isSuppliedOtherExpenses(value: string): boolean {
+  return /^(?:schedule\s+c\s+line\s+|line\s+)?27a(?:\s*\([^)]*\))?$/i.test(value);
+}
+
+/** A saved card sentence from before Other expenses printed as 27b. */
+function isStoredOtherExpensesSentence(value: string): boolean {
+  return /^schedule\s+c\s+line\s+27a(?:\s*\([^)]*\))?$/i.test(value);
+}
+
 /** Prefer the policy's placement; otherwise the export taxonomy line for the suggested category. */
 export function scheduleCLineFor(result: ExplainableResult, chargeDate: unknown): string | null {
   const supplied = text(result.schedule_c_line, 120);
   if (supplied) {
+    if (isSuppliedOtherExpenses(supplied)) return lineSentence('27a', chargeDate);
     if (/^(schedule|form|not)\b/i.test(supplied)) return supplied;
     if (/^\d{1,2}[a-z]?$/.test(supplied)) return lineSentence(supplied, chargeDate);
-    const coded = supplied.match(/^line\s+(\d{1,2}[a-z]?)$/i);
-    if (coded?.[1] === '27a') return lineSentence(coded[1], chargeDate);
     if (/^line\b/i.test(supplied)) return `Schedule C ${supplied}`;
     return supplied;
   }
@@ -356,8 +365,12 @@ export function composeExplanation({ result, transaction, profile, taxYear }: Co
   };
 }
 
-/** Validates a stored `ai_explanation` payload before the UI renders it; any malformed record renders nothing. */
-export function normalizeExplanation(value: unknown): TransactionExplanation | null {
+/**
+ * Validates a stored `ai_explanation` payload before the UI renders it; any malformed record renders nothing.
+ * Pass `{ chargeDate }` when rendering. A stored "Schedule C line 27a" sentence is reprinted from that date.
+ * Other stored lines stay as saved. Omitting the display argument leaves every stored line unchanged, so this does not rewrite records.
+ */
+export function normalizeExplanation(value: unknown, display?: { chargeDate: unknown }): TransactionExplanation | null {
   const data = record(value);
   const headline = text(data.headline, 200);
   const why = text(data.why, 1200);
@@ -367,8 +380,10 @@ export function normalizeExplanation(value: unknown): TransactionExplanation | n
   const low = finite(effect.low), high = finite(effect.high);
   const estimatedTaxEffect: EstimatedTaxEffect | null = low !== null && high !== null && effect.label === ESTIMATE_LABEL
     ? { low: Math.min(low, high), high: Math.max(low, high), label: ESTIMATE_LABEL, basis: text(effect.basis, 400) ?? '' } : null;
+  const storedLine = text(data.scheduleCLine, 120);
+  const scheduleCLine = display && storedLine && isStoredOtherExpensesSentence(storedLine) ? lineSentence('27a', display.chargeDate) : storedLine;
   return {
-    headline, why, yourFacts: strings(data.yourFacts), scheduleCLine: text(data.scheduleCLine, 120),
+    headline, why, yourFacts: strings(data.yourFacts), scheduleCLine,
     estimatedTaxEffect, strengthen: strings(data.strengthen), nextQuestion: text(data.nextQuestion, 300),
   };
 }

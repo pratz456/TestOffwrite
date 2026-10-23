@@ -6,7 +6,8 @@ import { formatEstimatedTaxEffect, type TransactionExplanation } from '@/lib/ai/
 
 /**
  * Renders the server-composed explanation saved as `ai_explanation`.
- * Pass the result of `normalizeExplanation(record.ai_explanation)`; null renders nothing.
+ * Pass `normalizeExplanation(record.ai_explanation, { chargeDate: record.date ?? record.datetime })`.
+ * Null renders nothing. The charge date reprints a stored Other expenses sentence. It does not write the record.
  */
 export function ExplanationCard({ explanation, onAnswer, compact = false, className = '' }: {
   explanation: TransactionExplanation | null | undefined;

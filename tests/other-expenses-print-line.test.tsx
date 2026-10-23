@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
 
 import { ExplanationCard } from '@/components/ai/explanation-card';
-import { composeExplanation, scheduleCLineFor, type ExplainableResult } from '@/lib/ai/explanation';
+import { composeExplanation, normalizeExplanation, scheduleCLineFor, type ExplainableResult } from '@/lib/ai/explanation';
 import { PROFESSION_PRIORS, type ProfessionMerchantHint } from '@/lib/ai/profession-priors';
 import { CATEGORY_SCHEDULE_C_LINE, TRANSACTION_TAX_EVIDENCE } from '@/lib/ai/transaction-tax-policy';
 import { assembleAuditSupportPacket, auditSupportPacketCSV, buildEvidenceRecord, type AuditSupportPacket } from '@/lib/reports/audit-support-packet';
@@ -153,7 +153,7 @@ describe('printed Other expenses line', () => {
     expect(scheduleCLineFor(duesResult({ schedule_c_line: undefined }), undefined)).toBe(YEAR_FREE);
     expect(scheduleCLineFor(duesResult({ schedule_c_line: 'line 27a' }), '2025-04-01')).toBe('Schedule C line 27b (Other expenses)');
     expect(scheduleCLineFor(duesResult({ schedule_c_line: 'line 25' }), '2025-04-01')).toBe('Schedule C line 25');
-    expect(scheduleCLineFor(duesResult({ schedule_c_line: 'Schedule C line 27a (Other expenses)' }), '2025-04-01')).toBe('Schedule C line 27a (Other expenses)');
+    expect(scheduleCLineFor(duesResult({ schedule_c_line: 'Schedule C line 18 (Office expense)' }), '2025-04-01')).toBe('Schedule C line 18 (Office expense)');
     const html = renderToStaticMarkup(<ExplanationCard explanation={composeExplanation({
       result: duesResult(), transaction: { date: '2025-06-01', merchant_name: 'AIGA', amount: 120, iso_currency_code: 'USD' },
       profile: { income: 80000, filing_status: 'single' }, taxYear: 2024,
@@ -166,6 +166,36 @@ describe('printed Other expenses line', () => {
     })} />);
     expect(older).toContain('Where it goes:');
     expect(older).toContain('Schedule C line 27a (Other expenses)');
+  });
+});
+
+describe('stored and supplied Other expenses sentences', () => {
+  const saved = {
+    headline: 'Likely deductible: Professional dues',
+    why: 'Association dues for the design business are an ordinary expense when the membership serves the work.',
+  };
+  const shown = (scheduleCLine: string, chargeDate: unknown) =>
+    normalizeExplanation({ ...saved, scheduleCLine }, { chargeDate })?.scheduleCLine;
+
+  it('reprints a stored 27a sentence from the charge date and leaves other stored lines', () => {
+    expect(shown('Schedule C line 27a (Other expenses)', '2025-06-01')).toBe('Schedule C line 27b (Other expenses)');
+    expect(shown('schedule c line 27a', '2024-12-31')).toBe('Schedule C line 27a (Other expenses)');
+    expect(shown('Schedule C line 27a (Other expenses)', undefined)).toBe(YEAR_FREE);
+    expect(shown('Schedule C line 27a (other expenses)', '')).toBe(YEAR_FREE);
+    expect(shown('Schedule C line 18 (Office expense)', '2025-06-01')).toBe('Schedule C line 18 (Office expense)');
+    expect(normalizeExplanation({ ...saved, scheduleCLine: 'Schedule C line 27a (Other expenses)' })?.scheduleCLine).toBe('Schedule C line 27a (Other expenses)');
+    const html = renderToStaticMarkup(<ExplanationCard explanation={normalizeExplanation({ ...saved, scheduleCLine: 'Schedule C line 27a (Other expenses)' }, { chargeDate: '2025-03-02' })} />);
+    expect(html).toContain('Where it goes:');
+    expect(html).toContain('Schedule C line 27b (Other expenses)');
+  });
+
+  it('routes a supplied 27a sentence through the charge date', () => {
+    for (const supplied of ['Schedule C line 27a (Other expenses)', 'line 27a (other expenses)']) {
+      expect(scheduleCLineFor(duesResult({ schedule_c_line: supplied }), '2025-04-01')).toBe('Schedule C line 27b (Other expenses)');
+      expect(scheduleCLineFor(duesResult({ schedule_c_line: supplied }), '2024-12-31')).toBe('Schedule C line 27a (Other expenses)');
+      expect(scheduleCLineFor(duesResult({ schedule_c_line: supplied }), undefined)).toBe(YEAR_FREE);
+    }
+    expect(exportColumns(dues({ date: '', datetime: '2024-12-31' }))).toEqual({ recorded: YEAR_FREE, mapped: YEAR_FREE });
   });
 });
 
