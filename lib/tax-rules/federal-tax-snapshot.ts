@@ -5,6 +5,8 @@ import { calcScheduleSE } from '@/lib/reports/calcSE';
 import { compute1040 } from './compute-1040';
 import { computeScheduleCProfit } from './schedule-c-profit';
 import { reconcileBusinessIncome, type IncomeRecord } from './business-income';
+import { LEGACY_NEC_WARNING } from './income-reconciliation-copy';
+import { legacyDecisionReconfirm } from './reconciliation-feature';
 import { summarizeW2Income } from './w2-income';
 import { normalizeFilingStatus } from './filing-status';
 import { assertWageOwnershipScope, TaxCalculationScopeReviewRequiredError } from './calculation-scope';
@@ -153,7 +155,10 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     charitableDonations: amount(ded.charitableCashDonations) + amount(ded.charitableNonCashDonations), depreciationDeduction, deMinimisExpense, homeOfficeDeduction,
     stateCode: location.state, taxableSocialSecurityBenefits: socialSecurity,
   }, priorYearTotalTax > 0 ? priorYearTotalTax : undefined);
-  result.calculationWarnings.push(...reconciliation.warnings, ...capitalGains.warnings, ...scheduleC.warnings);
+  const reconciliationNotes = legacyDecisionReconfirm()
+    ? reconciliation.warnings
+    : reconciliation.warnings.filter(warning => warning !== LEGACY_NEC_WARNING);
+  result.calculationWarnings.push(...reconciliationNotes, ...capitalGains.warnings, ...scheduleC.warnings);
   if (dividends || iraDist || rental) {
     result.calculationWarnings.push('Organizer income amounts require tax review: qualified-dividend character, retirement basis and rental treatment are not fully modeled.');
   }

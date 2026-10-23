@@ -19,7 +19,7 @@ import {
   GUIDE_ANSWER_APP, GUIDE_ANSWER_BANK, GUIDE_ANSWER_NOT_SURE,
   GUIDE_HINT_APP, GUIDE_HINT_BANK, GUIDE_HINT_NOT_SURE, GUIDE_QUESTION, LEGACY_NEC_WARNING, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_TITLE,
   LEGACY_RECONFIRM_YES, LINE_1_COUNTED, LINE_2_AMOUNT, LIVE_SUM_DIFFER, LIVE_SUM_LINE, LIVE_SUM_MATCH, NO_CHOICE_YET, NO_FORM_NO_INCOME,
-  OUTSIDE_SC_AMOUNT, PANEL_FORMS_NOTE, PANEL_SUMMARY_COUNTED, PARTIAL_OVERLAP_PREVIEW, REASON_PERSONAL, REASON_PERSONAL_HELP, REASON_REFUNDS, REASON_REFUNDS_HELP,
+  OUTSIDE_SC_AMOUNT, PANEL_FORMS_NOTE, PANEL_SUMMARY_COUNTED, PARTIAL_OVERLAP_PREVIEW, REASON_ERROR, REASON_PERSONAL, REASON_PERSONAL_HELP, REASON_REFUNDS, REASON_REFUNDS_HELP,
   SAME_DISABLED_NEC, SEPARATE_MULTI_PREVIEW,
   fillIncomeCopy,
 } from "@/lib/tax-rules/income-reconciliation-copy";
@@ -515,6 +515,7 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
                           placeholder="0.00" className="min-h-11 bg-background text-base" disabled={busy} />
                       </div>
                     )}
+                    <p className="text-xs leading-relaxed text-muted-foreground">{REASON_ERROR}</p>
                   </div>
                 )}
                 {activeDecision === "corrected_form_replaces" && selectedForms.length > 0 && (

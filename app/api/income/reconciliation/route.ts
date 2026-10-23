@@ -23,7 +23,7 @@ import {
 import { ExportDataUnavailableError } from '@/lib/reports/export-records';
 import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 import { formsConfirmationError, INCOME_SOURCE_KINDS, NOT_BUSINESS_REASONS, PAYMENT_METHOD_HINTS, RECONCILIATION_DECISION_TYPES } from '@/lib/tax-rules/income-reconciliation';
-import { STALE_APP_REFRESH } from '@/lib/tax-rules/income-reconciliation-copy';
+import { DECISION_LABEL_CORRECTED, STALE_APP_REFRESH } from '@/lib/tax-rules/income-reconciliation-copy';
 import { isLegacySamePaymentsResave, prepareReconciliationDecision, summarizeIncomeReconciliation } from '@/lib/tax-rules/income-reconciliation-response';
 import { kNotBusinessIncomeEnabled, reconciliationDecisionNeedsKSwitch } from '@/lib/tax-rules/reconciliation-feature';
 
@@ -56,8 +56,8 @@ const decisionInput = z.object({
 const updateInput = decisionInput.extend({ id: z.string().trim().min(1).max(200) });
 const invalidBody = () => {
   const types = kNotBusinessIncomeEnabled()
-    ? 'same_payments, separate_income, k_includes_fees, k_not_business_income, partial_overlap or corrected_form_replaces'
-    : 'same_payments, separate_income, k_includes_fees or corrected_form_replaces';
+    ? `same_payments, separate_income, k_includes_fees, k_not_business_income, partial_overlap or ${DECISION_LABEL_CORRECTED}`
+    : `same_payments, separate_income, k_includes_fees or ${DECISION_LABEL_CORRECTED}`;
   return `Provide the tax year, a decision type (${types}) and the records it covers with their current amounts.`;
 };
 

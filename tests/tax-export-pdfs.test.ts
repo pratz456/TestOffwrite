@@ -401,6 +401,22 @@ describe('Form 1040 planning PDF prints its review notes', () => {
     checkFormBounds(view.spy); saveArtifact('form-1040-2026-masked-identifiers', new Uint8Array(await response.arrayBuffer()));
   });
 
+  it('omits the NEC review warning from Form 1040 notes while legacy reconfirm is off', async () => {
+    delete process.env.legacyDecisionReconfirm;
+    state.extraWarnings = [LEGACY_NEC_WARNING];
+    const view = inspectText();
+    expect((await form1040(request1040())).status).toBe(200);
+    expect(view.text()).not.toContain(LEGACY_NEC_WARNING);
+    process.env.legacyDecisionReconfirm = '1';
+    try {
+      const shown = inspectText();
+      expect((await form1040(request1040())).status).toBe(200);
+      expect(shown.text()).toContain(LEGACY_NEC_WARNING);
+    } finally {
+      delete process.env.legacyDecisionReconfirm;
+    }
+  });
+
   it('never prints a refund/balance page without its review notes block', async () => {
     state.records.w2_income = [record({ wages: 100000, federalWithheld: 90000, socialSecurityWages: 100000, medicareWages: 100000 })];
     const view = inspectText(); expect((await form1040(request1040())).status).toBe(200);

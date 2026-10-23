@@ -20,7 +20,8 @@ export const DECISION_HELP_NOT_BUSINESS = 'The 1099-K gross includes refunds you
 export const REASON_REFUNDS = 'Refunds or credits to customers';
 export const REASON_REFUNDS_HELP = 'Goes on Schedule C line 2, returns and allowances.';
 export const REASON_PERSONAL = 'Personal, not business';
-export const REASON_PERSONAL_HELP = 'Gifts, money back from friends, a duplicate form, or a form that isn\'t yours. This is not on your Schedule C.';
+export const REASON_PERSONAL_HELP = 'Gifts, money back from friends, or personal items you sold for less than you paid. This is not business income, so it is not on your Schedule C.';
+export const REASON_ERROR = 'Form sent in error: it repeats payments already counted, or it isn\'t yours.';
 
 export const ERR_NOT_BUSINESS_NEEDS_ONE_K = 'Select exactly one 1099-K, and the deposits or direct income that report its business part.';
 export const ERR_REASON_REQUIRED = 'Choose at least one reason and enter its amount.';
@@ -28,7 +29,7 @@ export const ERR_REASON_AMOUNT = 'Enter an amount over $0 for each reason you ch
 export const ERR_PARTS_EXCEED_GROSS = 'Refunds, personal amounts and fees add up to {parts}, which is more than the 1099-K gross of {gross}.';
 export const ERR_SELECT_BUSINESS_RECORDS = 'Select the deposits or direct income for the business part of this 1099-K ({business}).';
 export const ERR_SUM_MISMATCH = 'The parts don\'t add up to the 1099-K gross of {gross}: {kind} {selected} + refunds or credits {refunds} + personal {personal} + fees {fee} = {total}.';
-export const OUTSIDE_SC_NOTE = 'Outside Schedule C, needs review. This amount is not business income, so it is not on any Schedule C line. Ask the issuer for a corrected 1099-K, keep the form and your messages with the issuer, and file without waiting for the correction.';
+export const OUTSIDE_SC_NOTE = 'This is not business income, so it is not on your Schedule C. If the 1099-K was sent in error, or covers personal items you sold for less than you paid, the amount goes on Schedule 1 line 8z and the same amount on line 24z, so it adds no tax. If you sold personal items for more than you paid, the gain is taxable; ask your tax preparer. Ask the issuer for a corrected 1099-K, keep your records, and file without waiting for the correction.';
 
 export const EXPORT_BLOCKED_TITLE = 'One step before your Schedule C';
 export const EXPORT_BLOCKED_BODY = 'Some of your income records may describe the same payments. Tell us how they relate, and your Schedule C worksheet will count each one once.';
@@ -58,7 +59,7 @@ export const COMPARE_ROW_PAYER = 'Payer';
 export const COMPARE_ROW_AMOUNT = 'Amount';
 export const COMPARE_DIFF = 'These forms differ by {diff}.';
 export const COMPARE_SAME_AMOUNT = 'These forms show the same amount. That alone doesn\'t mean they report the same payments.';
-export const ERR_SAME_NEEDS_K = 'Two 1099-NECs can\'t report the same payments. Mark each one as separate income, or record a corrected form.';
+export const ERR_SAME_NEEDS_K = 'Two 1099-NECs usually report different payments, so you can\'t count them once here. If one corrects the other, choose "A client sent a corrected 1099-NEC". If a client sent the same form twice, ask them which one is right.';
 /** Shown on the saved decision while legacyNecReopen is off. PENDING APPROVAL. */
 export const LEGACY_NEC_WARNING = 'Two 1099-NECs are separate income. Review this match.';
 /** Shown when legacyNecReopen reopens a current-year NEC-only same-payments decision. PENDING APPROVAL. */
@@ -67,12 +68,12 @@ export const LEGACY_NEC_REOPEN_REASON = 'Two 1099-NECs are separate income, so b
 export const LEGACY_NEC_CHANGE_NOTICE = 'We used to count these two 1099-NECs once. Two 1099-NECs are separate income, so both now count, and your total and quarterly estimate may go up.';
 /** Shown when legacyNecReopen flags a prior-year same-payments decision without changing its total. PENDING APPROVAL. */
 export const LEGACY_NEC_PRIOR_YEAR_NOTE = 'If this was on a return you already filed, the IRS explains how to correct it at irs.gov/form1040x.';
-export const SAME_DISABLED_NEC = 'Not available for 1099-NECs only. Each 1099-NEC reports different payments.';
-export const DECISION_LABEL_CORRECTED = 'A corrected 1099-NEC replaces the original';
+export const SAME_DISABLED_NEC = 'Not available for two 1099-NECs. They usually report different payments.';
+export const DECISION_LABEL_CORRECTED = 'A client sent a corrected 1099-NEC';
 export const DECISION_HELP_CORRECTED = 'Use this when a client sent you a corrected 1099-NEC. We count the corrected form and keep the original in your records without counting it.';
 export const CORRECTED_PICK_QUESTION = 'Which form is the corrected one?';
 export const CORRECTED_PREVIEW = 'We\'ll count the corrected form, {corrected}. The original, {original}, stays in your records and is not counted.';
-export const CORRECTED_ORIGINAL_BADGE = 'Original, replaced by a corrected form. Kept, not counted.';
+export const CORRECTED_ORIGINAL_BADGE = 'Original form. A corrected form was sent, so this one is kept but not counted.';
 export const ERR_CORRECTED_NEEDS_TWO_NEC = 'Select exactly two 1099-NECs, the original and the corrected form, plus any deposits or direct income they report.';
 export const ERR_CORRECTED_SAME_PAYER = 'A corrected form comes from the same payer, but these forms name {payerA} and {payerB}. If the payer name was typed differently, fix it on the form first.';
 export const ERR_CORRECTED_PICK = 'Choose which form is the corrected one.';

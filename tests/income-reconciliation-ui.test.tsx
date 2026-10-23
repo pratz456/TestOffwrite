@@ -43,7 +43,7 @@ import {
   COMPARE_DIFF, COMPARE_SAME_AMOUNT, COMPARE_TITLE, CONFIRM_SAME_BACK, CONFIRM_SAME_TITLE, CONFIRM_SAME_YES,
   CORRECTED_ORIGINAL_BADGE, CORRECTED_PICK_QUESTION, CORRECTED_PREVIEW, DECISION_HELP_CORRECTED, DECISION_LABEL_CORRECTED,
   DECISION_LABEL_NOT_BUSINESS, DECISION_LABEL_PARTIAL, ERR_REASON_AMOUNT, GUIDE_ANSWER_APP, GUIDE_ANSWER_BANK, GUIDE_HINT_APP, GUIDE_HINT_BANK,
-  GUIDE_QUESTION, LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_TITLE, LEGACY_RECONFIRM_YES, LEGACY_NEC_WARNING, NO_CHOICE_YET, NO_FORM_NO_INCOME, PANEL_FORMS_NOTE, PARTIAL_OVERLAP_PREVIEW,
+  GUIDE_QUESTION, LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_TITLE, LEGACY_RECONFIRM_YES, LEGACY_NEC_WARNING, NO_CHOICE_YET, NO_FORM_NO_INCOME, PANEL_FORMS_NOTE, PARTIAL_OVERLAP_PREVIEW, REASON_ERROR, REASON_PERSONAL_HELP,
   SAME_DISABLED_NEC, fillIncomeCopy,
 } from '../lib/tax-rules/income-reconciliation-copy';
 import { incomeReconciliationPath } from '../lib/tax-rules/income-reconciliation-response';
@@ -502,6 +502,9 @@ describe('reconciliation choice and guide question', () => {
     expect(text(open)).not.toContain('on hold');
     check(open, '1099-K · Synthetic platform $900.00');
     radio(render(panel), 'k_not_business_income');
+    const entering = text(render(panel));
+    expect(entering).toContain(REASON_PERSONAL_HELP);
+    expect(entering).toContain(REASON_ERROR);
     walk(render(panel)).find(node => node.props?.['aria-label'] === 'Personal, not business')!.props.onChange();
     walk(render(panel)).find(node => node.props?.id === 'reconciliation-personal')!.props.onChange({ target: { value: '900' } });
     await submit(render(panel));
@@ -529,12 +532,13 @@ describe('reconciliation choice and guide question', () => {
   });
 
   it('shows the corrected-form label and keeps the code name off the label', async () => {
-    expect(DECISION_LABEL_CORRECTED).toBe('A corrected 1099-NEC replaces the original');
-    expect(CORRECTED_ORIGINAL_BADGE).toBe('Original, replaced by a corrected form. Kept, not counted.');
+    expect(DECISION_LABEL_CORRECTED).toBe('A client sent a corrected 1099-NEC');
+    expect(CORRECTED_ORIGINAL_BADGE).toBe('Original form. A corrected form was sent, so this one is kept but not counted.');
     expect(DECISION_HELP_CORRECTED).toBe('Use this when a client sent you a corrected 1099-NEC. We count the corrected form and keep the original in your records without counting it.');
     for (const value of Object.values(incomeCopy)) {
       if (typeof value !== 'string') continue;
       expect(value).not.toContain('corrected_form_replaces');
+      expect(value).not.toMatch(/replace/i);
       expect(value).not.toContain('\u2013');
       expect(value).not.toContain('\u2014');
     }

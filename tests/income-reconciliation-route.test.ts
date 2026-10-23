@@ -48,7 +48,7 @@ vi.mock('@/lib/firebase/admin', () => {
 import { DELETE, GET, PATCH, POST } from '../app/api/income/reconciliation/route';
 import { ExportReviewRequiredError } from '../lib/reports/transaction-export';
 import { ExportDataUnavailableError } from '../lib/reports/export-records';
-import { CONFIRM_FORMS_REQUIRED, ERR_PARTIAL_OVERLAP, ERR_SAME_NEEDS_K, ERR_SEPARATE_K_MATCHES_DEPOSIT, STALE_APP_REFRESH, fillIncomeCopy } from '../lib/tax-rules/income-reconciliation-copy';
+import { CONFIRM_FORMS_REQUIRED, DECISION_LABEL_CORRECTED, ERR_PARTIAL_OVERLAP, ERR_SAME_NEEDS_K, ERR_SEPARATE_K_MATCHES_DEPOSIT, STALE_APP_REFRESH, fillIncomeCopy } from '../lib/tax-rules/income-reconciliation-copy';
 
 type Body = Record<string, unknown>;
 function request(method: string, { body, query = '', headers = {} }: { body?: unknown; query?: string; headers?: Record<string, string> } = {}) {
@@ -444,6 +444,8 @@ describe('explicit choice and save rules', () => {
 
   it('saves yes for a legacy NEC-only same-payments decision and for two NECs plus deposits, and keeps each saved total', async () => {
     delete process.env.legacyNecReopen;
+    process.env.legacyDecisionReconfirm = '1';
+    try {
     for (const withDeposit of [false, true]) {
       state.docs.clear();
       state.writes.length = 0;
@@ -465,6 +467,33 @@ describe('explicit choice and save rules', () => {
       const { body } = await json(await GET(request('GET', { query: '?year=2026' })));
       expect(body.grossReceipts).toBe(12000);
       expect(body.conflicts).toEqual([]);
+    }
+    } finally {
+      delete process.env.legacyDecisionReconfirm;
+    }
+  });
+
+  it('names an unknown decision in plain text and never shows the corrected-form code', async () => {
+    const hidden = await json(await POST(request('POST', { body: {
+      taxYear: 2026, decision: 'merge', explicitChoice: true, sources: [ref('form_1099', 'k1', 12000)],
+    } })));
+    expect(hidden.status).toBe(400);
+    expect(hidden.body.error).toContain(DECISION_LABEL_CORRECTED);
+    expect(String(hidden.body.error)).not.toContain('corrected_form_replaces');
+    expect(String(hidden.body.error)).not.toContain('partial_overlap');
+    expect(String(hidden.body.error)).not.toContain('k_not_business_income');
+    expect(state.writes).toEqual([]);
+    process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME = '1';
+    try {
+      const shown = await json(await POST(request('POST', { body: {
+        taxYear: 2026, decision: 'merge', explicitChoice: true, sources: [ref('form_1099', 'k1', 12000)],
+      } })));
+      expect(shown.status).toBe(400);
+      expect(shown.body.error).toContain(DECISION_LABEL_CORRECTED);
+      expect(String(shown.body.error)).not.toContain('corrected_form_replaces');
+      expect(state.writes).toEqual([]);
+    } finally {
+      delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
     }
   });
 });

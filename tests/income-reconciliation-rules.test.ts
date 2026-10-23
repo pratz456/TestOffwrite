@@ -9,9 +9,9 @@ import {
   normalizeReconciliationDecision, resolveIncomeSources, samePaymentsAllowed, sourceKey, validateReconciliationDecision, type IncomeReconciliationDecision,
 } from '../lib/tax-rules/income-reconciliation';
 import {
-  CORRECTED_ORIGINAL_BADGE, ERR_CORRECTED_NEEDS_TWO_NEC, ERR_CORRECTED_PICK, ERR_CORRECTED_SAME_PAYER, ERR_CORRECTED_SUM,
-  ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED, ERR_SELECT_BUSINESS_RECORDS, NO_FORM_NO_INCOME, OUTSIDE_SC_NOTE,
-  DECISION_LABEL_CORRECTED, ERR_PARTIAL_OVERLAP, ERR_SAME_NEEDS_K, ERR_SEPARATE_K_MATCHES_DEPOSIT, LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_NEC_WARNING, PANEL_FORMS_NOTE, REASON_PERSONAL_HELP, fillIncomeCopy,
+  CORRECTED_ORIGINAL_BADGE, DECISION_LABEL_CORRECTED, ERR_CORRECTED_NEEDS_TWO_NEC, ERR_CORRECTED_PICK, ERR_CORRECTED_SAME_PAYER, ERR_CORRECTED_SUM,
+  ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTIAL_OVERLAP, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED, ERR_SAME_NEEDS_K, ERR_SELECT_BUSINESS_RECORDS, ERR_SEPARATE_K_MATCHES_DEPOSIT,
+  LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_NEC_WARNING, NO_FORM_NO_INCOME, OUTSIDE_SC_NOTE, PANEL_FORMS_NOTE, REASON_ERROR, REASON_PERSONAL_HELP, SAME_DISABLED_NEC, fillIncomeCopy,
 } from '../lib/tax-rules/income-reconciliation-copy';
 import * as incomeCopy from '../lib/tax-rules/income-reconciliation-copy';
 import { prepareReconciliationDecision, summarizeIncomeReconciliation } from '../lib/tax-rules/income-reconciliation-response';
@@ -407,6 +407,19 @@ describe('legacy 1099-NEC year split', () => {
     expect(summary.notices).toEqual([LEGACY_NEC_WARNING]);
     expect(summary.decisions[0].legacyNecWarning).toBe(LEGACY_NEC_WARNING);
     expect(summary.decisions[0].changeNotice).toBeUndefined();
+    const estimate = {
+      taxYear: 2026, transactions: [], grossReceipts: [], forms1099: forms, reconciliationDecisions: [saved],
+      w2Entries: [{ wages: 100000, federalWithheld: 0, socialSecurityWages: 100000, medicareWages: 100000 }],
+      profile: { filing_status: 'single' }, organizer: reviewedPersonalDeductionOrganizer(), deductions: {}, assets: [], estimatedPayments: 0,
+    };
+    delete process.env.legacyDecisionReconfirm;
+    expect(buildFederalTaxSnapshot(estimate).result.calculationWarnings).not.toContain(LEGACY_NEC_WARNING);
+    process.env.legacyDecisionReconfirm = '1';
+    try {
+      expect(buildFederalTaxSnapshot(estimate).result.calculationWarnings).toContain(LEGACY_NEC_WARNING);
+    } finally {
+      delete process.env.legacyDecisionReconfirm;
+    }
     expect(JSON.stringify([forms, saved])).toBe(before);
   });
 
@@ -601,10 +614,14 @@ describe('legacy decisions and copy', () => {
   });
 
   it('keeps the threshold wording and drops the banned claims', () => {
-    expect(REASON_PERSONAL_HELP).toBe('Gifts, money back from friends, a duplicate form, or a form that isn\'t yours. This is not on your Schedule C.');
-    expect(OUTSIDE_SC_NOTE).toBe('Outside Schedule C, needs review. This amount is not business income, so it is not on any Schedule C line. Ask the issuer for a corrected 1099-K, keep the form and your messages with the issuer, and file without waiting for the correction.');
+    expect(REASON_PERSONAL_HELP).toBe('Gifts, money back from friends, or personal items you sold for less than you paid. This is not business income, so it is not on your Schedule C.');
+    expect(REASON_ERROR).toBe('Form sent in error: it repeats payments already counted, or it isn\'t yours.');
+    expect(OUTSIDE_SC_NOTE).toBe('This is not business income, so it is not on your Schedule C. If the 1099-K was sent in error, or covers personal items you sold for less than you paid, the amount goes on Schedule 1 line 8z and the same amount on line 24z, so it adds no tax. If you sold personal items for more than you paid, the gain is taxable; ask your tax preparer. Ask the issuer for a corrected 1099-K, keep your records, and file without waiting for the correction.');
+    expect(ERR_SAME_NEEDS_K).toBe('Two 1099-NECs usually report different payments, so you can\'t count them once here. If one corrects the other, choose "A client sent a corrected 1099-NEC". If a client sent the same form twice, ask them which one is right.');
+    expect(SAME_DISABLED_NEC).toBe('Not available for two 1099-NECs. They usually report different payments.');
     expect(LEGACY_NEC_WARNING).toBe('Two 1099-NECs are separate income. Review this match.');
-    expect(DECISION_LABEL_CORRECTED).toBe('A corrected 1099-NEC replaces the original');
+    expect(DECISION_LABEL_CORRECTED).toBe('A client sent a corrected 1099-NEC');
+    expect(CORRECTED_ORIGINAL_BADGE).toBe('Original form. A corrected form was sent, so this one is kept but not counted.');
     expect(PANEL_FORMS_NOTE).toContain('over $20,000 and over 200 transactions');
     expect(NO_FORM_NO_INCOME).toContain("No form doesn't mean no income");
     let grep = '';
@@ -618,6 +635,7 @@ describe('legacy decisions and copy', () => {
       if (typeof value !== 'string') continue;
       expect(value).not.toContain('every dollar counted once');
       expect(value).not.toContain('finished');
+      expect(value).not.toMatch(/replace/i);
       expect(value).not.toContain('\u2013');
       expect(value).not.toContain('\u2014');
     }

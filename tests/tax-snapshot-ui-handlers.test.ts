@@ -451,17 +451,24 @@ describe('tax preview personal deduction and benefit contract', () => {
     expect(harness.navigate).toHaveBeenCalledWith('tax-organizer');
   });
 
-  it('lists the NEC same-payments review warning on a successful estimate', async () => {
+  it('lists the NEC same-payments review warning on a successful estimate only while legacy reconfirm is on', async () => {
     const data = snapshot(2026);
     data.income.grossReceipts = 12000;
     data.form1040.calculationWarnings = [LEGACY_NEC_WARNING];
     harness.request.mockImplementation((url: string) => url.includes('compute-1040') ? Promise.resolve(response(data)) : requests(url));
+    delete process.env.legacyDecisionReconfirm;
     render(TaxPreviewScreen); await flush();
-    const tree = render(TaxPreviewScreen);
-    const listed = walk(tree).find(node => node.props?.['aria-label'] === 'Records that need a reconciliation decision');
-    expect(text(listed)).toBe(LEGACY_NEC_WARNING);
-    expect(text(tree)).toContain('Estimated federal');
-    expect(text(tree)).not.toContain('Resolve the issue above');
+    expect(text(render(TaxPreviewScreen))).not.toContain(LEGACY_NEC_WARNING);
+    process.env.legacyDecisionReconfirm = '1';
+    try {
+      const tree = render(TaxPreviewScreen);
+      const listed = walk(tree).find(node => node.props?.['aria-label'] === 'Records that need a reconciliation decision');
+      expect(text(listed)).toBe(LEGACY_NEC_WARNING);
+      expect(text(tree)).toContain('Estimated federal');
+      expect(text(tree)).not.toContain('Resolve the issue above');
+    } finally {
+      delete process.env.legacyDecisionReconfirm;
+    }
   });
 
   it('shows server-provided net and taxable benefits, benefit withholding, and the separate senior deduction', async () => {
