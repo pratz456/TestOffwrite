@@ -8,7 +8,7 @@
  * Sources:
  * - IRC §6654 (required annual payment, 90%/100%/110% rules, $1,000 threshold,
  *   12-month prior-year requirement, no-prior-tax exception):
- *   https://uscode.house.gov/view.xhtml?req=granuleid:USC-prelim-title26-section6654&num=0&edition=prelim
+ *   https://www.govinfo.gov/content/pkg/USCODE-2023-title26/html/USCODE-2023-title26-subtitleF-chap68-subchapA-partI-sec6654.htm
  * - IRS Publication 505, Tax Withholding and Estimated Tax, ch. 2 and ch. 4:
  *   https://www.irs.gov/publications/p505
  * - Instructions for Form 2210 (Part I required annual payment, Part III regular
@@ -36,7 +36,7 @@ export type Quarter = 1 | 2 | 3 | 4;
 export type IsoDate = string;
 
 export const QUARTERLY_PLANNER_SOURCES = {
-  section6654: 'https://uscode.house.gov/view.xhtml?req=granuleid:USC-prelim-title26-section6654&num=0&edition=prelim',
+  section6654: 'https://www.govinfo.gov/content/pkg/USCODE-2023-title26/html/USCODE-2023-title26-subtitleF-chap68-subchapA-partI-sec6654.htm',
   publication505: 'https://www.irs.gov/publications/p505',
   form2210Instructions: 'https://www.irs.gov/instructions/i2210',
   form1040es: 'https://www.irs.gov/pub/irs-pdf/f1040es.pdf',

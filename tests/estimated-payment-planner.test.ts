@@ -387,6 +387,26 @@ describe('planner card behavior', () => {
     expect(bodies).toEqual([expect.objectContaining({ paymentId: 'pay-1', quarter: 1, year: 2026, paidAmount: 200, paidDate: '2026-04-10' })]);
   });
 
+  it('posts a planner card payment again when its date or amount changes and skips an identical retry', async () => {
+    const bodies: unknown[] = [];
+    const ready = { ok: true, status: 200, body: { planner: { status: 'ready', requiredAnnualPayment: { basis: 'prior_year_100', requiredAnnualPayment: 8500, deMinimis: { applies: false, evaluated: false } }, nextDue: { amountToPay: 8500, dueDate: '2027-01-15' } } } };
+    const transport: PlannerTransport = {
+      async postJson(url, body) {
+        if (url === '/api/tax/quarterly-payments') bodies.push(body);
+        return { ok: true, status: 200, body: {} };
+      },
+      async getJson() { return ready; },
+    };
+    const shared = guard();
+    expect((await submitPlannerCard(form({ payments: [{ clientId: 'pay-1', date: '2026-06-10', amount: '500' }] }), transport, shared)).status).toBe('ready');
+    expect((await submitPlannerCard(form({ payments: [{ clientId: 'pay-1', date: '2026-06-10', amount: '500' }] }), transport, shared)).status).toBe('ready');
+    expect((await submitPlannerCard(form({ payments: [{ clientId: 'pay-1', date: '2026-07-01', amount: '500' }] }), transport, shared)).status).toBe('ready');
+    expect(bodies).toEqual([
+      expect.objectContaining({ paymentId: 'pay-1', paidAmount: 500, paidDate: '2026-06-10' }),
+      expect.objectContaining({ paymentId: 'pay-1', paidAmount: 500, paidDate: '2026-07-01' }),
+    ]);
+  });
+
   it('E2 shows the drafted $1,000 sentence only on the 90% basis', () => {
     const shown = buildPlannerCardView({
       line24: 20000, credits: 0, twelveMonth: 'no', citizenOrResident: 'yes', taxYear: YEAR, hasCurrentYearFigure: true,

@@ -42,6 +42,11 @@ interface Payment {
   paymentMethod: string | null;
   status: "recorded" | "no_record";
   notes: string;
+  designatedTaxYear?: number | null;
+  editRecordId?: string | null;
+  editAmount?: number | null;
+  editPaidDate?: string | null;
+  editVersion?: number | null;
   penalty?: null;
 }
 
@@ -93,6 +98,7 @@ export function QuarterlyPaymentTrackingScreen({
   const [formConfirmation, setFormConfirmation] = useState("");
   const [formPaymentMethod, setFormPaymentMethod] = useState<string>("");
   const [formNotes, setFormNotes] = useState("");
+  const [formPurpose, setFormPurpose] = useState<"add" | "edit" | null>(null);
   const recordAttemptIds = useRef<Record<number, string>>({});
 
   const fetchPayments = useCallback(async () => {
@@ -129,7 +135,27 @@ export function QuarterlyPaymentTrackingScreen({
     setFormConfirmation("");
     setFormPaymentMethod("");
     setFormNotes("");
+    setFormPurpose(null);
     setExpandedQuarter(null);
+  };
+
+  const openForm = (payment: Payment, purpose: "add" | "edit") => {
+    delete recordAttemptIds.current[payment.quarter];
+    setExpandedQuarter(payment.quarter);
+    setFormPurpose(purpose);
+    if (purpose === "edit") {
+      setFormAmount(payment.editAmount != null ? String(payment.editAmount) : "");
+      setFormDate(payment.editPaidDate || new Date().toISOString().split("T")[0]);
+      setFormConfirmation(payment.confirmationNumber ?? "");
+      setFormPaymentMethod(payment.paymentMethod ?? "");
+      setFormNotes(payment.notes ?? "");
+      return;
+    }
+    setFormAmount("");
+    setFormDate(new Date().toISOString().split("T")[0]);
+    setFormConfirmation("");
+    setFormPaymentMethod("");
+    setFormNotes("");
   };
 
   const handleRecordPayment = async (quarter: number) => {
@@ -144,12 +170,14 @@ export function QuarterlyPaymentTrackingScreen({
     const paymentId = recordAttemptIds.current[quarter] ?? newClientPaymentId();
     recordAttemptIds.current[quarter] = paymentId;
     const existing = payments.find((payment) => payment.quarter === quarter);
+    const editing = formPurpose === "edit" && Boolean(existing?.editRecordId);
     try {
       const res = await makeAuthenticatedRequest("/api/tax/quarterly-payments", {
         method: "POST",
         body: JSON.stringify({
           paymentId,
-          ...(existing?.status === "recorded" ? { recordId: `Q${quarter}_${selectedYear}` } : {}),
+          ...(editing ? { recordId: existing?.editRecordId, baseVersion: existing?.editVersion ?? 0 } : {}),
+          ...(editing && typeof existing?.designatedTaxYear === "number" ? { designatedTaxYear: existing.designatedTaxYear } : {}),
           quarter,
           year: selectedYear,
           paidAmount: amount,
@@ -193,16 +221,6 @@ export function QuarterlyPaymentTrackingScreen({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update");
     }
-  };
-
-  const expandForm = (quarter: number) => {
-    delete recordAttemptIds.current[quarter];
-    setExpandedQuarter(quarter);
-    setFormAmount("");
-    setFormDate(new Date().toISOString().split("T")[0]);
-    setFormConfirmation("");
-    setFormPaymentMethod("");
-    setFormNotes("");
   };
 
   return (
@@ -469,6 +487,7 @@ export function QuarterlyPaymentTrackingScreen({
                                 variant="ghost"
                                 onClick={() => {
                                   delete recordAttemptIds.current[payment.quarter];
+                                  setFormPurpose(null);
                                   setExpandedQuarter(null);
                                 }}
                               >
@@ -477,14 +496,26 @@ export function QuarterlyPaymentTrackingScreen({
                             </div>
                           </div>
                         ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => expandForm(payment.quarter)}
-                            className="border-border"
-                          >
-                            Record Payment
-                          </Button>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openForm(payment, "add")}
+                              className="border-border"
+                            >
+                              Record Payment
+                            </Button>
+                            {payment.status === "recorded" && payment.editRecordId && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openForm(payment, "edit")}
+                                className="border-border"
+                              >
+                                Edit Payment
+                              </Button>
+                            )}
+                          </div>
                         )}
                       </>
                     )}

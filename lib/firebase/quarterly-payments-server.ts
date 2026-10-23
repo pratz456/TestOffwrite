@@ -1,6 +1,7 @@
 import { adminDb } from '@/lib/firebase/admin';
 
 export interface RecordedQuarterlyPayment {
+  id: string;
   quarter: 1 | 2 | 3 | 4;
   paidAmount: number;
   record: Record<string, unknown> | null;
@@ -53,7 +54,7 @@ export async function getRecordedQuarterlyPayments(userId: string, year: number)
     if (!item.snapshot.exists) continue;
     const record = item.snapshot.data() ?? null;
     if (!record || superseded(record)) continue;
-    payments.push({ quarter: item.quarter, paidAmount: paymentAmount(record.paidAmount), record });
+    payments.push({ id: `Q${item.quarter}_${year}`, quarter: item.quarter, paidAmount: paymentAmount(record.paidAmount), record });
   }
   for (const doc of listed.docs) {
     if (isLegacyQuarterlyPaymentId(doc.id)) continue;
@@ -61,7 +62,7 @@ export async function getRecordedQuarterlyPayments(userId: string, year: number)
     if (!record || superseded(record) || paymentTaxYear(record, year) !== year) continue;
     const quarter = quarterOf(record.quarter);
     if (!quarter) continue;
-    payments.push({ quarter, paidAmount: paymentAmount(record.paidAmount), record });
+    payments.push({ id: doc.id, quarter, paidAmount: paymentAmount(record.paidAmount), record });
   }
   return payments;
 }

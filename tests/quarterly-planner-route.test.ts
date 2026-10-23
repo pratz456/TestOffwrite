@@ -95,7 +95,8 @@ describe('quarterly summary returns planner figures from reviewed facts', () => 
     expect(result.planner.nextDue).toEqual({ quarter: 3, dueDate: '2026-09-15', amountToPay: 6750, includesEarlierShortfall: true, installmentOnly: 2500 });
     expect(result.planner.underpaymentInterestIllustration.label).toContain('illustration'); expect(result.planner.underpaymentInterestIllustration.total).toBeGreaterThan(0);
     expect(result.planner.annualizedIncomeMethod.available).toBe(false);
-    expect(result.planner.assumptions.join(' ')).toContain('credited on the date saved for that payment'); expect(result.planner.assumptions.join(' ')).toContain('basis selected: 100% of prior-year tax');
+    expect(result.planner.assumptions.join(' ')).toContain('Credited on the payment date you entered.'); expect(result.planner.assumptions.join(' ')).toContain('basis selected: 100% of prior-year tax');
+    expect(result.planner.assumptions.join(' ')).not.toContain('An amount applied from last year\'s return is credited on the first installment due date.');
     expect(result.planner.sources.publication505).toBe('https://www.irs.gov/publications/p505');
     expect(result.quarters[0].recommended).not.toBe(Math.round(expected.form1040.totalTax / 4 * 100) / 100);
   });
@@ -109,6 +110,15 @@ describe('quarterly summary returns planner figures from reviewed facts', () => 
     state.records.tax_organizers = [organizer({ priorReturnCoveredTwelveMonths: 'yes' })]; state.records.tax_deductions = [{ priorYearTotalTax: 10000, priorYearAGI: 150000.01 }];
     const result = await (await quarterly(req())).json();
     expect(result.planner.status).toBe('ready'); expect(result.planner.requiredAnnualPayment).toMatchObject({ basis: 'prior_year_110', requiredAnnualPayment: 11000 }); expect(result.safeHarborPerQuarter).toBe(2750);
+  });
+  it('credits an applied prior year overpayment on the first installment due date', async () => {
+    state.payments = [{ quarter: 4, paidAmount: 400, record: { paidAmount: 400, paidDate: '2026-12-20', paymentType: 'prior_year_overpayment' } }];
+    const result = await (await quarterly(req())).json();
+    const assumptions = result.planner.assumptions.join(' ');
+    expect(assumptions).toContain('An amount applied from last year\'s return is credited on the first installment due date.');
+    expect(assumptions).not.toContain('Credited on the payment date you entered.');
+    expect(result.quarters[0].paymentsMatchedTotal).toBe(400);
+    expect(result.quarters[3].paymentsMatchedTotal).toBe(0);
   });
   it('matches recorded payments by their saved payment date and reports unpublished 2027 rates as unavailable', async () => {
     state.payments = [{ quarter: 1, paidAmount: 2500, record: { paidDate: '2026-06-10' } }];

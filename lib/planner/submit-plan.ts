@@ -9,7 +9,7 @@ export interface PlannerTransport {
   getJson(url: string): Promise<{ ok: boolean; status: number; body: unknown }>;
 }
 
-export interface PlannerSubmitGuard { current: boolean; postedPaymentIds: Set<string> }
+export interface PlannerSubmitGuard { current: boolean; postedPaymentIds: Set<string>; postedSignatures?: Map<string, string> }
 
 export type PlannerSubmitResult =
   | { status: 'duplicate' }
@@ -71,7 +71,9 @@ export async function submitPlannerCard(input: PlannerFormInput, transport: Plan
     const profileWrite = await transport.postJson('/api/database/profiles', profile);
     if (!profileWrite.ok) throw new Error('profile');
     for (const payment of parsed.payments) {
-      if (guard.postedPaymentIds.has(payment.clientId)) continue;
+      const signature = `${payment.date}|${payment.amount}|${payment.designatedTaxYear ?? ''}|${payment.kind}`;
+      const signatures = guard.postedSignatures ?? (guard.postedSignatures = new Map());
+      if (signatures.get(payment.clientId) === signature) continue;
       const saved = await transport.postJson('/api/tax/quarterly-payments', {
         paymentId: payment.clientId,
         quarter: payment.quarter, year: input.taxYear, paidAmount: payment.amount, paidDate: payment.date,
@@ -80,6 +82,7 @@ export async function submitPlannerCard(input: PlannerFormInput, transport: Plan
       });
       if (!saved.ok) throw new Error('payment');
       guard.postedPaymentIds.add(payment.clientId);
+      signatures.set(payment.clientId, signature);
     }
   } catch {
     guard.current = false;
@@ -122,5 +125,6 @@ export async function submitPlannerCard(input: PlannerFormInput, transport: Plan
   try {
     await transport.postJson('/api/database/profiles', { firstRunPlannerCard: 'completed' });
   } catch { /* The result is already on screen. A later visit retries nothing the user still needs to see. */ }
+  guard.current = false;
   return { status: 'ready', view };
 }

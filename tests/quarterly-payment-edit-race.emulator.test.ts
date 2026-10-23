@@ -100,7 +100,7 @@ async function clearPayments() {
     const statuses = [first.status, second.status].sort();
     expect(statuses).toEqual([200, 409]);
     const rejected = [first, second].find(response => response.status === 409);
-    expect(await rejected?.json()).toMatchObject({ error: 'Another edit already saved this payment.' });
+    expect(await rejected?.json()).toMatchObject({ error: 'Another edit already saved this payment. Your change wasn\'t saved.' });
     const winner = [first, second].find(response => response.status === 200);
     const winnerBody = await winner?.json() as { paidAmount: number };
     const saved = await getRecordedQuarterlyPayments(uid, 2026);

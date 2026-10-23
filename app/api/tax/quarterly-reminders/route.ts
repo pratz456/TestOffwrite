@@ -76,7 +76,8 @@ export async function GET(request: NextRequest) {
           ...resolution.facts, payments: recorded, asOf,
           assumptions: [
             ...resolution.facts.assumptions,
-            ...(recorded.length ? ['Each recorded payment is credited on the date saved for that payment.'] : []),
+            ...(recorded.some(payment => payment.paymentType !== 'prior_year_overpayment') ? ['Credited on the payment date you entered.'] : []),
+            ...(recorded.some(payment => payment.paymentType === 'prior_year_overpayment') ? ['An amount applied from last year\'s return is credited on the first installment due date.'] : []),
           ],
         });
       } catch (plannerError) {

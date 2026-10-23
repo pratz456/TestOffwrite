@@ -28,6 +28,10 @@ interface QuarterlyPaymentRecord {
   paymentMethod: string | null;
   status: PaymentStatus;
   notes: string;
+  editRecordId: string | null;
+  editAmount: number | null;
+  editPaidDate: string | null;
+  editVersion: number | null;
   penalty?: null;
 }
 
@@ -37,7 +41,7 @@ function getDocId(quarter: number, year: number): string {
 
 const LEGACY_DOC_ID = /^Q([1-4])_(\d{4})$/;
 const CLIENT_PAYMENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
-const EDIT_ALREADY_SAVED = 'Another edit already saved this payment.';
+const EDIT_ALREADY_SAVED = 'Another edit already saved this payment. Your change wasn\'t saved.';
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
@@ -56,11 +60,20 @@ function present(value: unknown): boolean {
   return !(value === undefined || value === null || value === '');
 }
 
+function storedVersion(data: Record<string, unknown> | undefined): number {
+  const version = data?.version;
+  return typeof version === 'number' && Number.isInteger(version) && version >= 0 ? version : 0;
+}
+
+function requestedBaseVersion(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
 function getDeadlineForQuarter(quarter: number, year: number): Date {
   return getEstimatedTaxDeadline(year, quarter);
 }
 
-function createDefaultPayment(quarter: number, year: number): Omit<QuarterlyPaymentRecord, 'penalty'> {
+function createDefaultPayment(quarter: number, year: number): Omit<QuarterlyPaymentRecord, 'penalty' | 'editRecordId' | 'editAmount' | 'editPaidDate' | 'editVersion'> {
   const deadline = getDeadlineForQuarter(quarter, year);
   return {
     quarter,
@@ -113,14 +126,18 @@ export async function GET(request: NextRequest) {
         .map(payment => payment.record?.paidDate)
         .filter((date): date is string => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date))
         .sort();
+      const latestPaidDate = paidDates.at(-1) ?? null;
+      const current = counted.find(payment => payment.record?.paidDate === latestPaidDate) ?? counted.at(-1);
+      const detail = current?.record;
+      const rawVersion = detail?.version;
+      const editVersion = current
+        ? (typeof rawVersion === 'number' && Number.isInteger(rawVersion) && rawVersion >= 0 ? rawVersion : 0)
+        : null;
 
-      let record: Omit<QuarterlyPaymentRecord, 'penalty'>;
+      let record: Omit<QuarterlyPaymentRecord, 'penalty' | 'editRecordId' | 'editAmount' | 'editPaidDate' | 'editVersion'>;
 
       if (docSnap.exists) {
         const data = docSnap.data()!;
-        const latestPaidDate = paidDates.at(-1) ?? null;
-        const current = counted.find(payment => payment.record?.paidDate === latestPaidDate) ?? counted.at(-1);
-        const detail = current?.record;
         const legacySuperseded = typeof data.supersededBy === 'string' && data.supersededBy.length > 0;
         const source = detail ?? (legacySuperseded ? null : data);
         const rawDesignated = source?.designatedTaxYear;
@@ -139,11 +156,28 @@ export async function GET(request: NextRequest) {
           notes: typeof source?.notes === 'string' ? source.notes : '',
         };
       } else {
-        record = { ...createDefaultPayment(q, y), paidAmount, paidDate: paidDates.at(-1) ?? null };
+        const rawDesignated = detail?.designatedTaxYear;
+        record = {
+          ...createDefaultPayment(q, y),
+          paidAmount,
+          paidDate: latestPaidDate,
+          designatedTaxYear: typeof rawDesignated === 'number' && Number.isInteger(rawDesignated) ? rawDesignated : null,
+          paymentType: detail?.paymentType === 'prior_year_overpayment' ? 'prior_year_overpayment' : null,
+          confirmationNumber: typeof detail?.confirmationNumber === 'string' ? detail.confirmationNumber : null,
+          paymentMethod: typeof detail?.paymentMethod === 'string' ? detail.paymentMethod : null,
+          notes: typeof detail?.notes === 'string' ? detail.notes : '',
+        };
         // A read must not create records or race a payment being saved.
       }
 
-      payments.push({ ...record, status: record.paidAmount > 0 ? 'recorded' : 'no_record' });
+      payments.push({
+        ...record,
+        status: record.paidAmount > 0 ? 'recorded' : 'no_record',
+        editRecordId: current?.id ?? null,
+        editAmount: current ? current.paidAmount : null,
+        editPaidDate: typeof detail?.paidDate === 'string' ? detail.paidDate : null,
+        editVersion,
+      });
     }
 
     payments.sort((a, b) => a.quarter - b.quarter);
@@ -195,6 +229,7 @@ export async function POST(request: NextRequest) {
       priorReturnFiled,
       paymentId: rawPaymentId,
       recordId: rawRecordId,
+      baseVersion: rawBaseVersion,
     } = body;
 
     if (quarter == null || year == null || paidAmount == null || !paidDate) {
@@ -238,73 +273,109 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid payment id' }, { status: 400 });
     }
     const hasRecordId = present(rawRecordId);
-    const recordId = hasRecordId && typeof rawRecordId === 'string' && LEGACY_DOC_ID.test(rawRecordId) ? rawRecordId : null;
+    const legacyRecordId = hasRecordId && typeof rawRecordId === 'string' && LEGACY_DOC_ID.test(rawRecordId) ? rawRecordId : null;
+    const clientRecordId = hasRecordId && typeof rawRecordId === 'string' ? clientPaymentId(rawRecordId) : null;
+    const recordId = legacyRecordId ?? clientRecordId;
     if (hasRecordId && !recordId) {
       return NextResponse.json({ error: 'Invalid payment record' }, { status: 400 });
     }
     const storedDesignation = designatedYear(designatedTaxYear);
     const taxYearFor = storedDesignation ?? y;
+    const baseVersion = requestedBaseVersion(rawBaseVersion);
 
     if (paymentId) {
       const paymentRef = collectionRef.doc(paymentId);
-      const legacyRef = recordId ? collectionRef.doc(recordId) : null;
+      const legacyRef = legacyRecordId ? collectionRef.doc(legacyRecordId) : null;
+      const clientRef = clientRecordId ? collectionRef.doc(clientRecordId) : null;
       let attempt = 0;
       const saved = await adminDb.runTransaction(async transaction => {
         attempt += 1;
         const snapshot = await transaction.get(paymentRef);
-        let liveId: string | null = null;
-        let liveExists = false;
-        if (legacyRef) {
-          const legacy = await transaction.get(legacyRef);
-          if (!legacy.exists) return { missing: true, conflict: false, record: null };
-          const claimedBy = legacy.data()?.supersededBy;
-          // A retried transaction saw another id win this record. Do not add a second copy.
-          if (attempt > 1 && typeof claimedBy === 'string' && claimedBy.length > 0 && claimedBy !== paymentId) {
+        const paidOn = effectiveDateFor(taxYearFor);
+        const quarterForDate = assignInstallmentPeriod(paidOn, taxYearFor).quarter;
+        const nextAmount = roundMoney(amount);
+        const sameSavedPayment = (data: Record<string, unknown> | undefined) => {
+          if (!data) return false;
+          const sameAmount = roundMoney(Number(data.paidAmount) || 0) === nextAmount;
+          const sameDate = data.paidDate === paidOn;
+          const sameYear = designatedYear(data.designatedTaxYear) === storedDesignation;
+          const sameType = (data.paymentType === 'prior_year_overpayment') === applied;
+          return sameAmount && sameDate && sameYear && sameType;
+        };
+        const buildRecord = (version: number) => ({
+          ...createDefaultPayment(quarterForDate, taxYearFor),
+          quarter: quarterForDate, year: taxYearFor, paidAmount: nextAmount, paidDate: paidOn,
+          designatedTaxYear: storedDesignation,
+          paymentType: applied ? 'prior_year_overpayment' as const : null,
+          confirmationNumber: typeof confirmationNumber === 'string' ? confirmationNumber.slice(0, 200) : null,
+          paymentMethod: typeof paymentMethod === 'string' ? paymentMethod.slice(0, 100) : null,
+          notes: typeof notes === 'string' ? notes.slice(0, 2000) : '',
+          status: nextAmount > 0 ? 'recorded' as const : 'no_record' as const,
+          penalty: null,
+          version,
+        });
+        const writePayment = (version: number) => {
+          const record = buildRecord(version);
+          transaction.set(paymentRef, { ...record, updatedAt: FieldValue.serverTimestamp() });
+          return record;
+        };
+
+        if (legacyRef || clientRef) {
+          const anchorRef = legacyRef ?? clientRef!;
+          const anchor = await transaction.get(anchorRef);
+          if (!anchor.exists) return { missing: true, conflict: false, record: null };
+          let liveId: string | null = clientRef ? clientRecordId : null;
+          let liveExists = Boolean(clientRef);
+          let liveData: Record<string, unknown> | undefined = clientRef ? anchor.data() : undefined;
+          const claimedBy = anchor.data()?.supersededBy;
+          if (legacyRef && attempt > 1 && typeof claimedBy === 'string' && claimedBy.length > 0 && claimedBy !== paymentId) {
             return { missing: false, conflict: true, record: null };
           }
-          let cursor: unknown = claimedBy;
+          let cursor: unknown = legacyRef ? claimedBy : (typeof claimedBy === 'string' && claimedBy.length > 0 ? claimedBy : null);
           for (let guard = 0; typeof cursor === 'string' && cursor.length > 0 && guard < 8; guard += 1) {
             liveId = cursor;
             const live = await transaction.get(collectionRef.doc(cursor));
             liveExists = live.exists;
-            const next: unknown = live.exists ? live.data()?.supersededBy : null;
+            liveData = live.exists ? live.data() : undefined;
+            const next: unknown = liveData?.supersededBy;
             if (typeof next === 'string' && next.length > 0 && next !== cursor) {
               cursor = next;
               continue;
             }
             break;
           }
+          if (clientRef && attempt > 1 && liveId && liveId !== paymentId) {
+            return { missing: false, conflict: true, record: null };
+          }
           // Hold the read open only for the emulator race test, so both edits observe the same record.
-          if (attempt === 1 && process.env.WRITEOFF_RULES_EMULATOR_TESTS === '1') {
+          if (legacyRef && attempt === 1 && process.env.WRITEOFF_RULES_EMULATOR_TESTS === '1') {
             await new Promise(resolve => setTimeout(resolve, 750));
           }
-        } else if (snapshot.exists) {
-          return { missing: false, conflict: false, record: snapshot.data()! };
-        }
-        const priorPaid = !legacyRef && snapshot.exists ? roundMoney(Number(snapshot.data()?.paidAmount) || 0) : 0;
-        const paidAmount = legacyRef ? roundMoney(amount) : roundMoney(priorPaid + amount);
-        const paidOn = effectiveDateFor(taxYearFor);
-        // The installment follows the payment date inside the tax year the payment is for.
-        const quarterForDate = assignInstallmentPeriod(paidOn, taxYearFor).quarter;
-        const record = {
-          ...createDefaultPayment(quarterForDate, taxYearFor),
-          quarter: quarterForDate, year: taxYearFor, paidAmount, paidDate: paidOn,
-          designatedTaxYear: storedDesignation,
-          paymentType: applied ? 'prior_year_overpayment' as const : null,
-          confirmationNumber: typeof confirmationNumber === 'string' ? confirmationNumber.slice(0, 200) : null,
-          paymentMethod: typeof paymentMethod === 'string' ? paymentMethod.slice(0, 100) : null,
-          notes: typeof notes === 'string' ? notes.slice(0, 2000) : '',
-          status: paidAmount > 0 ? 'recorded' : 'no_record',
-          penalty: null,
-        };
-        transaction.set(paymentRef, { ...record, updatedAt: FieldValue.serverTimestamp() });
-        if (legacyRef) {
-          if (liveId && liveId !== paymentId && liveExists) {
-            transaction.set(collectionRef.doc(liveId), { supersededBy: paymentId, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+          const liveVersion = liveExists ? storedVersion(liveData) : storedVersion(anchor.data());
+          const alreadyLive = snapshot.exists && sameSavedPayment(snapshot.data()) && (!liveId || liveId === paymentId);
+          if (alreadyLive) return { missing: false, conflict: false, record: snapshot.data()! };
+          if (baseVersion !== null && baseVersion !== liveVersion) {
+            return { missing: false, conflict: true, record: null };
           }
-          transaction.set(legacyRef, { supersededBy: paymentId, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+          const record = writePayment(liveVersion + 1);
+          const stamp = { supersededBy: paymentId, updatedAt: FieldValue.serverTimestamp() };
+          if (liveId && liveId !== paymentId && liveExists) {
+            transaction.set(collectionRef.doc(liveId), stamp, { merge: true });
+          }
+          if (legacyRef) transaction.set(legacyRef, stamp, { merge: true });
+          else if (clientRecordId && clientRecordId !== paymentId && clientRecordId !== liveId) {
+            transaction.set(anchorRef, stamp, { merge: true });
+          }
+          return { missing: false, conflict: false, record };
         }
-        return { missing: false, conflict: false, record };
+
+        if (snapshot.exists) {
+          if (sameSavedPayment(snapshot.data())) return { missing: false, conflict: false, record: snapshot.data()! };
+          const liveVersion = storedVersion(snapshot.data());
+          if (baseVersion !== null && baseVersion !== liveVersion) return { missing: false, conflict: true, record: null };
+          return { missing: false, conflict: false, record: writePayment(liveVersion + 1) };
+        }
+        return { missing: false, conflict: false, record: writePayment(1) };
       });
       if (saved.conflict) {
         return NextResponse.json({ error: EDIT_ALREADY_SAVED }, { status: 409 });

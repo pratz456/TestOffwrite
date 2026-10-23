@@ -26,6 +26,10 @@ function payment(quarter: number, recorded: boolean) {
     estimatedAmount: 0, paidAmount: recorded ? 2125 : 0, paidDate: recorded ? `${year}-04-01` : null,
     confirmationNumber: recorded ? 'OLD-CONF' : null, paymentMethod: recorded ? 'Check' : null,
     status: recorded ? 'recorded' : 'no_record', notes: recorded ? 'old note' : '',
+    editRecordId: recorded ? `Q${quarter}_${year}` : null,
+    editAmount: recorded ? 2125 : null,
+    editPaidDate: recorded ? `${year}-04-01` : null,
+    editVersion: recorded ? 0 : null,
   };
 }
 
@@ -40,7 +44,7 @@ beforeEach(() => { h.slots = []; h.cursor = 0; h.effects = []; h.request.mockRes
 afterEach(() => { h.slots.forEach(slot => slot?.cleanup?.()); });
 
 describe('quarterly payment tracking edits', () => {
-  it('sends the legacy record id when the user edits a recorded payment', async () => {
+  it('adds another payment without sending a record id', async () => {
     h.request.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
       if (init?.method === 'POST') return Response.json({ ok: true });
       return Response.json({
@@ -63,7 +67,8 @@ describe('quarterly payment tracking edits', () => {
     await walk(render()).find(node => node.props?.onClick && text(node) === 'Save Payment').props.onClick();
     await flush();
     const posts = () => h.request.mock.calls.map(call => call[1]).filter(init => init?.method === 'POST').map(init => JSON.parse(init.body));
-    expect(posts()[0]).toMatchObject({ recordId: `Q1_${year}`, quarter: 1, year, paidAmount: 2000 });
+    expect(posts()[0]).toMatchObject({ quarter: 1, year, paidAmount: 2000 });
+    expect(posts()[0]).not.toHaveProperty('recordId');
     const again = render();
     const recordButtons = walk(again).filter(node => node.props?.onClick && text(node) === 'Record Payment');
     recordButtons[1].props.onClick();
@@ -71,6 +76,97 @@ describe('quarterly payment tracking edits', () => {
     await walk(render()).find(node => node.props?.onClick && text(node) === 'Save Payment').props.onClick();
     expect(posts()[1]).toMatchObject({ quarter: 2, year, paidAmount: 50 });
     expect(posts()[1]).not.toHaveProperty('recordId');
+  });
+
+  it('opens Edit Payment with the saved amount and date and replaces that payment', async () => {
+    h.request.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (init?.method === 'POST') return Response.json({ ok: true });
+      return Response.json({
+        payments: [payment(1, true), payment(2, false), payment(3, false), payment(4, false)],
+        summary: { totalEstimated: 0, totalPaid: 2125, totalRemaining: 0, totalPenalty: null },
+      });
+    });
+    render();
+    await flush();
+    const loaded = render();
+    const edit = walk(loaded).find(node => node.props?.onClick && text(node) === 'Edit Payment');
+    edit.props.onClick();
+    const opened = render();
+    expect(walk(opened).find(node => node.props?.placeholder === '0.00').props.value).toBe('2125');
+    expect(walk(opened).find(node => node.props?.type === 'date').props.value).toBe(`${year}-04-01`);
+    fill(opened, '2000', `${year}-04-12`);
+    await walk(render()).find(node => node.props?.onClick && text(node) === 'Save Payment').props.onClick();
+    await flush();
+    const posts = h.request.mock.calls.map(call => call[1]).filter(init => init?.method === 'POST').map(init => JSON.parse(init.body));
+    expect(posts[0]).toMatchObject({ recordId: `Q1_${year}`, baseVersion: 0, quarter: 1, year, paidAmount: 2000, paidDate: `${year}-04-12` });
+  });
+
+  it('adds a planner card payment from the tracking screen without a record id', async () => {
+    const row = {
+      ...payment(1, true),
+      paidAmount: 100,
+      editRecordId: 'planner-card-payment-1',
+      editAmount: 100,
+      editPaidDate: `${year}-04-02`,
+      editVersion: 2,
+      designatedTaxYear: year,
+    };
+    h.request.mockImplementation(async (_url: string, init?: { method?: string; body?: string }) => {
+      if (init?.method === 'POST') return Response.json({ ok: true });
+      return Response.json({
+        payments: [row, payment(2, false), payment(3, false), payment(4, false)],
+        summary: { totalEstimated: 0, totalPaid: 100, totalRemaining: 0, totalPenalty: null },
+      });
+    });
+    render();
+    await flush();
+    const loaded = render();
+    const record = walk(loaded).find(node => node.props?.onClick && text(node) === 'Record Payment');
+    record.props.onClick();
+    const opened = render();
+    expect(walk(opened).find(node => node.props?.placeholder === '0.00').props.value).toBe('');
+    fill(opened, '40', `${year}-04-18`);
+    await walk(render()).find(node => node.props?.onClick && text(node) === 'Save Payment').props.onClick();
+    await flush();
+    const posts = h.request.mock.calls.map(call => call[1]).filter(init => init?.method === 'POST').map(init => JSON.parse(init.body));
+    expect(posts[0]).toMatchObject({ quarter: 1, year, paidAmount: 40, paidDate: `${year}-04-18` });
+    expect(posts[0]).not.toHaveProperty('recordId');
+  });
+
+  it('edits a planner card payment from the tracking screen by its saved id', async () => {
+    const row = {
+      ...payment(1, true),
+      paidAmount: 100,
+      editRecordId: 'planner-card-payment-1',
+      editAmount: 100,
+      editPaidDate: `${year}-04-02`,
+      editVersion: 2,
+      designatedTaxYear: year,
+      confirmationNumber: 'PLAN-1',
+    };
+    h.request.mockImplementation(async (_url: string, init?: { method?: string; body?: string }) => {
+      if (init?.method === 'POST') return Response.json({ ok: true });
+      return Response.json({
+        payments: [row, payment(2, false), payment(3, false), payment(4, false)],
+        summary: { totalEstimated: 0, totalPaid: 100, totalRemaining: 0, totalPenalty: null },
+      });
+    });
+    render();
+    await flush();
+    const loaded = render();
+    const edit = walk(loaded).find(node => node.props?.onClick && text(node) === 'Edit Payment');
+    edit.props.onClick();
+    const opened = render();
+    expect(walk(opened).find(node => node.props?.placeholder === '0.00').props.value).toBe('100');
+    expect(walk(opened).find(node => node.props?.type === 'date').props.value).toBe(`${year}-04-02`);
+    fill(opened, '80', `${year}-04-21`);
+    await walk(render()).find(node => node.props?.onClick && text(node) === 'Save Payment').props.onClick();
+    await flush();
+    const posts = h.request.mock.calls.map(call => call[1]).filter(init => init?.method === 'POST').map(init => JSON.parse(init.body));
+    expect(posts[0]).toMatchObject({
+      recordId: 'planner-card-payment-1', baseVersion: 2, designatedTaxYear: year,
+      quarter: 1, year, paidAmount: 80, paidDate: `${year}-04-21`,
+    });
   });
 });
 
