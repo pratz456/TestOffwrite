@@ -336,12 +336,23 @@ export function isRestaurantMealAt100Percent(category: string, taxYear: number |
   return category === 'FOOD_AND_DRINK_RESTAURANT' && (taxYear === 2021 || taxYear === 2022);
 }
 
-const AWAITING_SCHEDULE_C_LINE = new Set([
+/** Confirmed records in this set get no Schedule C line, including the other-expenses fallback, and stay on the review list. */
+export const AWAITING_SCHEDULE_C_LINE: ReadonlySet<string> = new Set([
+  'LOAN_PAYMENTS_CAR_PAYMENT',
+  'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT',
+  'LOAN_PAYMENTS_PERSONAL_LOAN_PAYMENT',
+  'LOAN_PAYMENTS_MORTGAGE_PAYMENT',
+  'LOAN_PAYMENTS_STUDENT_LOAN_PAYMENT',
+  'LOAN_PAYMENTS_OTHER_PAYMENT',
+  'LOAN_PAYMENTS_BNPL',
+  'LOAN_PAYMENTS_CASH_ADVANCES',
+  'LOAN_PAYMENTS_EWA',
+  'GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT',
   'GENERAL_SERVICES_INSURANCE',
   'SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS',
 ]);
 
-/** These two categories stay on the review list. Aggregation gives them no Schedule C line. */
+/** These categories stay on the review list. Aggregation gives them no Schedule C line. */
 export function isAwaitingScheduleCLine(category: string): boolean {
   return AWAITING_SCHEDULE_C_LINE.has(category);
 }
@@ -477,6 +488,7 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
   for (const tx of deductibleTransactions) {
     // Callers pass a year map. The transaction date still selects the line.
     const recordYear = resolveOtherExpensesYear(tx);
+    // Awaiting codes never reach the 27a fallback below.
     if (recordYear == null || isAwaitingScheduleCLine(tx.category)) continue;
     const fromDate = categoryMapForTaxYear(recordYear);
     const activeMap = categoryMap === fromDate ? categoryMap : fromDate;

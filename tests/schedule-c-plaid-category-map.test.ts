@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { aggregateScheduleC, CATEGORY_MAP, CATEGORY_MAP_EFFECTIVE_YEAR, CATEGORY_MAP_FROM_2026, categoryMapForTaxYear, isBusinessExpense, LEGACY_FOOD_CATEGORY_VALUES, PERSONAL_PLAID_CODES, PLAID_BANK_SYNC_MAP, REVIEW_REQUIRED_PLAID_CODES } from '@/lib/schedule-c/aggregate';
+import { aggregateScheduleC, AWAITING_SCHEDULE_C_LINE, CATEGORY_MAP, CATEGORY_MAP_EFFECTIVE_YEAR, CATEGORY_MAP_FROM_2026, categoryMapForTaxYear, isAwaitingScheduleCLine, isBusinessExpense, LEGACY_FOOD_CATEGORY_VALUES, PERSONAL_PLAID_CODES, PLAID_BANK_SYNC_MAP, REVIEW_REQUIRED_PLAID_CODES } from '@/lib/schedule-c/aggregate';
 import { OTHER_EXPENSES_27B_FIRST_YEAR, otherExpensesLine, publishedOtherExpensesLine, resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
 import { convertTransactionsToCSV } from '@/lib/reports/transaction-export';
 import { buildFederalTaxSnapshot } from '@/lib/tax-rules/federal-tax-snapshot';
@@ -207,8 +207,22 @@ describe('Plaid category codes on Schedule C', () => {
     }
   });
 
-  it('review codes stay off the 2026 map and only insurance and financial planning have no line', () => {
-    const noLine = new Set(['GENERAL_SERVICES_INSURANCE', 'SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS']);
+  it('review codes stay off the 2026 map and only the no-line review codes have no line', () => {
+    const noLine = new Set([
+      'LOAN_PAYMENTS_CAR_PAYMENT',
+      'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT',
+      'LOAN_PAYMENTS_PERSONAL_LOAN_PAYMENT',
+      'LOAN_PAYMENTS_MORTGAGE_PAYMENT',
+      'LOAN_PAYMENTS_STUDENT_LOAN_PAYMENT',
+      'LOAN_PAYMENTS_OTHER_PAYMENT',
+      'LOAN_PAYMENTS_BNPL',
+      'LOAN_PAYMENTS_CASH_ADVANCES',
+      'LOAN_PAYMENTS_EWA',
+      'GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT',
+      'GENERAL_SERVICES_INSURANCE',
+      'SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS',
+    ]);
+    expect([...AWAITING_SCHEDULE_C_LINE].sort()).toEqual([...noLine].sort());
     for (const code of REVIEW_REQUIRED_PLAID_CODES) {
       expect(PLAID_BANK_SYNC_MAP[code], code).toBeUndefined();
       expect(CATEGORY_MAP_FROM_2026[code], code).toBeUndefined();
@@ -579,34 +593,57 @@ describe('Plaid category codes on Schedule C', () => {
     }
   });
 
-  it('insurance and financial planning show on the review list with their amounts and stay out of Schedule C totals', () => {
-    const rows = [
-      ['GENERAL_SERVICES_INSURANCE', 18],
-      ['SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS', 42.5],
-    ] as const;
-    const printed = rows.map(([category, amount]) => {
-      const record = { ...confirmed(category, amount, '2026-06-15'), iso_currency_code: 'USD' };
-      const schedule = aggregateScheduleC([record], '2026', CATEGORY_MAP, { mode: 'confirmed-only' });
-      const reviewList = prioritizeTransactionReview([record].filter(transactionNeedsCategoryReview));
-      expect(reviewList, category).toEqual([record]);
-      expect(transactionNeedsTaxReview(record), category).toBe(true);
-      expect(dashboardRecordStatus(record), category).toBe('review');
-      expect(schedule.lineItemsArray, category).toEqual([]);
-      expect(schedule.totalDeductible, category).toBe(0);
-      expect(schedule.totalExpenses, category).toBe(0);
-      return {
-        category,
-        line: 'none',
-        deductible: schedule.totalDeductible,
-        reviewAmount: record.amount,
-        shown: formatRecordedTransactionAmount(record),
-      };
-    });
-    console.log(`REVIEW_MOVED ${JSON.stringify(printed)}`);
-    expect(printed).toEqual([
-      { category: 'GENERAL_SERVICES_INSURANCE', line: 'none', deductible: 0, reviewAmount: 18, shown: '$18.00' },
-      { category: 'SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS', line: 'none', deductible: 0, reviewAmount: 42.5, shown: '$42.50' },
-    ]);
+  it.each([
+    ['LOAN_PAYMENTS_CAR_PAYMENT', 21],
+    ['LOAN_PAYMENTS_CREDIT_CARD_PAYMENT', 22],
+    ['LOAN_PAYMENTS_PERSONAL_LOAN_PAYMENT', 23],
+    ['LOAN_PAYMENTS_MORTGAGE_PAYMENT', 24],
+    ['LOAN_PAYMENTS_STUDENT_LOAN_PAYMENT', 25],
+    ['LOAN_PAYMENTS_OTHER_PAYMENT', 26],
+    ['LOAN_PAYMENTS_BNPL', 27],
+    ['LOAN_PAYMENTS_CASH_ADVANCES', 28],
+    ['LOAN_PAYMENTS_EWA', 29],
+    ['GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT', 30],
+    ['GENERAL_SERVICES_INSURANCE', 18],
+    ['SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS', 42.5],
+  ] as const)('%s has no Schedule C line and stays on the review list with its amount', (category, amount) => {
+    const record = { ...confirmed(category, amount, '2026-06-15'), iso_currency_code: 'USD' };
+    const priorYear = { ...confirmed(category, amount, '2024-06-15'), iso_currency_code: 'USD' };
+    const schedule = aggregateScheduleC([record], '2026', CATEGORY_MAP, { mode: 'confirmed-only' });
+    const schedule2024 = aggregateScheduleC([priorYear], '2024', CATEGORY_MAP, { mode: 'confirmed-only' });
+    const reviewList = prioritizeTransactionReview([record].filter(transactionNeedsCategoryReview));
+    const shown = formatRecordedTransactionAmount(record);
+    expect(reviewList).toEqual([record]);
+    expect(reviewList[0]?.amount).toBe(amount);
+    expect(transactionNeedsTaxReview(record)).toBe(true);
+    expect(dashboardRecordStatus(record)).toBe('review');
+    expect(schedule.lineItemsArray).toEqual([]);
+    expect(schedule.lineItems['27a']).toBeUndefined();
+    expect(schedule.lineItems['27b']).toBeUndefined();
+    expect(schedule.totalDeductible).toBe(0);
+    expect(schedule.totalExpenses).toBe(0);
+    expect(schedule2024.lineItemsArray).toEqual([]);
+    expect(schedule2024.lineItems['27a']).toBeUndefined();
+    expect(schedule2024.totalDeductible).toBe(0);
+    expect(sumExpensesForQuarter([record], 2026, 2, 'UTC').confirmed_deductible_expenses).toBe(0);
+    const printed = { category, line: 'none', deductible: schedule.totalDeductible, reviewAmount: amount, shown };
+    console.log(`NO_LINE ${JSON.stringify(printed)}`);
+    expect(printed.reviewAmount).toBe(amount);
+    expect(printed.deductible).toBe(0);
+  });
+
+  it('GENERAL_SERVICES_ACCOUNTING_AND_FINANCIAL_PLANNING keeps the other expenses year line', () => {
+    expect(isAwaitingScheduleCLine('GENERAL_SERVICES_ACCOUNTING_AND_FINANCIAL_PLANNING')).toBe(false);
+    const printed = {
+      category: 'GENERAL_SERVICES_ACCOUNTING_AND_FINANCIAL_PLANNING',
+      y2024: lineAndDeductible('GENERAL_SERVICES_ACCOUNTING_AND_FINANCIAL_PLANNING', '2024'),
+      y2025: lineAndDeductible('GENERAL_SERVICES_ACCOUNTING_AND_FINANCIAL_PLANNING', '2025'),
+      y2026: lineAndDeductible('GENERAL_SERVICES_ACCOUNTING_AND_FINANCIAL_PLANNING', '2026'),
+    };
+    console.log(`ACCOUNTING_LINE ${JSON.stringify(printed)}`);
+    expect(printed.y2024).toEqual({ line: ['27a'], deductible: 10 });
+    expect(printed.y2025).toEqual({ line: ['27b'], deductible: 10 });
+    expect(printed.y2026).toEqual({ line: ['27b'], deductible: 10 });
   });
 
   it('financial planning stays on the review list with its amount and no line', () => {
