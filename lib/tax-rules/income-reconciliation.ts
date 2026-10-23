@@ -413,7 +413,7 @@ export interface IncomeReconciliationResolution {
   notices: string[];
   /** Saved same-payments decisions with two or more 1099-NECs that keep counting while the reopen switch is off. */
   legacyNecWarningIds: string[];
-  /** Current-year NEC-only same-payments decisions reopened while the reopen switch is on. */
+  /** Current-year NEC-only same-payments decisions reopened while the reconciliation switch and the reopen switch are both on. */
   reopenedNecDecisionIds: string[];
 }
 

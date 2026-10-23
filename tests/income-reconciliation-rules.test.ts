@@ -456,6 +456,31 @@ describe('legacy 1099-NEC year split', () => {
     }
   });
 
+  it('keeps a current-year two 1099-NEC same-payments total when only the reopen switch is on', () => {
+    const forms = necPair();
+    const saved = decision('d1', 'same_payments', necSources(), { version: 1, countedAmount: 12000 });
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
+    process.env.legacyNecReopen = '1';
+    try {
+      const result = reconcileBusinessIncome(2026, [], [], forms, [saved]);
+      expect(result.grossReceipts).toBe(12000);
+      expect(result.netReceipts).toBe(12000);
+      expect(result.reconciledDecisionCount).toBe(1);
+      expect(result.warnings).toContain(LEGACY_NEC_WARNING);
+      expect(result.warnings.join('\n')).not.toContain(ERR_SAME_NEEDS_K);
+      expect(result.warnings).not.toContain(LEGACY_NEC_REOPEN_REASON);
+      const summary = summarizeIncomeReconciliation(2026, { transactions: [], receipts: [], forms, decisions: [saved] });
+      expect(summary.grossReceipts).toBe(12000);
+      expect(summary.conflicts).toEqual([]);
+      expect(summary.decisions[0].applied).toBe(true);
+      expect(summary.decisions[0].legacyNecWarning).toBe(LEGACY_NEC_WARNING);
+      expect(summary.decisions[0].changeNotice).toBeUndefined();
+    } finally {
+      delete process.env.legacyNecReopen;
+      delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
+    }
+  });
+
   it('flags 2025 and 2024 NEC-only same-payments decisions without rewriting those saved totals', () => {
     for (const taxYear of [2025, 2024]) {
       const forms = necPair();

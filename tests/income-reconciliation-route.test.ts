@@ -543,6 +543,33 @@ describe('explicit choice and save rules', () => {
       delete process.env.legacyNecReopen;
     }
   });
+
+  // The sentence is built at app/api/income/reconciliation/route.ts:63 from the guided branch at route.ts:59
+  // and returned for a zod failure at route.ts:125 (also route.ts:127, route.ts:153, and route.ts:155).
+  it('returns the exact guided invalid-decision sentence', async () => {
+    const guided = 'Provide the tax year, a decision type (Same payments, Separate income, 1099-K includes fees or A client sent a corrected 1099-NEC) and the records it covers with their current amounts.';
+    const guidedWithK = 'Provide the tax year, a decision type (Same payments, Separate income, 1099-K includes fees, 1099-K includes amounts that are not business income, Part of the 1099-K is also on the 1099-NEC or A client sent a corrected 1099-NEC) and the records it covers with their current amounts.';
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
+    try {
+      const shown = await json(await POST(request('POST', { body: {
+        taxYear: 2026, decision: 'merge', explicitChoice: true, sources: [ref('form_1099', 'k1', 12000)],
+      } })));
+      expect(shown.status).toBe(400);
+      expect(shown.body.error).toBe(guided);
+      expect(state.writes).toEqual([]);
+      process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME = '1';
+      const withK = await json(await POST(request('POST', { body: {
+        taxYear: 2026, decision: 'merge', explicitChoice: true, sources: [ref('form_1099', 'k1', 12000)],
+      } })));
+      expect(withK.status).toBe(400);
+      expect(withK.body.error).toBe(guidedWithK);
+      expect(state.writes).toEqual([]);
+    } finally {
+      delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
+      delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
+    }
+  });
 });
 
 describe('separate income does not count a form together with a deposit or direct income', () => {
