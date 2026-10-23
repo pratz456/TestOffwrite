@@ -1,4 +1,5 @@
 import { getAnalysisProfile } from '@/lib/ai/profile-context';
+import { readUserVehicleRecords } from '@/lib/firebase/vehicle-server';
 import { getTransactionsServer } from '@/lib/firebase/transactions-server';
 import { ASSISTANT_TRANSACTION_LIMIT, assistantProfileFacts, mentionedMerchantFacts, merchantCandidates, type AssistantContext } from './context';
 
@@ -15,12 +16,13 @@ const TRANSACTION_FIELDS = [
  * never an error for the user.
  */
 export async function loadAssistantContext(uid: string, message: string, taxYear: number): Promise<AssistantContext> {
-  const [profileResult, rows] = await Promise.all([
+  const [profileResult, rows, vehicles] = await Promise.all([
     getAnalysisProfile(uid).catch(() => ({ data: null })),
     merchantCandidates(message).length
       ? getTransactionsServer(uid, { limit: ASSISTANT_TRANSACTION_LIMIT, fields: TRANSACTION_FIELDS }).then(result => result.data ?? []).catch(() => [])
       : Promise.resolve([]),
+    readUserVehicleRecords(uid),
   ]);
-  const profile = assistantProfileFacts((profileResult?.data as Record<string, unknown> | null) ?? null);
+  const profile = assistantProfileFacts((profileResult?.data as Record<string, unknown> | null) ?? null, { vehicles, taxYear });
   return { profile, merchant: rows.length ? mentionedMerchantFacts({ message, rows, taxYear, uid }) : null };
 }

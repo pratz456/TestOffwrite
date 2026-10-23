@@ -1,4 +1,5 @@
 import { APIConnectionError } from 'openai/error';
+import { vehicleMethodForTaxYear, type VehicleRecord } from '@/lib/mileage/vehicles';
 import { getOpenAIClientOrThrow } from '@/lib/openai/client';
 import { z } from 'zod';
 import { aiLearningEngine } from './learning-engine';
@@ -349,8 +350,40 @@ function calculateYearsInBusiness(businessStartDate: string | undefined, transac
   }
 }
 
+export interface VehicleContextFacts {
+  vehicles?: readonly VehicleRecord[] | null;
+  vehicleId?: string | null;
+}
+
+/** Method and percent for the AI context. Several cars and no link leave the method unknown. */
+function vehicleContextFields(userProfile: Record<string, any>, transactionDate: string, vehicleFacts?: VehicleContextFacts) {
+  const taxYear = /^\d{4}-\d{2}-\d{2}/.test(transactionDate) ? Number(transactionDate.slice(0, 4)) : new Date().getFullYear();
+  const vehicleId = vehicleFacts?.vehicleId
+    ?? (typeof userProfile.vehicleId === 'string' ? userProfile.vehicleId : typeof userProfile.vehicle_id === 'string' ? userProfile.vehicle_id : null);
+  const fact = vehicleMethodForTaxYear({ vehicles: vehicleFacts?.vehicles, profile: userProfile, taxYear, vehicleId });
+  const method = fact.status === 'known' ? fact.method ?? undefined : undefined;
+  const businessUsePercent = fact.status === 'unknown' || fact.status === 'none' ? undefined : fact.businessUsePercent ?? undefined;
+  const nested = userProfile.business_vehicle && typeof userProfile.business_vehicle === 'object' && !Array.isArray(userProfile.business_vehicle)
+    ? { ...userProfile.business_vehicle } : undefined;
+  let business_vehicle = nested as UserContext['business_vehicle'] | undefined;
+  if (fact.status === 'unknown') {
+    if (business_vehicle) {
+      delete business_vehicle.deduction_method;
+      delete business_vehicle.business_use_percentage;
+      if (Object.keys(business_vehicle).length === 0) business_vehicle = undefined;
+    }
+  } else if (nested || method) {
+    business_vehicle = business_vehicle ?? {};
+    if (method) business_vehicle.deduction_method = method;
+    else delete business_vehicle.deduction_method;
+    if (businessUsePercent !== undefined) business_vehicle.business_use_percentage = businessUsePercent;
+    else delete business_vehicle.business_use_percentage;
+  }
+  return { method, businessUsePercent, business_vehicle };
+}
+
 // Helper function to convert user profile to enhanced context
-export function convertToEnhancedContext(userProfile: any, transactionDate: string): UserContext {
+export function convertToEnhancedContext(userProfile: any, transactionDate: string, vehicleFacts?: VehicleContextFacts): UserContext {
   userProfile = userProfile && typeof userProfile === 'object' && !Array.isArray(userProfile) ? userProfile : {};
   const rawProfessions = typeof userProfile.profession === 'string' ? userProfile.profession.split(',') :
     Array.isArray(userProfile.profession) ? userProfile.profession : [];
@@ -360,7 +393,8 @@ export function convertToEnhancedContext(userProfile: any, transactionDate: stri
   const income = finiteNonnegative(userProfile.income);
   const yearsInBusiness = calculateYearsInBusiness(userProfile.business_start_date, transactionDate);
   const travel = nonemptyText(userProfile.work_related_travel_pattern)?.toLowerCase();
-  
+  const vehicle = vehicleContextFields(userProfile, transactionDate, vehicleFacts);
+
   return {
     user_id: userProfile.id || '',
     // A birth year alone cannot establish an exact age on the transaction date.
@@ -389,8 +423,8 @@ export function convertToEnhancedContext(userProfile: any, transactionDate: stri
     home_office_sqft: finiteNonnegative(userProfile.home_office_sqft),
     total_home_sqft: finiteNonnegative(userProfile.total_home_sqft),
     home_office_method: userProfile.home_office_method,
-    vehicle_business_use_percentage: finiteNonnegative(userProfile.vehicle_business_use_percentage),
-    vehicle_deduction_method: userProfile.vehicle_deduction_method,
+    vehicle_business_use_percentage: vehicle.businessUsePercent,
+    vehicle_deduction_method: vehicle.method,
     
     // Phase 2: Medium Impact Fields
     naics_code: userProfile.naics_code,
@@ -411,7 +445,7 @@ export function convertToEnhancedContext(userProfile: any, transactionDate: stri
     international_business: userProfile.international_business,
     
     // Vehicle Details
-    business_vehicle: userProfile.business_vehicle,
+    business_vehicle: vehicle.business_vehicle,
     
     // Home Office Details
     home_office_details: userProfile.home_office_details,

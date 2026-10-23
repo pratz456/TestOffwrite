@@ -20,6 +20,17 @@ function profileFrom(data: Record<string, unknown> | undefined): LegacyVehiclePr
   };
 }
 
+/** Owner vehicle list only. A failed read leaves the caller on the profile fallback. */
+export async function readUserVehicleRecords(userId: string): Promise<VehicleRecord[] | undefined> {
+  try {
+    const snap = await adminDb.doc(`user_profiles/${userId}`).collection('vehicles').get();
+    const docs = (snap as { docs?: Array<{ id: string; data: () => Record<string, unknown> }> }).docs;
+    return Array.isArray(docs) ? docs.map(doc => vehicleFromDocument(doc.id, doc.data())) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Reads legacy profile fields and inserts vehicle 1 when needed. Never writes those fields. */
 export async function ensureUserVehicles(userId: string): Promise<{ data: VehicleRecord[]; error: { message: string } | null }> {
   try {

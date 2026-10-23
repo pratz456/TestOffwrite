@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
+import { withheldApprovalGate } from '@/lib/ai/analysis-persistence';
+import { convertToEnhancedContext, type UserContext } from '@/lib/ai/analyzeTransaction';
+import { buildTaxpayerContext } from '@/lib/ai/taxpayer-context';
+import { assistantProfileFacts } from '@/lib/tax-assistant/context';
 import { VehicleCards } from '@/components/mileage/vehicle-cards';
 import { MileageUnsortedBanner, TripSortScreen } from '@/components/mileage/trip-sort-screen';
 import { MILEAGE_VEHICLE_COPY, mileageVehicleCopyCatalog, mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
@@ -467,6 +473,85 @@ describe('mileage vehicles, trip types, and sorting', () => {
     const pressed = walk(TripSortScreen({ copyEnabled: true, ...sortProps })).filter(node => node.props['aria-pressed'] === true);
     expect(pressed).toHaveLength(0);
     expect(mileageVehicleCopyCatalog(true).length).toBeGreaterThan(20);
+  });
+
+  it('11a five readers use the vehicle list for the tax year', () => {
+    const stale = {
+      user_id: 'owner', profession: ['Photographer'], filing_state: 'TX',
+      vehicle_deduction_method: 'actual_expense' as const, vehicle_business_use_percentage: 90,
+      business_vehicle: { make: 'Ford', model: 'Focus', year: 2014, deduction_method: 'actual_expense' as const, business_use_percentage: 90 },
+    };
+    const linked = blankVehicle('legacy-vehicle-1', 0);
+    linked.method = 'standard_mileage';
+    linked.methodByYear = { '2026': 'standard_mileage' };
+    linked.legacyBusinessUsePercentage = 40;
+    const other = blankVehicle('van', 1);
+    other.method = 'actual_expense';
+    other.methodByYear = { '2026': 'actual_expense' };
+    const profile = stale as UserContext;
+    const taxpayer = buildTaxpayerContext({
+      profile, vehicles: [linked], vehicleId: linked.id, transactionDate: '2026-08-01', merchant: 'Chevron', confirmed: [],
+    });
+    expect(taxpayer.methods.vehicle).toEqual({ method: 'standard_mileage', businessUsePercent: 40 });
+    expect(taxpayer.gaps).not.toContain('vehicle_deduction_method');
+    const gate = withheldApprovalGate({ category: 'vehicle_expense', deductiblePercent: 100, transactionKind: 'expense', amount: 40 }, 100, {
+      vehicles: [linked], profile: stale, taxYear: 2026, vehicleId: linked.id,
+    });
+    expect(gate).toBeNull();
+    const enhanced = convertToEnhancedContext(stale, '2026-08-01', { vehicles: [linked], vehicleId: linked.id });
+    expect(enhanced.vehicle_deduction_method).toBe('standard_mileage');
+    expect(enhanced.business_vehicle).toMatchObject({ make: 'Ford', model: 'Focus', year: 2014, deduction_method: 'standard_mileage', business_use_percentage: 40 });
+    expect(assistantProfileFacts(stale, { vehicles: [linked], vehicleId: linked.id, taxYear: 2026 }).vehicleMethod).toBe('standard_mileage');
+
+    const several = buildTaxpayerContext({
+      profile, vehicles: [linked, other], transactionDate: '2026-08-01', merchant: 'Chevron', confirmed: [],
+    });
+    expect(several.methods.vehicle).toEqual({ method: null, businessUsePercent: null });
+    expect(several.gaps).toContain('vehicle_deduction_method');
+    expect(withheldApprovalGate({ category: 'vehicle_expense', deductiblePercent: 100, transactionKind: 'expense', amount: 40 }, 100, {
+      vehicles: [linked, other], profile: stale, taxYear: 2026,
+    })?.question).toBe('Do you use the standard mileage rate or actual expenses for this vehicle?');
+    const unknown = convertToEnhancedContext(stale, '2026-08-01', { vehicles: [linked, other] });
+    expect(unknown.vehicle_deduction_method).toBeUndefined();
+    expect(unknown.vehicle_business_use_percentage).toBeUndefined();
+    expect(unknown.business_vehicle?.deduction_method).toBeUndefined();
+    expect(unknown.business_vehicle?.business_use_percentage).toBeUndefined();
+    expect(unknown.business_vehicle).toMatchObject({ make: 'Ford', model: 'Focus', year: 2014 });
+    expect(assistantProfileFacts(stale, { vehicles: [linked, other], taxYear: 2026 }).vehicleMethod).toBeNull();
+  });
+
+  it('11b a mid year method change on one car goes to review and leaves the method in place', () => {
+    const first = mustSave([blankVehicle('car-a', 0), blankVehicle('car-b', 1)], 'car-a', { ownership: 'owned', method: 'standard_mileage', taxYear: 2026 });
+    const fleet = mustSave(first, 'car-b', { ownership: 'owned', method: 'actual_expense', taxYear: 2026 });
+    const before = fleet.find(vehicle => vehicle.id === 'car-b');
+    const changed = saveVehicle(fleet, 'car-a', { method: 'actual_expense', taxYear: 2026, methodEffectiveDate: '2026-06-15' });
+    expect(changed.ok).toBe(true);
+    if (!changed.ok) return;
+    const car = changed.vehicles.find(vehicle => vehicle.id === 'car-a');
+    expect(methodForYear(car!, 2026)).toBe('standard_mileage');
+    expect(car?.method).toBe('standard_mileage');
+    expect(car?.methodByYear).toEqual({ '2026': 'standard_mileage' });
+    expect(car?.reviewItems).toEqual([{ id: 'mid_year_method_change', taxYear: 2026, message: copy.midYearMethod }]);
+    expect(changed.vehicles.find(vehicle => vehicle.id === 'car-b')).toEqual(before);
+    const again = saveVehicle(changed.vehicles, 'car-a', { method: 'actual_expense', taxYear: 2026, methodEffectiveDate: '2026-09-01' });
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    expect(methodForYear(again.vehicles.find(vehicle => vehicle.id === 'car-a')!, 2026)).toBe('standard_mileage');
+    expect(again.vehicles.find(vehicle => vehicle.id === 'car-a')?.reviewItems.filter(item => item.id === 'mid_year_method_change')).toHaveLength(1);
+  });
+
+  it('11c placed in service and date sold set the odometer reading dates', () => {
+    const placed = mustSave([blankVehicle('car', 0)], 'car', {
+      datePlacedInService: '2026-07-01', dateDisposed: '2026-09-15', taxYear: 2026, odometerStart: 1000, odometerEnd: 1800,
+    });
+    expect(odometerForYear(placed[0], 2026)).toEqual({ start: 1000, end: 1800, startDate: '2026-07-01', endDate: '2026-09-15' });
+    const earlier = mustSave([blankVehicle('older', 1)], 'older', {
+      datePlacedInService: '2024-05-01', dateDisposed: '2026-03-01', taxYear: 2026, odometerStart: 10, odometerEnd: 20,
+    });
+    expect(odometerForYear(earlier[0], 2026)).toEqual({ start: 10, end: 20, startDate: '2026-01-01', endDate: '2026-03-01' });
+    const datesOnly = mustSave([blankVehicle('bare', 2)], 'bare', { datePlacedInService: '2026-07-01', dateDisposed: '2026-09-15', taxYear: 2026 });
+    expect(odometerForYear(datesOnly[0], 2026)).toEqual({ start: null, end: null, startDate: null, endDate: null });
+    expect(vehicleNeedsReview(datesOnly[0], 2026)).toBe(true);
   });
 
   it('buildFederalTaxSnapshot output is unchanged for an existing fixture', () => {

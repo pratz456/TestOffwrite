@@ -1,4 +1,5 @@
 import { learningMerchantKey } from '@/lib/ai/learning-engine';
+import { vehicleMethodForTaxYear, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { guidanceSource } from './knowledge';
 
@@ -84,21 +85,31 @@ function text(value: unknown): string | null {
 }
 
 /** Normalize the saved profile into the six facts the assistant may use. Unknown values become null. */
-export function assistantProfileFacts(profile: Record<string, unknown> | null | undefined): AssistantProfileFacts {
+export function assistantProfileFacts(
+  profile: Record<string, unknown> | null | undefined,
+  vehicleFacts?: { vehicles?: readonly VehicleRecord[] | null; vehicleId?: string | null; taxYear?: number },
+): AssistantProfileFacts {
   const record = profile && typeof profile === 'object' ? profile : {};
   const professions = typeof record.profession === 'string' ? record.profession.split(',') : Array.isArray(record.profession) ? record.profession : [];
   const profession = professions.map(text).find((value): value is string => Boolean(value)) ?? null;
   const filingKey = text(record.filing_status)?.toLowerCase().replace(/\s+/g, '_') ?? '';
   const entityKey = (text(record.business_entity_type) ?? text(record.businessEntityType) ?? text(record.business_entity) ?? '').toLowerCase().replace(/\s+/g, '_');
   const homeOffice = record.home_office_method;
-  const vehicle = record.vehicle_deduction_method;
+  const vehicleId = vehicleFacts?.vehicleId
+    ?? (typeof record.vehicleId === 'string' ? record.vehicleId : typeof record.vehicle_id === 'string' ? record.vehicle_id : null);
+  const vehicleFact = vehicleMethodForTaxYear({
+    vehicles: vehicleFacts?.vehicles,
+    profile: record as LegacyVehicleProfile,
+    taxYear: vehicleFacts?.taxYear ?? new Date().getFullYear(),
+    vehicleId,
+  });
   return {
     profession,
     filingStatus: FILING_STATUS_LABELS[filingKey] ?? null,
     state: text(record.state)?.toUpperCase().slice(0, 2) ?? null,
     entityType: ENTITY_LABELS[entityKey] ?? null,
     homeOfficeMethod: homeOffice === 'simplified' || homeOffice === 'actual' ? homeOffice : null,
-    vehicleMethod: vehicle === 'standard_mileage' || vehicle === 'actual_expense' ? vehicle : null,
+    vehicleMethod: vehicleFact.status === 'known' ? vehicleFact.method : null,
   };
 }
 

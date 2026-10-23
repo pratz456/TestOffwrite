@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { analyzeTransactionWithRetry, TransactionInput, findMissingUserFields, convertToEnhancedContext } from '@/lib/ai/analyzeTransaction';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getAnalysisProfile, analysisProfileHash } from '@/lib/ai/profile-context';
+import { readUserVehicleRecords } from '@/lib/firebase/vehicle-server';
 import { loadTaxpayerContext } from '@/lib/ai/taxpayer-context-server';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAIProviderStatus } from '@/lib/ai/provider-status';
@@ -113,7 +114,10 @@ export async function POST(request: NextRequest) {
     }
     const { data: profile, error: profileError } = await getAnalysisProfile(user.uid);
     if (profileError || !profile) return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
-    const context = convertToEnhancedContext(profile, date);
+    const vehicles = await readUserVehicleRecords(user.uid);
+    const vehicleId = typeof transaction.vehicleId === 'string' ? transaction.vehicleId
+      : typeof transaction.vehicle_id === 'string' ? transaction.vehicle_id : null;
+    const context = convertToEnhancedContext(profile, date, { vehicles, vehicleId });
     const missingFields = findMissingUserFields(context);
     if (missingFields.length) {
       releaseCode = 'AI_PROFILE_REQUIRED';
