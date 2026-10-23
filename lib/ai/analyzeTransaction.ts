@@ -356,22 +356,50 @@ export interface VehicleContextFacts {
   vehicleId?: string | null;
 }
 
+/** Settings stores actual_expense. Older profiles also store the plural actual_expenses. */
+function acceptedDeductionMethod(value: unknown): 'standard_mileage' | 'actual_expense' | undefined {
+  if (value === 'standard_mileage') return 'standard_mileage';
+  if (value === 'actual_expense' || value === 'actual_expenses') return 'actual_expense';
+  return undefined;
+}
+
+/** A saved business-use percent may be a number or a numeric string, from 0 through 100. */
+function acceptedUsePercent(value: unknown): number | undefined {
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return undefined;
+    value = Number(text);
+  }
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100 ? value : undefined;
+}
+
 /** Method and percent for the AI context. Several cars and no link leave the method unknown. */
 function vehicleContextFields(userProfile: Record<string, any>, transactionDate: string, vehicleFacts?: VehicleContextFacts) {
   const taxYear = /^\d{4}-\d{2}-\d{2}/.test(transactionDate) ? Number(transactionDate.slice(0, 4)) : new Date().getFullYear();
   const vehicleId = vehicleFacts?.vehicleId
     ?? (typeof userProfile.vehicleId === 'string' ? userProfile.vehicleId : typeof userProfile.vehicle_id === 'string' ? userProfile.vehicle_id : null);
   const fact = vehicleMethodForRead({ vehicles: vehicleFacts?.vehicles, profile: userProfile, taxYear, vehicleId });
-  const method = fact.status === 'known' ? fact.method ?? undefined : undefined;
+  const carsProvided = Array.isArray(vehicleFacts?.vehicles) && vehicleFacts.vehicles.length > 0;
+  const nestedSource = userProfile.business_vehicle && typeof userProfile.business_vehicle === 'object' && !Array.isArray(userProfile.business_vehicle)
+    ? userProfile.business_vehicle : undefined;
+  const storedMethod = acceptedDeductionMethod(userProfile.vehicle_deduction_method)
+    ?? acceptedDeductionMethod(nestedSource?.deduction_method);
+  // A vehicle id with no loaded car list, and the plural actual_expenses spelling, still name a method.
+  let method = fact.status === 'known' ? fact.method ?? undefined : undefined;
+  if (method === undefined && !carsProvided) method = storedMethod;
   // Status none drops the helper percent. With the switch off, a recorded 0 still has to reach the prompt, matching the base field copy.
   const recordedPercent = finiteNonnegative(userProfile.vehicle_business_use_percentage);
-  const businessUsePercent = fact.status === 'unknown' || fact.status === 'none'
+  let businessUsePercent = fact.status === 'unknown' || fact.status === 'none'
     ? (!mileageVehicleCopyEnabled() && fact.status === 'none' ? recordedPercent : undefined)
     : fact.businessUsePercent ?? undefined;
-  const nested = userProfile.business_vehicle && typeof userProfile.business_vehicle === 'object' && !Array.isArray(userProfile.business_vehicle)
-    ? { ...userProfile.business_vehicle } : undefined;
+  if (businessUsePercent === undefined && !(fact.status === 'unknown' && carsProvided)) {
+    const storedPercent = acceptedUsePercent(userProfile.vehicle_business_use_percentage)
+      ?? acceptedUsePercent(nestedSource?.business_use_percentage);
+    if (storedPercent !== undefined) businessUsePercent = storedPercent;
+  }
+  const nested = nestedSource ? { ...nestedSource } : undefined;
   let business_vehicle = nested as UserContext['business_vehicle'] | undefined;
-  if (fact.status === 'unknown') {
+  if (fact.status === 'unknown' && carsProvided) {
     if (business_vehicle) {
       delete business_vehicle.deduction_method;
       delete business_vehicle.business_use_percentage;

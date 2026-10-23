@@ -253,6 +253,33 @@ describe('vehicle copy switch off matches the base review', () => {
     expect(nested.business_vehicle).toEqual({ business_use_percentage: 25, make: 'Honda' });
   });
 
+  it('keeps a saved profile hash when the switch is on, and reads stored methods and numeric percents', () => {
+    const date = '2026-09-15';
+    const profiles = [
+      { profession: 'Designer', state: 'CA', business_entity_type: 'sole_proprietor', vehicle_deduction_method: 'standard_mileage', vehicle_business_use_percentage: 40 },
+      { profession: 'Designer', state: 'CA', business_entity_type: 'sole_proprietor', vehicle_deduction_method: 'actual_expenses', vehicle_business_use_percentage: 60, business_vehicle: { business_use_percentage: 25, make: 'Honda' } },
+    ];
+    for (const profile of profiles) {
+      vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+      const off = analysisProfileHash(profile, date);
+      vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+      expect(analysisProfileHash(profile, date)).toBe(off);
+      expect(off).toBe(baselineProfileHash(profile, date));
+      expect(analysisProfileHash({ ...profile, vehicle_deduction_method: 'actual_expense' }, date)).not.toBe(off);
+      expect(analysisProfileHash({ ...profile, vehicle_business_use_percentage: 10 }, date)).not.toBe(off);
+    }
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    expect(convertToEnhancedContext({ profession: 'Designer', state: 'CA', vehicle_deduction_method: 'actual_expenses' }, date).vehicle_deduction_method).toBe('actual_expense');
+    expect(convertToEnhancedContext({ profession: 'Designer', state: 'CA', vehicle_deduction_method: 'actual_expense' }, date).vehicle_deduction_method).toBe('actual_expense');
+    expect(convertToEnhancedContext({ profession: 'Designer', state: 'CA', vehicle_deduction_method: 'standard_mileage', vehicleId: 'car-1' }, date).vehicle_deduction_method).toBe('standard_mileage');
+    expect(convertToEnhancedContext({ profession: 'Designer', state: 'CA', vehicle_deduction_method: 'standard_mileage', vehicle_id: 'car-2' }, date).vehicle_deduction_method).toBe('standard_mileage');
+    expect(convertToEnhancedContext({ profession: 'Designer', state: 'CA', vehicle_deduction_method: 'standard_mileage', vehicle_business_use_percentage: '75' }, date).vehicle_business_use_percentage).toBe(75);
+    expect(convertToEnhancedContext({ profession: 'Designer', state: 'CA', vehicle_business_use_percentage: ' 75 ' }, date).vehicle_business_use_percentage).toBe(75);
+    expect(convertToEnhancedContext({ profession: 'Designer', state: 'CA', vehicle_deduction_method: 'standard_mileage', vehicle_business_use_percentage: '0' }, date).vehicle_business_use_percentage).toBe(0);
+    expect(convertToEnhancedContext({ profession: 'Designer', state: 'CA', vehicle_deduction_method: 'standard_mileage', vehicle_business_use_percentage: '100' }, date).vehicle_business_use_percentage).toBe(100);
+    expect(convertToEnhancedContext({ profession: 'Designer', state: 'CA', vehicle_business_use_percentage: '101' }, date).vehicle_business_use_percentage).toBeUndefined();
+  });
+
   it('uses the main place of business label and counts a numeric square footage string', () => {
     expect(HIRED_FARE_USE.between).toBe('Between work locations');
     expect(HIRED_FARE_USE.betweenWithHomeOffice).toBe('Between work locations, or from home to a client if your home is your main place of business');
@@ -296,6 +323,11 @@ describe('vehicle copy switch off matches the base review', () => {
     for (const shape of shapes) {
       expect(getInitialAnswers(shape).home_office).toBe(previous(shape));
     }
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    expect(getInitialAnswers({ home_office_sqft: '1e3' }).home_office).toBe(true);
+    expect(profileHasHomeOffice({ home_office_sqft: '1e3' })).toBe(false);
+    expect(profileHasHomeOffice({ home_office_sqft: '150' })).toBe(true);
+    expect(profileHasHomeOffice({ home_office_sqft: ' 150 ' })).toBe(true);
     vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
     expect(getInitialAnswers({ home_office_sqft: '150' }).home_office).toBe(true);
     expect(getInitialAnswers({ home_office: true }).home_office).toBe(true);

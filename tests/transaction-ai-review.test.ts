@@ -135,6 +135,45 @@ describe('saved AI categorization confirmation', () => {
     }
     vi.unstubAllEnvs();
   });
+  it('confirms a base saved suggestion for car profiles when the switch is on, and a method or percent edit still conflicts', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    const base = { userId: 'owner', account_id: 'bank', trans_id: 'tx', merchant_name: 'Office store', amount: 100,
+      date: '2026-09-15', category: 'UNCLASSIFIED', iso_currency_code: 'USD', pending: false,
+      is_deductible: null, notes: 'Supplies used only for Client A.', analysisLeaseToken: 'private-token' };
+    const profiles = [
+      { profession: 'Designer', state: 'CA', business_entity_type: 'sole_proprietor', vehicle_deduction_method: 'standard_mileage', vehicle_business_use_percentage: 40 },
+      { profession: 'Designer', state: 'CA', business_entity_type: 'sole_proprietor', vehicle_deduction_method: 'actual_expenses', vehicle_business_use_percentage: 60, business_vehicle: { business_use_percentage: 25, make: 'Honda' } },
+    ];
+    for (const profile of profiles) {
+      mocks.docs.set('user_profiles/owner', { ...profile, business_vehicle: profile.business_vehicle ? { ...profile.business_vehicle } : undefined });
+      mocks.docs.set(path, { ...base });
+      suggest();
+      const savedHash = baselineProfileHash(profile, record().date);
+      expect(record().ai_suggestion.profileHash).toBe(savedHash);
+      change({ ai_suggestion: { ...record().ai_suggestion, profileHash: savedHash } });
+      const confirmed = await send(confirm());
+      expect(confirmed.status).toBe(200);
+
+      mocks.docs.set('user_profiles/owner', { ...profile, business_vehicle: profile.business_vehicle ? { ...profile.business_vehicle } : undefined });
+      mocks.docs.set(path, { ...base });
+      suggest();
+      change({ ai_suggestion: { ...record().ai_suggestion, profileHash: savedHash } });
+      mocks.docs.set('user_profiles/owner', { ...mocks.docs.get('user_profiles/owner'), vehicle_deduction_method: 'actual_expense' });
+      const methodEdit = await send(confirm());
+      expect(methodEdit.status).toBe(409);
+      expect(await methodEdit.json()).toMatchObject({ code: 'AI_PROFILE_CHANGED' });
+
+      mocks.docs.set('user_profiles/owner', { ...profile, business_vehicle: profile.business_vehicle ? { ...profile.business_vehicle } : undefined });
+      mocks.docs.set(path, { ...base });
+      suggest();
+      change({ ai_suggestion: { ...record().ai_suggestion, profileHash: savedHash } });
+      mocks.docs.set('user_profiles/owner', { ...mocks.docs.get('user_profiles/owner'), vehicle_business_use_percentage: 10 });
+      const percentEdit = await send(confirm());
+      expect(percentEdit.status).toBe(409);
+      expect(await percentEdit.json()).toMatchObject({ code: 'AI_PROFILE_CHANGED' });
+    }
+    vi.unstubAllEnvs();
+  });
   it('ignores non-tax display and subscription changes in the profile fingerprint', async () => {
     const profilePath = 'user_profiles/owner';
     mocks.docs.set(profilePath, { ...mocks.docs.get(profilePath), name: 'New name', id: 'derived-user-id', updated_at: new Date(), subscriptionStatus: 'trialing' });
