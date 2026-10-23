@@ -174,6 +174,29 @@ describe('account deletion boundaries', () => {
     expect(response.status).toBe(503); expect(await response.json()).toMatchObject({ code: 'RATE_LIMIT_UNAVAILABLE' });
     expect(h.authDelete).not.toHaveBeenCalled(); expect(h.records.has('user_profiles/owner')).toBe(true);
   });
+  it('deletes records from each user-owned collection and leaves another account’s records', async () => {
+    for (const [path, data] of [
+      ['form_8879/mine', { userId: 'owner', taxYear: 2025 }],
+      ['tax_year_locks/owner_2024', { userId: 'owner', taxYear: 2024 }],
+      ['tax_year_locks/owner_2025', { userId: 'owner', taxYear: 2025 }],
+      ['tax_year_locks/owner_2026', { userId: 'owner', taxYear: 2026 }],
+      ['tax_year_locks/owner_2027', { userId: 'owner', taxYear: 2027 }],
+      ['notifications/mine', { userId: 'owner' }],
+      ['scheduled_notifications/mine', { userId: 'owner' }],
+      ['notification_preferences/owner', { userId: 'owner' }],
+      ['form_8879/other', { userId: 'other', taxYear: 2025 }],
+      ['tax_year_locks/owner-other_2025', { userId: 'owner-other', taxYear: 2025 }],
+      ['tax_year_locks/owner_2025_extra', { userId: 'other', taxYear: 2025 }],
+      ['notifications/other', { userId: 'other' }],
+      ['scheduled_notifications/other', { userId: 'other' }],
+      ['notification_preferences/owner-other', { userId: 'owner-other' }],
+    ] as const) h.records.set(path, data);
+    expect(await deleteUserData('owner')).toEqual({});
+    const owned = ['form_8879/mine', 'tax_year_locks/owner_2024', 'tax_year_locks/owner_2025', 'tax_year_locks/owner_2026', 'tax_year_locks/owner_2027', 'notifications/mine', 'scheduled_notifications/mine', 'notification_preferences/owner'];
+    const other = ['form_8879/other', 'tax_year_locks/owner-other_2025', 'tax_year_locks/owner_2025_extra', 'notifications/other', 'scheduled_notifications/other', 'notification_preferences/owner-other'];
+    expect(owned.filter(path => h.records.has(path))).toEqual([]);
+    expect(other.filter(path => h.records.has(path))).toEqual(other);
+  });
 });
 
  it('revokes pending current-client history review before recursive deletion', async () => {
