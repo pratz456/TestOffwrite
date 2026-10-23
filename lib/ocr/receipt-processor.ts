@@ -281,16 +281,12 @@ function purchaseYearAllowed(iso: string): boolean {
   return year >= 2000 && year <= currentYear + 1;
 }
 
+/** First date in the text. Two matches that start at the same place keep the longer one. */
 function earliestDateText(candidates: ReceiptDateCandidate[]): string {
   if (candidates.length === 0) return '';
   let best = candidates[0];
   for (const candidate of candidates) {
-    if (candidate.iso < best.iso) {
-      best = candidate;
-      continue;
-    }
-    if (candidate.iso !== best.iso) continue;
-    if (candidate.raw.length > best.raw.length || (candidate.raw.length === best.raw.length && candidate.index < best.index)) {
+    if (candidate.index < best.index || (candidate.index === best.index && candidate.raw.length > best.raw.length)) {
       best = candidate;
     }
   }

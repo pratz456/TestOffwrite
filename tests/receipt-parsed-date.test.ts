@@ -128,7 +128,7 @@ const NUMBERED: Array<[string, string]> = [
   ['Table 1/2/25\nJan 15, 2026\nTotal $12.34', '2026-01-15'],
   ['Jan 15, 2026\nexp 12/31/2027\nTotal $12.34', '2026-01-15'],
   ['Check # 4/5/26\nJan 15, 2026\nTotal $12.34', '2026-01-15'],
-  ['Invoice 4/5/26\nJan 15, 2026\nTotal $12.34', '2026-01-15'],
+  ['Invoice 4/5/26\nJan 15, 2026\nTotal $12.34', '2026-04-05'],
   ['Inv 4/5/26\nJan 15, 2026\nTotal $12.34', '2026-01-15'],
   ['Ref 4/5/26\nJan 15, 2026\nTotal $12.34', '2026-01-15'],
   ['Ticket 4/5/26\nJan 15, 2026\nTotal $12.34', '2026-01-15'],
@@ -142,10 +142,14 @@ const NUMBERED_ALONE = [
 const SKIP_STEP = 'Returns accepted until 03/01/2026\nJan 15, 2026\nTotal $12.34';
 const LABEL_STEP = '03/15/2026\nDate: Jan 5, 2026\nTotal $12.34';
 const CALENDAR: Array<[string, string, string]> = [
-  ['Feb 4, 2026 Jan 5, 2026\nTotal $12.34', 'Jan 5, 2026', '2026-01-05'],
-  ['Jan 20, 2026\nJan 3, 2026\nTotal $12.34', 'Jan 3, 2026', '2026-01-03'],
-  ['Jan 20, 2026\nJan 5, 2026\nTotal $12.34', 'Jan 5, 2026', '2026-01-05'],
-  ['2026-01-05\nJan 5, 2026\nTotal $12.34', 'Jan 5, 2026', '2026-01-05'],
+  ['Feb 4, 2026 Jan 5, 2026\nTotal $12.34', 'Feb 4, 2026', '2026-02-04'],
+  ['Jan 20, 2026\nJan 3, 2026\nTotal $12.34', 'Jan 20, 2026', '2026-01-20'],
+  ['Jan 20, 2026\nJan 5, 2026\nTotal $12.34', 'Jan 20, 2026', '2026-01-20'],
+  ['2026-01-05\nJan 5, 2026\nTotal $12.34', '2026-01-05', '2026-01-05'],
+  ['Departure 01/05/2026\nArrival 01/02/2026\nTotal $12.34', '01/05/2026', '2026-01-05'],
+  ['Check-out 01/05/2026\nCheck-in 01/02/2026\nTotal $12.34', '01/05/2026', '2026-01-05'],
+  ['Filled 01/09/2026\nRx written 01/02/2026\nTotal $12.34', '01/09/2026', '2026-01-09'],
+  ['Departure 01/08/2026\n01/05/2026\nTotal $12.34', '01/08/2026', '2026-01-08'],
 ];
 const SHIPPING: Array<[string, string, string]> = [
   ['Dec 30, 2025\nCoupon Expiration Date 01/31/2026\nTotal $12.34', 'Dec 30, 2025', '2025-12-30'],
@@ -469,7 +473,7 @@ describe('OCR save uses the printed calendar day', () => {
     expect((await response.json()).transaction.date).toBe(iso);
   });
 
-  it.each(CALENDAR)('saves the earliest calendar day from %j', async (text, raw, iso) => {
+  it.each(CALENDAR)('saves the first printed date from %j', async (text, raw, iso) => {
     const extracted = extractDate(text);
     expect(extracted).toBe(raw);
     expect(normalizeDateToISO(extracted)).toBe(iso);
