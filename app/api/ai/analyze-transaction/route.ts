@@ -7,6 +7,7 @@ import { analyzeTransactionWithRetry, TransactionInput, findMissingUserFields, c
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getAnalysisProfile, analysisProfileHash } from '@/lib/ai/profile-context';
 import { readUserVehicleRecords } from '@/lib/firebase/vehicle-server';
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { loadTaxpayerContext } from '@/lib/ai/taxpayer-context-server';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAIProviderStatus } from '@/lib/ai/provider-status';
@@ -114,7 +115,7 @@ export async function POST(request: NextRequest) {
     }
     const { data: profile, error: profileError } = await getAnalysisProfile(user.uid);
     if (profileError || !profile) return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
-    const vehicles = await readUserVehicleRecords(user.uid);
+    const vehicles = mileageVehicleCopyEnabled() ? await readUserVehicleRecords(user.uid) : undefined;
     const vehicleId = typeof transaction.vehicleId === 'string' ? transaction.vehicleId
       : typeof transaction.vehicle_id === 'string' ? transaction.vehicle_id : null;
     const context = convertToEnhancedContext(profile, date, { vehicles, vehicleId });
