@@ -34,7 +34,7 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   const total = data.lineItems.reduce((sum, row) => sum + row.deductible, 0);
   const omitted = data.needsMoreInformation ?? [];
   const omittedTotals = unreadableChargeOutAndIn(omitted);
-  const notice = omitted.length ? SCHEDULE_C_UNREADABLE_DATE_NOTICE(omitted.length, omittedTotals.out, omittedTotals.in) : '';
+  const notice = SCHEDULE_C_UNREADABLE_DATE_NOTICE(omittedTotals);
   if (notice) pdf.reserve(pdf.textHeight(notice));
   pdf.table(['Reference', 'Recorded amount / scope', 'Amount'], [
     ['1', 'Reconciled gross receipts in WriteOff', money(data.grossReceipts)],
@@ -57,8 +57,8 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   } else pdf.paragraph('Transaction appendix omitted at your request. Retain the detailed records and receipts with your preparer.');
   if (omitted.length) {
     const rows = omitted.map(tx => [tx.merchant_name || tx.id || 'Unnamed record', money(Number(tx.amount)), shownReceivedDate(tx)]);
-    rows.push(['Charges out', `${money(omittedTotals.out)} out`, '']);
-    rows.push(['Money in', `${money(omittedTotals.in)} in`, '']);
+    if (omittedTotals.outCount > 0) rows.push(['Charges out', money(omittedTotals.out), '']);
+    if (omittedTotals.inCount > 0) rows.push(['Money in', money(omittedTotals.in), '']);
     pdf.section('Needs more information');
     pdf.table(['Merchant', 'Amount', 'Date received'], rows, [248, 120, 160]);
   }

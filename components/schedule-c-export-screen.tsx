@@ -214,6 +214,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
     }).format(amount);
   };
   const omittedTotals = unreadableChargeOutAndIn(omittedCharges);
+  const omittedNotice = SCHEDULE_C_UNREADABLE_DATE_NOTICE(omittedTotals);
 
   return (
     <div className="min-h-full bg-background min-w-0 overflow-x-hidden">
@@ -395,16 +396,14 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
           </div>
           {needsMoreInformation > 0 ? (
             <div className="mb-8 space-y-2">
-              <p className="text-sm text-muted-foreground">{SCHEDULE_C_UNREADABLE_DATE_NOTICE(needsMoreInformation, omittedTotals.out, omittedTotals.in)}</p>
+              {omittedNotice ? <p className="text-sm text-muted-foreground">{omittedNotice}</p> : null}
               <ul className="space-y-1 text-sm text-foreground">
                 {omittedCharges.map(charge => (
                   <li key={charge.id}>{charge.merchant_name || 'Unnamed record'}, {formatCurrency(charge.amount)}, {receivedChargeDateText(charge)}</li>
                 ))}
               </ul>
             </div>
-          ) : (
-            <p className="mb-8 text-sm text-muted-foreground">Needs more information <span className="font-semibold tabular-nums text-foreground">{needsMoreInformation}</span>. These charges have a date that cannot be read and are in no year total.</p>
-          )}
+          ) : null}
 
           {/* IRS Schedule C Line Items */}
           <div>
