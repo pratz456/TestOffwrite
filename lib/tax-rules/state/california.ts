@@ -90,8 +90,11 @@ const CA_2026_UNSUPPORTED: UnsupportedStateYear = {
   sources: [{ url: 'https://www.ftb.ca.gov/forms/index.html', note: 'FTB forms and publications; 2026 Form 540 materials not yet available.' }],
 };
 
+const CA_LATER_YEAR_REASON = 'This tax year is not supported yet.';
+
 export function californiaRules(taxYear: number): CaliforniaRules | UnsupportedStateYear {
   if (taxYear === 2025) return CA_2025;
   if (taxYear === 2026) return CA_2026;
+  if (taxYear >= 2027) return { stateCode: 'CA', taxYear, reason: CA_LATER_YEAR_REASON };
   return CA_2026_UNSUPPORTED;
 }

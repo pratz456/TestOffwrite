@@ -161,6 +161,19 @@ describe('California 2025', () => {
     expect('kind' in otherYear).toBe(false);
     if (!('kind' in otherYear)) expect(otherYear.reason).toMatch(/2025 only/);
   });
+
+  it('says 2027 is not supported yet', () => {
+    const rules = californiaRules(2027);
+    expect('kind' in rules).toBe(false);
+    if ('kind' in rules) return;
+    expect(rules).toEqual({ stateCode: 'CA', taxYear: 2027, reason: 'This tax year is not supported yet.' });
+    expect(rules.reason).not.toMatch(/2025 only/);
+    const later = californiaRules(2028);
+    expect('kind' in later).toBe(false);
+    if ('kind' in later) return;
+    expect(later.taxYear).toBe(2028);
+    expect(later.reason).toBe('This tax year is not supported yet.');
+  });
 });
 
 describe('New York', () => {
