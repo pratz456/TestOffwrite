@@ -34,6 +34,70 @@ export interface OCRResult {
   processingTime: number;
 }
 
+const ENGLISH_MONTHS: Record<string, number> = {
+  jan: 1, january: 1,
+  feb: 2, february: 2,
+  mar: 3, march: 3,
+  apr: 4, april: 4,
+  may: 5,
+  jun: 6, june: 6,
+  jul: 7, july: 7,
+  aug: 8, august: 8,
+  sep: 9, september: 9,
+  oct: 10, october: 10,
+  nov: 11, november: 11,
+  dec: 12, december: 12,
+};
+
+/** Accept YYYY-MM-DD only when that calendar day exists. Noon UTC does not roll the day into the next month. */
+function calendarDay(year: number, month: number, day: number): string | null {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  if (year < 1000 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const iso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const parsed = new Date(`${iso}T12:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === iso ? iso : null;
+}
+
+/** Clock time by parts. An hour such as 25 is rejected. The date is not shifted through local time. */
+function clockIsReal(time: string): boolean {
+  const match = /^(\d{2}):(\d{2})(?::(\d{2})(\.\d+)?)?(?:Z|([+-])(\d{2}):?(\d{2}))?$/.exec(time);
+  if (!match) return false;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const second = match[3] === undefined ? 0 : Number(match[3]);
+  if (hour > 23 || minute > 59 || second > 59) return false;
+  if (match[6] !== undefined) {
+    const zoneHour = Number(match[6]);
+    const zoneMinute = Number(match[7]);
+    if (zoneHour > 23 || zoneMinute > 59) return false;
+  }
+  return true;
+}
+
+/**
+ * Read a written date by its parts. Slash dates are US month/day order.
+ * A two digit year is 20YY. The result is kept only when it is a real calendar day.
+ */
+function dateFromWrittenParts(value: string): string | null {
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|T(.*))$/.exec(value);
+  if (iso) {
+    if (iso[4] !== undefined && !clockIsReal(iso[4])) return null;
+    return calendarDay(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+  }
+  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})$/.exec(value);
+  if (slash) {
+    const year = slash[3].length === 2 ? 2000 + Number(slash[3]) : Number(slash[3]);
+    return calendarDay(year, Number(slash[1]), Number(slash[2]));
+  }
+  const named = /^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/.exec(value);
+  if (named) {
+    const month = ENGLISH_MONTHS[named[1].toLowerCase()];
+    if (!month) return null;
+    return calendarDay(Number(named[3]), month, Number(named[2]));
+  }
+  return null;
+}
+
 export class ReceiptProcessor {
   private static instance: ReceiptProcessor;
   private worker: Tesseract.Worker | null = null;
@@ -203,8 +267,8 @@ export class ReceiptProcessor {
       }
     }
     
-    // Default to today's date if no date found
-    return new Date().toISOString().split('T')[0];
+    // No date was read. Leave it blank so the user has to enter one.
+    return '';
   }
 
   private extractCategory(merchant: string, text: string): string {
@@ -355,17 +419,7 @@ export class ReceiptProcessor {
   private normalizeDateToISO(dateLike: any): string | null {
     try {
       if (!dateLike) return null;
-      if (typeof dateLike === 'string') {
-        const isoDay = /^(\d{4}-\d{2}-\d{2})(?:$|T)/.exec(dateLike);
-        if (isoDay) {
-          const day = isoDay[1];
-          const parsed = new Date(`${day}T12:00:00Z`);
-          return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
-        }
-        const d = new Date(dateLike);
-        if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
-        return null;
-      }
+      if (typeof dateLike === 'string') return dateFromWrittenParts(dateLike);
       if (dateLike instanceof Date) return dateLike.toISOString().split('T')[0];
       if (typeof dateLike === 'number') return new Date(dateLike).toISOString().split('T')[0];
       return null;
