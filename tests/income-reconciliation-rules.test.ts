@@ -11,7 +11,7 @@ import {
 import {
   CORRECTED_ORIGINAL_BADGE, ERR_CORRECTED_NEEDS_TWO_NEC, ERR_CORRECTED_PICK, ERR_CORRECTED_SAME_PAYER, ERR_CORRECTED_SUM,
   ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED, ERR_SELECT_BUSINESS_RECORDS, NO_FORM_NO_INCOME, OUTSIDE_SC_NOTE,
-  ERR_SAME_NEEDS_K, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, PANEL_FORMS_NOTE, fillIncomeCopy,
+  ERR_SAME_NEEDS_K, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, NEC_SAME_PAYMENTS_REVIEW, PANEL_FORMS_NOTE, fillIncomeCopy,
 } from '../lib/tax-rules/income-reconciliation-copy';
 import * as incomeCopy from '../lib/tax-rules/income-reconciliation-copy';
 import { summarizeIncomeReconciliation } from '../lib/tax-rules/income-reconciliation-response';
@@ -384,9 +384,26 @@ describe('Tax Watch R10.5 year split', () => {
       expect(result.netReceipts).toBe(10000);
       expect(result.warnings).not.toContain(LEGACY_NEC_REOPEN_REASON);
       expect(result.warnings).not.toContain(LEGACY_NEC_PRIOR_YEAR_NOTE);
+      expect(result.warnings).not.toContain(NEC_SAME_PAYMENTS_REVIEW);
     } finally {
       delete process.env.NEXT_PUBLIC_RECONCILIATION_R10_5_LEGACY_NEC_REOPEN;
     }
+  });
+
+  it('warns on a saved NEC same-payments match while R10.5 is off and keeps the total', () => {
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_R10_5_LEGACY_NEC_REOPEN;
+    const forms = necPair();
+    const saved = decision('d1', 'same_payments', necSources(), { version: 1, countedAmount: 12000 });
+    const before = JSON.stringify([forms, saved]);
+    const result = reconcileBusinessIncome(2026, [], [], forms, [saved]);
+    expect(result.grossReceipts).toBe(12000);
+    expect(result.netReceipts).toBe(12000);
+    expect(result.warnings).toContain(NEC_SAME_PAYMENTS_REVIEW);
+    const summary = summarizeIncomeReconciliation(2026, { transactions: [], receipts: [], forms, decisions: [saved] });
+    expect(summary.grossReceipts).toBe(12000);
+    expect(summary.conflicts).toEqual([]);
+    expect(summary.notices).toEqual([NEC_SAME_PAYMENTS_REVIEW]);
+    expect(JSON.stringify([forms, saved])).toBe(before);
   });
 
   it('shows the current-year reopen reason exactly and leaves the saved decision in place', () => {

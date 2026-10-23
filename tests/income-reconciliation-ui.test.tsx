@@ -42,7 +42,7 @@ import {
   COMPARE_DIFF, COMPARE_SAME_AMOUNT, COMPARE_TITLE, CONFIRM_FORMS_REQUIRED, CONFIRM_SAME_BACK, CONFIRM_SAME_TITLE, CONFIRM_SAME_YES,
   CORRECTED_ORIGINAL_BADGE, CORRECTED_PICK_QUESTION, CORRECTED_PREVIEW, DECISION_HELP_CORRECTED, DECISION_LABEL_CORRECTED,
   DECISION_LABEL_NOT_BUSINESS, ERR_REASON_AMOUNT, GUIDE_ANSWER_APP, GUIDE_ANSWER_BANK, GUIDE_HINT_APP, GUIDE_HINT_BANK,
-  GUIDE_QUESTION, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_YES, NO_CHOICE_YET, NO_FORM_NO_INCOME, PANEL_FORMS_NOTE,
+  GUIDE_QUESTION, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_YES, NEC_SAME_PAYMENTS_REVIEW, NO_CHOICE_YET, NO_FORM_NO_INCOME, PANEL_FORMS_NOTE,
   SAME_DISABLED_NEC, fillIncomeCopy,
 } from '../lib/tax-rules/income-reconciliation-copy';
 import { incomeReconciliationPath } from '../lib/tax-rules/income-reconciliation-response';
@@ -678,6 +678,23 @@ describe('v1.1 confirm step, compare and corrected form', () => {
     expect(text(render(panel))).toContain('Gross receipts for 2026 (Schedule C line 1)');
     expect(text(render(panel))).toContain('$10,000.00');
     expect(text(render(panel))).not.toContain('$20,000.00');
+  });
+
+  it('shows the NEC review warning on the Reconcile tab while R10.5 is off', async () => {
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_R10_5_LEGACY_NEC_REOPEN;
+    const sources = [{ kind: 'form_1099', id: 'n1', amount: 12000 }, { kind: 'form_1099', id: 'n2', amount: 12000 }];
+    records.receipts = [];
+    records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
+    records.decisions = [{ id: 'd1', taxYear: 2026, decision: 'same_payments', version: 1, platformFeeAmount: null, countedAmount: 12000, sources }];
+    const before = JSON.stringify(records.decisions);
+    render(panel); await flush();
+    const shown = text(render(panel));
+    expect(shown).toContain(NEC_SAME_PAYMENTS_REVIEW);
+    expect(shown).toContain('Gross receipts for 2026 (Schedule C line 1)');
+    expect(shown).toContain('$12,000.00');
+    expect(shown).not.toContain('$24,000.00');
+    expect(shown).not.toContain('on hold');
+    expect(JSON.stringify(records.decisions)).toBe(before);
   });
 
   it('shows the current-year reopen reason and the prior-year filing note', async () => {

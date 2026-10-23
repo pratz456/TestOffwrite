@@ -17,7 +17,7 @@ import {
   DECISION_LABEL_CORRECTED, DECISION_LABEL_NOT_BUSINESS, ERR_CORRECTED_NEEDS_TWO_NEC, ERR_CORRECTED_PICK,
   ERR_CORRECTED_SAME_PAYER, ERR_CORRECTED_SUM, ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED,
   ERR_SAME_NEEDS_K, ERR_SELECT_BUSINESS_RECORDS, ERR_SUM_MISMATCH, fillIncomeCopy,
-  LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON,
+  LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, NEC_SAME_PAYMENTS_REVIEW,
 } from './income-reconciliation-copy';
 import { legacyNecSamePaymentsReopenEnabled, reconciliationYearMayAlreadyBeFiled } from './reconciliation-feature';
 
@@ -379,6 +379,8 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
       continue;
     }
     if (reopenNecOnly && necOnly && filedYear) notices.push(LEGACY_NEC_PRIOR_YEAR_NOTE);
+    const necForms = check.sources.filter(source => source.kind === 'form_1099' && source.formType === '1099-NEC').length;
+    if (!reopenNecOnly && decision.decision === 'same_payments' && necForms >= 2) notices.push(NEC_SAME_PAYMENTS_REVIEW);
     check.sources.forEach(source => claimedBy.set(sourceKey(source), decision.id));
     reconciledCents += check.countedCents;
     returnsCents += check.returnsCents;

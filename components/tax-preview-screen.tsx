@@ -11,6 +11,7 @@ import { SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 import type { BusinessTaxNotice, StateTaxComponents, StateTaxLine } from "@/lib/tax-rules/state";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import { incomeReconciliationPath } from "@/lib/tax-rules/income-reconciliation-response";
+import { NEC_SAME_PAYMENTS_REVIEW } from "@/lib/tax-rules/income-reconciliation-copy";
 
 interface Props {
   user: { id: string; email?: string };
@@ -198,6 +199,14 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
             <p className="text-sm text-muted-foreground">Calculating your estimate…</p>
           </div>
         ) : f1040 ? (
+          <>
+          {calculationWarnings.includes(NEC_SAME_PAYMENTS_REVIEW) && (
+            <div role="status" className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-100">
+              <ul aria-label="Records that need a reconciliation decision" className="space-y-1 text-xs leading-relaxed">
+                <li>{NEC_SAME_PAYMENTS_REVIEW}</li>
+              </ul>
+            </div>
+          )}
           <div className="grid items-start gap-4 lg:grid-cols-2">
             <div className="space-y-3">
             <Card className="overflow-hidden rounded-2xl border-border/70 bg-card shadow-none">
@@ -461,6 +470,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
               Uses published federal rules for {f1040.taxYear ?? year} and information saved in WriteOff. Actual tax may differ. Always verify with a tax professional before filing or making a tax payment.
             </p>
           </div>
+          </>
         ) : !loading && !error && (
           <div className="rounded-xl border border-border bg-card px-4 py-8 text-center">
             <DollarSign className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />

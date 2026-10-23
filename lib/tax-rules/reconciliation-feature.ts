@@ -13,7 +13,8 @@ export function kNotBusinessIncomeEnabled(): boolean {
 
 /**
  * R10.5. Off unless this is exactly "1".
- * When off, a saved same-payments decision that joins only 1099-NECs keeps counting.
+ * When off, a saved same-payments decision that joins two or more 1099-NECs keeps counting
+ * and shows a non-blocking review warning.
  * When on, the current published year stops applying that decision and shows it as a conflict.
  * An earlier year, which the user may already have filed, keeps the saved total and shows a note.
  * New saves of that decision are rejected either way.
