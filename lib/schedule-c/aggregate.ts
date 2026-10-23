@@ -135,6 +135,7 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'SERVICE_PROFESSIONAL_DUES': { line: '27a', name: 'Other expenses', code: '27a' },
   'SERVICE_MEMBERSHIPS': { line: '27a', name: 'Other expenses', code: '27a' },
   'SERVICE_EDUCATION': { line: '27a', name: 'Other expenses', code: '27a' },
+  'HIRED_LOCAL_TRANSPORT': { line: '27a', name: 'Other expenses', code: '27a' },
 };
 
 const BUSINESS_CATEGORY_KEYS = new Set(Object.keys(CATEGORY_MAP));

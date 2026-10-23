@@ -6,7 +6,7 @@ import { analysisSuggestionUpdate } from '@/lib/ai/analysis-persistence';
 import { findMerchantEntry, merchantIntelligence } from '@/lib/ai/merchant-intelligence';
 import { professionContextForModel } from '@/lib/ai/profession-priors';
 import { groundTransactionAnalysis } from '@/lib/ai/transaction-tax-policy';
-import { HIRED_FARE_PURPOSE, SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
+import { HIRED_FARE_PURPOSE, HIRED_FARE_USE, hiredFareUsePrompt, SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
 import type { OutputType, TransactionInput, UserContext } from '@/lib/ai/analyzeTransaction';
 
 /**
@@ -157,7 +157,8 @@ describe('vehicle copy switch off matches the base review', () => {
     expect(onSaved.deductionStatus).toBe('Needs more information');
     expect(onSaved.ai_schedule_c_line).toBeNull();
     expect(onSaved.ai_suggestion.scheduleCLine).toBeUndefined();
-    expect(onSaved.ai_suggestion.questions).toEqual(['Was this ride part of an overnight business trip away from home?']);
+    expect(onSaved.ai_suggestion.questions).toEqual(hiredFareUsePrompt(null));
+    expect(onSaved.ai_suggestion.questions[0]).toBe(HIRED_FARE_USE.question);
     expect(JSON.stringify(onSaved.ai_explanation)).not.toContain('27b');
     const unstated = analyze(input, { merchant: 'Lyft', amount_usd: 18, business_purpose: 'Ride across town tonight.' });
     expect(unstated).toMatchObject({ status: 'needs_more_info', category: 'travel', missing_fields: ['business_purpose'], questions: [HIRED_FARE_PURPOSE.question] });

@@ -3,7 +3,7 @@ import { adminDb } from '@/lib/firebase/admin';
 import { finiteUsePercent, VEHICLE_ACTUAL_EXPENSE_CATEGORY, VEHICLE_LOAN_INTEREST_CATEGORY, VEHICLE_PROPERTY_TAX_CATEGORY } from '@/lib/ai/actual-expense-share';
 import { analysisInputHash } from '@/lib/ai/analysis-persistence';
 import { analysisProfileHash } from '@/lib/ai/profile-context';
-import { hiredVehicleFare, standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
+import { hiredFareChoiceFromRecord, hiredFareStartedAtHome, hiredVehicleFare, HIRED_LOCAL_TRANSPORT_CATEGORY, profileHasHomeOffice, standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
 import { invalidateTaxpayerContextCache } from '@/lib/ai/taxpayer-context-server';
 import { TRANSACTION_TAX_POLICY_VERSION } from '@/lib/ai/transaction-tax-policy';
 import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
@@ -131,7 +131,11 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
         const mapped = reviewCategory(category);
         const suggestionShare = finiteUsePercent(suggestion.deductiblePercent);
         const cost = vehicleCostShare(data, profileData, vehicles);
+        const settledLocalFare = mileageVehicleCopyEnabled() && suggestion.scheduleCLine === '27a' && suggestion.deductiblePercent === 100 &&
+          hiredFareChoiceFromRecord(data) === 'between' && !(hiredFareStartedAtHome(data) === true && !profileHasHomeOffice(profileData));
         if (cost && suggestionShare === cost.share) {
+          deduction = true;
+        } else if (settledLocalFare) {
           deduction = true;
         } else if (cost && (cost.kind === 'loan_interest' || cost.kind === 'property_tax')) {
           deduction = null;
@@ -164,7 +168,11 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       if (mileageVehicleCopyEnabled() && deduction === true && separate && !cost) {
         throw new TransactionReviewError('DEDUCTION_REVIEW_REQUIRED', 'This category needs a separate tax method review. Save the category without claiming a deduction.');
       }
-      if (deduction === true && cost && (cost.kind === 'loan_interest' || cost.kind === 'property_tax') && shareMatches) {
+      const localWorkFare = mileageVehicleCopyEnabled() && deduction === true && hiredVehicleFare(chargeText(data)) && hiredFareChoiceFromRecord(data) === 'between';
+      const startedAtHome = hiredFareStartedAtHome(data);
+      if (localWorkFare && !(startedAtHome === true && !profileHasHomeOffice(profileData))) {
+        recordedCategory = HIRED_LOCAL_TRANSPORT_CATEGORY;
+      } else if (deduction === true && cost && (cost.kind === 'loan_interest' || cost.kind === 'property_tax') && shareMatches) {
         recordedCategory = cost.kind === 'property_tax' ? VEHICLE_PROPERTY_TAX_CATEGORY : VEHICLE_LOAN_INTEREST_CATEGORY;
         savedShare = cost.share;
       } else if (deduction === true && recordedCategory.endsWith('_REVIEW_REQUIRED')) {

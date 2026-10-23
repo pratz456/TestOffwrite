@@ -4,6 +4,7 @@
  * only add-on that counts in full. Interest and vehicle personal property tax never
  * default to 100%.
  */
+import { tripStartsAtHome } from '@/lib/mileage/vehicles';
 import { ACTUAL_EXPENSE_BUSINESS_SHARE } from './actual-expense-share';
 
 const VEHICLE = '(?:car|auto|automobile|vehicle|truck|van)';
@@ -47,18 +48,73 @@ export const HIRED_FARE_PURPOSE = {
   reason: 'A rideshare or taxi fare follows the trip, not the method for your own car. Say where this ride went before it can count.',
 } as const;
 
-/** Asked when a business fare is not yet confirmed as overnight travel. Local fares are not given a Schedule C line. */
-export const HIRED_FARE_OVERNIGHT = {
-  question: 'Was this ride part of an overnight business trip away from home?',
-  reason: 'This ride counts as travel only if it was part of an overnight business trip away from home.',
+/** One question. The answer is the saved purpose, matched to these labels exactly. */
+export const HIRED_FARE_USE = {
+  question: 'What was this ride for?',
+  reason: 'Choose what this ride was for before it can count.',
+  overnight: 'Part of an overnight work trip away from home',
+  between: 'Between work locations',
+  betweenWithHomeOffice: 'Between work locations, or from home to a client if you work from a home office',
+  commute: 'Home to my usual workplace',
+  personal: 'Personal ride',
+  overnightReason: 'This ride was part of an overnight work trip away from home.',
+  betweenReason: 'This ride was between work locations.',
+  commuteReason: 'A ride from home to your usual workplace is commuting, so the fare stays out of business deductions.',
+  homeStartReason: 'This ride started at home and the profile has no home office, so this answer stays open.',
 } as const;
 
-/** True only when the saved purpose says the ride was overnight travel away from the tax home. */
-export function hiredFareOvernightConfirmed(purpose: string): boolean {
-  const overnight = /\bovernight\b/i.test(purpose);
-  const awayFromHome = /\baway\s+from\s+(?:my\s+|the\s+|our\s+|their\s+)?(?:tax\s+)?home\b/i.test(purpose);
-  const taxHome = /\btax\s+home\b/i.test(purpose);
-  return overnight && (awayFromHome || taxHome);
+/** Recorded category for a local hired fare. It uses the other expenses line. */
+export const HIRED_LOCAL_TRANSPORT_CATEGORY = 'HIRED_LOCAL_TRANSPORT';
+
+const HOME_OFFICE_FLAGS = ['home_office', 'homeOffice', 'has_home_office'] as const;
+
+/** True only when a saved profile flag is strictly true. Square footage is not that flag. */
+export function profileHasHomeOffice(profile: unknown): boolean {
+  if (!profile || typeof profile !== 'object') return false;
+  const record = profile as Record<string, unknown>;
+  return HOME_OFFICE_FLAGS.some(key => record[key] === true);
+}
+
+export function hiredFareBetweenLabel(profile: unknown): string {
+  return profileHasHomeOffice(profile) ? HIRED_FARE_USE.betweenWithHomeOffice : HIRED_FARE_USE.between;
+}
+
+/** The question, then the four answers, with the home office label only when that flag is true. */
+export function hiredFareUsePrompt(profile: unknown): string[] {
+  return [HIRED_FARE_USE.question, HIRED_FARE_USE.overnight, hiredFareBetweenLabel(profile), HIRED_FARE_USE.commute, HIRED_FARE_USE.personal];
+}
+
+export function hiredFarePurposeText(data: Record<string, unknown> | null | undefined): string {
+  if (!data) return '';
+  return ['business_purpose', 'notes', 'note'].map(key => typeof data[key] === 'string' ? data[key] as string : '').filter(Boolean).join(' ').trim();
+}
+
+export function hiredFareChoice(purpose: string): 'overnight' | 'between' | 'commute' | 'personal' | null {
+  const text = purpose.trim();
+  if (text === HIRED_FARE_USE.overnight) return 'overnight';
+  if (text === HIRED_FARE_USE.between || text === HIRED_FARE_USE.betweenWithHomeOffice) return 'between';
+  if (text === HIRED_FARE_USE.commute) return 'commute';
+  if (text === HIRED_FARE_USE.personal) return 'personal';
+  return null;
+}
+
+/** The saved purpose wins. Other notes do not change an exact answer. */
+export function hiredFareChoiceFromRecord(data: Record<string, unknown> | null | undefined): 'overnight' | 'between' | 'commute' | 'personal' | null {
+  if (!data) return null;
+  const purpose = typeof data.business_purpose === 'string' ? hiredFareChoice(data.business_purpose) : null;
+  return purpose ?? hiredFareChoice(hiredFarePurposeText(data));
+}
+
+/**
+ * True when mileage_details.start_location is a home start, false when it is some other place,
+ * and null when this charge has no trip origin.
+ */
+export function hiredFareStartedAtHome(data: Record<string, unknown> | null | undefined): boolean | null {
+  const details = data?.mileage_details;
+  if (!details || typeof details !== 'object') return null;
+  const start = (details as { start_location?: unknown }).start_location;
+  if (typeof start !== 'string' || !start.trim()) return null;
+  return tripStartsAtHome(start);
 }
 
 export const HIRED_FARE_PERSONAL = {

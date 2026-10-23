@@ -18,6 +18,8 @@ import { hydrateReviewTransaction } from '@/lib/transactions/review';
 import { canConfirmAiSuggestion } from '@/lib/transactions/ai-review-contract';
 import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { aggregateScheduleC } from '@/lib/schedule-c/aggregate';
+import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
+import { HIRED_FARE_USE } from '@/lib/ai/vehicle-separate-costs';
 import { reconcileBusinessIncome } from '@/lib/tax-rules/business-income';
 import { TRANSACTION_TAX_POLICY_VERSION } from '@/lib/ai/transaction-tax-policy';
 
@@ -388,10 +390,10 @@ describe('interest, vehicle property tax, and hired fares', () => {
     try {
       vehicleProfile('actual_expense', 40);
       const profile = mocks.docs.get('user_profiles/owner')!;
-      change({ merchant_name: 'Uber', amount: 28, business_purpose: 'Ride from the airport during an overnight business trip away from home', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED' });
+      change({ merchant_name: 'Uber', amount: 28, business_purpose: HIRED_FARE_USE.overnight, date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED' });
       change(analysisSuggestionUpdate({
         ...result, category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9',
-        customized_reason: 'Ride from the airport during an overnight business trip away from home.',
+        customized_reason: HIRED_FARE_USE.overnightReason,
       }, 1770000000000, record(), analysisProfileHash(profile, record().date), profile, { profile, taxYear: 2026 }));
       expect(record().ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, category: 'travel', scheduleCLine: '24a' });
       const response = await send(confirm());
@@ -404,5 +406,46 @@ describe('interest, vehicle property tax, and hired fares', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+  it('confirms a client to client fare on other expenses and does not use line 24a', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      vehicleProfile('actual_expense', 40);
+      const profile = mocks.docs.get('user_profiles/owner')!;
+      change({ merchant_name: 'Uber', amount: 28, business_purpose: HIRED_FARE_USE.between, date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED', mileage_details: { start_location: 'Client office', end_location: 'Second workplace' } });
+      change(analysisSuggestionUpdate({
+        ...result, category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9',
+        customized_reason: 'Ride between work locations.',
+      }, 1770000000000, record(), analysisProfileHash(profile, record().date), profile, { profile, taxYear: 2026 }));
+      expect(record().ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, scheduleCLine: '27a' });
+      expect(record().ai_suggestion.category).toBeNull();
+      expect(record().ai_schedule_c_line).toBe('27a');
+      const response = await send(confirm());
+      expect(response.status).toBe(200);
+      expect(record()).toMatchObject({ category: 'HIRED_LOCAL_TRANSPORT', is_deductible: true });
+      const fareTotals = aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' });
+      expect(fareTotals.totalDeductible).toBe(28);
+      expect(fareTotals.lineItems['27a']).toMatchObject({ lineCode: '27a', lineName: 'Other expenses', deductible: 28 });
+      expect(scheduleCExportLine('27a', 2026)).toBe('27b');
+      expect(fareTotals.lineItems['24a']).toBeUndefined();
+      expect(fareTotals.lineItems['27b']).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('with the switch off, car loan interest is not saved or totaled as vehicle loan interest', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    vehicleProfile('standard_mileage', 40);
+    change({ merchant_name: 'Toyota Financial', amount: 200, business_purpose: 'Interest on the car loan for business miles', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED' });
+    const interest = await send(correct({ category: 'vehicle_expense', isDeductible: true, reason: 'Interest on the car loan' }));
+    expect(interest.status).toBe(422);
+    expect(record().category).toBe('UNCLASSIFIED');
+    expect(record().category).not.toBe('VEHICLE_LOAN_INTEREST');
+    const totals = aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' });
+    expect(totals.lineItems['16b']).toBeUndefined();
+    expect(totals.totalDeductible).toBe(0);
+    const kept = aggregateScheduleC([{ amount: 200, date: '2026-09-15', category: 'VEHICLE_LOAN_INTEREST', is_deductible: true, business_use_percentage: 40, review_status: 'confirmed', tax_review_required: false } as any], '2026', undefined, { mode: 'confirmed-only' });
+    expect(kept.lineItems['16b']).toMatchObject({ lineCode: '16b', lineName: 'Interest: other', deductible: 80 });
+    vi.unstubAllEnvs();
   });
 });

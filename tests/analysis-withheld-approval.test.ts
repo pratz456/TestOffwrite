@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
 import { ACTUAL_EXPENSE_BUSINESS_SHARE } from '@/lib/ai/actual-expense-share';
-import { HIRED_FARE_OVERNIGHT, HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
+import { HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, HIRED_FARE_USE, hiredFareUsePrompt, SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
 import { analysisSuggestionUpdate, STANDARD_MILEAGE_RUNNING_COST_GATE, VEHICLE_METHOD_GATE, withheldApprovalGate, withheldMissingField } from '@/lib/ai/analysis-persistence';
 import { blankVehicle, saveVehicle } from '@/lib/mileage/vehicles';
 import type { OutputType } from '@/lib/ai/analyzeTransaction';
@@ -182,14 +182,16 @@ describe('an engine approval the review path cannot consume is stored as the que
       expect(fare.ai.schedule_c_line).toBeNull();
       expect(fare.ai_suggestion.scheduleCLine).toBeUndefined();
       expect(fare.ai_suggestion.category).toBeNull();
-      expect(fare.ai_suggestion.questions).toEqual([HIRED_FARE_OVERNIGHT.question]);
+      expect(fare.ai_suggestion.questions).toEqual(hiredFareUsePrompt(null));
+      expect(fare.ai_suggestion.questions[0]).toBe(HIRED_FARE_USE.question);
+      expect(fare.ai_suggestion.questions).toContain(HIRED_FARE_USE.between);
       expect(fare.ai_suggestion.questions.join(' ')).not.toContain('27b');
       expect(JSON.stringify(fare.ai_explanation)).not.toContain('24a');
       expect(JSON.stringify(fare.ai_explanation)).not.toContain('27b');
       expect(fare.ai_suggestion.questions.join(' ')).not.toContain(STANDARD_MILEAGE_RUNNING_COST_GATE.question);
       expect(fare.ai_suggestion.questions.join(' ')).not.toContain(ACTUAL_EXPENSE_BUSINESS_SHARE.question);
     }
-    const overnightPurpose = 'Ride from the airport during an overnight business trip away from home';
+    const overnightPurpose = HIRED_FARE_USE.overnight;
     for (const merchant of ['Uber', 'Lyft', 'Yellow Taxi']) {
       const overnight = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9', deductible_percent: 40 }), 1,
         record({ amount: 28, merchant_name: merchant, business_purpose: overnightPurpose }), undefined, null, facts);
@@ -201,6 +203,7 @@ describe('an engine approval the review path cannot consume is stored as the que
       record({ amount: 16, merchant_name: 'Uber', business_purpose: 'Commuting to my regular workplace' }), undefined, null, facts);
     expect(commute.deductionStatus).toBe('Unlikely Deductible');
     expect(commute.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: false, deductiblePercent: 0, category: 'travel' });
+    expect(commute.ai_schedule_c_line).toBeNull();
     const actualCars = withShare.map(vehicle => ({ ...vehicle, method: 'actual_expense' as const, methodByYear: { '2026': 'actual_expense' as const } }));
     const actualFare = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9' }), 1,
       record({ amount: 28, merchant_name: 'Uber', business_purpose: overnightPurpose }), undefined, null,
@@ -211,10 +214,15 @@ describe('an engine approval the review path cannot consume is stored as the que
     expect(personal.deductionStatus).toBe('Unlikely Deductible');
     expect(personal.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: false, deductiblePercent: 0, category: 'travel' });
     expect(personal.ai_suggestion.reasoning).toBe(HIRED_FARE_PERSONAL.reason);
+    expect(personal.ai_schedule_c_line).toBeNull();
+    expect(personal.ai_suggestion.scheduleCLine).toBeUndefined();
     const unstated = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
       record({ amount: 18, merchant_name: 'Lyft', business_purpose: 'Ride across town tonight' }), undefined, null, facts);
     expect(unstated.deductionStatus).toBe('Needs more information');
     expect(unstated.ai_suggestion.questions[0]).toBe(HIRED_FARE_PURPOSE.question);
+    expect(unstated.ai_schedule_c_line).toBeNull();
+    expect(unstated.ai_suggestion.scheduleCLine).toBeUndefined();
+    expect(JSON.stringify(unstated.ai_explanation)).not.toContain('24a');
     expect(unstated.ai_missing_fields).toEqual(['business_purpose']);
     const meal = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
       record({ amount: 24, merchant_name: 'UBER EATS', business_purpose: 'Dinner delivered while finishing a client proposal' }), undefined, null, facts);
@@ -229,6 +237,49 @@ describe('an engine approval the review path cannot consume is stored as the que
       record({ amount: 28, merchant_name: 'Uber', business_purpose: 'Ride to the client meeting' }), undefined, null, facts);
     expect(off.ai_suggestion.questions[0]).toBe(VEHICLE_METHOD_GATE.question);
     expect(off.ai_suggestion.category).toBe('vehicle_expense');
+  });
+
+  it('a hired fare uses one question and files only the chosen answer', () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    const fare = (purpose: string, patch: Record<string, unknown> = {}, profile: Record<string, unknown> | null = null) => analysisSuggestionUpdate(
+      approval({ category: 'vehicle_expense', schedule_c_line: '9', deductible_percent: 40 }), 1,
+      record({ amount: 28, merchant_name: 'Uber', business_purpose: purpose, ...patch }), undefined, profile, null);
+    const overnight = fare(HIRED_FARE_USE.overnight);
+    expect(overnight.deductionStatus).toBe('Likely Deductible');
+    expect(overnight.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, category: 'travel', scheduleCLine: '24a' });
+    expect(overnight.ai_schedule_c_line).toBe('24a');
+    const between = fare(HIRED_FARE_USE.between, { mileage_details: { start_location: 'Client office', end_location: 'Second workplace' } });
+    expect(between.deductionStatus).toBe('Likely Deductible');
+    expect(between.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, scheduleCLine: '27a' });
+    expect(between.ai_suggestion.category).toBeNull();
+    expect(between.ai_schedule_c_line).toBe('27a');
+    expect(between.ai_suggestion.scheduleCLine).not.toBe('24a');
+    const commute = fare(HIRED_FARE_USE.commute);
+    expect(commute.deductionStatus).toBe('Unlikely Deductible');
+    expect(commute.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: false, deductiblePercent: 0 });
+    expect(commute.ai_schedule_c_line).toBeNull();
+    expect(commute.ai_suggestion.scheduleCLine).toBeUndefined();
+    const personal = fare(HIRED_FARE_USE.personal);
+    expect(personal.deductionStatus).toBe('Unlikely Deductible');
+    expect(personal.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: false, deductiblePercent: 0, reasoning: HIRED_FARE_PERSONAL.reason });
+    expect(personal.ai_schedule_c_line).toBeNull();
+    expect(personal.ai_suggestion.scheduleCLine).toBeUndefined();
+    const unanswered = fare('Ride to the client meeting');
+    expect(unanswered.deductionStatus).toBe('Needs more information');
+    expect(unanswered.ai_schedule_c_line).toBeNull();
+    expect(unanswered.ai_suggestion.questions).toEqual(hiredFareUsePrompt(null));
+    const homeOffice = fare('Ride to the client meeting', {}, { home_office: true });
+    expect(homeOffice.ai_suggestion.questions).toEqual(hiredFareUsePrompt({ home_office: true }));
+    expect(homeOffice.ai_suggestion.questions).toContain(HIRED_FARE_USE.betweenWithHomeOffice);
+    expect(homeOffice.ai_suggestion.questions).not.toContain(HIRED_FARE_USE.between);
+    const fromHome = fare(HIRED_FARE_USE.between, { mileage_details: { start_location: 'Home' } });
+    expect(fromHome.deductionStatus).toBe('Needs more information');
+    expect(fromHome.ai_schedule_c_line).toBeNull();
+    expect(fromHome.ai_suggestion.questions[0]).toBe(HIRED_FARE_USE.question);
+    expect(fromHome.ai_suggestion.reasoning).toBe(HIRED_FARE_USE.homeStartReason);
+    const fromHomeWithOffice = fare(HIRED_FARE_USE.betweenWithHomeOffice, { mileage_details: { start_location: 'Home' } }, { home_office: true });
+    expect(fromHomeWithOffice.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, scheduleCLine: '27a' });
+    vi.unstubAllEnvs();
   });
 
   it('actual expenses use the recorded business share and ask when it is missing', () => {

@@ -1,3 +1,5 @@
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
+
 /** Client-safe review contract. Categories map to the existing export taxonomy only after user review. */
 export const REVIEW_CATEGORIES = [
   { value: 'advertising_marketing', label: 'Advertising and marketing', recordedCategory: 'SERVICE_ADVERTISING' },
@@ -66,6 +68,8 @@ export function canConfirmAiSuggestion(suggestion: AiReviewSuggestion | null | u
   if (!suggestion || suggestion.status === 'blocked' && suggestion.categoryReady !== true || !suggestion.id || !suggestion.inputHash ||
       suggestion.transactionKind === 'unknown') return false;
   if (['income', 'transfer', 'personal', 'refund'].includes(suggestion.transactionKind)) return suggestion.isDeductible !== true;
+  if (mileageVehicleCopyEnabled() && suggestion.category == null && suggestion.scheduleCLine === '27a' && suggestion.status === 'ok' &&
+      suggestion.transactionKind === 'expense' && suggestion.isDeductible === true && suggestion.deductiblePercent === 100) return true;
   const category = reviewCategory(suggestion.category);
   return !!category && category.value !== 'other';
 }

@@ -3,7 +3,7 @@ import type { DocumentReference } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { vehicleFromDocument, vehicleMethodForTaxYear, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
-import { hiredFareOvernightConfirmed, hiredFarePurpose, hiredVehicleFare, HIRED_FARE_OVERNIGHT, HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, SEPARATE_VEHICLE_COST_SHARE, standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
+import { hiredFareChoiceFromRecord, hiredFarePurpose, hiredFarePurposeText, hiredFareStartedAtHome, hiredFareUsePrompt, hiredVehicleFare, HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, HIRED_FARE_USE, profileHasHomeOffice, SEPARATE_VEHICLE_COST_SHARE, standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
 import { ACTUAL_EXPENSE_BUSINESS_SHARE, finiteUsePercent } from '@/lib/ai/actual-expense-share';
 import type { OutputType } from './analyzeTransaction';
 import { composeExplanation, type ExplainableResult, type ExplanationProfile } from './explanation';
@@ -220,46 +220,67 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
     suggestion.deductiblePercent = 50;
     suggestion.scheduleCLine = '24b';
   }
-  const purposeText = canonicalData ? ['business_purpose', 'notes', 'note'].map(key => typeof canonicalData[key] === 'string' ? canonicalData[key] as string : '').filter(Boolean).join(' ') : '';
+  const purposeText = hiredFarePurposeText(canonicalData);
   // A hired fare is transportation decided by the trip. It never takes the method or the share of the user's own car.
-  // undefined keeps the incoming line. null clears it so a local fare is not filed on 24a or 27b.
+  // undefined keeps the incoming line. null clears it. Line 24a is only the confirmed overnight answer.
   let scheduleLine: string | null | undefined;
   if (mileageVehicleCopyEnabled() && canonicalData && suggestion.status === 'ok' && suggestion.isDeductible === true &&
       hiredVehicleFare(merchantText) && suggestion.category !== 'meals_50' &&
       (suggestion.category === 'vehicle_expense' || suggestion.category === 'travel' || suggestion.category === 'other')) {
-    const farePurpose = hiredFarePurpose(purposeText);
-    if (farePurpose === 'business' && hiredFareOvernightConfirmed(purposeText)) {
+    const choice = hiredFareChoiceFromRecord(canonicalData);
+    const startedAtHome = hiredFareStartedAtHome(canonicalData);
+    const homeOffice = profileHasHomeOffice(profile);
+    const clearLine = () => { suggestion.category = 'travel'; delete suggestion.scheduleCLine; scheduleLine = null; };
+    if (choice === 'overnight') {
       suggestion.category = 'travel';
       suggestion.scheduleCLine = '24a';
       suggestion.deductiblePercent = 100;
       suggestion.isDeductible = true;
       suggestion.status = 'ok';
+      suggestion.questions = [];
+      suggestion.reasoning = HIRED_FARE_USE.overnightReason;
       scheduleLine = '24a';
-    } else if (farePurpose === 'business') {
+    } else if (choice === 'between' && startedAtHome === true && !homeOffice) {
       suggestion.category = null;
       delete suggestion.scheduleCLine;
       suggestion.status = 'needs_more_info';
       suggestion.isDeductible = null;
       suggestion.deductiblePercent = null;
-      suggestion.questions = [HIRED_FARE_OVERNIGHT.question];
-      suggestion.reasoning = HIRED_FARE_OVERNIGHT.reason;
+      suggestion.questions = hiredFareUsePrompt(profile);
+      suggestion.reasoning = HIRED_FARE_USE.homeStartReason;
       scheduleLine = null;
-    } else if (farePurpose === 'personal') {
-      suggestion.category = 'travel';
-      suggestion.scheduleCLine = '24a';
+    } else if (choice === 'between') {
+      suggestion.category = null;
+      suggestion.scheduleCLine = '27a';
+      suggestion.deductiblePercent = 100;
+      suggestion.isDeductible = true;
+      suggestion.status = 'ok';
+      suggestion.questions = [];
+      suggestion.reasoning = HIRED_FARE_USE.betweenReason;
+      scheduleLine = '27a';
+    } else if (choice === 'commute' || choice === 'personal' || hiredFarePurpose(purposeText) === 'personal') {
+      clearLine();
       suggestion.isDeductible = false;
       suggestion.deductiblePercent = 0;
       suggestion.status = 'ok';
       suggestion.questions = [];
-      suggestion.reasoning = HIRED_FARE_PERSONAL.reason;
-    } else {
-      suggestion.category = 'travel';
-      suggestion.scheduleCLine = '24a';
+      suggestion.reasoning = choice === 'commute' ? HIRED_FARE_USE.commuteReason : HIRED_FARE_PERSONAL.reason;
+    } else if (hiredFarePurpose(purposeText) === 'unstated') {
+      clearLine();
       suggestion.status = 'needs_more_info';
       suggestion.isDeductible = null;
       suggestion.deductiblePercent = null;
       suggestion.questions = [HIRED_FARE_PURPOSE.question];
       suggestion.reasoning = HIRED_FARE_PURPOSE.reason;
+    } else {
+      suggestion.category = null;
+      delete suggestion.scheduleCLine;
+      suggestion.status = 'needs_more_info';
+      suggestion.isDeductible = null;
+      suggestion.deductiblePercent = null;
+      suggestion.questions = hiredFareUsePrompt(profile);
+      suggestion.reasoning = HIRED_FARE_USE.reason;
+      scheduleLine = null;
     }
   }
   const supportedCategory = reviewCategory(suggestion.category);
@@ -271,7 +292,7 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
   // consume is stored with the question that unblocks it, never beside "deductible on line N" prose.
   let withheld: { question: string; reason: string } | null = null;
   let appliedShareReason: string | null = null;
-  if (suggestion.status === 'ok' && canonicalData && (transactionKind === 'unknown' ||
+  if (suggestion.status === 'ok' && scheduleLine !== '27a' && canonicalData && (transactionKind === 'unknown' ||
       suggestion.isDeductible === true && (!supportedCategory || supportedCategory.recordedCategory.endsWith('_REVIEW_REQUIRED') ||
         suggestion.deductiblePercent !== expectedPercent || Boolean(separateOnThisCharge)))) {
     const savedDate = typeof canonicalData.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(canonicalData.date) ? Number(canonicalData.date.slice(0, 4)) : null;
@@ -299,7 +320,8 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
       suggestion.reasoning = gate.reason;
     }
   }
-  const fareReason = suggestion.reasoning === HIRED_FARE_PERSONAL.reason || suggestion.reasoning === HIRED_FARE_PURPOSE.reason || suggestion.reasoning === HIRED_FARE_OVERNIGHT.reason ? suggestion.reasoning : null;
+  const fareReasons: readonly string[] = [HIRED_FARE_PERSONAL.reason, HIRED_FARE_PURPOSE.reason, HIRED_FARE_USE.reason, HIRED_FARE_USE.overnightReason, HIRED_FARE_USE.betweenReason, HIRED_FARE_USE.commuteReason, HIRED_FARE_USE.homeStartReason];
+  const fareReason = fareReasons.includes(suggestion.reasoning) ? suggestion.reasoning : null;
   const displayedReason = withheld?.reason ?? appliedShareReason ?? fareReason ?? result.customized_reason ?? null;
   const hiredPurposeField = mileageVehicleCopyEnabled() && suggestion.questions[0] === HIRED_FARE_PURPOSE.question;
   const missingFields = withheld
@@ -308,7 +330,7 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
         : withheldMissingField(suggestion.category, transactionKind)]
     : hiredPurposeField && suggestion.status === 'needs_more_info'
       ? ['business_purpose']
-      : mileageVehicleCopyEnabled() && suggestion.status === 'needs_more_info' && suggestion.questions[0] === HIRED_FARE_OVERNIGHT.question
+      : mileageVehicleCopyEnabled() && suggestion.status === 'needs_more_info' && suggestion.questions[0] === HIRED_FARE_USE.question
         ? ['travel_eligibility']
         : result.missing_fields ?? [];
   const label = suggestion.status === 'needs_more_info' ? 'Needs more information' : suggestion.status === 'blocked' ? 'Needs manual review' :
@@ -316,7 +338,7 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
   // The explanation describes the gated suggestion the user sees, never the raw model output.
   const savedLine = scheduleLine !== undefined ? scheduleLine : (suggestion.scheduleCLine ?? scheduleCLine ?? null);
   const gated: ExplainableResult = { ...(result as ExplainableResult), status: suggestion.status, transaction_kind: transactionKind,
-    category: scheduleLine === null ? undefined : (suggestion.category ?? result.category), questions: suggestion.questions, is_deductible: suggestion.isDeductible ?? undefined, deductible_percent: suggestion.deductiblePercent ?? undefined,
+    category: scheduleLine === null || suggestion.category == null ? undefined : (suggestion.category ?? result.category), questions: suggestion.questions, is_deductible: suggestion.isDeductible ?? undefined, deductible_percent: suggestion.deductiblePercent ?? undefined,
     ...(scheduleLine === null ? { schedule_c_line: undefined } : scheduleLine ? { schedule_c_line: scheduleLine } : {}),
     ...(withheld ? { customized_reason: withheld.reason, reasoning_summary: withheld.reason, key_analysis_factor: withheld.reason.slice(0, 400),
       missing_fields: missingFields } : {}),
