@@ -743,6 +743,7 @@ describe('v1.8 past-due planner', () => {
     const due = getIndividualReturnDueDate(2027).toISOString().slice(0, 10);
     expect(due).toBe('2028-04-18');
     const dues = getInstallmentDueDates(2027).map(item => item.dueDate);
+    expect(dues[3]).toBe('2028-01-18');
     const installmentCents = [212500, 212500, 212500, 212500];
     const pastDue = allocateOldestFirst({
       dueDates: dues,

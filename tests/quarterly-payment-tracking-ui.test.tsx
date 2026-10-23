@@ -173,6 +173,30 @@ describe('quarterly payment tracking edits', () => {
     });
   });
 
+  it('reloads the payment list when a save is rejected', async () => {
+    const list = {
+      payments: [payment(1, true), payment(2, false), payment(3, false), payment(4, false)],
+      summary: { totalEstimated: 0, totalPaid: 2125, totalRemaining: 0, totalPenalty: null },
+    };
+    h.request.mockImplementation(async (_url: string, init?: { method?: string }) => {
+      if (init?.method === 'POST') {
+        return Response.json({ error: 'This page is out of date, so your change wasn\'t saved. Refresh the page and try again.' }, { status: 409 });
+      }
+      return Response.json(list);
+    });
+    render();
+    await flush();
+    const gets = () => h.request.mock.calls.filter(call => call[1]?.method !== 'POST').length;
+    const before = gets();
+    const loaded = render();
+    walk(loaded).find(node => node.props?.onClick && text(node) === 'Record Payment').props.onClick();
+    fill(render(), '25', `${year}-04-12`);
+    await walk(render()).find(node => node.props?.onClick && text(node) === 'Save Payment').props.onClick();
+    await flush();
+    expect(gets()).toBe(before + 1);
+    expect(text(render())).toContain('This page is out of date, so your change wasn\'t saved. Refresh the page and try again.');
+  });
+
   it('shows the applied overpayment sentence on that record', async () => {
     const row = { ...payment(1, true), paymentType: 'prior_year_overpayment' as const };
     h.request.mockImplementation(async () => Response.json({

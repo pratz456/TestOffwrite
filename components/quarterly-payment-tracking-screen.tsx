@@ -189,6 +189,9 @@ export function QuarterlyPaymentTrackingScreen({
           notes: formNotes || undefined,
         }),
       });
+      if (res.status === 409) {
+        await fetchPayments();
+      }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Failed to record payment");

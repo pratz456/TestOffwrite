@@ -66,13 +66,10 @@ export async function GET(request: NextRequest) {
           const paidDate = payment.record?.paidDate;
           const designatedTaxYear = payment.record?.designatedTaxYear;
           const paymentType = payment.record?.paymentType === 'prior_year_overpayment' ? 'prior_year_overpayment' as const : null;
-          // possibleDuplicate is data for the planner count. No customer copy until a badge is approved.
-          const possibleDuplicate = payment.record?.possibleDuplicate === true;
           return {
             amount: payment.paidAmount, paidDate: isIsoDate(paidDate) ? paidDate : null, recordedQuarter: payment.quarter,
             designatedTaxYear: typeof designatedTaxYear === 'number' && Number.isInteger(designatedTaxYear) ? designatedTaxYear : null,
             ...(paymentType ? { paymentType, priorReturnFiled: true as const } : {}),
-            ...(possibleDuplicate ? { possibleDuplicate: true as const } : {}),
           };
         });
       try {
@@ -93,7 +90,6 @@ export async function GET(request: NextRequest) {
     }
 
     const amountPaid = (quarter: number) => Math.round(payments.filter(payment => payment.quarter === quarter).reduce((sum, payment) => sum + Math.round(payment.paidAmount * 100), 0)) / 100;
-    const possibleDuplicates = payments.filter(payment => payment.paidAmount > 0 && payment.record?.possibleDuplicate === true).length;
     const quarters = planner.status === 'ready'
       ? planner.installments.map(installment => ({
         quarter: installment.quarter, label: `Q${installment.quarter}`, dueDate: installment.dueDate, amountPaid: amountPaid(installment.quarter),
@@ -119,7 +115,6 @@ export async function GET(request: NextRequest) {
       socialSecurityWithheld: annual.payments.socialSecurityFederalWithheld ?? 0,
       totalFederalWithheld,
       asOf,
-      possibleDuplicates,
       paymentReview: ready
         ? { code: 'QUARTERLY_PLANNER_READY', message: QUARTERLY_PLANNER_READY_MESSAGE }
         : { code: 'QUARTERLY_REVIEW_REQUIRED', message: QUARTERLY_REVIEW_MESSAGE, missingFacts: planner.status === 'review_required' ? planner.missingFacts : [], notes: planner.status === 'review_required' ? planner.notes : [] },

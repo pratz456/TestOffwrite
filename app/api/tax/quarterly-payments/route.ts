@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import type { CollectionReference, DocumentData } from 'firebase-admin/firestore';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb, FieldValue } from '@/lib/firebase/admin';
 import { getRecordedQuarterlyPayments } from '@/lib/firebase/quarterly-payments-server';
@@ -7,6 +6,7 @@ import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
 import { holdPaymentEditForTests } from '@/lib/tax/payment-edit-hold';
 import { appliedOverpaymentCreditDate, assignInstallmentPeriod } from '@/lib/tax-provider/quarterly-planner';
 import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
+import { randomUUID } from 'node:crypto';
 
 const QUARTER_DEADLINES: { quarter: number; month: number; day: number; nextYear?: boolean }[] = [
   { quarter: 1, month: 3, day: 15 },   // April 15
@@ -44,6 +44,7 @@ function getDocId(quarter: number, year: number): string {
 const LEGACY_DOC_ID = /^Q([1-4])_(\d{4})$/;
 const CLIENT_PAYMENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const EDIT_ALREADY_SAVED = 'Another edit already saved this payment. Your change wasn\'t saved.';
+export const PAGE_OUT_OF_DATE = 'This page is out of date, so your change wasn\'t saved. Refresh the page and try again.';
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
@@ -68,42 +69,13 @@ function present(value: unknown): boolean {
   return !(value === undefined || value === null || value === '');
 }
 
-function livePaymentIdentity(id: string, data: DocumentData): { quarter: number; taxYear: number } | null {
-  const legacy = LEGACY_DOC_ID.exec(id);
-  if (legacy) return { quarter: Number(legacy[1]), taxYear: Number(legacy[2]) };
-  const quarter = data.quarter;
-  if (quarter !== 1 && quarter !== 2 && quarter !== 3 && quarter !== 4) return null;
-  const taxYear = designatedYear(data.designatedTaxYear) ?? designatedYear(data.year);
-  return taxYear === null ? null : { quarter, taxYear };
-}
-
-/**
- * A save that omits the live record id can repeat a payment a stale tab already
- * stored. The new record is still saved. possibleDuplicate is set when the amount
- * and paid date match an existing live payment for this user, tax year, and quarter.
- * Two equal payments can be legitimate, so this does not skip or delete a record.
- * A badge waits for copy approval.
- */
-async function matchesLivePayment(
-  collection: CollectionReference,
-  candidate: { taxYear: number; quarter: number; amount: number; paidDate: string; excludeId: string | null },
-): Promise<boolean> {
-  if (!(candidate.amount > 0)) return false;
-  const listed = await collection.get();
-  return listed.docs.some(doc => {
-    if (candidate.excludeId !== null && doc.id === candidate.excludeId) return false;
-    const data = doc.data();
-    if (typeof data.supersededBy === 'string' && data.supersededBy.length > 0) return false;
-    const identity = livePaymentIdentity(doc.id, data);
-    if (!identity || identity.quarter !== candidate.quarter || identity.taxYear !== candidate.taxYear) return false;
-    if (roundMoney(Number(data.paidAmount) || 0) !== candidate.amount) return false;
-    return data.paidDate === candidate.paidDate;
-  });
-}
-
 function storedVersion(data: Record<string, unknown> | undefined): number {
   const version = data?.version;
   return typeof version === 'number' && Number.isInteger(version) && version >= 0 ? version : 0;
+}
+
+function alreadyReplaced(data: Record<string, unknown> | undefined): boolean {
+  return typeof data?.supersededBy === 'string' && data.supersededBy.length > 0;
 }
 
 function requestedBaseVersion(value: unknown): number | null {
@@ -227,8 +199,6 @@ export async function GET(request: NextRequest) {
     const totalPaid = payments.reduce((s, p) => s + p.paidAmount, 0);
     const totalRemaining = Math.max(0, totalEstimated - totalPaid);
     // User-entered targets and payment records do not establish tax penalties.
-    // possibleDuplicates counts flagged records. Their amounts stay in totalPaid.
-    const possibleDuplicates = recorded.filter(payment => payment.record?.possibleDuplicate === true).length;
 
     return NextResponse.json({
       payments,
@@ -239,7 +209,6 @@ export async function GET(request: NextRequest) {
         totalPenalty: null,
         basis: 'user_entered_targets',
         reviewRequired: true,
-        possibleDuplicates,
       },
     });
   } catch (error) {
@@ -306,12 +275,6 @@ export async function POST(request: NextRequest) {
       || Number.isNaN(Date.parse(paidDate)) || new Date(paidDate).toISOString().slice(0, 10) !== paidDate) {
       return NextResponse.json({ error: 'Provide a valid payment date (YYYY-MM-DD).' }, { status: 400 });
     }
-    if (applied && priorReturnFiled !== true) {
-      const existing = await docRef.get();
-      const current = existing.exists ? existing.data()! : createDefaultPayment(q, y);
-      return NextResponse.json({ ...current, penalty: null });
-    }
-    const effectiveDateFor = (taxYear: number) => applied ? appliedOverpaymentCreditDate(taxYear) : paidDate;
     const hasPaymentId = present(rawPaymentId);
     const paymentId = hasPaymentId ? clientPaymentId(rawPaymentId) : null;
     if (hasPaymentId && !paymentId) {
@@ -329,6 +292,15 @@ export async function POST(request: NextRequest) {
     if (hasExpectedLiveId && !expectedLiveId) {
       return NextResponse.json({ error: 'Invalid payment record' }, { status: 400 });
     }
+    if (recordId && !expectedLiveId) {
+      return NextResponse.json({ error: PAGE_OUT_OF_DATE }, { status: 409 });
+    }
+    if (applied && priorReturnFiled !== true) {
+      const existing = await docRef.get();
+      const current = existing.exists ? existing.data()! : createDefaultPayment(q, y);
+      return NextResponse.json({ ...current, penalty: null });
+    }
+    const effectiveDateFor = (taxYear: number) => applied ? appliedOverpaymentCreditDate(taxYear) : paidDate;
     const storedDesignation = designatedYear(designatedTaxYear);
     const taxYearFor = storedDesignation ?? y;
     const baseVersion = requestedBaseVersion(rawBaseVersion);
@@ -360,11 +332,8 @@ export async function POST(request: NextRequest) {
           penalty: null,
           version,
         });
-        const writePayment = (version: number, possibleDuplicate = false) => {
-          const record = {
-            ...buildRecord(version),
-            ...(possibleDuplicate ? { possibleDuplicate: true as const } : {}),
-          };
+        const writePayment = (version: number) => {
+          const record = buildRecord(version);
           transaction.set(paymentRef, { ...record, updatedAt: FieldValue.serverTimestamp() });
           return record;
         };
@@ -408,22 +377,16 @@ export async function POST(request: NextRequest) {
           return { missing: false, conflict: false, record };
         }
 
-        // Read live payments in this callback, before the write. A retry reads them again.
-        // The record being updated is excluded so a payment is not a duplicate of itself.
-        const possibleDuplicate = await matchesLivePayment(collectionRef, {
-          taxYear: taxYearFor,
-          quarter: quarterForDate,
-          amount: nextAmount,
-          paidDate: paidOn,
-          excludeId: paymentId,
-        });
         if (snapshot.exists) {
-          if (sameSavedPayment(snapshot.data())) return { missing: false, conflict: false, record: snapshot.data()! };
-          const liveVersion = storedVersion(snapshot.data());
+          const prior = snapshot.data();
+          // Rewriting a replaced id drops supersededBy and counts the old amount and the edit.
+          if (alreadyReplaced(prior)) return { missing: false, conflict: true, record: null };
+          if (sameSavedPayment(prior)) return { missing: false, conflict: false, record: prior! };
+          const liveVersion = storedVersion(prior);
           if (baseVersion !== null && baseVersion !== liveVersion) return { missing: false, conflict: true, record: null };
-          return { missing: false, conflict: false, record: writePayment(liveVersion + 1, possibleDuplicate) };
+          return { missing: false, conflict: false, record: writePayment(liveVersion + 1) };
         }
-        return { missing: false, conflict: false, record: writePayment(1, possibleDuplicate) };
+        return { missing: false, conflict: false, record: writePayment(1) };
       });
       if (saved.conflict) {
         return NextResponse.json({ error: EDIT_ALREADY_SAVED }, { status: 409 });
@@ -437,20 +400,31 @@ export async function POST(request: NextRequest) {
     const updatedPayment = await adminDb.runTransaction(async transaction => {
       const snapshot = await transaction.get(docRef);
       const prior = snapshot.exists ? snapshot.data()! : createDefaultPayment(q, y);
+      // The reader skips a quarter document that already points at a newer payment.
+      // Keep this add as its own record so the amount is counted once.
+      if (alreadyReplaced(prior)) {
+        const paidOn = effectiveDateFor(y);
+        const nextAmount = roundMoney(amount);
+        const record = {
+          ...createDefaultPayment(q, y),
+          quarter: q, year: y, paidAmount: nextAmount, paidDate: paidOn,
+          designatedTaxYear: storedDesignation,
+          paymentType: applied ? 'prior_year_overpayment' as const : null,
+          confirmationNumber: typeof confirmationNumber === 'string' ? confirmationNumber.slice(0, 200) : null,
+          paymentMethod: typeof paymentMethod === 'string' ? paymentMethod.slice(0, 100) : null,
+          notes: typeof notes === 'string' ? notes.slice(0, 2000) : '',
+          status: nextAmount > 0 ? 'recorded' as const : 'no_record' as const,
+          penalty: null,
+          version: 1,
+        };
+        transaction.set(collectionRef.doc(randomUUID()), { ...record, updatedAt: FieldValue.serverTimestamp() });
+        return record;
+      }
       const estimatedAmount = Number(prior.estimatedAmount) || 0;
       const paidAmount = (Math.round((Number(prior.paidAmount) || 0) * 100) + Math.round(amount * 100)) / 100;
-      const paidOn = effectiveDateFor(y);
-      // The quarter document counts. A stale resubmit of that same payment still adds to it.
-      const possibleDuplicate = await matchesLivePayment(collectionRef, {
-        taxYear: y,
-        quarter: q,
-        amount: roundMoney(amount),
-        paidDate: paidOn,
-        excludeId: null,
-      });
       const record = {
         ...createDefaultPayment(q, y),
-        estimatedAmount, paidAmount, paidDate: paidOn,
+        estimatedAmount, paidAmount, paidDate: effectiveDateFor(y),
         designatedTaxYear: storedDesignation,
         paymentType: applied ? 'prior_year_overpayment' as const : null,
         confirmationNumber: typeof confirmationNumber === 'string' ? confirmationNumber.slice(0, 200) : null,
@@ -458,7 +432,6 @@ export async function POST(request: NextRequest) {
         notes: typeof notes === 'string' ? notes.slice(0, 2000) : '',
         status: paidAmount > 0 ? 'recorded' : 'no_record',
         penalty: null,
-        ...(possibleDuplicate ? { possibleDuplicate: true as const } : {}),
       };
       transaction.set(docRef, { ...record, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       return record;

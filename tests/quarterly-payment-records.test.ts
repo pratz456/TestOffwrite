@@ -519,14 +519,71 @@ describe('recorded quarterly payments', () => {
     expect(await counted()).toBe(1700);
   });
 
-  it('an edit without expectedLiveId adds a payment', async () => {
+  it('a save with recordId and no expectedLiveId returns 409 and changes nothing', async () => {
     state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 2125, paidDate: '2026-04-01', estimatedAmount: 0 });
-    const added = await POST(request('POST', {
+    const before = JSON.stringify([...state.docs.entries()]);
+    const saved = await POST(request('POST', {
       recordId: 'Q1_2026', paymentId: idA, quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15',
     }));
+    expect(saved.status).toBe(409);
+    expect(await saved.json()).toEqual({ error: 'This page is out of date, so your change wasn\'t saved. Refresh the page and try again.' });
+    expect(JSON.stringify([...state.docs.entries()])).toBe(before);
+    expect(state.docs.has(pathFor(idA))).toBe(false);
+    expect(await counted()).toBe(2125);
+  });
+
+  it('returns the earlier payment when an already saved edit is sent again', async () => {
+    state.docs.set(pathFor(idA), {
+      quarter: 1, year: 2026, paidAmount: 2000, paidDate: '2026-05-01', version: 2,
+    });
+    const writesBefore = state.writes.length;
+    const again = await POST(request('POST', {
+      recordId: idA, expectedLiveId: idA, paymentId: idA, quarter: 1, year: 2026, paidAmount: 2000, paidDate: '2026-05-01',
+    }));
+    expect(again.status).toBe(200);
+    expect(await again.json()).toMatchObject({ paidAmount: 2000, paidDate: '2026-05-01' });
+    expect(state.writes.length).toBe(writesBefore);
+    expect(state.docs.get(pathFor(idA))?.version).toBe(2);
+    expect(await counted()).toBe(2000);
+  });
+
+  it('a no-id add after a legacy edit is counted once', async () => {
+    state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 1000, paidDate: '2026-04-01', estimatedAmount: 0 });
+    expect((await POST(request('POST', {
+      recordId: 'Q1_2026', expectedLiveId: 'Q1_2026', paymentId: idA, quarter: 1, year: 2026, paidAmount: 1200, paidDate: '2026-04-02',
+    }))).status).toBe(200);
+    expect(state.docs.get(key)?.supersededBy).toBe(idA);
+    expect(await counted()).toBe(1200);
+    const added = await POST(request('POST', { quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15' }));
     expect(added.status).toBe(200);
-    expect(state.docs.get(key)?.supersededBy).toBeUndefined();
-    expect(await counted()).toBe(2625);
+    expect(await added.json()).toMatchObject({ paidAmount: 500, paidDate: '2026-04-15', quarter: 1 });
+    expect(state.docs.get(key)?.supersededBy).toBe(idA);
+    expect(state.docs.get(key)?.paidAmount).toBe(1000);
+    const saved = await getRecordedQuarterlyPayments('owner-a', 2026);
+    const active = saved.filter(payment => payment.paidAmount > 0);
+    expect(active.filter(payment => payment.paidAmount === 500)).toHaveLength(1);
+    expect(active.find(payment => payment.paidAmount === 500)?.id).not.toMatch(/^Q[1-4]_\d{4}$/);
+    expect(totalRecordedPayments(saved)).toBe(1700);
+  });
+
+  it('a retry of a replaced payment returns 409 and keeps the edited amount', async () => {
+    expect((await POST(request('POST', {
+      paymentId: idA, quarter: 1, year: 2026, paidAmount: 1000, paidDate: '2026-04-01',
+    }))).status).toBe(200);
+    expect((await POST(request('POST', {
+      recordId: idA, expectedLiveId: idA, paymentId: idB, quarter: 1, year: 2026, paidAmount: 1200, paidDate: '2026-04-02',
+    }))).status).toBe(200);
+    expect(await counted()).toBe(1200);
+    expect(state.docs.get(pathFor(idA))?.supersededBy).toBe(idB);
+    const before = JSON.stringify([...state.docs.entries()]);
+    const retry = await POST(request('POST', {
+      paymentId: idA, quarter: 1, year: 2026, paidAmount: 1100, paidDate: '2026-04-03',
+    }));
+    expect(retry.status).toBe(409);
+    expect(await retry.json()).toEqual({ error: 'Another edit already saved this payment. Your change wasn\'t saved.' });
+    expect(JSON.stringify([...state.docs.entries()])).toBe(before);
+    expect(state.docs.get(pathFor(idA))?.supersededBy).toBe(idB);
+    expect(await counted()).toBe(1200);
   });
 
   const lateLine = 'One or more recorded payments are dated after the final installment date and are applied as late payments.';
@@ -693,105 +750,6 @@ describe('recorded quarterly payments', () => {
     expect(await counted()).toBe(1800);
     expect((await getRecordedQuarterlyPayments('owner-a', 2026)).filter(payment => payment.paidAmount > 0)).toHaveLength(1);
     expect(state.docs.get(pathFor(idA))?.supersededBy).toBeUndefined();
-  });
-
-  it('same amount and date in the same quarter without expectedLiveId sets possibleDuplicate', async () => {
-    state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15', estimatedAmount: 0 });
-    const summed = await POST(request('POST', {
-      quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15',
-    }));
-    expect(summed.status).toBe(200);
-    const summedBody = await summed.json();
-    expect({
-      possibleDuplicate: summedBody.possibleDuplicate ?? null,
-      paidAmount: summedBody.paidAmount,
-      counted: await counted(),
-    }).toEqual({ possibleDuplicate: true, paidAmount: 1000, counted: 1000 });
-
-    state.docs.clear();
-    state.docs.set(pathFor(idA), { quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15' });
-    const added = await POST(request('POST', {
-      paymentId: idB, quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15',
-    }));
-    expect(added.status).toBe(200);
-    const addedBody = await added.json();
-    expect({
-      possibleDuplicate: addedBody.possibleDuplicate ?? null,
-      paidAmount: addedBody.paidAmount,
-      counted: await counted(),
-      earlier: state.docs.get(pathFor(idA))?.possibleDuplicate ?? null,
-    }).toEqual({ possibleDuplicate: true, paidAmount: 500, counted: 1000, earlier: null });
-  });
-
-  it('a different date or a different quarter does not set possibleDuplicate', async () => {
-    state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15', estimatedAmount: 0 });
-    const differentDate = await POST(request('POST', {
-      quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-10',
-    }));
-    expect(differentDate.status).toBe(200);
-    const differentDateBody = await differentDate.json();
-    expect({
-      possibleDuplicate: differentDateBody.possibleDuplicate ?? null,
-      paidAmount: state.docs.get(key)?.paidAmount,
-    }).toEqual({ possibleDuplicate: null, paidAmount: 1000 });
-
-    state.docs.clear();
-    state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15', estimatedAmount: 0 });
-    const differentQuarter = await POST(request('POST', {
-      quarter: 2, year: 2026, paidAmount: 500, paidDate: '2026-04-15',
-    }));
-    expect(differentQuarter.status).toBe(200);
-    const quarterTwo = 'user_profiles/owner-a/quarterly_payments/Q2_2026';
-    const differentQuarterBody = await differentQuarter.json();
-    expect({
-      possibleDuplicate: differentQuarterBody.possibleDuplicate ?? null,
-      paidAmount: state.docs.get(quarterTwo)?.paidAmount,
-      original: state.docs.get(key)?.paidAmount,
-    }).toEqual({ possibleDuplicate: null, paidAmount: 500, original: 500 });
-  });
-
-  it('a save with expectedLiveId never sets possibleDuplicate', async () => {
-    state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15', estimatedAmount: 0 });
-    state.docs.set(pathFor(idB), { quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15' });
-    const saved = await POST(request('POST', {
-      recordId: 'Q1_2026', expectedLiveId: 'Q1_2026', paymentId: idA, quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15',
-    }));
-    expect(saved.status).toBe(200);
-    const body = await saved.json();
-    expect({
-      possibleDuplicate: body.possibleDuplicate ?? null,
-      paidAmount: body.paidAmount,
-      stored: state.docs.get(pathFor(idA))?.possibleDuplicate ?? null,
-    }).toEqual({ possibleDuplicate: null, paidAmount: 500, stored: null });
-    expect(state.docs.get(key)?.supersededBy).toBe(idA);
-  });
-
-  it('the route returns the possibleDuplicates count', async () => {
-    state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15', estimatedAmount: 0 });
-    const before = await (await GET(request('GET'))).json();
-    expect((await POST(request('POST', {
-      quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15',
-    }))).status).toBe(200);
-    const listed = await (await GET(request('GET'))).json();
-    const saved = await getRecordedQuarterlyPayments('owner-a', 2026);
-    const plan = buildQuarterlyPlan({
-      taxYear: 2026, filingStatus: 'single', currentYearTax: null, withholding: 0,
-      priorYear: { available: true, totalTax: 8500, agi: 100000, coveredTwelveMonths: true },
-      asOf: '2026-10-22',
-      payments: saved.filter(payment => payment.paidAmount > 0).map(payment => ({
-        amount: payment.paidAmount,
-        paidDate: typeof payment.record?.paidDate === 'string' ? payment.record.paidDate : null,
-        recordedQuarter: payment.quarter,
-        possibleDuplicate: payment.record?.possibleDuplicate === true,
-      })),
-    });
-    expect({
-      before: before.summary.possibleDuplicates,
-      route: listed.summary.possibleDuplicates,
-      planner: plan.possibleDuplicates,
-      recorded: plan.totals.recordedPayments,
-      totalPaid: listed.summary.totalPaid,
-    }).toEqual({ before: 0, route: 1, planner: 1, recorded: 1000, totalPaid: 1000 });
   });
 });
 
