@@ -237,6 +237,7 @@ const VERIFIED: Array<[string, string, string]> = [
   ['Delivery on Jan 15, 2026\nTotal $12.34', 'Jan 15, 2026', '2026-01-15'],
   ['Offer on 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
   ['Order shipped by 01/20/2026\nOrder date 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Delivered on 01/20/2026\nOrder Date 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
 ];
 const RULING: Array<[string, string]> = [
   ['Order placed 12/29/2025\nPaid Jan 2, 2026\nTotal $12.34', '2026-01-02'],
