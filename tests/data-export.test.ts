@@ -106,6 +106,15 @@ describe('owner export source completeness and privacy', () => {
   it('fails the entire archive if an included tax dataset is unreadable', async () => {
     state.fail = 'income_1099'; await expect(generateUserDataExport('owner')).rejects.toBeInstanceOf(ExportDataUnavailableError);
   });
+  it('leaves a datetime-only row out of the date range and keeps the amount', async () => {
+    seed('transactions/datetime-only', { userId: 'owner', datetime: '2024-12-31T15:00:00Z', amount: 80, is_deductible: true });
+    const data = await generateUserDataExport('owner');
+    const row = data.transactions.find((tx) => tx.amount === 80);
+    expect(row).toMatchObject({ amount: 80, datetime: '2024-12-31T15:00:00Z' });
+    const pack = generateDataPackage(data);
+    expect(pack.summary.dateRange.earliest === '2024-12-31' || pack.summary.dateRange.latest === '2024-12-31').toBe(false);
+    expect(pack.csv).toContain('Needs more information');
+  });
   it('requires review for undated transactions instead of silently omitting them from a selected year', async () => {
     seed('transactions/undated', { userId: 'owner', amount: 10 });
     await expect(generateUserDataExport('owner', 2026)).rejects.toBeInstanceOf(ExportReviewRequiredError);

@@ -1,5 +1,6 @@
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { chargeDay } from '@/lib/schedule-c/taxDate';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { QuarterlyReviewRequiredError, QUARTERLY_REVIEW_MESSAGE } from './regular-estimated-payments';
 
@@ -25,8 +26,8 @@ export type QuarterlyTransactionLike = {
   merchant_name?: string;
   amount: number;
   category: string;
-  date?: string; // date-only or ISO
-  datetime?: string; // ISO with time (preferred)
+  date?: unknown; // written charge day when it is a string
+  datetime?: unknown; // Plaid UTC moment; undated when date is absent
   pending?: boolean | null; // pending/unsettled
   superseded_by?: string | null; // server-only: duplicate of an earlier reviewed bank record
   tax_review_required?: boolean;
@@ -54,75 +55,25 @@ function isPosted(tx: QuarterlyTransactionLike): boolean {
   return tx.pending !== true && !isSupersededRecord(tx);
 }
 
-function getLocalDatePartsFromDate(date: Date, userTimezone: string): LocalDateParts {
-  const dtf = new Intl.DateTimeFormat('en-US', {
-    timeZone: userTimezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-
-  const parts = dtf.formatToParts(date);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value;
-
-  const year = Number(get('year'));
-  const month = Number(get('month'));
-  const day = Number(get('day'));
-
-  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
-    // Fall back to UTC in worst case; better than returning wrong data.
-    return {
-      year: date.getUTCFullYear(),
-      month: date.getUTCMonth() + 1,
-      day: date.getUTCDate(),
-      ymd: `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())}`,
-    };
-  }
-
-  return {
-    year,
-    month,
-    day,
-    ymd: `${year}-${pad2(month)}-${pad2(day)}`,
-  };
-}
-
 /**
- * Convert a transaction's date/datetime into a *user-local* local date (YYYY-MM-DD)
- * based on `userTimezone`.
- *
- * Important: if the transaction date is a `YYYY-MM-DD` *date-only* string, treat it as
- * already-local (do not round-trip through `new Date('YYYY-MM-DD')`, which can drift).
+ * Charge day for a quarter total. A string `date` keeps the written day.
+ * A Date, a Timestamp, or a datetime-only row is undated, so it is left out of
+ * the quarter the same way Schedule C leaves it out of the year. The amount
+ * stays on the row. `userTimezone` does not move the day: no zone is saved.
  */
 export function getLocalTransactionDate(
   transaction: QuarterlyTransactionLike,
   userTimezone: string
 ): LocalDateParts | null {
-  const dateLike = transaction.datetime ?? transaction.date;
-  if (!dateLike) return null;
-
-  if (typeof dateLike === 'string') {
-    const s = dateLike.trim();
-    if (!s) return null;
-
-    // Date-only: treat as local date.
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-      const year = Number(s.slice(0, 4));
-      const month = Number(s.slice(5, 7));
-      const day = Number(s.slice(8, 10));
-      if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
-      return { year, month, day, ymd: s };
-    }
-
-    const d = new Date(s);
-    if (Number.isNaN(d.getTime())) return null;
-    return getLocalDatePartsFromDate(d, userTimezone);
-  }
-
-  // Last-resort: if not a string, try to parse via Date.
-  const d = new Date(dateLike as any);
-  if (Number.isNaN(d.getTime())) return null;
-  return getLocalDatePartsFromDate(d, userTimezone);
+  void userTimezone;
+  const ymd = chargeDay(transaction);
+  if (!ymd) return null;
+  return {
+    year: Number(ymd.slice(0, 4)),
+    month: Number(ymd.slice(5, 7)),
+    day: Number(ymd.slice(8, 10)),
+    ymd,
+  };
 }
 
 export function getTaxYear(localDate: LocalDateParts): number {

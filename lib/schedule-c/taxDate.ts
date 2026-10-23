@@ -71,7 +71,8 @@ function numericSlashDay(text: string): string | null {
  * Leading and trailing spaces are ignored. A real year, month, and day written
  * with hyphens is kept. The month and the day may be one or two digits, so
  * 2025-1-5 is 2025-01-05. An ISO timestamp, a trailing Z, or a space and a time
- * (hours and minutes, seconds optional) uses that same written day. The day is
+ * (hours and minutes, seconds optional) uses that same written day, and the
+ * time must end the string. Trailing junk is undated. The day is
  * the numbers in the string. An offset does not move it, and the noon UTC
  * round trip only rejects an impossible day. A year first slash date is
  * YYYY/MM/DD with a two digit month and day. 2025/13/01 stays unreadable.
@@ -104,7 +105,7 @@ export function calendarChargeDay(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const text = value.trim();
   if (!text) return null;
-  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|T|Z$| \d{2}:\d{2}(?::\d{2})?(?:\s*[AaPp][Mm])?)/.exec(text);
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|Z$|T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?$| \d{2}:\d{2}(?::\d{2})?(?:\s*[AaPp][Mm])?$)/.exec(text);
   if (iso) return realIsoDay(`${iso[1]}-${pad2(Number(iso[2]))}-${pad2(Number(iso[3]))}`);
   const slash = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(text);
   if (slash) return realIsoDay(`${slash[1]}-${slash[2]}-${slash[3]}`);

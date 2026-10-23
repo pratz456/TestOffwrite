@@ -36,7 +36,7 @@ export async function readTaxExportTransactions(uid: string, taxYear: number): P
     }
     return { ...record, id: String(record.trans_id ?? record.id ?? ''), trans_id: String(record.trans_id ?? record.id ?? ''), amount,
       type: amount < 0 ? 'income' : 'expense',
-      date: exportDate(record.date ?? record.datetime)!,
+      date: exportDate(record)!,
       category: typeof record.category === 'string' ? record.category : '',
       merchant_name: String(record.merchant_name ?? record.merchant ?? record.name ?? ''),
       account_id: record.account_id ?? record.accountId,

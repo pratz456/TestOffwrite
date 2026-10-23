@@ -289,6 +289,7 @@ describe('a Date, a Timestamp, or a datetime-only row is undated', () => {
     const row = confirmed({ id: 'datetime-only', datetime: '2024-12-31T15:00:00Z', amount: 80 });
     expect(chargeDay(row)).toBeNull();
     expect(chargeYear(row)).toBeNull();
+    expect(exportDate(row)).toBeNull();
     expect(safeYMD('2024-12-31T15:00:00Z')).toBe('2024-12-31');
     for (const year of ['2024', '2025']) {
       const totals = aggregateScheduleC([row], year, CATEGORY_MAP, { mode: 'confirmed-only' });

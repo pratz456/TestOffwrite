@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { aggregateQuarterlyEstimatesForYear, getLocalTransactionDate, sumIncomeForQuarter, sumExpensesForQuarter, sumPotentialExpensesForQuarter } from '@/lib/tax-provider/quarterly-estimates';
+import { aggregateQuarterlyEstimatesForYear, getLocalTransactionDate, sumIncomeForQuarter, sumExpensesForQuarter, sumPotentialExpensesForQuarter, type QuarterlyTransactionLike } from '@/lib/tax-provider/quarterly-estimates';
 
 const baseOptions = { filingStatus: 'single' as const, w2Income: 0, otherIncome: 0 };
-function calendarSummary(transactions: Parameters<typeof sumIncomeForQuarter>[0], year: number, timezone: string, _options: unknown) {
+function calendarSummary(transactions: QuarterlyTransactionLike[], year: number, timezone: string, _options: unknown) {
   return { quarters: ([1, 2, 3, 4] as const).map(quarter => {
     const gross = sumIncomeForQuarter(transactions, year, quarter, timezone).grossIncome;
     const expense = sumExpensesForQuarter(transactions, year, quarter, timezone).confirmed_deductible_expenses;
@@ -12,70 +12,105 @@ function calendarSummary(transactions: Parameters<typeof sumIncomeForQuarter>[0]
   }) };
 }
 
+function quarterIncome(summary: { quarters: { quarter: number; gross_income: number }[] }, quarter: 1 | 2 | 3 | 4) {
+  const found = summary.quarters.find((item) => item.quarter === quarter);
+  expect(found).toEqual(expect.objectContaining({ quarter }));
+  if (!found) throw new Error(`missing quarter ${quarter}`);
+  return found.gross_income;
+}
+
 describe('Quarterly estimated tax helpers', () => {
-  it('quarter boundary uses user-local date (Tokyo: Apr1 falls in Q2)', () => {
-    const tx = {
-      id: 't1',
-      trans_id: 't1',
-      account_id: 'a1',
-      amount: -100,
-      category: 'revenue',
-      datetime: '2024-03-31T16:30:00.000Z',
-      pending: false,
-      is_deductible: null,
-    };
-
-    const tokyo = calendarSummary([tx], 2024, 'Asia/Tokyo', baseOptions);
-    const q1 = tokyo.quarters.find((q) => q.quarter === 1)!;
-    const q2 = tokyo.quarters.find((q) => q.quarter === 2)!;
-
-    expect(getLocalTransactionDate(tx as any, 'Asia/Tokyo')?.ymd).toBe('2024-04-01');
-    expect(q1.gross_income).toBe(0);
-    expect(q2.gross_income).toBe(100);
+  it('leaves a datetime-only row undated in both zones and keeps the amount', () => {
+    const rows = [
+      {
+        id: 'spring',
+        trans_id: 'spring',
+        account_id: 'a1',
+        amount: -100,
+        category: 'revenue',
+        datetime: '2024-03-31T16:30:00.000Z',
+        pending: false,
+        is_deductible: null,
+      },
+      {
+        id: 'new-year',
+        trans_id: 'new-year',
+        account_id: 'a1',
+        amount: -50,
+        category: 'revenue',
+        datetime: '2023-12-31T23:30:00.000Z',
+        pending: false,
+        is_deductible: null,
+      },
+    ];
+    for (const zone of ['America/Los_Angeles', 'Asia/Tokyo']) {
+      for (const tx of rows) expect(getLocalTransactionDate(tx, zone)).toBeNull();
+      for (const year of [2023, 2024]) {
+        const summary = calendarSummary(rows, year, zone, baseOptions);
+        expect(summary.quarters.reduce((sum, item) => sum + item.gross_income, 0)).toBe(0);
+      }
+    }
+    expect(rows.map((tx) => tx.amount)).toEqual([-100, -50]);
+    expect(rows.map((tx) => tx.datetime)).toEqual(['2024-03-31T16:30:00.000Z', '2023-12-31T23:30:00.000Z']);
   });
 
-  it('quarter boundary flips across timezones (Phoenix: same UTC time stays in Q1)', () => {
+  it('keeps the written day when date and datetime disagree across midnight', () => {
     const tx = {
-      id: 't1',
-      trans_id: 't1',
+      id: 'midnight',
+      trans_id: 'midnight',
       account_id: 'a1',
-      amount: -100,
+      amount: -40,
       category: 'revenue',
-      datetime: '2024-03-31T16:30:00.000Z',
+      date: '2025-06-15',
+      datetime: '2025-06-16T06:30:00.000Z',
       pending: false,
       is_deductible: null,
     };
-
-    const phoenix = calendarSummary([tx], 2024, 'America/Phoenix', baseOptions);
-    const q1 = phoenix.quarters.find((q) => q.quarter === 1)!;
-    const q2 = phoenix.quarters.find((q) => q.quarter === 2)!;
-
-    expect(getLocalTransactionDate(tx as any, 'America/Phoenix')?.ymd).toBe('2024-03-31');
-    expect(q1.gross_income).toBe(100);
-    expect(q2.gross_income).toBe(0);
+    for (const zone of ['America/Los_Angeles', 'Asia/Tokyo']) {
+      expect(getLocalTransactionDate(tx, zone)).toEqual({ year: 2025, month: 6, day: 15, ymd: '2025-06-15' });
+      const summary = calendarSummary([tx], 2025, zone, baseOptions);
+      expect(quarterIncome(summary, 2)).toBe(40);
+      expect(summary.quarters.reduce((sum, item) => sum + item.gross_income, 0)).toBe(40);
+    }
+    expect(tx.amount).toBe(-40);
+    expect(tx.datetime).toBe('2025-06-16T06:30:00.000Z');
   });
 
-  it('year boundary uses user-local year (Tokyo: 2023-12-31Z becomes 2024-01-01 local)', () => {
-    const tx = {
-      id: 't2',
-      trans_id: 't2',
+  it('keeps the written year when date and datetime disagree across New Year', () => {
+    const dec31 = {
+      id: 'dec31',
+      trans_id: 'dec31',
       account_id: 'a1',
-      amount: -50,
+      amount: -80,
       category: 'revenue',
-      datetime: '2023-12-31T23:30:00.000Z',
+      date: '2024-12-31',
+      datetime: '2025-01-01T07:30:00.000Z',
       pending: false,
       is_deductible: null,
     };
-
-    const tokyo2024 = calendarSummary([tx], 2024, 'Asia/Tokyo', baseOptions);
-    const tokyo2023 = calendarSummary([tx], 2023, 'Asia/Tokyo', baseOptions);
-
-    const q1_2024 = tokyo2024.quarters.find((q) => q.quarter === 1)!;
-    const total2023 = tokyo2023.quarters.reduce((s, q) => s + q.gross_income, 0);
-
-    expect(getLocalTransactionDate(tx as any, 'Asia/Tokyo')?.ymd).toBe('2024-01-01');
-    expect(q1_2024.gross_income).toBe(50);
-    expect(total2023).toBe(0);
+    const jan1 = {
+      id: 'jan1',
+      trans_id: 'jan1',
+      account_id: 'a1',
+      amount: -25,
+      category: 'revenue',
+      date: '2025-01-01',
+      datetime: '2024-12-31T15:30:00.000Z',
+      pending: false,
+      is_deductible: null,
+    };
+    for (const zone of ['America/Los_Angeles', 'Asia/Tokyo']) {
+      expect(getLocalTransactionDate(dec31, zone)).toEqual({ year: 2024, month: 12, day: 31, ymd: '2024-12-31' });
+      expect(getLocalTransactionDate(jan1, zone)).toEqual({ year: 2025, month: 1, day: 1, ymd: '2025-01-01' });
+      const year2024 = calendarSummary([dec31, jan1], 2024, zone, baseOptions);
+      const year2025 = calendarSummary([dec31, jan1], 2025, zone, baseOptions);
+      expect(quarterIncome(year2024, 4)).toBe(80);
+      expect(year2024.quarters.reduce((sum, item) => sum + item.gross_income, 0)).toBe(80);
+      expect(quarterIncome(year2025, 1)).toBe(25);
+      expect(year2025.quarters.reduce((sum, item) => sum + item.gross_income, 0)).toBe(25);
+    }
+    expect(dec31.amount).toBe(-80);
+    expect(jan1.amount).toBe(-25);
   });
 
   it('pending transactions are excluded from quarter totals', () => {
@@ -103,6 +138,7 @@ describe('Quarterly estimated tax helpers', () => {
       account_id: 'acc',
       amount: -100,
       category: 'revenue',
+      date: '2024-04-10',
       datetime: '2024-04-10T10:00:00.000Z',
       pending: false,
       is_deductible: null,

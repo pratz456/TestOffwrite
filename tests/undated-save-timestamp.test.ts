@@ -131,11 +131,14 @@ const dateAccepted = (value: string) => transactionCreateInput.safeParse({
 function reportsScreen(rows: Record<string, unknown>[], chartYear: number, currentYear = new Date().getUTCFullYear()) {
   const today = new Date().toISOString().slice(0, 10);
   const visible = rows.filter(record => {
-    const date = exportDate(record.date ?? record.datetime);
+    const date = exportDate(record);
     return !date || chartYear !== currentYear || date <= today;
   });
   const cash = summarizeRecordedCashFlow(visible, chartYear);
-  const inYear = visible.filter(record => isCountableRecord(record) && exportDate(record.date ?? record.datetime)?.startsWith(`${chartYear}-`));
+  const inYear = visible.filter(record => {
+    const date = exportDate(record);
+    return isCountableRecord(record) && date !== null && date.startsWith(`${chartYear}-`);
+  });
   const drilldown = summarizeConfirmedDeductions(visible, chartYear);
   return { cash, inYear, totalCount: inYear.length, drilldown };
 }
@@ -309,5 +312,22 @@ describe('trimmed write-back cannot replace the charge day with a save time', ()
     expect(reportsScreen([row], 2026, 2026).totalCount).toBe(0);
     expect(reportsScreen([row], 2025, 2026).cash.reviewMessage).toBe(CASH_DATE);
     expect(reportsScreen([row], 2026, 2026).cash.months).toEqual([]);
+  });
+
+  it('leaves a datetime-only row off the reports year in both zones and keeps the amount', () => {
+    const row = {
+      id: 'datetime-only', trans_id: 'datetime-only', account_id: 'checking', userId: uid, amount: 80,
+      category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', iso_currency_code: 'USD', is_deductible: true,
+      review_status: 'confirmed', merchant_name: 'Adobe', pending: false, datetime: '2024-12-31T15:00:00Z',
+    };
+    expect(exportDate(row)).toBeNull();
+    for (const year of [2024, 2025]) {
+      const screen = reportsScreen([row], year, 2026);
+      expect(screen.totalCount).toBe(0);
+      expect(screen.cash.reviewMessage).toBe(CASH_DATE);
+      expect(screen.cash.months).toEqual([]);
+    }
+    expect(row.amount).toBe(80);
+    expect(row.datetime).toBe('2024-12-31T15:00:00Z');
   });
 });

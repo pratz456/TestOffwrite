@@ -19,7 +19,7 @@ export function preparerMonthlySummary(records: ExportRecord[], year: number) {
     const currency = String(record.iso_currency_code ?? record.unofficial_currency_code ?? 'Currency not recorded');
     if (!groups.has(currency)) groups.set(currency, Array.from({ length: 12 }, () => ({ outflow: 0, inflow: 0, markedOutflow: 0, count: 0 })));
     if (record.pending === true) continue;
-    const month = Number(exportDate(record.date ?? record.datetime)!.slice(5, 7)) - 1;
+    const month = Number(exportDate(record)!.slice(5, 7)) - 1;
     const row = groups.get(currency)![month], cents = Math.round(transactionAmount(record)! * 100);
     row.count++;
     if (cents > 0) { row.outflow += cents; if (recordedDeductibility(record) === true) row.markedOutflow += cents; }

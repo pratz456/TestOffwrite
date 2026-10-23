@@ -2,33 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import * as taxDate from '@/lib/schedule-c/taxDate';
 import { safeTaxYear, safeYMD } from '@/lib/schedule-c/taxDate';
-
-function pad2(n: number): string {
-  return String(n).padStart(2, '0');
-}
-
-/** Reader at 52f5788d. The year comparison uses this copy in the zone the suite is running in. */
-function baseSafeYMD(dateLike: unknown): string | null {
-  if (dateLike === null || dateLike === undefined) return null;
-  if (typeof dateLike !== 'string') {
-    const parsed = new Date(dateLike as string | number);
-    if (Number.isNaN(parsed.getTime())) return null;
-    return `${parsed.getUTCFullYear()}-${pad2(parsed.getUTCMonth() + 1)}-${pad2(parsed.getUTCDate())}`;
-  }
-  const text = dateLike.trim();
-  if (!text) return null;
-  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
-  const parsed = new Date(text);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return `${parsed.getUTCFullYear()}-${pad2(parsed.getUTCMonth() + 1)}-${pad2(parsed.getUTCDate())}`;
-}
-
-function baseSafeTaxYear(dateLike: unknown): number | null {
-  const day = baseSafeYMD(dateLike);
-  if (!day) return null;
-  const year = Number(day.slice(0, 4));
-  return Number.isFinite(year) ? year : null;
-}
+import { safeTaxYear as baseSafeTaxYear, safeYMD as baseSafeYMD } from './fixtures/taxDate.52f5788d';
 
 type Sample = { input: string; day: string };
 
@@ -189,7 +163,9 @@ describe('written charge days keep the day and the tax year', () => {
   it.each(counted)('$input is $day in that tax year', ({ input, day }) => {
     const year = Number(day.slice(0, 4));
     expectReadersAgree(input, day, year);
+    const baseDay = baseSafeYMD(input);
     const baseYear = baseSafeTaxYear(input);
+    if (baseYear !== null) expect(baseDay !== null && baseDay.startsWith(`${baseYear}-`)).toBe(true);
     if (baseYear !== null && baseYear !== year) {
       expect(day.endsWith('-01-01') || day.endsWith('-12-31'), `${input} base year ${baseYear}`).toBe(true);
     }
@@ -229,6 +205,15 @@ describe('numeric slash dates on the year boundary', () => {
       expect(totals.totalDeductible).toBe(0);
       expect(totals.needsMoreInformation).toBe(1);
     }
+  });
+});
+
+describe('a clock time must end the string', () => {
+  it('rejects trailing junk after the time', () => {
+    expectReadersAgree('2025-01-05 10:00 junk', null, null);
+    const totals = aggregateScheduleC([row('2025-01-05 10:00 junk')], '2025', CATEGORY_MAP, { mode: 'confirmed-only' });
+    expect(totals.totalDeductible).toBe(0);
+    expect(totals.needsMoreInformation).toBe(1);
   });
 });
 

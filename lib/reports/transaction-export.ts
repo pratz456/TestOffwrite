@@ -21,7 +21,14 @@ export function exportYear(value: unknown): number | undefined {
   if (!/^(?:20\d{2}|2100)$/.test(String(value))) throw new RangeError('Provide a four-digit year from 2000 through 2100.');
   return Number(value);
 }
+function isChargeRecord(value: unknown): value is { date?: unknown; datetime?: unknown } {
+  if (value === null || typeof value !== 'object' || value instanceof Date) return false;
+  if (typeof (value as { toDate?: unknown }).toDate === 'function') return false;
+  return 'date' in value || 'datetime' in value;
+}
+/** Tax date of one value, or of a charge record through the shared charge day. A datetime-only record is undated. */
 export function exportDate(value: unknown): string | null {
+  if (isChargeRecord(value)) return chargeDay(value);
   return calendarChargeDay(value);
 }
 export function selectExportYear(records: ExportRecord[], year?: number): ExportRecord[] {
