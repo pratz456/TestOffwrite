@@ -6,7 +6,7 @@ import type { TransactionExplanation } from '@/lib/ai/explanation';
 import type { Transaction } from '@/lib/firebase/transactions';
 import { learningMerchantKey } from '@/lib/ai/merchant-key';
 import { reviewCategory, type AiReviewSuggestion, type ReviewCategory } from './ai-review-contract';
-import { readStoredScheduleCLine } from '@/lib/schedule-c/other-expenses-line';
+import { publishedOtherExpensesLine } from '@/lib/schedule-c/other-expenses-line';
 import { safeTaxYear } from '@/lib/schedule-c/taxDate';
 import { AI_PROPOSAL_CONFIRMED_REASON, AI_PROPOSAL_REJECTED_REASON } from './tax-decision';
 
@@ -45,12 +45,20 @@ export function proposedBusinessPurpose(transaction: ReviewRecord): string | nul
   return proposal;
 }
 
-export function suggestionScheduleCLine(transaction: ReviewRecord): string | null {
+function publishedSuggestionLine(transaction: ReviewRecord) {
   const suggestion = transaction.ai_suggestion as SuggestionWithProposal | null | undefined;
   const raw = cleanText(suggestion?.schedule_c_line) ?? cleanText(suggestion?.scheduleCLine);
-  const year = safeTaxYear(transaction.date ?? transaction.datetime);
-  if (!raw || year == null) return raw;
-  return readStoredScheduleCLine(raw, year);
+  if (!raw) return null;
+  return publishedOtherExpensesLine(raw, safeTaxYear(transaction.date ?? transaction.datetime));
+}
+
+export function suggestionScheduleCLine(transaction: ReviewRecord): string | null {
+  return publishedSuggestionLine(transaction)?.line ?? null;
+}
+
+/** True when a stored other-expenses line has no usable year, or the year is before the confirmed line. */
+export function suggestionOtherExpensesNeedsReview(transaction: ReviewRecord): boolean {
+  return publishedSuggestionLine(transaction)?.needsReview === true;
 }
 
 /** Facts the last analysis asked for, wherever the analyzer saved them. */

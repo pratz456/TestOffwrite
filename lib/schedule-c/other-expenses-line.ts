@@ -16,9 +16,28 @@ import { safeTaxYear } from './taxDate';
  */
 export const OTHER_EXPENSES_27B_FIRST_YEAR = 2025;
 
+/**
+ * First tax year whose other-expenses line is confirmed.
+ * Earlier years keep 27a and need review. 2025 is confirmed 27b.
+ * 2026 and later assume 27b.
+ */
+export const OTHER_EXPENSES_CONFIRMED_FIRST_YEAR = 2023;
+
 /** Other expenses line for a tax year. Years before OTHER_EXPENSES_27B_FIRST_YEAR are 27a. */
 export function otherExpensesLine(taxYear: number): '27a' | '27b' {
   return taxYear >= OTHER_EXPENSES_27B_FIRST_YEAR ? '27b' : '27a';
+}
+
+/**
+ * Line to print for a stored other-expenses code.
+ * No usable year prints nothing and needs review, so a raw 27a is not Form 7205.
+ * Years before OTHER_EXPENSES_CONFIRMED_FIRST_YEAR print 27a and still need review.
+ */
+export function publishedOtherExpensesLine(line: string, taxYear: number | null): { line: string | null; needsReview: boolean } {
+  if (!isOtherExpensesCode(line)) return { line, needsReview: false };
+  if (taxYear == null || !Number.isFinite(taxYear)) return { line: null, needsReview: true };
+  if (taxYear < OTHER_EXPENSES_CONFIRMED_FIRST_YEAR) return { line: otherExpensesLine(taxYear), needsReview: true };
+  return { line: otherExpensesLine(taxYear), needsReview: false };
 }
 
 function isOtherExpensesCode(line: string): boolean {

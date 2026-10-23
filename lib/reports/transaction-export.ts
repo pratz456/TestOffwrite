@@ -1,5 +1,6 @@
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
+import { publishedOtherExpensesLine } from '@/lib/schedule-c/other-expenses-line';
 import { safeTaxYear } from '@/lib/schedule-c/taxDate';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
@@ -65,13 +66,22 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
     const adjustments = Object.fromEntries(['deduction_override', 'deductible_amount', 'deduction_amount', 'deductible_amount_override', 'deduction_percentage'].filter(key => record[key] !== undefined).map(key => [key, record[key]]));
     const receiptPath = typeof rawPath === 'string' ? validateReceiptPreviewPath(rawPath) : null;
     const year = safeTaxYear(record.date ?? record.datetime);
-    const shownLine = (line: unknown) => typeof line === 'string' && line && year != null ? scheduleCExportLine(line, year) : line ?? '';
+    let otherExpensesNeedsReview = false;
+    const shownLine = (line: unknown) => {
+      if (typeof line !== 'string' || !line) return line ?? '';
+      const published = publishedOtherExpensesLine(line, year);
+      if (published.needsReview) otherExpensesNeedsReview = true;
+      if (published.needsReview || published.line !== line) return published.line ?? '';
+      return year != null ? scheduleCExportLine(line, year) : line;
+    };
+    const recordedLine = shownLine(record.schedule_c_line ?? record.scheduleC_line);
+    const mappedLine = shownLine(CATEGORY_MAP[category]?.line ?? '');
     const review = [!date && 'Missing/invalid date', amount === null && 'Missing/invalid amount',
       !record.iso_currency_code && !record.unofficial_currency_code && 'Currency not recorded',
       record.pending === true && 'Pending record; reconcile posted transaction',
       isSupersededRecord(record) && 'Superseded duplicate of an earlier bank record; excluded from WriteOff totals',
       deductible === null && 'Classification unreviewed',
-      record.tax_review_required === true && 'Tax treatment unresolved; exclude from confirmed deduction totals',
+      (record.tax_review_required === true || otherExpensesNeedsReview) && 'Tax treatment unresolved; exclude from confirmed deduction totals',
       amount !== null && amount > 0 && deductible !== false && !Object.keys(businessUse).length && 'Business-use percentage not recorded; confirm allocation',
       rawPath && !receiptPath && 'Receipt link unavailable in private export',
     ].filter(Boolean).join('; ');
@@ -80,7 +90,7 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
       record.type, record.iso_currency_code ?? record.unofficial_currency_code ?? 'Not recorded', record.merchant_name ?? record.name ?? record.merchant,
       record.description, category, deductible === true ? 'Yes' : deductible === false ? 'No' : 'Unreviewed',
       record.pending === true ? 'Yes' : record.pending === false ? 'No' : 'Not recorded',
-      shownLine(record.schedule_c_line ?? record.scheduleC_line), shownLine(CATEGORY_MAP[category]?.line ?? ''), record.business_purpose,
+      recordedLine, mappedLine, record.business_purpose,
       record.user_classification_reason, record.deductible_reason ?? record.deduction_reason, record.deduction_score ?? record.ai_confidence,
       record.receipt_filename, receiptPath, record.notes, Object.keys(businessUse).length ? businessUse : '', Object.keys(adjustments).length ? adjustments : '', review,
     ].map(csvCell).join(',');

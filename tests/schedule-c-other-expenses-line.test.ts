@@ -7,10 +7,10 @@ import { OTHER_EXPENSES_27B_FIRST_YEAR, otherExpensesLine, readStoredAiScheduleC
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
-import { convertTransactionsToCSV } from '@/lib/reports/transaction-export';
+import { convertTransactionsToCSV, TRANSACTION_CSV_HEADERS } from '@/lib/reports/transaction-export';
 import { normalizeExplanation, scheduleCLineFor } from '@/lib/ai/explanation';
 import { reviewHydrationFields } from '@/lib/transactions/ai-review-contract';
-import { suggestionScheduleCLine } from '@/lib/transactions/review-proposals';
+import { suggestionOtherExpensesNeedsReview, suggestionScheduleCLine } from '@/lib/transactions/review-proposals';
 import { safeTaxYear } from '@/lib/schedule-c/taxDate';
 
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
@@ -234,11 +234,23 @@ describe('Schedule C other expenses line follows the tax year', () => {
     expect(scheduleCLineFor({ schedule_c_line: '18', category: 'software_subscriptions', transaction_kind: 'expense', status: 'ok' } as never, 2025)).toBe('Schedule C line 18 (Office expense)');
   });
 
+  const LINE_REVIEW = 'Tax treatment unresolved; exclude from confirmed deduction totals';
+  const CSV_REVIEW = TRANSACTION_CSV_HEADERS.indexOf('Data Review');
+
   function csvColumns(record: Record<string, unknown>): string[] {
     return convertTransactionsToCSV([record]).split('\r\n')[1].split(',');
   }
 
-  it('a missing date leaves a stored 27a unchanged in the CSV, the audit packet, and the suggestion, with the amount unchanged', () => {
+  function evidenceFor(record: Record<string, unknown>) {
+    return buildEvidenceRecord(record, {
+      uid: 'owner',
+      tripsByDate: new Map(),
+      yearTripCount: 0,
+      receiptsByTransaction: new Map(),
+    });
+  }
+
+  it('a missing date does not print a stored 27a and flags the line for review, with the amount unchanged', () => {
     const record = {
       id: 'missing-date',
       amount: OTHER_EXPENSE_AMOUNT,
@@ -249,19 +261,60 @@ describe('Schedule C other expenses line follows the tax year', () => {
     };
     const columns = csvColumns(record);
     expect(columns[4]).toBe('80.25');
-    expect(columns[13]).toBe('27a');
-    expect(columns[14]).toBe('27a');
-    expect(suggestionScheduleCLine(record)).toBe('27a');
-    const evidence = buildEvidenceRecord(record, {
-      uid: 'owner',
-      tripsByDate: new Map(),
-      yearTripCount: 0,
-      receiptsByTransaction: new Map(),
-    });
-    expect(evidence.scheduleCLine).toBe('27a');
+    expect(columns[13]).toBe('');
+    expect(columns[14]).toBe('');
+    expect(columns[13]).not.toContain('27a');
+    expect(columns[14]).not.toContain('27b');
+    expect(columns[CSV_REVIEW]).toContain(LINE_REVIEW);
+    expect(suggestionScheduleCLine(record)).toBeNull();
+    expect(suggestionOtherExpensesNeedsReview(record)).toBe(true);
+    const evidence = evidenceFor(record);
+    expect(evidence.scheduleCLine).toBeNull();
+    expect(evidence.substantiation.status).toBe('needs_records');
     expect(evidence.amount).toBe(OTHER_EXPENSE_AMOUNT);
     expect(record.schedule_c_line).toBe('27a');
     expect(record.amount).toBe(OTHER_EXPENSE_AMOUNT);
+  });
+
+  it('keeps 27a for 2022 and flags review; 2023 is confirmed 27a and 2026 assumes 27b', () => {
+    const row = (year: number) => ({
+      id: `year-${year}`,
+      amount: OTHER_EXPENSE_AMOUNT,
+      date: `${year}-06-01`,
+      category: 'SERVICE_EDUCATION',
+      merchant_name: 'YEAR-MERCHANT',
+      schedule_c_line: '27a',
+      is_deductible: true as const,
+      business_purpose: 'Course for the current business.',
+      ai_suggestion: { schedule_c_line: '27a' },
+    });
+    const early = csvColumns(row(2022));
+    expect(early[4]).toBe('80.25');
+    expect(early[13]).toBe('27a');
+    expect(early[14]).toBe('27a');
+    expect(early[CSV_REVIEW]).toContain(LINE_REVIEW);
+    expect(suggestionScheduleCLine(row(2022))).toBe('27a');
+    expect(suggestionOtherExpensesNeedsReview(row(2022))).toBe(true);
+    const earlyEvidence = evidenceFor(row(2022));
+    expect(earlyEvidence.scheduleCLine).toBe('27a');
+    expect(earlyEvidence.substantiation.status).toBe('needs_records');
+    expect(earlyEvidence.amount).toBe(OTHER_EXPENSE_AMOUNT);
+
+    const confirmed = csvColumns(row(2023));
+    expect(confirmed[13]).toBe('27a');
+    expect(confirmed[14]).toBe('27a');
+    expect(confirmed[CSV_REVIEW]).not.toContain('Tax treatment unresolved');
+    expect(suggestionOtherExpensesNeedsReview(row(2023))).toBe(false);
+    const confirmedEvidence = evidenceFor(row(2023));
+    expect(confirmedEvidence.scheduleCLine).toBe('27a');
+    expect(confirmedEvidence.substantiation.status).toBe('complete');
+
+    const assumed = csvColumns(row(2026));
+    expect(assumed[13]).toBe('27b');
+    expect(assumed[14]).toBe('27b');
+    expect(assumed[CSV_REVIEW]).not.toContain('Tax treatment unresolved');
+    expect(suggestionScheduleCLine(row(2026))).toBe('27b');
+    expect(suggestionOtherExpensesNeedsReview(row(2026))).toBe(false);
   });
 
   it('keeps Dec 31 and Jan 1 on the date prefix when the offset would shift the UTC year', () => {
