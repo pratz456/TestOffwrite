@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import * as taxDate from '@/lib/schedule-c/taxDate';
 import { safeTaxYear, safeYMD } from '@/lib/schedule-c/taxDate';
 
 function pad2(n: number): string {
@@ -88,6 +89,7 @@ const counted: Sample[] = [
   { input: 'December 31 2025 10:00', day: '2025-12-31' },
   { input: 'January 1 2026 10:00', day: '2026-01-01' },
   { input: '2025/01/05', day: '2025-01-05' },
+  { input: ' 2025/01/05 ', day: '2025-01-05' },
   { input: '2025/01/01', day: '2025-01-01' },
   { input: '2025/12/31', day: '2025-12-31' },
   { input: '2026/01/01', day: '2026-01-01' },
@@ -106,10 +108,36 @@ const counted: Sample[] = [
   { input: '15/06/2025', day: '2025-06-15' },
   { input: '02/29/2024', day: '2024-02-29' },
   { input: '29/02/2024', day: '2024-02-29' },
+  { input: '1/31/2025', day: '2025-01-31' },
+  { input: '12/1/2025', day: '2025-12-01' },
+  { input: '1/12/2025', day: '2025-01-12' },
+  { input: '1/05/2025', day: '2025-01-05' },
+  { input: '05/1/2025', day: '2025-05-01' },
+  { input: '2025-1-5', day: '2025-01-05' },
+  { input: '1/1/2025', day: '2025-01-01' },
+  { input: '1/1/2026', day: '2026-01-01' },
+  { input: '9/15/2025', day: '2025-09-15' },
+  { input: '15/9/2025', day: '2025-09-15' },
+  { input: '2/29/2024', day: '2024-02-29' },
+  { input: '29/2/2024', day: '2024-02-29' },
+  { input: ' 2026/01/01 ', day: '2026-01-01' },
+  { input: '1 Jan 2026', day: '2026-01-01' },
+  { input: 'Jan 1 2026', day: '2026-01-01' },
+  { input: 'Jan 1 2025', day: '2025-01-01' },
+  { input: 'Thursday Jan 01 2026', day: '2026-01-01' },
+  { input: 'Dec 31, 2025 11:30 PM', day: '2025-12-31' },
+  { input: 'Jan 1, 2026 12:30 AM', day: '2026-01-01' },
+  { input: 'Jan 1, 2026 12:00 AM', day: '2026-01-01' },
+  { input: 'Dec 31, 2025 11:59 PM', day: '2025-12-31' },
+  { input: 'Jan 1, 2025 12:30 AM', day: '2025-01-01' },
+  { input: 'January 1, 2026', day: '2026-01-01' },
+  { input: 'December 31 2024 23:30', day: '2024-12-31' },
+  { input: 'January 1 2025 00:30', day: '2025-01-01' },
 ];
 
 const dropped: Array<{ label: string; input: unknown }> = [
   { label: 'two way slash 01/05/2025', input: '01/05/2025' },
+  { label: 'two way slash 1/5/2025', input: '1/5/2025' },
   { label: 'two way slash 01/02/2026', input: '01/02/2026' },
   { label: 'two way slash 11/12/2025', input: '11/12/2025' },
   { label: 'two way slash 12/11/2025', input: '12/11/2025' },
@@ -122,6 +150,11 @@ const dropped: Array<{ label: string; input: unknown }> = [
   { label: 'impossible written day', input: 'Feb 30, 2025' },
   { label: 'impossible year first slash day', input: '2025/02/30' },
   { label: 'impossible year first slash month', input: '2025/13/01' },
+  { label: 'impossible year first leap day', input: '2025/02/29' },
+  { label: 'impossible written leap day', input: 'Feb 29, 2025' },
+  { label: 'impossible leap day', input: '2025-02-29' },
+  { label: 'impossible single digit slash day', input: '2/29/2025' },
+  { label: 'impossible unpadded iso day', input: '2025-2-30' },
   { label: 'missing date', input: undefined },
 ];
 
@@ -132,6 +165,19 @@ function row(date: unknown) {
   };
   if (date !== undefined) charge.date = date;
   return charge;
+}
+
+/** On this head, chargeDay and chargeYear match safeYMD and safeTaxYear. Base does not export those two. */
+function expectReadersAgree(input: unknown, day: string | null, year: number | null) {
+  expect(safeYMD(input)).toBe(day);
+  expect(safeTaxYear(input)).toBe(year);
+  if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.chargeYear !== 'function') {
+    expect(taxDate.chargeDay).toBeUndefined();
+    expect(taxDate.chargeYear).toBeUndefined();
+    return;
+  }
+  expect(taxDate.chargeDay({ date: input })).toBe(day);
+  expect(taxDate.chargeYear({ date: input })).toBe(year);
 }
 
 function countedIn(date: unknown, year: number) {
@@ -145,8 +191,7 @@ function countedIn(date: unknown, year: number) {
 describe('written charge days keep the day and the tax year', () => {
   it.each(counted)('$input is $day in that tax year', ({ input, day }) => {
     const year = Number(day.slice(0, 4));
-    expect(safeYMD(input)).toBe(day);
-    expect(safeTaxYear(input)).toBe(year);
+    expectReadersAgree(input, day, year);
     const baseYear = baseSafeTaxYear(input);
     if (baseYear !== null && baseYear !== year) {
       expect(day.endsWith('-01-01') || day.endsWith('-12-31'), `${input} base year ${baseYear}`).toBe(true);
@@ -161,15 +206,26 @@ describe('numeric slash dates on the year boundary', () => {
     ['12/31/2025', '2025-12-31', 2025],
     ['01/01/2026', '2026-01-01', 2026],
     ['31/12/2025', '2025-12-31', 2025],
+    ['1/31/2025', '2025-01-31', 2025],
+    ['12/1/2025', '2025-12-01', 2025],
+    ['2025-1-5', '2025-01-05', 2025],
   ])('%s counts in %i', (input, day, year) => {
-    expect(safeYMD(input)).toBe(day);
-    expect(safeTaxYear(input)).toBe(year);
+    expectReadersAgree(input, day, year);
     countedIn(input, year);
   });
 
-  it.each(['01/02/2026', '01/05/2025'])('%s goes to Needs more information', (input) => {
-    expect(safeYMD(input)).toBeNull();
-    expect(safeTaxYear(input)).toBeNull();
+  it.each(['01/02/2026', '01/05/2025', '1/5/2025', '2025/13/01'])('%s goes to Needs more information', (input) => {
+    expectReadersAgree(input, null, null);
+    for (const year of ['2024', '2025', '2026']) {
+      const totals = aggregateScheduleC([row(input)], year, CATEGORY_MAP, { mode: 'confirmed-only' });
+      expect(totals.totalDeductible).toBe(0);
+      expect(totals.needsMoreInformation).toBe(1);
+    }
+  });
+
+  it('an epoch number stays in Needs more information', () => {
+    const input = Date.UTC(2025, 0, 5);
+    expectReadersAgree(input, null, null);
     for (const year of ['2024', '2025', '2026']) {
       const totals = aggregateScheduleC([row(input)], year, CATEGORY_MAP, { mode: 'confirmed-only' });
       expect(totals.totalDeductible).toBe(0);
@@ -180,8 +236,7 @@ describe('numeric slash dates on the year boundary', () => {
 
 describe('ruled drop outs stay in Needs more information', () => {
   it.each(dropped)('$label stays out of totals', ({ input }) => {
-    expect(safeYMD(input)).toBeNull();
-    expect(safeTaxYear(input)).toBeNull();
+    expectReadersAgree(input, null, null);
     const totals = aggregateScheduleC([row(input)], '2025', CATEGORY_MAP, { mode: 'confirmed-only' });
     expect(totals.totalDeductible).toBe(0);
     expect(totals.needsMoreInformation).toBe(1);

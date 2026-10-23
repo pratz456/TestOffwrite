@@ -21,12 +21,16 @@ function needsMoreInformationCount(rows: readonly { date?: unknown; datetime?: u
 
 const formats = [
   ['a slash date that can be read two ways', '01/05/2025'],
+  ['a single digit slash date that can be read two ways', '1/5/2025'],
   ['an epoch number', Date.UTC(2025, 0, 5)],
   ['an impossible date', '2025-02-30'],
   ['an impossible day with a time', '2025-02-30 10:00:00'],
   ['an impossible written day', 'Feb 30, 2025'],
   ['an impossible year first slash day', '2025/02/30'],
   ['an impossible year first slash month', '2025/13/01'],
+  ['an impossible year first leap day', '2025/02/29'],
+  ['an impossible written leap day', 'Feb 29, 2025'],
+  ['an impossible leap day', '2025-02-29'],
   ['an impossible numeric slash day', '02/30/2025'],
   ['an impossible numeric slash month', '13/13/2025'],
   ['a missing date', undefined],

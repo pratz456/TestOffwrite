@@ -45,11 +45,15 @@ function realIsoDay(day: string): string | null {
 }
 
 /**
- * NN/NN/YYYY. One part over 12 has only one valid reading. Equal parts are that day.
- * Both parts 12 or under and different can be read two ways, so the day stays unreadable.
+ * NN/NN/YYYY with the year last. Each part is one or two digits.
+ * One part over 12 has only one valid reading. Equal parts are that day.
+ * Different digit counts are month then day, so 12/1/2025 is December 1.
+ * Both parts 12 or under, different, and the same number of digits can be
+ * read two ways, so the day stays unreadable. A year first date never uses
+ * this rule: 2025/13/01 is an impossible month, not January 13.
  */
 function numericSlashDay(text: string): string | null {
-  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(text);
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
   if (!match) return null;
   const first = Number(match[1]);
   const second = Number(match[2]);
@@ -60,19 +64,25 @@ function numericSlashDay(text: string): string | null {
   if (first > 12) { day = first; month = second; }
   else if (second > 12) { month = first; day = second; }
   else if (first === second) { month = first; day = second; }
+  else if (match[1].length !== match[2].length) { month = first; day = second; }
   else return null;
   return realIsoDay(`${year}-${pad2(month)}-${pad2(day)}`);
 }
 
 /**
  * Calendar day of a charge, using the same rules as the transaction export Tax Date.
- * Leading and trailing spaces are ignored. A real YYYY-MM-DD is kept. An ISO
- * timestamp, a trailing Z, or a space and a time (hours and minutes, seconds
- * optional) uses that same written day when the first ten characters round-trip
- * through noon UTC. A year first slash date YYYY/MM/DD is that written day.
- * A numeric slash date NN/NN/YYYY counts only when one reading is possible:
- * one part over 12, or both parts equal. Two different parts that are both
- * 12 or under stay unreadable. An impossible day stays unreadable.
+ * Leading and trailing spaces are ignored. A real year, month, and day written
+ * with hyphens is kept. The month and the day may be one or two digits, so
+ * 2025-1-5 is 2025-01-05. An ISO timestamp, a trailing Z, or a space and a time
+ * (hours and minutes, seconds optional) uses that same written day. The day is
+ * the numbers in the string. An offset does not move it, and the noon UTC
+ * round trip only rejects an impossible day. A year first slash date is
+ * YYYY/MM/DD with a two digit month and day. 2025/13/01 stays unreadable.
+ * A numeric slash date has the year last. It counts when one reading is
+ * possible: one part over 12, both parts equal, or the two parts written with
+ * different numbers of digits (month then day). Two different parts that are
+ * both 12 or under and use the same number of digits stay unreadable.
+ * An impossible day stays unreadable.
  * An English month name, full or abbreviated, with the day before or after it,
  * is that written day. A weekday prefix and a clock time do not change the day.
  * Impossible days, blanks, and junk are undated. Save time, upload time, and
@@ -90,14 +100,13 @@ export function calendarChargeDay(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const text = value.trim();
   if (!text) return null;
-  if (/^\d{4}-\d{2}-\d{2}(?:$|T|Z$| \d{2}:\d{2}(?::\d{2})?(?:\s*[AaPp][Mm])?)/.test(text)) {
-    return realIsoDay(text.slice(0, 10));
-  }
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|T|Z$| \d{2}:\d{2}(?::\d{2})?(?:\s*[AaPp][Mm])?)/.exec(text);
+  if (iso) return realIsoDay(`${iso[1]}-${pad2(Number(iso[2]))}-${pad2(Number(iso[3]))}`);
   const slash = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(text);
   if (slash) return realIsoDay(`${slash[1]}-${slash[2]}-${slash[3]}`);
   const numeric = numericSlashDay(text);
   if (numeric) return numeric;
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(text)) return null;
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(text)) return null;
   return writtenMonthDay(text);
 }
 

@@ -127,6 +127,12 @@ describe('per-item transaction sync', () => {
     expect(safeYMD('2025/01/05')).toBe('2025-01-05');
     expect(safeYMD('2025/02/30')).toBeNull();
     expect(safeYMD('2025/13/01')).toBeNull();
+    expect(safeYMD(' 2025/01/05 ')).toBe('2025-01-05');
+    expect(safeYMD('1/31/2025')).toBe('2025-01-31');
+    expect(safeYMD('12/1/2025')).toBe('2025-12-01');
+    expect(safeYMD('31/12/2025')).toBe('2025-12-31');
+    expect(safeYMD('2025-1-5')).toBe('2025-01-05');
+    expect(safeYMD('1/5/2025')).toBeNull();
     expect(safeYMD('Jan 5, 2025')).toBe('2025-01-05');
     expect(safeYMD('January 5, 2025')).toBe('2025-01-05');
     expect(safeYMD(Date.UTC(2025, 0, 5))).toBeNull();
