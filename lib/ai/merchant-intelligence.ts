@@ -531,7 +531,7 @@ export const PLAID_CATEGORY_MAP: readonly PlaidCategoryMapping[] = [
   plaid('GENERAL_MERCHANDISE_DISCOUNT_STORES', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.item('this store') }),
   plaid('GENERAL_MERCHANDISE_ELECTRONICS', 'equipment', '13', 'needs_purpose', { question: Q.electronics }),
   plaid('GENERAL_MERCHANDISE_GIFTS_AND_NOVELTIES', 'other', '27a', 'needs_purpose', { question: Q.gift, subtype: 'gift' }),
-  plaid('GENERAL_MERCHANDISE_OFFICE_SUPPLIES', 'supplies_small_tools', '22', 'business_likely', { defaultPurpose: 'Office supplies used in the business' }),
+  plaid('GENERAL_MERCHANDISE_OFFICE_SUPPLIES', 'supplies_small_tools', '18', 'business_likely', { defaultPurpose: 'Office supplies used in the business' }),
   plaid('GENERAL_MERCHANDISE_ONLINE_MARKETPLACES', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.item('this marketplace') }),
   plaid('GENERAL_MERCHANDISE_PET_SUPPLIES', null, null, 'personal_likely', { question: Q.pet }),
   plaid('GENERAL_MERCHANDISE_SPORTING_GOODS', null, null, 'personal_likely', { question: Q.sportingGoods }),

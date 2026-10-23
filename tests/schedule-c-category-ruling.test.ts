@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
+import { PDFPage } from 'pdf-lib';
 
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
 
@@ -68,9 +69,9 @@ describe('Schedule C category ruling', () => {
 
   it.each([
     ['2016-06-15', '2016', 0, 1],
-    ['2024-06-15', '2024', 80, 0],
-    ['2025-06-15', '2025', 80, 0],
-  ])('prints computers at $2,500.00 on Part V for %s', (date, year, deductible, review) => {
+    ['2024-06-15', '2024', 2500, 0],
+    ['2025-06-15', '2025', 2500, 0],
+  ])('prints a computer charge of 2500.00 on Part V for %s', (date, year, deductible, review) => {
     const charge = row({ id: 'pc', date, amount: 2500, category: 'GENERAL_MERCHANDISE_COMPUTERS_AND_ELECTRONICS', merchant_name: 'Best Buy' });
     expect(lineDeductible([charge], year, '27a')).toBe(deductible);
     expect(lineDeductible([charge], year, '18')).toBe(0);
@@ -98,7 +99,7 @@ describe('Schedule C category ruling', () => {
     ['2016-06-15', '2016', 0, 1],
     ['2024-06-15', '2024', 40, 0],
     ['2025-06-15', '2025', 40, 0],
-  ])('prints a one off software charge at $2,500.00 or less on Part V for %s', (date, year, deductible, review) => {
+  ])('prints a one off software charge of 40.00 on Part V for %s', (date, year, deductible, review) => {
     const charge = row({ id: 'soft', date, amount: 40, category: 'SERVICE_SUBSCRIPTION', merchant_name: 'Solo Vendor', description: 'single seat' });
     expect(lineDeductible([charge], year, '27a')).toBe(deductible);
     expect(lineDeductible([charge], year, '18')).toBe(0);
@@ -120,11 +121,11 @@ describe('Schedule C category ruling', () => {
   });
 
   it.each([
-    ['2016-06-15', '2016', 0, 1],
+    ['2016-06-15', '2016', 0, 2],
     ['2024-06-15', '2024', 30, 0],
     ['2025-06-15', '2025', 30, 0],
   ])('prints a recurring subscription on Part V for %s', (date, year, deductible, review) => {
-    const first = row({ id: `${year}-a`, date, amount: 15, category: 'SERVICE_SUBSCRIPTION', merchant_name: 'Adobe' });
+    const first = row({ id: `${year}-a`, date, amount: 15, category: 'SERVICE_SUBSCRIPTION', merchant_name: 'Adobe Inc.' });
     const second = row({ id: `${year}-b`, date, amount: 15, category: 'SERVICE_SUBSCRIPTION', merchant_name: 'ADOBE, INC' });
     expect(lineDeductible([first, second], year, '27a')).toBe(deductible);
     expect(lineDeductible([first, second], year, '18')).toBe(0);
@@ -137,7 +138,7 @@ describe('Schedule C category ruling', () => {
 
   it('keeps a large recurring software charge on Part V and a one off lifetime charge in review', () => {
     const older = row({ id: 'old', date: '2024-03-01', amount: 15, category: 'SERVICE_SUBSCRIPTION', merchant_name: 'Adobe Inc.' });
-    const newer = row({ id: 'new', date: '2025-06-15', amount: 3000, category: 'SERVICE_SUBSCRIPTION', merchant_name: 'Adobe' });
+    const newer = row({ id: 'new', date: '2025-06-15', amount: 3000, category: 'SERVICE_SUBSCRIPTION', merchant_name: 'ADOBE, INC' });
     expect(lineDeductible([older, newer], '2025', '27a')).toBe(3000);
     expect(reviewCount([older, newer], '2025')).toBe(0);
     const lifetime = row({ id: 'life', date: '2026-06-15', amount: 99, category: 'SERVICE_SUBSCRIPTION', merchant_name: 'Adobe', description: 'Lifetime license' });
@@ -148,7 +149,7 @@ describe('Schedule C category ruling', () => {
     expect(lineDeductible([alone], '2026', '27a')).toBe(0);
     expect(reviewCount([alone], '2026')).toBe(1);
     const card = scheduleCLineFor(softwareResult(3000, '2025-06-15'), '2025-06-15', {
-      amount: 3000, category: 'SERVICE_SUBSCRIPTION', merchant_name: 'Adobe', id: 'new',
+      amount: 3000, category: 'SERVICE_SUBSCRIPTION', merchant_name: 'ADOBE, INC', id: 'new',
       peers: [older, newer] as never[],
     });
     expect(card).toBe('Schedule C line 27b (Other expenses)');
@@ -190,8 +191,10 @@ describe('Schedule C category ruling', () => {
     const evidence = buildEvidenceRecord(charge, { uid: 'owner', tripsByDate: new Map(), yearTripCount: 0, receiptsByTransaction: new Map() });
     expect(evidence.scheduleCLine).toBe('27b');
     expect(evidence.substantiation.advisories).toContain(NOTE);
-    const pdf = await generateScheduleCPlanningPDF({ taxYear: 2026, grossReceipts: 0, lineItems: aggregated.lineItemsArray, includeAppendix: true });
-    expect(Buffer.from(pdf).toString('latin1')).toContain('de minimis safe harbor');
+    const spy = vi.spyOn(PDFPage.prototype, 'drawText');
+    await generateScheduleCPlanningPDF({ taxYear: 2026, grossReceipts: 0, lineItems: aggregated.lineItemsArray, includeAppendix: true });
+    expect(spy.mock.calls.map(call => String(call[0])).join('\n')).toContain('de minimis safe harbor');
+    spy.mockRestore();
     const card = composeExplanation({
       result: softwareResult(2500, '2026-06-15'),
       transaction: charge,

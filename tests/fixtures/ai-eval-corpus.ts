@@ -920,7 +920,7 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     transaction: tx('office-supplies-plaid-medium-no-proposal', 'Local Office Mart', 38.5, { category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }),
     context: SOLE_PROPRIETOR,
     modelOutput: deduction('supplies_small_tools', ['supplies-263a'], 'An office-supply store purchase is a typical supply cost. Keep the receipt.', 'Office supply store purchase.'),
-    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'business_purpose', proposed_purpose: null, schedule_c_line: '22' },
+    expect: { status: 'needs_more_info', transaction_kind: 'expense', category: 'supplies_small_tools', missing_field: 'business_purpose', proposed_purpose: null, schedule_c_line: '18' },
     invariants: GATED_EXPENSE,
   },
   {

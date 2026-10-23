@@ -259,19 +259,28 @@ function isStoredOtherExpensesSentence(value: string): boolean {
  * isSuppliedOtherExpenses is the gate that used to accept any parenthetical. Energy and any other parenthetical return no line.
  * A category that maps to Other expenses then prints by charge year. Confirmation does not change this order.
  */
+function suppliedLineCode(value: string): string | null {
+  const match = /^(?:schedule c )?(?:line )?(\d{1,2}[a-z]?)\b/i.exec(value.trim());
+  return match ? match[1].toLowerCase() : null;
+}
+
 export function scheduleCLineFor(result: ExplainableResult, chargeDate: unknown, row?: ScheduleCRowContext): string | null {
   const treatment = treatmentFor(row?.category ?? result.category, row);
   if (treatment.personal || treatment.needsMoreInformation) return null;
   const supplied = text(result.schedule_c_line, 120);
   const categoryLine = treatment.line;
-  if (categoryLine && categoryLine !== '27a' && categoryLine !== '27b') {
+  if (categoryLine === '27a' || categoryLine === '27b') {
     if (supplied && isEnergyBuildings27b(supplied)) return null;
-    if (supplied && isUnrecognized27Label(supplied)) return null;
     if (!supplied) {
       const kind = result.transaction_kind ?? 'expense';
       if ((kind !== 'expense' && kind !== 'unknown') || result.is_deductible === false) return null;
     }
-    return lineSentence(categoryLine, chargeDate);
+    return lineSentence('27a', chargeDate);
+  }
+  if (categoryLine && supplied) {
+    if (isEnergyBuildings27b(supplied) || isUnrecognized27Label(supplied)) return null;
+    const suppliedCode = suppliedLineCode(supplied);
+    if (suppliedCode && suppliedCode !== categoryLine.toLowerCase()) return lineSentence(categoryLine, chargeDate);
   }
   if (supplied && isSuppliedOtherExpenses(supplied)) return lineSentence('27a', chargeDate);
   if (supplied && isEnergyBuildings27b(supplied)) return null;

@@ -145,7 +145,7 @@ export const CATEGORY_EVIDENCE: Record<ExpenseCategory, readonly string[]> = {
 const VEHICLE_PURCHASE_EVIDENCE = ['assets-946', 'capital-263', 'travel-463', 'mileage-rates'] as const;
 /** Schedule C line per expense category (2025 Instructions for Schedule C); a matching merchant entry can refine it. */
 export const CATEGORY_SCHEDULE_C_LINE: Record<ExpenseCategory, string | null> = {
-  advertising_marketing: '8', supplies_small_tools: '22', software_subscriptions: '27a', contract_labor: '11', equipment: '13',
+  advertising_marketing: '8', supplies_small_tools: '18', software_subscriptions: '27a', contract_labor: '11', equipment: '13',
   vehicle_expense: '9', parking_tolls: '9', travel: '24a', meals_50: '24b', home_office: '30', utilities_phone_internet: '25', education_training: '27a',
   dues_and_memberships: '27a', bank_and_payment_fees: '10', rent: '20b', insurance: '15', legal_professional: '17', taxes_licenses: '23',
   repairs_maintenance: '21', other: null,
