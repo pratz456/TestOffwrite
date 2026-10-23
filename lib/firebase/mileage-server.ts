@@ -156,9 +156,22 @@ export async function assignMileageTrips(
       const vehicle = await adminDb.collection('user_profiles').doc(userId).collection('vehicles').doc(vehicleId).get();
       if (!vehicle.exists) return { data: null, error: { status: 400, message: MILEAGE_VEHICLE_COPY.vehicleMissing } };
     }
-    let trips = snaps.map(snap => mileageTripFromDocument(snap.id, userId, snap.data()));
+    let trips = snaps.map(snap => mileageTripFromDocument(snap.id, userId, snap.data() ?? {}));
     for (const update of updates) {
-      trips = assignTrips(trips, [update.tripId], update, homeOffice);
+      const fields = trips.map(trip => ({
+        id: trip.id,
+        date: trip.date,
+        startLocation: trip.startLocation,
+        endLocation: trip.endLocation,
+        miles: trip.miles,
+        businessPurpose: trip.businessPurpose,
+        roundTrip: trip.roundTrip,
+        vehicleId: trip.vehicleId ?? null,
+        tripType: trip.tripType ?? null,
+        homeDestination: trip.homeDestination ?? null,
+      }));
+      const next = assignTrips(fields, [update.tripId], update, homeOffice);
+      trips = next.map(trip => ({ ...trips.find(item => item.id === trip.id), ...trip, userId }));
     }
     const batch = adminDb.batch();
     const updatedAt = new Date();
