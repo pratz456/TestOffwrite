@@ -29,7 +29,7 @@ export const ERR_REASON_AMOUNT = 'Enter an amount over $0 for each reason you ch
 export const ERR_PARTS_EXCEED_GROSS = 'Refunds, personal amounts and fees add up to {parts}, which is more than the 1099-K gross of {gross}.';
 export const ERR_SELECT_BUSINESS_RECORDS = 'Select the deposits or direct income for the business part of this 1099-K ({business}).';
 export const ERR_SUM_MISMATCH = 'The parts don\'t add up to the 1099-K gross of {gross}: {kind} {selected} + refunds or credits {refunds} + personal {personal} + fees {fee} = {total}.';
-export const OUTSIDE_SC_NOTE = 'This is not business income, so it is not on your Schedule C. If the 1099-K was sent in error, or covers personal items you sold for less than you paid, the amount goes on Schedule 1 line 8z and the same amount on line 24z, so it adds no tax. If you sold personal items for more than you paid, the gain is taxable; ask your tax preparer. Ask the issuer for a corrected 1099-K, keep your records, and file without waiting for the correction.';
+export const OUTSIDE_SC_NOTE = 'This is not business income, so it is not on your Schedule C. If the 1099-K was sent in error, or covers personal items you sold for less than you paid, the amount goes on the 1099-K adjustment entry at the top of Schedule 1, so it adds no tax. If you sold personal items for more than you paid, the gain is taxable; ask your tax preparer. Ask the issuer for a corrected 1099-K, keep your records, and file without waiting for the correction.';
 
 export const EXPORT_BLOCKED_TITLE = 'One step before your Schedule C';
 export const EXPORT_BLOCKED_BODY = 'Some of your income records may describe the same payments. Tell us how they relate, and your Schedule C worksheet will count each one once.';
@@ -60,12 +60,12 @@ export const COMPARE_ROW_AMOUNT = 'Amount';
 export const COMPARE_DIFF = 'These forms differ by {diff}.';
 export const COMPARE_SAME_AMOUNT = 'These forms show the same amount. That alone doesn\'t mean they report the same payments.';
 export const ERR_SAME_NEEDS_K = 'Two 1099-NECs usually report different payments, so you can\'t count them once here. If one corrects the other, choose "A client sent a corrected 1099-NEC". If a client sent the same form twice, ask them which one is right.';
-/** Shown on the saved decision while legacyNecReopen is off. PENDING APPROVAL. */
-export const LEGACY_NEC_WARNING = 'Two 1099-NECs are separate income. Review this match.';
+/** Reconcile tab text while legacyNecReopen is on. Tax preview still needs legacyDecisionReconfirm. PENDING APPROVAL. */
+export const LEGACY_NEC_WARNING = 'Two 1099-NECs are usually separate income. Review this match.';
 /** Shown when legacyNecReopen reopens a current-year NEC-only same-payments decision. PENDING APPROVAL. */
-export const LEGACY_NEC_REOPEN_REASON = 'Two 1099-NECs are separate income, so both count.';
+export const LEGACY_NEC_REOPEN_REASON = 'Two 1099-NECs are usually separate income, so both count.';
 /** One-time notice beside a reopened current-year decision. PENDING APPROVAL. */
-export const LEGACY_NEC_CHANGE_NOTICE = 'We used to count these two 1099-NECs once. Two 1099-NECs are separate income, so both now count, and your total and quarterly estimate may go up.';
+export const LEGACY_NEC_CHANGE_NOTICE = 'We used to count these two 1099-NECs once. Two 1099-NECs are usually separate income, so both now count, and your total and quarterly estimate may go up.';
 /** Shown when legacyNecReopen flags a prior-year same-payments decision without changing its total. PENDING APPROVAL. */
 export const LEGACY_NEC_PRIOR_YEAR_NOTE = 'If this was on a return you already filed, the IRS explains how to correct it at irs.gov/form1040x.';
 export const SAME_DISABLED_NEC = 'Not available for two 1099-NECs. They usually report different payments.';
@@ -88,13 +88,15 @@ export const LINE_1_COUNTED = 'Counted {amount} on line 1';
 export const LINE_2_AMOUNT = 'Line 2 {amount}';
 export const OUTSIDE_SC_AMOUNT = 'Outside Schedule C, needs review {amount}';
 
-/** A 1099-K and a bank deposit of the same amount, saved as separate income. */
-export const ERR_SEPARATE_K_MATCHES_DEPOSIT = 'A 1099-K and its matching bank deposit can\'t be saved as separate income. That would count {amount} twice. Choose same payments so they count once.';
+/** A separate-income decision that pairs a form with a deposit or direct income. PENDING APPROVAL. */
+export const ERR_SEPARATE_FORM_WITH_MONEY = 'Separate income can\'t include a 1099 together with a deposit or direct income. That counts the same money twice. Choose same payments, or the decision for the part of a 1099-K that is also on a 1099-NEC.';
 
 export const DECISION_LABEL_PARTIAL = 'Part of the 1099-K is also on the 1099-NEC';
 export const DECISION_HELP_PARTIAL = 'Enter the amount that is on both the 1099-K and the 1099-NEC. That shared amount counts once. The rest of each form counts too.';
 export const ERR_PARTIAL_NEEDS_K_AND_NEC = 'Select exactly one 1099-K and one 1099-NEC for the overlapping amount.';
 export const ERR_PARTIAL_OVERLAP = 'Enter an overlapping amount greater than $0 and no more than the smaller form ({smaller}).';
+/** Deposits on a partial overlap are claimed and not added again. PENDING APPROVAL. */
+export const ERR_PARTIAL_DEPOSITS = 'Deposits included here total {deposits}, which is more than the income counted from the two forms ({total}). Those deposits are not added again. Remove a deposit that is not already part of these forms.';
 export const PARTIAL_OVERLAP_PREVIEW = 'The overlapping {overlap} counts once. Total counted: {total}.';
 
 export function fillIncomeCopy(template: string, values: Record<string, string | number>): string {

@@ -20,8 +20,8 @@ export function reconciliationDecisionNeedsKSwitch(decision: string): boolean {
 
 /**
  * Legacy 1099-NEC reopen switch `legacyNecReopen`. Off unless the environment value is exactly "1".
- * Off: a saved same-payments decision that joins two or more 1099-NECs keeps counting, and the
- * Reconcile tab shows a non-blocking warning. Export is not blocked.
+ * Off: a saved same-payments decision that joins two or more 1099-NECs keeps counting.
+ * The Reconcile tab does not show the review warning. Export is not blocked.
  * On, current year, forms only: that decision reopens as a conflict, both forms count, and export can 422.
  * On, 2025 or earlier: every legacy same-payments shape keeps its saved total and a filing note is shown.
  * New saves of that decision are rejected either way.

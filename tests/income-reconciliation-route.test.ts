@@ -48,7 +48,7 @@ vi.mock('@/lib/firebase/admin', () => {
 import { DELETE, GET, PATCH, POST } from '../app/api/income/reconciliation/route';
 import { ExportReviewRequiredError } from '../lib/reports/transaction-export';
 import { ExportDataUnavailableError } from '../lib/reports/export-records';
-import { CONFIRM_FORMS_REQUIRED, DECISION_LABEL_CORRECTED, ERR_PARTIAL_OVERLAP, ERR_SAME_NEEDS_K, ERR_SEPARATE_K_MATCHES_DEPOSIT, STALE_APP_REFRESH, fillIncomeCopy } from '../lib/tax-rules/income-reconciliation-copy';
+import { CONFIRM_FORMS_REQUIRED, DECISION_LABEL_CORRECTED, ERR_PARTIAL_DEPOSITS, ERR_PARTIAL_OVERLAP, ERR_SAME_NEEDS_K, ERR_SEPARATE_FORM_WITH_MONEY, STALE_APP_REFRESH, fillIncomeCopy } from '../lib/tax-rules/income-reconciliation-copy';
 
 type Body = Record<string, unknown>;
 function request(method: string, { body, query = '', headers = {} }: { body?: unknown; query?: string; headers?: Record<string, string> } = {}) {
@@ -498,7 +498,7 @@ describe('explicit choice and save rules', () => {
   });
 });
 
-describe('separate income does not count a 1099-K and its matching deposit twice', () => {
+describe('separate income does not count a form together with a deposit or direct income', () => {
   it('rejects an $8,000 1099-K saved with its matching $8,000 deposit and writes nothing', async () => {
     state.docs.delete('gross_receipts/r1');
     seed('income_1099', 'k1', { userId: 'owner-a', taxYear: 2026, amount: 8000, formType: '1099-K', payerName: 'Synthetic platform' });
@@ -508,14 +508,14 @@ describe('separate income does not count a 1099-K and its matching deposit twice
       sources: [ref('form_1099', 'k1', 8000), ref('transaction', 't1', 8000)],
     } })));
     expect(rejected.status).toBe(400);
-    expect(rejected.body.error).toBe(fillIncomeCopy(ERR_SEPARATE_K_MATCHES_DEPOSIT, { amount: '$8,000.00' }));
+    expect(rejected.body.error).toBe(ERR_SEPARATE_FORM_WITH_MONEY);
     expect(state.writes).toEqual([]);
     const { body } = await json(await GET(request('GET', { query: '?year=2026' })));
     expect(body.grossReceipts).not.toBe(16000);
     expect(body.grossReceipts).toBeNull();
   });
 
-  it('still counts a 1099-K and a different deposit as separate income', async () => {
+  it('rejects a 1099-K and a different deposit instead of summing them', async () => {
     state.docs.delete('gross_receipts/r1');
     seed('income_1099', 'k1', { userId: 'owner-a', taxYear: 2026, amount: 8000, formType: '1099-K', payerName: 'Synthetic platform' });
     state.transactions['owner-a'] = [deposit('t1', 3000)];
@@ -523,10 +523,10 @@ describe('separate income does not count a 1099-K and its matching deposit twice
       taxYear: 2026, decision: 'separate_income', explicitChoice: true,
       sources: [ref('form_1099', 'k1', 8000), ref('transaction', 't1', 3000)],
     } })));
-    expect(saved.status).toBe(201);
-    expect(saved.body.countedAmount).toBe(11000);
-    const { body } = await json(await GET(request('GET', { query: '?year=2026' })));
-    expect(body.grossReceipts).toBe(11000);
+    expect(saved.status).toBe(400);
+    expect(saved.body.error).toBe(ERR_SEPARATE_FORM_WITH_MONEY);
+    expect(saved.body.countedAmount).not.toBe(11000);
+    expect(state.writes).toEqual([]);
   });
 });
 
@@ -577,6 +577,26 @@ describe('partial overlap between a 1099-K and a 1099-NEC', () => {
     const { body } = await json(await GET(request('GET', { query: '?year=2026' })));
     expect(body.grossReceipts).toBe(15000);
     expect(body.grossReceipts).not.toBe(18000);
+    state.docs.delete(`income_reconciliations/${String(saved.body.id)}`);
+    state.writes.length = 0;
+    state.transactions['owner-a'] = [deposit('t1', 10000)];
+    const withDeposit = await json(await POST(request('POST', { body: {
+      taxYear: 2026, decision: 'partial_overlap', explicitChoice: true, overlapAmount: 3000,
+      sources: [...sources(), ref('transaction', 't1', 10000)],
+    } })));
+    expect(withDeposit.status).toBe(201);
+    expect(withDeposit.body.countedAmount).toBe(15000);
+    expect(withDeposit.body.countedAmount).not.toBe(25000);
+    state.docs.delete(`income_reconciliations/${String(withDeposit.body.id)}`);
+    state.writes.length = 0;
+    state.transactions['owner-a'] = [deposit('t1', 16000)];
+    const overDeposit = await json(await POST(request('POST', { body: {
+      taxYear: 2026, decision: 'partial_overlap', explicitChoice: true, overlapAmount: 3000,
+      sources: [...sources(), ref('transaction', 't1', 16000)],
+    } })));
+    expect(overDeposit.status).toBe(400);
+    expect(overDeposit.body.error).toBe(fillIncomeCopy(ERR_PARTIAL_DEPOSITS, { deposits: '$16,000.00', total: '$15,000.00' }));
+    expect(state.writes).toEqual([]);
   });
 
   it('rounds the overlap to cents before checking it against the smaller form', async () => {

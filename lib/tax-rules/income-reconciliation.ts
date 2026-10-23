@@ -16,7 +16,7 @@
 import {
   DECISION_LABEL_CORRECTED, DECISION_LABEL_NOT_BUSINESS, DECISION_LABEL_PARTIAL, ERR_CORRECTED_NEEDS_TWO_NEC, ERR_CORRECTED_PICK,
   ERR_CORRECTED_SAME_PAYER, ERR_CORRECTED_SUM, ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTIAL_NEEDS_K_AND_NEC, ERR_PARTIAL_OVERLAP,
-  ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED, ERR_SEPARATE_K_MATCHES_DEPOSIT,
+  ERR_PARTIAL_DEPOSITS, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED, ERR_SEPARATE_FORM_WITH_MONEY,
   CONFIRM_FORMS_REQUIRED, ERR_SAME_NEEDS_K, ERR_SELECT_BUSINESS_RECORDS, ERR_SUM_MISMATCH, fillIncomeCopy,
   LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_NEC_WARNING,
 } from './income-reconciliation-copy';
@@ -111,7 +111,7 @@ const publicRef = (candidate: IncomeSourceCandidate) => ({ kind: candidate.kind,
 
 /**
  * Same payments may join a 1099-K to other records, or one 1099-NEC to the deposits
- * or direct income that report it. Two or more 1099-NEC forms are separate income.
+ * or direct income that report it. Two or more 1099-NEC forms are usually separate income.
  * A corrected 1099-NEC uses corrected_form_replaces. It is not a same-payments match.
  */
 export function samePaymentsAllowed(sources: ReadonlyArray<{ kind: IncomeSourceKind; formType?: string }>): boolean {
@@ -224,10 +224,8 @@ export function validateReconciliationDecision(
 
   if (decision.decision === 'separate_income') {
     if (feeCents) return { ok: false, reason: 'Separate income does not record a platform fee.' };
-    const doubleCounted = kWithMatchingDeposit(forms, transactions);
-    if (doubleCounted !== null) {
-      return { ok: false, reason: fillIncomeCopy(ERR_SEPARATE_K_MATCHES_DEPOSIT, { amount: dollars(doubleCounted) }) };
-    }
+    // A form plus a deposit or direct income is the same payments, or a partial overlap. Never sum them.
+    if (forms.length && (transactions.length || receipts.length)) return { ok: false, reason: ERR_SEPARATE_FORM_WITH_MONEY };
     return okCheck(sum(resolved), 0, kinds, resolved);
   }
 
@@ -282,7 +280,8 @@ export function validateReconciliationDecision(
     if (feeCents) return { ok: false, reason: 'A partial overlap does not record a platform fee.' };
     const kForm = forms.find(form => form.formType === '1099-K');
     const necForm = forms.find(form => form.formType === '1099-NEC');
-    if (forms.length !== 2 || !kForm || !necForm || receipts.length || transactions.length) {
+    // Related deposits may be included. Direct income stays on same payments. The shared amount counts once.
+    if (forms.length !== 2 || !kForm || !necForm || receipts.length) {
       return { ok: false, reason: ERR_PARTIAL_NEEDS_K_AND_NEC };
     }
     const smaller = Math.min(toCents(kForm.amount), toCents(necForm.amount));
@@ -290,8 +289,14 @@ export function validateReconciliationDecision(
     if (overlapCents <= 0 || overlapCents > smaller) {
       return { ok: false, reason: fillIncomeCopy(ERR_PARTIAL_OVERLAP, { smaller: dollars(smaller) }) };
     }
-    // The shared amount counts once. Each form's remainder counts as well.
-    return okCheck(toCents(kForm.amount) + toCents(necForm.amount) - overlapCents, 0, kinds, resolved);
+    const counted = toCents(kForm.amount) + toCents(necForm.amount) - overlapCents;
+    if (transactions.length) {
+      const depositCents = sum(transactions);
+      if (depositCents <= 0 || depositCents > counted) {
+        return { ok: false, reason: fillIncomeCopy(ERR_PARTIAL_DEPOSITS, { deposits: dollars(depositCents), total: dollars(counted) }) };
+      }
+    }
+    return okCheck(counted, 0, kinds, resolved);
   }
 
   if (decision.decision === 'k_not_business_income') {
@@ -364,18 +369,6 @@ function necOnlySamePayments(decision: IncomeReconciliationDecision, candidates:
     forms.push(candidate);
   }
   return forms.every(form => form.formType === '1099-NEC');
-}
-
-/** Cents of a 1099-K that separate income would count again because a selected deposit matches it. */
-function kWithMatchingDeposit(forms: IncomeSourceCandidate[], transactions: IncomeSourceCandidate[]): number | null {
-  const kForms = forms.filter(form => form.formType === '1099-K');
-  if (!kForms.length || !transactions.length) return null;
-  const depositTotal = transactions.reduce((total, source) => total + toCents(source.amount), 0);
-  for (const form of kForms) {
-    const kCents = toCents(form.amount);
-    if (depositTotal === kCents || transactions.some(source => toCents(source.amount) === kCents)) return kCents;
-  }
-  return null;
 }
 
 function mismatchReason(kind: string, selected: number, gross: number, refunds: number, personal: number, fee: number): string {
@@ -461,9 +454,10 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
     }
     if (reopenNecOnly && protectFiledLegacy) notices.push(LEGACY_NEC_PRIOR_YEAR_NOTE);
     const necForms = check.sources.filter(source => source.kind === 'form_1099' && source.formType === '1099-NEC').length;
-    if (!reopenNecOnly && decision.decision === 'same_payments' && necForms >= 2) {
+    if (decision.decision === 'same_payments' && necForms >= 2) {
       notices.push(LEGACY_NEC_WARNING);
-      legacyNecWarningIds.push(decision.id);
+      // The Reconcile tab prints this only while legacyNecReopen is on. Other surfaces still use the notice.
+      if (reopenNecOnly) legacyNecWarningIds.push(decision.id);
     }
     check.sources.forEach(source => claimedBy.set(sourceKey(source), decision.id));
     reconciledCents += check.countedCents;

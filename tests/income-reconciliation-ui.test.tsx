@@ -761,7 +761,7 @@ describe('confirm step, compare and corrected form', () => {
     expect(text(render(panel))).not.toContain('$20,000.00');
   });
 
-  it('shows the NEC review warning on the Reconcile tab while the reopen switch is off', async () => {
+  it('keeps the saved NEC total and hides the review warning while the reopen switch is off', async () => {
     delete process.env.legacyNecReopen;
     const sources = [{ kind: 'form_1099', id: 'n1', amount: 12000 }, { kind: 'form_1099', id: 'n2', amount: 12000 }];
     records.receipts = [];
@@ -770,7 +770,7 @@ describe('confirm step, compare and corrected form', () => {
     const before = JSON.stringify(records.decisions);
     render(panel); await flush();
     const shown = text(render(panel));
-    expect(shown).toContain(LEGACY_NEC_WARNING);
+    expect(shown).not.toContain(LEGACY_NEC_WARNING);
     expect(shown).toContain('Gross receipts for 2026 (Schedule C line 1)');
     expect(shown).toContain('$12,000.00');
     expect(shown).not.toContain('$24,000.00');
@@ -805,6 +805,7 @@ describe('confirm step, compare and corrected form', () => {
     render(panelFor(2025)); await flush();
     const prior = text(render(panelFor(2025)));
     expect(prior).toContain(LEGACY_NEC_PRIOR_YEAR_NOTE);
+    expect(prior).toContain(LEGACY_NEC_WARNING);
     expect(prior).toContain('Gross receipts for 2025 (Schedule C line 1)');
     expect(prior).toContain('$12,000.00');
     expect(prior).not.toContain('$24,000.00');
@@ -949,7 +950,7 @@ describe('reconciliation switches off', () => {
     delete process.env.legacyDecisionReconfirm;
   });
 
-  it('shows the NEC review warning while the reopen switch is off', async () => {
+  it('hides the NEC review warning while the reopen switch is off', async () => {
     records.receipts = [];
     records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
     records.decisions = [{ id: 'd1', taxYear: 2026, decision: 'same_payments', version: 1, platformFeeAmount: null, countedAmount: 12000,
@@ -960,7 +961,7 @@ describe('reconciliation switches off', () => {
       else process.env.legacyNecReopen = value;
       render(panel); await flush();
       const content = text(render(panel));
-      expect(content, String(value)).toContain(LEGACY_NEC_WARNING);
+      expect(content, String(value)).not.toContain(LEGACY_NEC_WARNING);
       expect(content).toContain('Gross receipts for 2026 (Schedule C line 1)');
       expect(content).toContain('$12,000.00');
       expect(content).not.toContain('on hold');

@@ -604,6 +604,7 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
                               : saved.applied ? <Badge variant="success">Applied</Badge> : <Badge variant="warning">Needs review</Badge>}
                           </div>
                           <p className="mt-0.5 leading-relaxed text-muted-foreground">{sourceLine(saved.sources)}</p>
+                          {/* Server sets this only while legacyNecReopen is on. */}
                           {saved.legacyNecWarning && <p className="mt-1 leading-relaxed text-foreground">{saved.legacyNecWarning}</p>}
                           {saved.decision === "corrected_form_replaces" && saved.sources.filter(source => source.kind === "form_1099" && source.id !== saved.correctedFormId).map(source => (
                             <p key={source.id} className="mt-0.5 leading-relaxed text-muted-foreground">{CORRECTED_ORIGINAL_BADGE}</p>

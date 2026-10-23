@@ -10,7 +10,7 @@ import {
 } from '../lib/tax-rules/income-reconciliation';
 import {
   CORRECTED_ORIGINAL_BADGE, DECISION_LABEL_CORRECTED, ERR_CORRECTED_NEEDS_TWO_NEC, ERR_CORRECTED_PICK, ERR_CORRECTED_SAME_PAYER, ERR_CORRECTED_SUM,
-  ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTIAL_OVERLAP, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED, ERR_SAME_NEEDS_K, ERR_SELECT_BUSINESS_RECORDS, ERR_SEPARATE_K_MATCHES_DEPOSIT,
+  ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTIAL_DEPOSITS, ERR_PARTIAL_OVERLAP, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED, ERR_SAME_NEEDS_K, ERR_SELECT_BUSINESS_RECORDS, ERR_SEPARATE_FORM_WITH_MONEY,
   LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_NEC_WARNING, NO_FORM_NO_INCOME, OUTSIDE_SC_NOTE, PANEL_FORMS_NOTE, REASON_ERROR, REASON_PERSONAL_HELP, SAME_DISABLED_NEC, fillIncomeCopy,
 } from '../lib/tax-rules/income-reconciliation-copy';
 import * as incomeCopy from '../lib/tax-rules/income-reconciliation-copy';
@@ -405,7 +405,7 @@ describe('legacy 1099-NEC year split', () => {
     expect(summary.grossReceipts).toBe(12000);
     expect(summary.conflicts).toEqual([]);
     expect(summary.notices).toEqual([LEGACY_NEC_WARNING]);
-    expect(summary.decisions[0].legacyNecWarning).toBe(LEGACY_NEC_WARNING);
+    expect(summary.decisions[0].legacyNecWarning).toBeUndefined();
     expect(summary.decisions[0].changeNotice).toBeUndefined();
     const estimate = {
       taxYear: 2026, transactions: [], grossReceipts: [], forms1099: forms, reconciliationDecisions: [saved],
@@ -457,13 +457,14 @@ describe('legacy 1099-NEC year split', () => {
         expect(result.netReceipts).toBe(12000);
         expect(result.reconciledDecisionCount).toBe(1);
         expect(result.warnings).toContain(LEGACY_NEC_PRIOR_YEAR_NOTE);
+        expect(result.warnings).toContain(LEGACY_NEC_WARNING);
         expect(result.warnings).not.toContain(LEGACY_NEC_REOPEN_REASON);
-        expect(result.warnings).not.toContain(LEGACY_NEC_WARNING);
         const summary = summarizeIncomeReconciliation(taxYear, { transactions: [], receipts: [], forms, decisions: [saved] });
         expect(summary.grossReceipts).toBe(12000);
-        expect(summary.notices).toEqual([LEGACY_NEC_PRIOR_YEAR_NOTE]);
+        expect(summary.notices).toEqual([LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_WARNING]);
         expect(summary.conflicts).toEqual([]);
         expect(summary.decisions[0].applied).toBe(true);
+        expect(summary.decisions[0].legacyNecWarning).toBe(LEGACY_NEC_WARNING);
         expect(summary.decisions[0].changeNotice).toBeUndefined();
       } finally {
         delete process.env.legacyNecReopen;
@@ -616,10 +617,13 @@ describe('legacy decisions and copy', () => {
   it('keeps the threshold wording and drops the banned claims', () => {
     expect(REASON_PERSONAL_HELP).toBe('Gifts, money back from friends, or personal items you sold for less than you paid. This is not business income, so it is not on your Schedule C.');
     expect(REASON_ERROR).toBe('Form sent in error: it repeats payments already counted, or it isn\'t yours.');
-    expect(OUTSIDE_SC_NOTE).toBe('This is not business income, so it is not on your Schedule C. If the 1099-K was sent in error, or covers personal items you sold for less than you paid, the amount goes on Schedule 1 line 8z and the same amount on line 24z, so it adds no tax. If you sold personal items for more than you paid, the gain is taxable; ask your tax preparer. Ask the issuer for a corrected 1099-K, keep your records, and file without waiting for the correction.');
+    expect(OUTSIDE_SC_NOTE).toBe('This is not business income, so it is not on your Schedule C. If the 1099-K was sent in error, or covers personal items you sold for less than you paid, the amount goes on the 1099-K adjustment entry at the top of Schedule 1, so it adds no tax. If you sold personal items for more than you paid, the gain is taxable; ask your tax preparer. Ask the issuer for a corrected 1099-K, keep your records, and file without waiting for the correction.');
+    expect(OUTSIDE_SC_NOTE).not.toMatch(/line \d/i);
     expect(ERR_SAME_NEEDS_K).toBe('Two 1099-NECs usually report different payments, so you can\'t count them once here. If one corrects the other, choose "A client sent a corrected 1099-NEC". If a client sent the same form twice, ask them which one is right.');
     expect(SAME_DISABLED_NEC).toBe('Not available for two 1099-NECs. They usually report different payments.');
-    expect(LEGACY_NEC_WARNING).toBe('Two 1099-NECs are separate income. Review this match.');
+    expect(LEGACY_NEC_WARNING).toBe('Two 1099-NECs are usually separate income. Review this match.');
+    expect(LEGACY_NEC_REOPEN_REASON).toBe('Two 1099-NECs are usually separate income, so both count.');
+    expect(LEGACY_NEC_CHANGE_NOTICE).toBe('We used to count these two 1099-NECs once. Two 1099-NECs are usually separate income, so both now count, and your total and quarterly estimate may go up.');
     expect(DECISION_LABEL_CORRECTED).toBe('A client sent a corrected 1099-NEC');
     expect(CORRECTED_ORIGINAL_BADGE).toBe('Original form. A corrected form was sent, so this one is kept but not counted.');
     expect(PANEL_FORMS_NOTE).toContain('over $20,000 and over 200 transactions');
@@ -648,15 +652,13 @@ describe('separate income, legacy NEC matches and corrected forms', () => {
     return new Map(candidates.map(candidate => [sourceKey(candidate), candidate]));
   };
 
-  it('counts every selected record in one separate-income decision', () => {
+  it('counts deposits and direct income together when no form is selected', () => {
     const transactions = [deposit('t1', 4000)];
     const receipts = [receipt('r1', 3000)];
-    const forms = [form('n1', 2500, '1099-NEC', 'Client A')];
     const check = validateReconciliationDecision(decision('d1', 'separate_income', [
-      ref('transaction', 't1', 4000), ref('gross_receipt', 'r1', 3000), ref('form_1099', 'n1', 2500),
-    ]), byKey(transactions, receipts, forms));
-    expect(check).toMatchObject({ ok: true, countedCents: 950000 });
-    expect(JSON.stringify(check)).not.toContain('Mark one record at a time');
+      ref('transaction', 't1', 4000), ref('gross_receipt', 'r1', 3000),
+    ]), byKey(transactions, receipts, []));
+    expect(check).toMatchObject({ ok: true, countedCents: 700000 });
   });
 
   it('reports the whole separate-income decision stale when one amount changes', () => {
@@ -942,19 +944,53 @@ describe('saved-decision guards', () => {
   });
 });
 
-describe('a 1099-K and its matching deposit are not separate income', () => {
-  it('does not count an $8,000 1099-K and its matching deposit as $16,000', () => {
-    const transactions = [deposit('t1', 8000)];
-    const forms = [form('k1', 8000)];
-    const saved = decision('d1', 'separate_income', [ref('form_1099', 'k1', 8000), ref('transaction', 't1', 8000)]);
-    const error = blocked(() => reconcileBusinessIncome(2026, transactions, [], forms, [saved]));
+describe('separate income cannot pair a form with a deposit or direct income', () => {
+  const switchesOff = () => {
+    delete process.env.legacyNecReopen;
+    delete process.env.legacyDecisionReconfirm;
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
+  };
+  const rejectSeparate = (
+    transactions: ReturnType<typeof deposit>[],
+    receipts: ReturnType<typeof receipt>[],
+    forms: ReturnType<typeof form>[],
+    sources: ReturnType<typeof ref>[],
+    doubled: number,
+  ) => {
+    switchesOff();
+    const saved = decision('d1', 'separate_income', sources);
+    const error = blocked(() => reconcileBusinessIncome(2026, transactions, receipts, forms, [saved]));
     expect(error.conflicts[0]).toMatchObject({ reason: 'stale_decision', decisionId: 'd1' });
-    expect(error.message).toContain('$8,000.00');
-    expect(error.message).not.toContain('$16,000.00');
-    const split = decision('d2', 'separate_income', [ref('form_1099', 'k1', 8000), ref('transaction', 't1', 5000), ref('transaction', 't2', 3000)]);
-    const splitError = blocked(() => reconcileBusinessIncome(2026, [deposit('t1', 5000), deposit('t2', 3000)], [], forms, [split]));
-    expect(splitError.message).toContain(fillIncomeCopy(ERR_SEPARATE_K_MATCHES_DEPOSIT, { amount: '$8,000.00' }));
-    expect(reconcileBusinessIncome(2026, [deposit('t1', 3000)], [], forms, [decision('d3', 'separate_income', [ref('form_1099', 'k1', 8000), ref('transaction', 't1', 3000)])]).grossReceipts).toBe(11000);
+    expect(error.message).toContain(ERR_SEPARATE_FORM_WITH_MONEY);
+    expect(error.message).not.toContain(`$${doubled.toLocaleString('en-US')}`);
+    const { candidates } = listIncomeSourceCandidates(2026, transactions, receipts, forms);
+    const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate]));
+    expect(validateReconciliationDecision(saved, byKey)).toEqual({ ok: false, reason: ERR_SEPARATE_FORM_WITH_MONEY });
+  };
+
+  it('does not count an $8,000 1099-K and a $7,760 deposit as $15,760', () => {
+    rejectSeparate([deposit('t1', 7760)], [], [form('k1', 8000)], [ref('form_1099', 'k1', 8000), ref('transaction', 't1', 7760)], 15760);
+  });
+
+  it('does not count a 1099-NEC and its own deposit as $16,000', () => {
+    rejectSeparate(
+      [deposit('t1', 8000)], [], [form('n1', 8000, '1099-NEC', 'Client A')],
+      [ref('form_1099', 'n1', 8000), ref('transaction', 't1', 8000)], 16000,
+    );
+  });
+
+  it('does not count a 1099-K and direct income of the same amount as $16,000', () => {
+    rejectSeparate(
+      [], [receipt('r1', 8000)], [form('k1', 8000)],
+      [ref('form_1099', 'k1', 8000), ref('gross_receipt', 'r1', 8000)], 16000,
+    );
+  });
+
+  it('does not count a 1099-K and deposits that sum to more than it as $16,500', () => {
+    rejectSeparate(
+      [deposit('t1', 5000), deposit('t2', 3500)], [], [form('k1', 8000)],
+      [ref('form_1099', 'k1', 8000), ref('transaction', 't1', 5000), ref('transaction', 't2', 3500)], 16500,
+    );
   });
 });
 
@@ -970,6 +1006,18 @@ describe('partial overlap counts the shared amount once', () => {
     expect(over).toEqual({ ok: false, reason: fillIncomeCopy(ERR_PARTIAL_OVERLAP, { smaller: '$8,000.00' }) });
     const result = reconcileBusinessIncome(2026, [], [], forms, [decision('d1', 'partial_overlap', sources, { overlapAmount: 3000 })]);
     expect(result.grossReceipts).toBe(15000);
+    const withDeposit = [ref('form_1099', 'k1', 10000), ref('form_1099', 'n1', 8000), ref('transaction', 't1', 10000)];
+    const deposited = reconcileBusinessIncome(2026, [deposit('t1', 10000)], [], forms, [decision('d1', 'partial_overlap', withDeposit, { overlapAmount: 3000 })]);
+    expect(deposited.grossReceipts).toBe(15000);
+    expect(deposited.grossReceipts).not.toBe(25000);
+    const tooMuch = validateReconciliationDecision(decision('d1', 'partial_overlap', [
+      ref('form_1099', 'k1', 10000), ref('form_1099', 'n1', 8000), ref('transaction', 't1', 16000),
+    ], { overlapAmount: 3000 }), new Map(listIncomeSourceCandidates(2026, [deposit('t1', 16000)], [], forms).candidates.map(candidate => [sourceKey(candidate), candidate])));
+    expect(tooMuch).toEqual({ ok: false, reason: fillIncomeCopy(ERR_PARTIAL_DEPOSITS, { deposits: '$16,000.00', total: '$15,000.00' }) });
+    const direct = validateReconciliationDecision(decision('d1', 'partial_overlap', [
+      ...sources, ref('gross_receipt', 'r1', 10000),
+    ], { overlapAmount: 3000 }), new Map(listIncomeSourceCandidates(2026, [], [receipt('r1', 10000)], forms).candidates.map(candidate => [sourceKey(candidate), candidate])));
+    expect(direct).toEqual({ ok: false, reason: 'Select exactly one 1099-K and one 1099-NEC for the overlapping amount.' });
     const rounded = prepareReconciliationDecision(2026, { transactions: [], receipts: [], forms: [form('k1', 100), form('n1', 50, '1099-NEC', 'Client A')], decisions: [] }, {
       id: 'pending', decision: 'partial_overlap', overlapAmount: 10.015,
       sources: [ref('form_1099', 'k1', 100), ref('form_1099', 'n1', 50)],

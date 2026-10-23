@@ -54,7 +54,7 @@ export interface SavedDecisionView {
   applied: boolean;
   /** True only while legacyDecisionReconfirm is on, for a current-year same_payments decision with version missing or 1. */
   needsReconfirm: boolean;
-  /** Non-blocking warning while legacyNecReopen is off. */
+  /** Review warning on the Reconcile tab while legacyNecReopen is on. */
   legacyNecWarning?: string;
   /** One-time notice while a current-year NEC-only decision is reopened. Dismissal is view state, not stored on the decision. */
   changeNotice?: string;
