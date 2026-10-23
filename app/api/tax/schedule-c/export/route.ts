@@ -9,7 +9,8 @@ import { maskOrganizerIdentifier } from '@/lib/tax-organizer/identifiers';
 import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
 import { reconcileBusinessIncome, IncomeReconciliationRequiredError } from '@/lib/tax-rules/business-income';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
-import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { decideScheduleCExport, scheduleCNow } from '@/lib/schedule-c/filed-year';
+import { confirmTaxYear, loadFiledYearState, safeWriteExportRecord, sha256Hex } from '@/lib/schedule-c/export-record';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
@@ -17,6 +18,7 @@ import { incomeReconciliationReviewBody } from '@/lib/tax-rules/income-reconcili
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export { confirmTaxYear };
 
 export async function POST(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
@@ -40,16 +42,25 @@ export async function POST(request: NextRequest) {
     if (profile.error) return NextResponse.json({ error: 'Could not load all export records. Please retry.' }, { status: 503 });
     const transactions = tx;
     const receipts = reconcileBusinessIncome(year, transactions.map(row => ({ ...row })), gross.docs.map(doc => ({ ...doc.data(), id: doc.id })), forms.docs.map(doc => ({ ...doc.data(), id: doc.id })), decisions);
-    const aggregate = aggregateScheduleC(transactions, String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
-    if (body.format === 'csv') return new NextResponse(generateScheduleCCSV(aggregate.lineItemsArray, year), {
-      headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="Schedule_C_${year}_WriteOff.csv"`, 'Cache-Control': 'private, no-store' },
-    });
+    const filed = await loadFiledYearState(user.uid, year);
+    const decision = decideScheduleCExport({ uid: user.uid, year, transactions, prior: filed.prior, confirmedRulesVersion: filed.confirmedRulesVersion });
+    const generatedAt = scheduleCNow();
+    const render = { contribution: decision.contribution, comparison: decision.comparison, generatedAt };
+    const recordBase = { uid: user.uid, taxYear: year, exportedAt: generatedAt.toISOString(), ...decision.snapshot };
+    if (body.format === 'csv') {
+      const csv = generateScheduleCCSV(decision.lineItems, year, render);
+      await safeWriteExportRecord({ ...recordBase, kind: 'schedule-c-csv', sha256: sha256Hex(csv) });
+      return new NextResponse(csv, {
+        headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="Schedule_C_${year}_WriteOff.csv"`, 'Cache-Control': 'private, no-store' },
+      });
+    }
     // Identifiers are decrypted only to derive the masked (last 4) display values printed below.
     const org = orgSnap.empty ? {} : await readOrganizerDocument(orgSnap.docs[0]);
-    const bytes = await generateScheduleCPlanningPDF({ taxYear: year, grossReceipts: receipts.grossReceipts, lineItems: aggregate.lineItemsArray,
+    const bytes = await generateScheduleCPlanningPDF({ taxYear: year, grossReceipts: receipts.grossReceipts, lineItems: decision.lineItems,
       name: profile.data?.name, ssn: maskOrganizerIdentifier('ssn', org.taxpayerSSN),
       profession: Array.isArray(profile.data?.profession) ? profile.data.profession.join(', ') : profile.data?.profession,
-      naicsCode: profile.data?.naics_code, ein: maskOrganizerIdentifier('ein', profile.data?.ein), includeAppendix: body.includeAppendix !== false });
+      naicsCode: profile.data?.naics_code, ein: maskOrganizerIdentifier('ein', profile.data?.ein), includeAppendix: body.includeAppendix !== false, ...render });
+    await safeWriteExportRecord({ ...recordBase, kind: 'schedule-c-pdf', sha256: sha256Hex(bytes) });
     return new NextResponse(Buffer.from(bytes), { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="Schedule_C_${year}_WriteOff.pdf"`, 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     if (error instanceof IncomeReconciliationRequiredError) return NextResponse.json(incomeReconciliationReviewBody(error, year), { status: 422 });

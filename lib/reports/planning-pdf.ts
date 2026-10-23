@@ -1,5 +1,26 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 
+/** pdf-lib stamps ModDate from `new Date()` during save. Pin both dates to one instant. */
+async function savePdfAt(doc: PDFDocument, generatedAt: Date): Promise<Uint8Array> {
+  const RealDate = Date;
+  const fixed = generatedAt.getTime();
+  function FrozenDate(this: unknown, ...args: unknown[]): Date | string {
+    if (new.target) return Reflect.construct(RealDate, args.length === 0 ? [fixed] : args) as Date;
+    return RealDate();
+  }
+  const Frozen = FrozenDate as unknown as DateConstructor;
+  Object.defineProperty(Frozen, 'prototype', { value: RealDate.prototype, writable: true });
+  Frozen.now = () => fixed;
+  Frozen.parse = RealDate.parse;
+  Frozen.UTC = RealDate.UTC;
+  globalThis.Date = Frozen;
+  try {
+    return await doc.save();
+  } finally {
+    globalThis.Date = RealDate;
+  }
+}
+
 /** Readable preparer records, deliberately distinct from a fileable IRS form. */
 export async function createPlanningPDF(title: string, taxYear: number) {
   const doc = await PDFDocument.create();
@@ -79,13 +100,16 @@ export async function createPlanningPDF(title: string, taxYear: number) {
       }
       y -= 9;
     },
-    async save(pageOffset = 0) {
+    async save(pageOffset = 0, generatedAt?: Date) {
       const pages = doc.getPages();
       pages.forEach((item, index) => {
         item.drawText('Planning records only. Not an official form or complete return. Review with your tax preparer.', { x: left, y: 34, size: 7, font });
         item.drawText(`Page ${index + 1 + pageOffset} of ${pages.length + pageOffset}`, { x: right - 58, y: 22, size: 7, font });
       });
-      return doc.save();
+      if (!generatedAt) return doc.save();
+      doc.setCreationDate(generatedAt);
+      doc.setModificationDate(generatedAt);
+      return savePdfAt(doc, generatedAt);
     },
   };
 }
