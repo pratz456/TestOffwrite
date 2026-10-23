@@ -23,6 +23,7 @@ vi.mock('react', async importOriginal => {
       if (!same(harness.slots[index]?.deps, deps)) harness.slots[index] = { deps, callback };
       return harness.slots[index].callback;
     },
+    useMemo(factory: () => unknown) { return factory(); },
     useEffect(effect: () => void | (() => void), deps: unknown[]) {
       const index = harness.cursor++; const previous = harness.slots[index];
       if (!same(previous?.deps, deps)) {
@@ -38,6 +39,7 @@ vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 's
 import { TaxFilingHubScreen } from '../components/tax-filing-hub-screen';
 import { TaxPreviewScreen } from '../components/tax-preview-screen';
 import { FileTaxesScreen } from '../components/file-taxes-screen';
+import { StateTaxCalculatorScreen } from '../components/state-tax-calculator-screen';
 import { reviewTargetForCode, loadDashboardTaxSnapshot } from '../lib/tax/dashboard-snapshot';
 
 type Element = ReactElement<Record<string, any>>;
@@ -431,6 +433,36 @@ describe('tax preview informational state planning estimate', () => {
     const missing = text(render(TaxPreviewScreen));
     expect(missing).toContain('Add your state to see its informational state planning estimate');
     expect(missing).not.toContain('state planning estimateNo income tax');
+  });
+
+  it('shows the California 2026 Form 540-ES method label with a supported income-tax estimate', async () => {
+    const label = "Planning estimate using California's 2026 Form 540-ES method (2025 rates and deductions).";
+    harness.request.mockImplementation(withState({
+      ...supportedState(year), stateCode: 'CA', stateName: 'California',
+      notes: [label],
+      sources: ['https://www.ftb.ca.gov/forms/2026/2026-540-es-instructions.html'],
+    }));
+    render(TaxPreviewScreen); await flush(); const content = text(render(TaxPreviewScreen));
+    expect(content).toContain('California state planning estimate');
+    expect(content).toContain(label);
+  });
+});
+
+describe('state tax calculator California 2026 label', () => {
+  function renderCalculator(profile: Record<string, unknown>): Element {
+    harness.cursor = 0;
+    const tree = StateTaxCalculatorScreen({ user: { id: 'snapshot-owner' }, userProfile: profile, onBack() {} }) as Element;
+    harness.effects.splice(0).forEach(effect => effect());
+    return tree;
+  }
+
+  it('shows the Form 540-ES method label on the California 2026 estimate and keeps the unmodeled notes', () => {
+    const profile = { state: 'CA', business_income: '100000', filing_status: 'single' };
+    renderCalculator(profile);
+    const content = text(renderCalculator(profile));
+    expect(content).toContain("Planning estimate using California's 2026 Form 540-ES method (2025 rates and deductions).");
+    expect(content).toContain('California itemized deductions, the California earned income tax credit');
+    expect(content).toContain('California 2026 state planning estimate');
   });
 });
 

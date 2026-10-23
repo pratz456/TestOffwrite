@@ -251,15 +251,26 @@ describe('Form1040 API informational state planning estimate', () => {
     expect(data.businessTaxNotices[0].sources[0].url).toMatch(/^https:\/\/www\.nyc\.gov\//);
   });
 
-  it('returns supported:false with a reason and keeps the not-validated warning for an unpublished state-year', async () => {
+  it('returns the California 2026 estimate from the 2025 Form 540-ES method', async () => {
     state.profile = { filing_status: 'single', state: 'CA' };
     const data = await (await GET(request())).json();
-    expect(data.stateTax).toMatchObject({ supported: false, stateCode: 'CA', stateName: 'California', taxYear: 2026, stateWithheld: 0 });
+    expect(data.stateTax).toMatchObject({ supported: true, stateCode: 'CA', stateName: 'California', taxYear: 2026, stateWithheld: 0, noIncomeTax: false });
+    expect(data.stateTax.notes).toEqual(["Planning estimate using California's 2026 Form 540-ES method (2025 rates and deductions)."]);
+    expect(data.stateTax.estimate).toEqual(expect.any(Number));
+    expect(data.stateTax.stateBalanceDue).toEqual(expect.any(Number));
+    expect(data.form1040.calculationWarnings.some((note: string) => /state estimate has not been validated/.test(note))).toBe(false);
+    expect(data.businessTaxNotices).toEqual([]);
+  });
+
+  it('returns supported:false with a reason and keeps the not-validated warning for an unpublished state-year', async () => {
+    state.profile = { filing_status: 'single', state: 'OH' };
+    const data = await (await GET(request())).json();
+    expect(data.stateTax).toMatchObject({ supported: false, stateCode: 'OH', stateName: 'Ohio', taxYear: 2026, stateWithheld: 0 });
     expect(data.stateTax.reason).toMatch(/2026/);
     expect(data.stateTax).not.toHaveProperty('estimate');
     expect(data.stateTax).not.toHaveProperty('stateBalanceDue');
-    expect(data.form1040.calculationWarnings.some((note: string) => /California state estimate has not been validated for tax year 2026/.test(note))).toBe(true);
-    expect(data.businessTaxNotices).toEqual([]);
+    expect(data.form1040.calculationWarnings.some((note: string) => /Ohio state estimate has not been validated for tax year 2026/.test(note))).toBe(true);
+    expect(data.businessTaxNotices.map((notice: { id: string }) => notice.id)).toEqual(['oh-cat']);
   });
 
   it('reports $0 for a no-income-tax state with the state-level business tax notice', async () => {

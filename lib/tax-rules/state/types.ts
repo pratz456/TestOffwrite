@@ -81,6 +81,11 @@ export interface CaliforniaRules extends StateYearRulesBase {
   };
   /** Form 540 line 62: additional tax on taxable income above the threshold. */
   behavioralHealthServicesTax: { threshold: number; rate: number };
+  /**
+   * Shown with the estimate when this year uses a published estimating method
+   * rather than that year's own Form 540 schedules. Absent for 2025.
+   */
+  methodLabel?: string;
 }
 
 export interface NewYorkRecaptureWorksheet {

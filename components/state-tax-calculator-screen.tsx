@@ -183,6 +183,7 @@ export function StateTaxCalculatorScreen({ userProfile }: StateTaxCalculatorScre
                 </div>
               ) : (
                 <>
+                  {estimate.notes.map(note => <p key={note} className="text-muted-foreground">{note}</p>)}
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="rounded-lg bg-muted/50 p-4">
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">Informational state planning estimate</p>

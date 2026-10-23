@@ -1,4 +1,4 @@
-import type { CaliforniaRules, RateSchedule, StateRegistryTaxYear, StateSource, UnsupportedStateYear } from './types';
+import type { CaliforniaRules, RateSchedule, StateSource, UnsupportedStateYear } from './types';
 
 const REVIEWED_AT = '2026-09-17';
 
@@ -65,12 +65,29 @@ const CA_2025: CaliforniaRules = {
   ],
 };
 
-const CA_2026_UNSUPPORTED: UnsupportedStateYear = {
-  stateCode: 'CA', taxYear: 2026,
-  reason: 'The Franchise Tax Board indexes California brackets, the standard deduction and exemption credits annually and had not published the 2026 Form 540 rate schedules or instructions at the September 17, 2026 review (the 2026 schedule URL returned not found). California is supported for 2025 only until the 2026 figures are published.',
-  sources: [{ url: 'https://www.ftb.ca.gov/forms/index.html', note: 'FTB forms and publications; 2026 Form 540 materials not yet available.' }],
+export const CA_2026_FORM_540ES_METHOD_LABEL =
+  "Planning estimate using California's 2026 Form 540-ES method (2025 rates and deductions).";
+
+// 2026 Form 540 rate schedules are unpublished. Form 540-ES tells filers to figure 2026
+// estimated tax with the 2025 Form 540 tax table, standard deduction and exemption credit.
+const CA_2026: CaliforniaRules = {
+  ...CA_2025,
+  taxYear: 2026,
+  reviewedAt: '2026-10-22',
+  methodLabel: CA_2026_FORM_540ES_METHOD_LABEL,
+  sources: [
+    ...CA_2025.sources,
+    {
+      url: 'https://www.ftb.ca.gov/forms/2026/2026-540-es-instructions.html',
+      note: '2026 Instructions for Form 540-ES, California Estimated Tax Worksheet: line 2b standard deduction is $5,706 single or married/RDP filing separately and $11,412 married/RDP filing jointly, head of household, or qualifying surviving spouse/RDP; line 4 says to figure tax using the 2025 tax table for Form 540; line 6a says to enter the exemption credit amount from the 2025 instructions for Form 540.',
+    },
+  ],
 };
 
-export function californiaRules(taxYear: StateRegistryTaxYear): CaliforniaRules | UnsupportedStateYear {
-  return taxYear === 2025 ? CA_2025 : CA_2026_UNSUPPORTED;
+const CA_UNSUPPORTED_YEAR_REASON = 'This tax year is not supported yet.';
+
+export function californiaRules(taxYear: number): CaliforniaRules | UnsupportedStateYear {
+  if (taxYear === 2025) return CA_2025;
+  if (taxYear === 2026) return CA_2026;
+  return { stateCode: 'CA', taxYear, reason: CA_UNSUPPORTED_YEAR_REASON };
 }

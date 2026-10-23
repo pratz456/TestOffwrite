@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { businessTaxNotices, estimateStateTax, readProfileLocation, type StateTaxEstimateInput, type SupportedStateTaxEstimate } from '../lib/tax-rules/state';
+import { CA_2026_FORM_540ES_METHOD_LABEL, californiaRules } from '../lib/tax-rules/state/california';
 import { compute1040, type Form1040Input } from '../lib/tax-rules/compute-1040';
 import { QBIReviewRequiredError } from '../lib/tax-rules/qbi';
 
@@ -116,10 +117,51 @@ describe('California 2025', () => {
     expect(millionaire.components.marginalRate).toBeCloseTo(13.3, 5);
   });
 
-  it('is unsupported for 2026 until the FTB publishes the schedules', () => {
-    const result = estimateStateTax({ ...base, stateCode: 'CA', taxYear: 2026 });
-    expect(result.supported).toBe(false);
-    if (!result.supported) { expect(result.reason).toMatch(/2026/); expect(result.stateName).toBe('California'); expect(result.label).toBe('informational state planning estimate'); }
+  it('equals the 2025 estimate for 2026 on the same inputs', () => {
+    const shared = { stateCode: 'CA', federalAGI: 180000, scheduleCNetProfit: 120000, w2Wages: 50000, otherIncome: 10000, hsaContribution: 2000, dependents: 1 };
+    for (const filingStatus of ['single', 'head_of_household'] as const) {
+      const year2025 = supported({ ...shared, filingStatus, taxYear: 2025 });
+      const year2026 = supported({ ...shared, filingStatus, taxYear: 2026 });
+      expect(year2026.estimate).toBe(year2025.estimate);
+      expect(year2026.components).toEqual(year2025.components);
+      expect(year2026.warnings).toEqual(year2025.warnings);
+    }
+  });
+
+  it('carries the Form 540-ES method label on the 2026 result only', () => {
+    const year2026 = supported({ stateCode: 'CA', taxYear: 2026 });
+    const year2025 = supported({ stateCode: 'CA', taxYear: 2025 });
+    expect(year2026.notes).toEqual([CA_2026_FORM_540ES_METHOD_LABEL]);
+    expect(year2026.notes).toEqual(["Planning estimate using California's 2026 Form 540-ES method (2025 rates and deductions)."]);
+    expect(year2025.notes).toEqual([]);
+    expect(JSON.stringify(year2025)).not.toContain(CA_2026_FORM_540ES_METHOD_LABEL);
+    expect(year2026.sources).toContain('https://www.ftb.ca.gov/forms/2026/2026-540-es-instructions.html');
+    expect(year2025.sources).not.toContain('https://www.ftb.ca.gov/forms/2026/2026-540-es-instructions.html');
+    expect(year2026.label).toBe('informational state planning estimate');
+  });
+
+  it('fails if californiaRules(2026) goes back to the unsupported record', () => {
+    const rules = californiaRules(2026);
+    expect('kind' in rules).toBe(true);
+    if (!('kind' in rules)) return;
+    expect(rules.kind).toBe('california');
+    expect(rules.taxYear).toBe(2026);
+    expect(rules.methodLabel).toBe("Planning estimate using California's 2026 Form 540-ES method (2025 rates and deductions).");
+    const prior = californiaRules(2025);
+    if (!('kind' in prior)) throw new Error('2025 California rules are supported');
+    expect(rules.schedules).toBe(prior.schedules);
+    expect(rules.standardDeduction).toBe(prior.standardDeduction);
+    expect(rules.personalExemptionCredit).toBe(prior.personalExemptionCredit);
+    expect(rules.dependentExemptionCredit).toBe(prior.dependentExemptionCredit);
+    expect(rules.exemptionPhaseout).toBe(prior.exemptionPhaseout);
+    expect(rules.behavioralHealthServicesTax).toBe(prior.behavioralHealthServicesTax);
+    expect(rules.unmodeled).toBe(prior.unmodeled);
+    expect(rules.unmodeled).toEqual(prior.unmodeled);
+  });
+
+  it.each([2024, 2027])('returns tax year %s with the generic unsupported reason', year => {
+    const rules = californiaRules(year);
+    expect(rules).toEqual({ stateCode: 'CA', taxYear: year, reason: 'This tax year is not supported yet.' });
   });
 });
 
@@ -312,9 +354,15 @@ describe('compute1040 state contract', () => {
   });
 
   it('keeps the not-validated warning only for unsupported state-years', () => {
-    const result = compute1040({ ...input, stateCode: 'CA' });
-    expect(result.stateTax).toMatchObject({ supported: false, stateCode: 'CA', taxYear: 2026 });
-    expect(result.calculationWarnings.some(note => /California state estimate has not been validated for tax year 2026/.test(note))).toBe(true);
+    const california = compute1040({ ...input, stateCode: 'CA' });
+    expect(california.stateTax).toMatchObject({ supported: true, stateCode: 'CA', taxYear: 2026 });
+    if (california.stateTax?.supported) {
+      expect(california.stateTax.notes).toEqual(["Planning estimate using California's 2026 Form 540-ES method (2025 rates and deductions)."]);
+    }
+    expect(california.calculationWarnings.some(note => /state estimate has not been validated/.test(note))).toBe(false);
+    const ohio = compute1040({ ...input, stateCode: 'OH' });
+    expect(ohio.stateTax).toMatchObject({ supported: false, stateCode: 'OH', taxYear: 2026 });
+    expect(ohio.calculationWarnings.some(note => /Ohio state estimate has not been validated for tax year 2026/.test(note))).toBe(true);
     const texas = compute1040({ ...input, stateCode: 'TX' });
     expect(texas.stateTax).toMatchObject({ supported: true, noIncomeTax: true, estimate: 0 });
     expect(texas.calculationWarnings.some(note => /state estimate/i.test(note))).toBe(false);
