@@ -345,16 +345,22 @@ function dedupeQuarterlyTransactions(transactions: QuarterlyTransactionLike[]): 
  * - Posted only (`pending !== true`) and not a superseded duplicate bank record
  * - Business income only (category `income` or `revenue`, or tx.type === 'income' when present)
  * - Uses cents-stable math
+ * - `undatedIncome` counts rows placed in this quarter with no written charge day.
+ *   Each of those rows carries `placedWithoutDate: true` (`ROW_FLAG_FIELD`).
+ *   `boundaryCount` is how many of them fall on different days across `BOUNDARY_ZONES`.
  */
 export function sumIncomeForQuarter(
   transactions: QuarterlyTransactionLike[],
   year: number,
   quarter: 1 | 2 | 3 | 4,
   userTimezone: string
-): { grossIncome: number; grossIncomeCents: number } {
+): { grossIncome: number; grossIncomeCents: number; undatedIncome: UndatedIncomeEstimate } {
   const deduped = dedupeQuarterlyTransactions(transactions);
 
   let grossIncomeCents = 0;
+  let undatedCount = 0;
+  let undatedCents = 0;
+  let boundaryCount = 0;
   for (const tx of deduped) {
     if (!isPosted(tx)) continue;
     if (!tx.category) continue;
@@ -373,12 +379,22 @@ export function sumIncomeForQuarter(
     if (!isIncome) continue;
 
     if (!Number.isFinite(tx.amount) || tx.amount >= 0) continue;
-    if (!getLocalTransactionDate(tx, userTimezone)) Object.assign(tx, { [ROW_FLAG_FIELD]: true });
     const cents = toCents(-tx.amount);
+    if (!getLocalTransactionDate(tx, userTimezone)) {
+      Object.assign(tx, { [ROW_FLAG_FIELD]: true });
+      undatedCount += 1;
+      undatedCents += cents;
+      const instant = estimateInstant(tx);
+      if (instant && crossesUsZoneBoundary(instant)) boundaryCount += 1;
+    }
     grossIncomeCents += cents;
   }
 
-  return { grossIncomeCents, grossIncome: grossIncomeCents / 100 };
+  return {
+    grossIncomeCents,
+    grossIncome: grossIncomeCents / 100,
+    undatedIncome: { count: undatedCount, total: undatedCents / 100, boundaryCount },
+  };
 }
 
 function getScheduleCLineCodeFromCategory(category: string): string | null {

@@ -346,21 +346,24 @@ describe('a Date, a Timestamp, or a datetime-only row is undated', () => {
     ['seconds and nanoseconds', { seconds: 1735689600, nanoseconds: 0 }],
     ['_seconds and _nanoseconds', { _seconds: 1735689600, _nanoseconds: 0 }],
     ['type, seconds, and nanoseconds', { type: 'firestore/timestamp/1.0', seconds: 1735689600, nanoseconds: 0 }],
-    ['seconds for 11:30 PM Dec 31 in Los Angeles', { seconds: 1735716600, nanoseconds: 0 }],
-    ['seconds for 12:30 AM Jan 1 in Tokyo', { seconds: 1735659000, nanoseconds: 0 }],
+    ['seconds for 11:30 PM Dec 31 in Los Angeles', { seconds: 1735716600, nanoseconds: 0 }, 40],
+    ['seconds for 12:30 AM Jan 1 in Tokyo', { seconds: 1735659000, nanoseconds: 0 }, 40],
     ['an epoch number', Date.UTC(2025, 0, 5)],
     ['a millisecond epoch', 1735689600000],
     ['String(ts)', String({ seconds: 1735689600, nanoseconds: 0 })],
-  ])('%s is undated', async (_label, value) => {
-    const row = confirmed({ date: value, amount: 15 });
+  ])('%s is undated', async (_label, value, amount = 15) => {
+    const row = confirmed({ date: value, amount });
     expect(safeYMD(value)).toBeNull();
     expect(safeTaxYear(value)).toBeNull();
     expect(chargeDay(row)).toBeNull();
     expect(chargeYear(row)).toBeNull();
     const { aggregateScheduleC, CATEGORY_MAP } = await scheduleCTools();
-    const totals = aggregateScheduleC([row], '2025', CATEGORY_MAP, { mode: 'confirmed-only' });
-    expect(totals.totalDeductible).toBe(0);
-    expect(totals.needsMoreInformation).toBe(1);
-    expect(totals.undated[0].amount).toBe(15);
+    for (const year of ['2024', '2025']) {
+      const totals = aggregateScheduleC([row], year, CATEGORY_MAP, { mode: 'confirmed-only' });
+      expect(totals.totalDeductible).toBe(0);
+      expect(totals.counts.year).toBe(0);
+      expect(totals.needsMoreInformation).toBe(1);
+      expect(totals.undated[0].amount).toBe(amount);
+    }
   });
 });
