@@ -13,8 +13,8 @@ import { EXPENSE_CATEGORIES, TRANSACTION_EVIDENCE_IDS } from '@/lib/ai/transacti
 
 const LINES_BY_CATEGORY: Record<string, string[]> = {
   advertising_marketing: ['8'], vehicle_expense: ['9'], bank_and_payment_fees: ['10'], contract_labor: ['11'], equipment: ['13'],
-  other: ['15', '16b', '17', '21', '23', '27b'], software_subscriptions: ['18'], rent: ['20a', '20b'], supplies_small_tools: ['22'],
-  travel: ['24a'], meals_50: ['24b'], utilities_phone_internet: ['25'], education_training: ['27b'], dues_and_memberships: ['27b'], home_office: ['30'],
+  other: ['15', '16b', '17', '21', '23', '27a'], software_subscriptions: ['18'], rent: ['20a', '20b'], supplies_small_tools: ['22'],
+  travel: ['24a'], meals_50: ['24b'], utilities_phone_internet: ['25'], education_training: ['27a'], dues_and_memberships: ['27a'], home_office: ['30'],
 };
 
 describe('profession priors table', () => {

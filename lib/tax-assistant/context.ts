@@ -1,6 +1,6 @@
 import { learningMerchantKey } from '@/lib/ai/learning-engine';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
-import { guidanceSource, placementForYear } from './knowledge';
+import { guidanceSource } from './knowledge';
 
 /** Last-N read the assistant is allowed; merchant facts never come from an unbounded scan. */
 export const ASSISTANT_TRANSACTION_LIMIT = 200;
@@ -245,14 +245,12 @@ const PERSONAL_CREDIT_TOPICS = new Set(['marketplace-premium-credit', 'savers-ma
  * The "For you" paragraph. Every number comes from the owner's own rows; every rule comes from the
  * reviewed packet. Returns null when nothing personal is known, so the UI shows nothing rather than filler.
  */
-export function composeForYou(context: AssistantContext | null | undefined, topic: string, taxYear?: number | null): ForYou | null {
+export function composeForYou(context: AssistantContext | null | undefined, topic: string): ForYou | null {
   if (!context || topic === 'not-supported' || PERSONAL_CREDIT_TOPICS.has(topic)) return null;
   const { profile, merchant } = context;
   const sentences: string[] = [];
   const packet = guidanceSource(topic);
   const work = profile.profession ? `${profile.profession} work` : 'business';
-  const year = merchant?.taxYear ?? (typeof taxYear === 'number' ? taxYear : null);
-  const placement = packet?.placement && year != null ? placementForYear(packet.placement, year) : packet?.placement;
 
   if (merchant) {
     const plural = merchant.count === 1 ? '' : 's';
@@ -262,10 +260,10 @@ export function composeForYou(context: AssistantContext | null | undefined, topi
         ? `${merchant.unreviewedCount === 1 ? 'it is' : 'all are'} unreviewed`
         : `${merchant.unreviewedCount} ${merchant.unreviewedCount === 1 ? 'is' : 'are'} unreviewed`;
     sentences.push(`You have ${merchant.count} ${merchant.displayName} charge${plural} in ${merchant.taxYear} totaling ${usd(merchant.totalCents)}; ${unreviewed}.`);
-    if (placement) {
-      sentences.push(/^Not (deductible|a deduction)/i.test(placement)
-        ? `The reviewed rule above treats ${merchant.count === 1 ? 'this charge' : 'these charges'} as personal unless the exception described applies (${placement}).`
-        : `If ${merchant.count === 1 ? 'it is' : 'they are'} used in your ${work}, ${merchant.count === 1 ? 'it belongs' : 'they belong'} on ${placement}.`);
+    if (packet?.placement) {
+      sentences.push(/^Not (deductible|a deduction)/i.test(packet.placement)
+        ? `The reviewed rule above treats ${merchant.count === 1 ? 'this charge' : 'these charges'} as personal unless the exception described applies (${packet.placement}).`
+        : `If ${merchant.count === 1 ? 'it is' : 'they are'} used in your ${work}, ${merchant.count === 1 ? 'it belongs' : 'they belong'} on ${packet.placement}.`);
     }
   }
 
@@ -290,8 +288,8 @@ export function composeForYou(context: AssistantContext | null | undefined, topi
   if (STATE_TOPICS.has(topic) && profile.state) {
     sentences.push(`${profile.state} state rules are not covered here; this answer is federal only.`);
   }
-  if (!merchant && !HOME_TOPICS.has(topic) && !VEHICLE_TOPICS.has(topic) && profile.profession && placement && !/^Not /.test(placement)) {
-    sentences.push(`For your ${work}, the placement above (${placement}) is where a qualifying cost is reported.`);
+  if (!merchant && !HOME_TOPICS.has(topic) && !VEHICLE_TOPICS.has(topic) && profile.profession && packet?.placement && !/^Not /.test(packet.placement)) {
+    sentences.push(`For your ${work}, the placement above (${packet.placement}) is where a qualifying cost is reported.`);
   }
 
   if (!sentences.length) return null;

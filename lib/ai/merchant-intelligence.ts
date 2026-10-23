@@ -12,8 +12,6 @@
  */
 import type { TransactionInput } from './analyzeTransaction';
 import type { ExpenseCategory } from './transaction-tax-policy';
-import { otherExpensesLine } from '@/lib/schedule-c/other-expenses-line';
-import { safeTaxYear } from '@/lib/schedule-c/taxDate';
 
 export const MERCHANT_DISPOSITIONS = [
   /** Overwhelmingly a business tool for self-employed users; still needs the user's one-tap purpose confirmation. */
@@ -43,7 +41,7 @@ export interface MerchantIntelligenceEntry {
   pattern: RegExp;
   name: string;
   category: ExpenseCategory | null;
-  /** Schedule C line. Other expenses is stored as 27a; merchantIntelligence publishes otherExpensesLine for the transaction year. */
+  /** Schedule C line ('8', '9', '10', '11', '13', '15', '16b', '17', '18', '20a', '20b', '21', '22', '23', '24a', '24b', '25', '27a', '30') or null. */
   scheduleCLine: string | null;
   disposition: MerchantDisposition;
   /** One-line purpose the USER can confirm or edit; never a tax conclusion. */
@@ -203,7 +201,7 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bfreshbooks\b|\bwave\s*(?:apps|financial|accounting)\b|\bxero\b|\bbench\s*accounting\b|\bbill\.com\b/i, 'Bookkeeping software', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Bookkeeping and invoicing software for the business' }),
   entry(/\bhoneybook\b|\bdubsado\b|\b17hats\b|\bhellobonsai\b|\bbonsai\s*(?:inc|tech)\b/i, 'Client management platform', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Client contracts, invoicing and booking software for the business', paysOut: true }),
   entry(/\bgetharvest\b|\bharvest\s*(?:app|inc|time)\b|\btoggl\b|\bexpensify\b/i, 'Time and expense tracking', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Time and expense tracking software for the business' }),
-  entry(/\bgusto\b|\badp\b|\bpaychex\b/i, 'Payroll service', 'other', '27a', 'business_likely', { defaultPurpose: 'Payroll or contractor-payment service fees for the business', notes: 'Wages paid through the service are line 26; contractor payments are line 11; only the service fee is other expenses (line 27a through 2024 and line 27b from 2025).' }),
+  entry(/\bgusto\b|\badp\b|\bpaychex\b/i, 'Payroll service', 'other', '27a', 'business_likely', { defaultPurpose: 'Payroll or contractor-payment service fees for the business', notes: 'Wages paid through the service are line 26; contractor payments are line 11; only the service fee is line 27a.' }),
   entry(/\bkajabi\b|\bteachable\b|\bthinkific\b|\bpodia\b/i, 'Course platform', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Course and membership platform for selling the business\'s content', paysOut: true }),
   entry(/\bconvertkit\b|\bkit\.com\b|\bflodesk\b|\bklaviyo\b|\bbeehiiv\b|\bconstant\s*contact\b/i, 'Email marketing platform', 'advertising_marketing', '8', 'business_likely', { defaultPurpose: 'Email marketing platform for business newsletters' }),
   entry(/\bsubstack\b/i, 'Substack', 'software_subscriptions', '18', 'needs_purpose', { question: 'Is this a subscription you pay for reading (personal unless it is research for your business) or a payout of your own publication (business income)?' }),
@@ -379,7 +377,7 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bcpa\b|\baccounting\b|\bbookkeep/i, 'Accounting / bookkeeping service', 'legal_professional', '17', 'needs_purpose', { question: Q.legal }),
   entry(/\blaw\s*(?:office|firm|group)\b|\battorney\b|\besq\b/i, 'Law firm', 'legal_professional', '17', 'needs_purpose', { question: Q.legal }),
 
-  // Education and training (other expenses) --------------------------------------------------
+  // Education and training (Schedule C line 27a) --------------------------------------------------
   entry(/\budemy\b/i, 'Udemy', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
   entry(/\bcoursera\b/i, 'Coursera', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
   entry(/\bmasterclass\b/i, 'MasterClass', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
@@ -652,15 +650,6 @@ export function findMerchantEntry(descriptor: string): MerchantIntelligenceEntry
 
 const CREDIT_QUESTION = 'Money came into the account from this merchant. Is this a payout of your sales or earnings (business income at the gross amount, before fees), a refund of an earlier purchase, or a transfer?';
 
-/** Catalog 27a and 27b both mean other expenses. The returned line follows the transaction year. */
-function publishedScheduleCLine(line: string | null, transaction: Partial<TransactionInput>): string | null {
-  if (!line) return line;
-  const year = safeTaxYear(transaction.date_iso ?? transaction.date);
-  if (year == null) return line;
-  const code = line.trim();
-  return code === '27a' || code === '27b' ? otherExpensesLine(year) : line;
-}
-
 /**
  * Best available merchant knowledge for a transaction. A credit (negative amount) from any
  * merchant is a payout, refund or transfer question rather than an expense disposition.
@@ -675,7 +664,7 @@ export function merchantIntelligence(transaction: Partial<TransactionInput>): Me
   if (matched) {
     const paysOut = credit && matched.disposition !== 'transfer_or_deposit';
     return {
-      name: matched.name, category: paysOut ? null : matched.category, scheduleCLine: paysOut ? null : publishedScheduleCLine(matched.scheduleCLine, transaction),
+      name: matched.name, category: paysOut ? null : matched.category, scheduleCLine: paysOut ? null : matched.scheduleCLine,
       disposition: paysOut ? 'transfer_or_deposit' : matched.disposition,
       defaultPurpose: paysOut ? null : matched.defaultPurpose ?? null,
       question: paysOut ? CREDIT_QUESTION : matched.question ?? null,
@@ -686,7 +675,7 @@ export function merchantIntelligence(transaction: Partial<TransactionInput>): Me
   if (plaidMapping) {
     const paysOut = credit && plaidMapping.disposition !== 'transfer_or_deposit';
     return {
-      name: null, category: paysOut ? null : plaidMapping.category, scheduleCLine: paysOut ? null : publishedScheduleCLine(plaidMapping.scheduleCLine, transaction),
+      name: null, category: paysOut ? null : plaidMapping.category, scheduleCLine: paysOut ? null : plaidMapping.scheduleCLine,
       disposition: paysOut ? 'transfer_or_deposit' : plaidMapping.disposition,
       defaultPurpose: paysOut ? null : plaidMapping.defaultPurpose ?? null,
       question: paysOut ? CREDIT_QUESTION : plaidMapping.question ?? null,

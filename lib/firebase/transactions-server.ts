@@ -165,6 +165,7 @@ function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction
     analysisCompletedAt: data.analysisCompletedAt,
     created_at: data.created_at,
     updated_at: data.updated_at,
+    ai: data.ai || null,
     ...reviewHydrationFields(data),
   };
 }
@@ -729,8 +730,9 @@ export async function getPaginatedTransactionsServer(
         created_at: data.created_at,
         updated_at: data.updated_at,
 
-        // Include AI analysis data. Hydration supplies ai. A stored other-expenses line is read as the tax year's line.
-        ...reviewHydrationFields(data),
+        // Include AI analysis data
+        ai: data.ai || null,
+    ...reviewHydrationFields(data),
       };
 
       // Apply search filter if specified

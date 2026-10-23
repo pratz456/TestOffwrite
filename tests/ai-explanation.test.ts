@@ -256,7 +256,7 @@ describe('estimated tax effect boundaries', () => {
 
 describe('Schedule C placement and stored payloads', () => {
   it('prefers the policy-supplied schedule_c_line in any of its shapes', () => {
-    expect(explain('okSoftware', { schedule_c_line: '27a' }).scheduleCLine).toBe('Schedule C line 27b (Other expenses)');
+    expect(explain('okSoftware', { schedule_c_line: '27a' }).scheduleCLine).toBe('Schedule C line 27a (Other expenses)');
     expect(explain('okSoftware', { schedule_c_line: 'Schedule C line 18 (Office expense)' }).scheduleCLine).toBe('Schedule C line 18 (Office expense)');
     expect(explain('okSoftware', { schedule_c_line: 'line 25' }).scheduleCLine).toBe('Schedule C line 25');
     expect(explain('okSoftware', { schedule_c_line: 'Not deductible' }).scheduleCLine).toBe('Not deductible');

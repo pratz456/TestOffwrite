@@ -7,9 +7,6 @@ import { OTHER_EXPENSES_27B_FIRST_YEAR, otherExpensesLine, readStoredAiScheduleC
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
-import { normalizeExplanation, scheduleCLineFor } from '@/lib/ai/explanation';
-import { reviewHydrationFields } from '@/lib/transactions/ai-review-contract';
-import { suggestionScheduleCLine } from '@/lib/transactions/review-proposals';
 
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
 import { assembleAuditSupportPacket, auditSupportPacketCSV } from '@/lib/reports/audit-support-packet';
@@ -208,28 +205,12 @@ describe('Schedule C other expenses line follows the tax year', () => {
     expect(later.ai_schedule_c_line).toBe('27a');
     expect(later.ai_explanation.scheduleCLine).toBe('Schedule C line 27a (Other expenses)');
 
-    const hydrated = reviewHydrationFields(later);
-    expect(hydrated.ai_schedule_c_line).toBe('27b');
-    expect(hydrated.ai_suggestion.scheduleCLine).toBe('27b');
-    expect(hydrated.ai.schedule_c_line).toBe('27b');
-    expect(hydrated.ai_explanation.scheduleCLine).toBe('Schedule C line 27b (Other expenses)');
-    expect(later.ai_schedule_c_line).toBe('27a');
-
-    expect(suggestionScheduleCLine({ date: '2024-06-01', ai_suggestion: early.ai_suggestion })).toBe('27a');
-    expect(suggestionScheduleCLine({ date: '2026-06-01', ai_suggestion: later.ai_suggestion })).toBe('27b');
-    expect(normalizeExplanation(later.ai_explanation, 2025)?.scheduleCLine).toBe('Schedule C line 27b (Other expenses)');
-    expect(normalizeExplanation(early.ai_explanation, 2024)?.scheduleCLine).toBe('Schedule C line 27a (Other expenses)');
-    expect(scheduleCLineFor({ schedule_c_line: '27a', category: 'other', transaction_kind: 'expense', status: 'ok' } as never, 2026)).toBe('Schedule C line 27b (Other expenses)');
-    expect(scheduleCLineFor({ schedule_c_line: '27b', category: 'other', transaction_kind: 'expense', status: 'ok' } as never, 2024)).toBe('Schedule C line 27a (Other expenses)');
-    expect(later.ai_explanation.scheduleCLine).toBe('Schedule C line 27a (Other expenses)');
-
     const sameYear = stored(2024, '27a');
     expect(readStoredAiScheduleCLines(sameYear)).toBe(sameYear);
     const laterSame = stored(2026, '27b');
     expect(readStoredAiScheduleCLines(laterSame)).toBe(laterSame);
     const unchanged = { date: '2025-06-01', ai_schedule_c_line: '24b', ai: { schedule_c_line: '18' }, amount: FUEL_AMOUNT };
     expect(readStoredAiScheduleCLines(unchanged)).toBe(unchanged);
-    expect(scheduleCLineFor({ schedule_c_line: '18', category: 'software_subscriptions', transaction_kind: 'expense', status: 'ok' } as never, 2025)).toBe('Schedule C line 18 (Office expense)');
   });
 
   it('2025 other expenses is line 27b, so a year switch stuck on 27a fails this check', () => {

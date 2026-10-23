@@ -21,7 +21,6 @@ import { MerchantGroupList, type GroupDecisionResult } from '@/components/review
 import { QuestionChips } from '@/components/review/question-chips';
 import { ExplanationCard } from '@/components/ai/explanation-card';
 import { normalizeExplanation } from '@/lib/ai/explanation';
-import { safeTaxYear } from '@/lib/schedule-c/taxDate';
 import { AnalysisStatusNotice } from '@/components/analysis-status-notice';
 import { summarizeAnalysisBacklog } from '@/lib/ai/analysis-state';
 import { prioritizeTransactionReview } from '@/lib/transactions/review-priority';
@@ -400,7 +399,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
                 <div className="flex items-center gap-1.5 text-xs font-medium text-primary"><Sparkles className="h-3.5 w-3.5 shrink-0" /><span>{mayConfirm && presentation!.needsTaxFacts ? 'AI suggested category' : presentation!.label}</span></div>
                 <h3 id="suggestion-heading" className="text-xl font-semibold leading-tight">{presentation!.categoryLabel}</h3>
                 {presentation!.outcome ? <AnalysisStatusNotice compact outcome={presentation!.outcome} accountIds={[current.account_id || current.accountId || ''].filter(Boolean)} disabled={busy} />
-                  : !backgroundAnalysis && current.ai_explanation ? <ExplanationCard explanation={normalizeExplanation(current.ai_explanation, safeTaxYear(current.date))} />
+                  : !backgroundAnalysis && current.ai_explanation ? <ExplanationCard explanation={normalizeExplanation(current.ai_explanation)} />
                   : <p className={suggestion ? 'line-clamp-2 text-sm leading-5' : 'text-sm leading-5'}>{presentation!.reasoning}</p>}
               </section>
 

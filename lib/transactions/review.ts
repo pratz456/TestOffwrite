@@ -30,7 +30,7 @@ export function hydrateReviewTransaction(data: Record<string, any>, id: string) 
     user_classification_reason: data.user_classification_reason ?? null,
     description: data.description, notes: data.notes, receipt_url: data.receipt_url, receipt_filename: data.receipt_filename,
     account_id: data.account_id || data.accountId, userId: data.userId || data.user_id,
-    analyzed: data.analyzed ?? false, analysisStatus: data.analysis_status || data.analysisStatus,
+    ai: data.ai ?? null, analyzed: data.analyzed ?? false, analysisStatus: data.analysis_status || data.analysisStatus,
     deductionStatus: data.deductionStatus, reasoning: data.reasoning, confidence: data.confidence,
     irsPublication: data.irsPublication, irsSection: data.irsSection, analysisUpdatedAt: data.analysisUpdatedAt,
     created_at: data.created_at, updated_at: data.updated_at,
