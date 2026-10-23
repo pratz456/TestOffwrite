@@ -70,6 +70,7 @@ describe('quarterly payment tracking edits', () => {
     const posts = () => h.request.mock.calls.map(call => call[1]).filter(init => init?.method === 'POST').map(init => JSON.parse(init.body));
     expect(posts()[0]).toMatchObject({ quarter: 1, year, paidAmount: 2000 });
     expect(posts()[0]).not.toHaveProperty('recordId');
+    expect(posts()[0]).not.toHaveProperty('expectedLiveId');
     const again = render();
     const recordButtons = walk(again).filter(node => node.props?.onClick && text(node) === 'Record Payment');
     recordButtons[1].props.onClick();
@@ -77,6 +78,7 @@ describe('quarterly payment tracking edits', () => {
     await walk(render()).find(node => node.props?.onClick && text(node) === 'Save Payment').props.onClick();
     expect(posts()[1]).toMatchObject({ quarter: 2, year, paidAmount: 50 });
     expect(posts()[1]).not.toHaveProperty('recordId');
+    expect(posts()[1]).not.toHaveProperty('expectedLiveId');
   });
 
   it('opens Edit Payment with the saved amount and date and replaces that payment', async () => {
@@ -99,7 +101,7 @@ describe('quarterly payment tracking edits', () => {
     await walk(render()).find(node => node.props?.onClick && text(node) === 'Save Payment').props.onClick();
     await flush();
     const posts = h.request.mock.calls.map(call => call[1]).filter(init => init?.method === 'POST').map(init => JSON.parse(init.body));
-    expect(posts[0]).toMatchObject({ recordId: `Q1_${year}`, baseVersion: 0, quarter: 1, year, paidAmount: 2000, paidDate: `${year}-04-12` });
+    expect(posts[0]).toMatchObject({ recordId: `Q1_${year}`, expectedLiveId: `Q1_${year}`, baseVersion: 0, quarter: 1, year, paidAmount: 2000, paidDate: `${year}-04-12` });
   });
 
   it('adds a planner card payment from the tracking screen without a record id', async () => {
@@ -132,6 +134,7 @@ describe('quarterly payment tracking edits', () => {
     const posts = h.request.mock.calls.map(call => call[1]).filter(init => init?.method === 'POST').map(init => JSON.parse(init.body));
     expect(posts[0]).toMatchObject({ quarter: 1, year, paidAmount: 40, paidDate: `${year}-04-18` });
     expect(posts[0]).not.toHaveProperty('recordId');
+    expect(posts[0]).not.toHaveProperty('expectedLiveId');
   });
 
   it('edits a planner card payment from the tracking screen by its saved id', async () => {
@@ -165,7 +168,7 @@ describe('quarterly payment tracking edits', () => {
     await flush();
     const posts = h.request.mock.calls.map(call => call[1]).filter(init => init?.method === 'POST').map(init => JSON.parse(init.body));
     expect(posts[0]).toMatchObject({
-      recordId: 'planner-card-payment-1', baseVersion: 2, designatedTaxYear: year,
+      recordId: 'planner-card-payment-1', expectedLiveId: 'planner-card-payment-1', baseVersion: 2, designatedTaxYear: year,
       quarter: 1, year, paidAmount: 80, paidDate: `${year}-04-21`,
     });
   });

@@ -97,7 +97,7 @@ async function clearPayments() {
     const post = (paymentId: string, paidAmount: number) => POST(new NextRequest('http://127.0.0.1/api/tax/quarterly-payments', {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ recordId: 'Q1_2026', paymentId, quarter: 1, year: 2026, paidAmount, paidDate: '2026-04-20' }),
+      body: JSON.stringify({ recordId: 'Q1_2026', expectedLiveId: 'Q1_2026', paymentId, quarter: 1, year: 2026, paidAmount, paidDate: '2026-04-20' }),
     }));
     const [first, second] = await Promise.all([post(idA, 1800), post(idB, 900)]);
     const statuses = [first.status, second.status].sort();

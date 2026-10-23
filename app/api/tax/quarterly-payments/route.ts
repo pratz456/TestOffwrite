@@ -57,6 +57,12 @@ function clientPaymentId(value: unknown): string | null {
   return value;
 }
 
+function liveRecordId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  if (LEGACY_DOC_ID.test(value)) return value;
+  return clientPaymentId(value);
+}
+
 function present(value: unknown): boolean {
   return !(value === undefined || value === null || value === '');
 }
@@ -230,6 +236,7 @@ export async function POST(request: NextRequest) {
       priorReturnFiled,
       paymentId: rawPaymentId,
       recordId: rawRecordId,
+      expectedLiveId: rawExpectedLiveId,
       baseVersion: rawBaseVersion,
     } = body;
 
@@ -280,17 +287,18 @@ export async function POST(request: NextRequest) {
     if (hasRecordId && !recordId) {
       return NextResponse.json({ error: 'Invalid payment record' }, { status: 400 });
     }
+    const hasExpectedLiveId = present(rawExpectedLiveId);
+    const expectedLiveId = hasExpectedLiveId ? liveRecordId(rawExpectedLiveId) : null;
+    if (hasExpectedLiveId && !expectedLiveId) {
+      return NextResponse.json({ error: 'Invalid payment record' }, { status: 400 });
+    }
     const storedDesignation = designatedYear(designatedTaxYear);
     const taxYearFor = storedDesignation ?? y;
     const baseVersion = requestedBaseVersion(rawBaseVersion);
 
     if (paymentId) {
       const paymentRef = collectionRef.doc(paymentId);
-      const legacyRef = legacyRecordId ? collectionRef.doc(legacyRecordId) : null;
-      const clientRef = clientRecordId ? collectionRef.doc(clientRecordId) : null;
-      let attempt = 0;
       const saved = await adminDb.runTransaction(async transaction => {
-        attempt += 1;
         const snapshot = await transaction.get(paymentRef);
         const paidOn = effectiveDateFor(taxYearFor);
         const quarterForDate = assignInstallmentPeriod(paidOn, taxYearFor).quarter;
@@ -321,18 +329,15 @@ export async function POST(request: NextRequest) {
           return record;
         };
 
-        if (legacyRef || clientRef) {
-          const anchorRef = legacyRef ?? clientRef!;
-          const anchor = await transaction.get(anchorRef);
+        // A replace compares the live record inside this transaction. A retry uses the same comparison.
+        if (expectedLiveId) {
+          const anchorId = recordId ?? expectedLiveId;
+          const anchor = await transaction.get(collectionRef.doc(anchorId));
           if (!anchor.exists) return { missing: true, conflict: false, record: null };
-          let liveId: string | null = clientRef ? clientRecordId : null;
-          let liveExists = Boolean(clientRef);
-          let liveData: Record<string, unknown> | undefined = clientRef ? anchor.data() : undefined;
-          const claimedBy = anchor.data()?.supersededBy;
-          if (legacyRef && attempt > 1 && typeof claimedBy === 'string' && claimedBy.length > 0 && claimedBy !== paymentId) {
-            return { missing: false, conflict: true, record: null };
-          }
-          let cursor: unknown = legacyRef ? claimedBy : (typeof claimedBy === 'string' && claimedBy.length > 0 ? claimedBy : null);
+          let liveId = anchorId;
+          let liveExists = true;
+          let liveData: Record<string, unknown> | undefined = anchor.data();
+          let cursor: unknown = liveData?.supersededBy;
           for (let guard = 0; typeof cursor === 'string' && cursor.length > 0 && guard < 8; guard += 1) {
             liveId = cursor;
             const live = await transaction.get(collectionRef.doc(cursor));
@@ -345,24 +350,20 @@ export async function POST(request: NextRequest) {
             }
             break;
           }
-          if (clientRef && attempt > 1 && liveId && liveId !== paymentId) {
-            return { missing: false, conflict: true, record: null };
-          }
-          if (legacyRef && attempt === 1) await holdPaymentEditForTests();
-          const liveVersion = liveExists ? storedVersion(liveData) : storedVersion(anchor.data());
-          const alreadyLive = snapshot.exists && sameSavedPayment(snapshot.data()) && (!liveId || liveId === paymentId);
+          if (!liveExists) return { missing: true, conflict: false, record: null };
+          const alreadyLive = snapshot.exists && sameSavedPayment(snapshot.data()) && liveId === paymentId;
           if (alreadyLive) return { missing: false, conflict: false, record: snapshot.data()! };
+          if (liveId !== expectedLiveId) return { missing: false, conflict: true, record: null };
+          await holdPaymentEditForTests();
+          const liveVersion = storedVersion(liveData);
           if (baseVersion !== null && baseVersion !== liveVersion) {
             return { missing: false, conflict: true, record: null };
           }
           const record = writePayment(liveVersion + 1);
           const stamp = { supersededBy: paymentId, updatedAt: FieldValue.serverTimestamp() };
-          if (liveId && liveId !== paymentId && liveExists) {
-            transaction.set(collectionRef.doc(liveId), stamp, { merge: true });
-          }
-          if (legacyRef) transaction.set(legacyRef, stamp, { merge: true });
-          else if (clientRecordId && clientRecordId !== paymentId && clientRecordId !== liveId) {
-            transaction.set(anchorRef, stamp, { merge: true });
+          if (liveId !== paymentId) transaction.set(collectionRef.doc(liveId), stamp, { merge: true });
+          if (recordId && recordId !== liveId && recordId !== paymentId) {
+            transaction.set(collectionRef.doc(recordId), stamp, { merge: true });
           }
           return { missing: false, conflict: false, record };
         }

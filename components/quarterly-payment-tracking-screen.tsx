@@ -178,7 +178,7 @@ export function QuarterlyPaymentTrackingScreen({
         method: "POST",
         body: JSON.stringify({
           paymentId,
-          ...(editing ? { recordId: existing?.editRecordId, baseVersion: existing?.editVersion ?? 0 } : {}),
+          ...(editing ? { recordId: existing?.editRecordId, expectedLiveId: existing?.editRecordId, baseVersion: existing?.editVersion ?? 0 } : {}),
           ...(editing && typeof existing?.designatedTaxYear === "number" ? { designatedTaxYear: existing.designatedTaxYear } : {}),
           quarter,
           year: selectedYear,
