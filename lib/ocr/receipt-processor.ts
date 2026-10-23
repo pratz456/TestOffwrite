@@ -94,6 +94,58 @@ function allowsMonthPeriod(token: string, dotted: boolean): boolean {
   return !dotted || token === 'sept' || token.length === 3;
 }
 
+/** Lines that are not the purchase date. Whole words, a check number, and "visit by". Order already covers an order placed line. */
+const DATE_LINE_EXCLUSION = /\b(?:returns?|until|valid|through|thru|expires?|expiry|offer|due|printed|order|table|invoice|inv|ref|ticket|exp)\b|\bcheck\s*#|\bvisit\s+by\b/i;
+/** A purchase label outranks an unlabeled date elsewhere on the receipt. */
+const PURCHASE_DATE_LABEL = /\b(?:date|purchased|purchase|transaction|sale|check-out|checkout|paid)\b/i;
+
+type ReceiptDateCandidate = { raw: string; index: number; iso: string; line: string };
+
+function lineAt(text: string, index: number): string {
+  const start = text.lastIndexOf('\n', index - 1) + 1;
+  const next = text.indexOf('\n', index);
+  return text.slice(start, next === -1 ? text.length : next);
+}
+
+function monthToken(raw: string): string | null {
+  const dayFirst = /^\d{1,2}[ \t]+([A-Za-z]+)\.?(?:[ \t]+\d{2,4})$/.exec(raw);
+  if (dayFirst) return dayFirst[1];
+  const monthFirst = /^([A-Za-z]+)\.?(?:[ \t]+\d{1,2},?[ \t]+\d{2,4})$/.exec(raw);
+  if (monthFirst) return monthFirst[1];
+  return null;
+}
+
+/** Inclusive window from 2000 through next year, read from the clock when a candidate is kept. */
+function purchaseYearAllowed(iso: string): boolean {
+  const year = Number(iso.slice(0, 4));
+  const currentYear = new Date().getFullYear();
+  return year >= 2000 && year <= currentYear + 1;
+}
+
+function withoutSkippedDateLines(candidates: ReceiptDateCandidate[]): ReceiptDateCandidate[] {
+  return candidates.filter(candidate => !DATE_LINE_EXCLUSION.test(candidate.line));
+}
+
+function withPurchaseLabelPreference(candidates: ReceiptDateCandidate[]): ReceiptDateCandidate[] {
+  const labeled = candidates.filter(candidate => PURCHASE_DATE_LABEL.test(candidate.line));
+  return labeled.length > 0 ? labeled : candidates;
+}
+
+function withoutConflictingUnlabeledYears(candidates: ReceiptDateCandidate[]): ReceiptDateCandidate[] {
+  if (candidates.some(candidate => PURCHASE_DATE_LABEL.test(candidate.line))) return candidates;
+  const years = new Set(candidates.map(candidate => candidate.iso.slice(0, 4)));
+  return years.size > 1 ? [] : candidates;
+}
+
+function earliestDateText(candidates: ReceiptDateCandidate[]): string {
+  if (candidates.length === 0) return '';
+  let best = candidates[0];
+  for (const candidate of candidates) {
+    if (candidate.index < best.index) best = candidate;
+  }
+  return best.raw;
+}
+
 /**
  * Read a written date by its parts. Slash and hyphen dates are US month/day order.
  * A leading four digit year stays ISO, including a timestamp. A two digit year is 20YY.
@@ -287,27 +339,48 @@ export class ReceiptProcessor {
   }
 
   private extractDate(text: string): string {
-    // A full ISO date or timestamp has to be taken before a shorter MM-DD-YY
-    // slice inside it. 2026-01-15T10:00:00Z must not become 26-01-15, and
-    // 2012-01-15T09:00:00 must not become 12-01-15.
+    return earliestDateText(
+      withoutConflictingUnlabeledYears(
+        withPurchaseLabelPreference(
+          withoutSkippedDateLines(this.dateCandidates(text)),
+        ),
+      ),
+    );
+  }
+
+  private dateCandidates(text: string): ReceiptDateCandidate[] {
+    // Whitespace stays on one line, and a day or year cannot start inside a longer number.
+    // The year cannot be followed by ':' so a clock hour is not a two digit year.
+    // A full ISO timestamp shares its start index with the shorter date slice, so the longer one is kept.
     const datePatterns = [
-      /(?<!\d)\d{4}-\d{1,2}-\d{1,2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?(?!\d)/,
-      /(?<!\d)\d{4}-\d{1,2}-\d{1,2}(?!\d)/,
-      /(?<!\d)\d{1,2}\/\d{1,2}\/\d{2,4}(?!\d)/,
-      /(?<!\d)\d{1,2}-\d{1,2}-\d{2,4}(?!\d)/,
-      /(?<!\d)\d{1,2}[ \t]+[A-Za-z]{3,9}\.?[ \t]+\d{2,4}(?!\d)/,
-      /[A-Za-z]{3,9}\.?[ \t]+(?<!\d)\d{1,2},?[ \t]+\d{2,4}(?!\d)/,
+      /(?<!\d)\d{4}(?![\d:])-\d{1,2}-\d{1,2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?(?!\d)/,
+      /(?<!\d)\d{4}(?![\d:])-\d{1,2}-\d{1,2}(?!\d)/,
+      /(?<!\d)\d{1,2}\/\d{1,2}\/\d{2,4}(?![\d:])/,
+      /(?<!\d)\d{1,2}-\d{1,2}-\d{2,4}(?![\d:])/,
+      /(?<!\d)\d{1,2}[ \t]+[A-Za-z]{3,9}\.?[ \t]+\d{2,4}(?![\d:])/,
+      /[A-Za-z]{3,9}\.?[ \t]+(?<!\d)\d{1,2},?[ \t]+\d{2,4}(?![\d:])/,
     ];
-    
+    const hits: Array<{ raw: string; index: number }> = [];
     for (const pattern of datePatterns) {
-      const match = text.match(pattern);
-      if (match) {
-        return match[0];
+      for (const match of text.matchAll(new RegExp(pattern.source, 'g'))) {
+        if (match.index === undefined) continue;
+        hits.push({ raw: match[0], index: match.index });
       }
     }
-    
-    // No date was read. Leave it blank so the user has to enter one.
-    return '';
+    const longest = new Map<number, { raw: string; index: number }>();
+    for (const hit of hits) {
+      const current = longest.get(hit.index);
+      if (!current || hit.raw.length > current.raw.length) longest.set(hit.index, hit);
+    }
+    const candidates: ReceiptDateCandidate[] = [];
+    for (const hit of longest.values()) {
+      const month = monthToken(hit.raw);
+      if (month !== null && monthFromName(month) === null) continue;
+      const iso = this.normalizeDateToISO(hit.raw);
+      if (!iso || !purchaseYearAllowed(iso)) continue;
+      candidates.push({ raw: hit.raw, index: hit.index, iso, line: lineAt(text, hit.index) });
+    }
+    return candidates;
   }
 
   private extractCategory(merchant: string, text: string): string {

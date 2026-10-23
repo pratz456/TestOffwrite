@@ -104,6 +104,51 @@ const NEIGHBORS: Array<[string, string]> = [
   ['Sept 5, 2026 Reg 03\nTotal $12.34', '2026-09-05'],
   ['Note 6\nJan 2026 sale\nDate: 5 Jan 2026\n12 items\nTotal $1', '2026-01-05'],
 ];
+const CHOSEN: Array<[string, string]> = [
+  ['Dec 30, 2025\nReturns accepted until 01/29/2026\nTotal $12.34', '2025-12-30'],
+  ['Dec 28, 2025\nOffer valid thru 2026-01-31\nTotal $12.34', '2025-12-28'],
+  ['Check-out 12/31/2025\nFolio printed 2026-01-02\nTotal $12.34', '2025-12-31'],
+  ['December 31, 2025\nRewards expire 1-31-26\nTotal $12.34', '2025-12-31'],
+  ['Return by Feb 4, 2026\nDate: Jan 5, 2026\nTotal $12.34', '2026-01-05'],
+  ['Jan 5, 2026\n03/15/2026\nTotal $12.34', '2026-01-05'],
+  ['Paid 2026-01-15T10:00:00Z\nTotal $12.34', '2026-01-15'],
+];
+const MIXED_YEARS = 'Dec 30, 2025\n01/02/2026 12:00\nTotal $12.34';
+const CLOCK_NOT_YEAR = [
+  '12 Sep 15:30\nTotal $12.34',
+  '15 Jan 10:45\nTotal $12.34',
+  'Sep 12 15:30\nTotal $12.34',
+];
+const ITEM_LINE: Array<[string, string]> = [
+  ['Jan 15, 2026\n1 Coffee 12.50\nTotal $12.34', '2026-01-15'],
+  ['1 Coffee 12.50\nJan 15, 2026\nTotal $12.34', '2026-01-15'],
+];
+const NUMBERED: Array<[string, string]> = [
+  ['Order 10-22-4471\nJan 15, 2026\nTotal $12.34', '2026-01-15'],
+  ['Order 3-12-88\nJan 15, 2026\nTotal $12.34', '2026-01-15'],
+  ['Table 1/2/25\nJan 15, 2026\nTotal $12.34', '2026-01-15'],
+  ['Jan 15, 2026\nexp 12/31/2027\nTotal $12.34', '2026-01-15'],
+  ['Check # 4/5/26\nJan 15, 2026\nTotal $12.34', '2026-01-15'],
+  ['Invoice 4/5/26\nJan 15, 2026\nTotal $12.34', '2026-01-15'],
+  ['Inv 4/5/26\nJan 15, 2026\nTotal $12.34', '2026-01-15'],
+  ['Ref 4/5/26\nJan 15, 2026\nTotal $12.34', '2026-01-15'],
+  ['Ticket 4/5/26\nJan 15, 2026\nTotal $12.34', '2026-01-15'],
+];
+const NUMBERED_ALONE = [
+  'Order 10-22-4471\nTotal $12.34',
+  'Order 3-12-88\nTotal $12.34',
+  'Table 1/2/25\nTotal $12.34',
+  'exp 12/31/2027\nTotal $12.34',
+];
+const SKIP_STEP = 'Returns accepted until 03/01/2026\nJan 15, 2026\nTotal $12.34';
+const LABEL_STEP = '03/15/2026\nDate: Jan 5, 2026\nTotal $12.34';
+const RULING: Array<[string, string]> = [
+  ['Order placed 12/29/2025\nPaid Jan 2, 2026\nTotal $12.34', '2026-01-02'],
+  ['Visit by Jun 30 2026\nPurchased Jan 5, 2026\nTotal $12.34', '2026-01-05'],
+  ['exp 12/31/2027\nJan 5, 2026\nTotal $12.34', '2026-01-05'],
+  ['Dec 30, 2025\nPaid Jan 2, 2026\nTotal $12.34', '2026-01-02'],
+  ['Visit by Jun 30 2026\nJan 5, 2026\nTotal $12.34', '2026-01-05'],
+];
 
 function reference(path: string): object {
   return {
@@ -231,6 +276,98 @@ describe('OCR save uses the printed calendar day', () => {
   });
 
   it.each(NEIGHBORS)('saves the printed day from OCR text %j', async (text, iso) => {
+    const extracted = extractDate(text);
+    expect(text.includes(extracted)).toBe(true);
+    expect(normalizeDateToISO(extracted)).toBe(iso);
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({ date: iso }));
+    expect((await response.json()).transaction.date).toBe(iso);
+  });
+
+  it.each(CHOSEN)('saves the purchase date from OCR text %j', async (text, iso) => {
+    const extracted = extractDate(text);
+    expect(extracted.length).toBeGreaterThan(0);
+    expect(text.includes(extracted)).toBe(true);
+    expect(normalizeDateToISO(extracted)).toBe(iso);
+    if (text.includes('2026-01-15T10:00:00Z')) expect(extracted).toBe('2026-01-15T10:00:00Z');
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({ date: iso }));
+    expect((await response.json()).transaction.date).toBe(iso);
+  });
+
+  it('leaves two unlabeled dates from different years for the user to enter', async () => {
+    expect(extractDate(MIXED_YEARS)).toBe('');
+    worker.recognize.mockResolvedValue({ data: { text: MIXED_YEARS, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: 'Enter a real receipt date before saving' });
+    expect(mocks.createTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each(CLOCK_NOT_YEAR)('does not save a clock time as the year from %j', async text => {
+    expect(extractDate(text)).toBe('');
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: 'Enter a real receipt date before saving' });
+    expect(mocks.createTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each(ITEM_LINE)('keeps Jan 15, 2026 when an item line is present in %j', async (text, iso) => {
+    const extracted = extractDate(text);
+    expect(text.includes(extracted)).toBe(true);
+    expect(normalizeDateToISO(extracted)).toBe(iso);
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({ date: iso }));
+    expect((await response.json()).transaction.date).toBe(iso);
+  });
+
+  it.each(NUMBERED)('saves the real date from %j', async (text, iso) => {
+    const extracted = extractDate(text);
+    expect(text.includes(extracted)).toBe(true);
+    expect(normalizeDateToISO(extracted)).toBe(iso);
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({ date: iso }));
+    expect((await response.json()).transaction.date).toBe(iso);
+  });
+
+  it.each(NUMBERED_ALONE)('saves no date from %j', async text => {
+    expect(extractDate(text)).toBe('');
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: 'Enter a real receipt date before saving' });
+    expect(mocks.createTransaction).not.toHaveBeenCalled();
+  });
+
+  it('skip words drop a return line and keep the purchase day', async () => {
+    const extracted = extractDate(SKIP_STEP);
+    expect(normalizeDateToISO(extracted)).toBe('2026-01-15');
+    worker.recognize.mockResolvedValue({ data: { text: SKIP_STEP, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect((await response.json()).transaction.date).toBe('2026-01-15');
+  });
+
+  it('a purchase label beats an earlier unlabeled date in the same year', async () => {
+    const extracted = extractDate(LABEL_STEP);
+    expect(extracted).toBe('Jan 5, 2026');
+    expect(normalizeDateToISO(extracted)).toBe('2026-01-05');
+    worker.recognize.mockResolvedValue({ data: { text: LABEL_STEP, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect((await response.json()).transaction.date).toBe('2026-01-05');
+  });
+
+  it.each(RULING)('saves the paid or purchased day from %j', async (text, iso) => {
     const extracted = extractDate(text);
     expect(text.includes(extracted)).toBe(true);
     expect(normalizeDateToISO(extracted)).toBe(iso);
