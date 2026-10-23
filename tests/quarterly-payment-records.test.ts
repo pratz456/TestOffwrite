@@ -302,6 +302,84 @@ describe('recorded quarterly payments', () => {
       confirmationNumber: 'NEW-CONF', paymentMethod: 'EFTPS', notes: 'new note',
     });
   });
+
+  it('counts a corrected payment date once, in the new quarter and tax year', async () => {
+    const moved = '44444444-4444-4444-8444-444444444444';
+    const stayed = '55555555-5555-4555-8555-555555555555';
+    const alreadyInQ3 = '66666666-6666-4666-8666-666666666666';
+    const kept = '77777777-7777-4777-8777-777777777777';
+    const january2026 = '88888888-8888-4888-8888-888888888888';
+    const january2027 = '99999999-9999-4999-8999-999999999999';
+    const quarterSum = (rows: Awaited<ReturnType<typeof getRecordedQuarterlyPayments>>, quarter: number) =>
+      totalRecordedPayments(rows.filter(payment => payment.quarter === quarter));
+
+    state.docs.set('user_profiles/owner-a/quarterly_payments/Q2_2026', {
+      quarter: 2, year: 2026, paidAmount: 640, paidDate: '2026-06-10', estimatedAmount: 0,
+    });
+    state.docs.set(pathFor(stayed), {
+      quarter: 2, year: 2026, designatedTaxYear: 2026, paidAmount: 40, paidDate: '2026-06-01',
+    });
+    state.docs.set(pathFor(alreadyInQ3), {
+      quarter: 3, year: 2026, designatedTaxYear: 2026, paidAmount: 15, paidDate: '2026-07-01',
+    });
+    expect((await POST(request('POST', {
+      recordId: 'Q2_2026', paymentId: moved, quarter: 3, year: 2026, paidAmount: 640, paidDate: '2026-09-10',
+    }))).status).toBe(200);
+
+    const afterQuarterMove = await getRecordedQuarterlyPayments('owner-a', 2026);
+    const movedCopies = afterQuarterMove.filter(payment => payment.paidAmount === 640);
+    expect(quarterSum(afterQuarterMove, 2)).toBe(40);
+    expect(quarterSum(afterQuarterMove, 3)).toBe(655);
+    expect(totalRecordedPayments(afterQuarterMove)).toBe(695);
+    expect(movedCopies).toHaveLength(1);
+    expect(movedCopies[0]).toMatchObject({ quarter: 3, paidAmount: 640 });
+    expect(movedCopies[0]?.record?.paidDate).toBe('2026-09-10');
+    const listed = await (await GET(request('GET'))).json();
+    expect(listed.payments.find((row: { quarter: number }) => row.quarter === 2).paidAmount).toBe(40);
+    expect(listed.payments.find((row: { quarter: number }) => row.quarter === 3).paidAmount).toBe(655);
+    expect(listed.summary.totalPaid).toBe(695);
+
+    state.docs.clear();
+    state.docs.set('user_profiles/owner-a/quarterly_payments/Q4_2026', {
+      quarter: 4, year: 2026, paidAmount: 275, paidDate: '2026-12-20', estimatedAmount: 0,
+    });
+    state.docs.set(pathFor(kept), {
+      quarter: 1, year: 2026, designatedTaxYear: 2026, paidAmount: 10, paidDate: '2026-04-01',
+    });
+    expect((await POST(request('POST', {
+      recordId: 'Q4_2026', paymentId: january2026, quarter: 4, year: 2026, designatedTaxYear: 2026, paidAmount: 275, paidDate: '2027-01-10',
+    }))).status).toBe(200);
+    const stayedIn2026 = await getRecordedQuarterlyPayments('owner-a', 2026);
+    const notIn2027 = await getRecordedQuarterlyPayments('owner-a', 2027);
+    const keptIn2026 = stayedIn2026.filter(payment => payment.paidAmount === 275);
+    expect(keptIn2026).toHaveLength(1);
+    expect(keptIn2026[0]).toMatchObject({ quarter: 4, paidAmount: 275 });
+    expect(keptIn2026[0]?.record?.paidDate).toBe('2027-01-10');
+    expect(quarterSum(stayedIn2026, 4)).toBe(275);
+    expect(totalRecordedPayments(stayedIn2026)).toBe(285);
+    expect(totalRecordedPayments(notIn2027)).toBe(0);
+
+    state.docs.clear();
+    state.docs.set('user_profiles/owner-a/quarterly_payments/Q4_2026', {
+      quarter: 4, year: 2026, paidAmount: 150, paidDate: '2026-12-20', estimatedAmount: 0,
+    });
+    state.docs.set(pathFor(kept), {
+      quarter: 2, year: 2026, designatedTaxYear: 2026, paidAmount: 20, paidDate: '2026-06-01',
+    });
+    expect((await POST(request('POST', {
+      recordId: 'Q4_2026', paymentId: january2027, quarter: 1, year: 2026, designatedTaxYear: 2027, paidAmount: 150, paidDate: '2027-01-10',
+    }))).status).toBe(200);
+    const left2026 = await getRecordedQuarterlyPayments('owner-a', 2026);
+    const entered2027 = await getRecordedQuarterlyPayments('owner-a', 2027);
+    const movedTo2027 = entered2027.filter(payment => payment.paidAmount === 150);
+    expect(quarterSum(left2026, 4)).toBe(0);
+    expect(totalRecordedPayments(left2026)).toBe(20);
+    expect(movedTo2027).toHaveLength(1);
+    expect(movedTo2027[0]).toMatchObject({ quarter: 1, paidAmount: 150 });
+    expect(movedTo2027[0]?.record?.paidDate).toBe('2027-01-10');
+    expect(totalRecordedPayments(entered2027)).toBe(150);
+    expect(left2026.some(payment => payment.paidAmount === 150)).toBe(false);
+  });
 });
 
 describe('standard individual estimated-tax deadlines', () => {
