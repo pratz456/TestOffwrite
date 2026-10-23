@@ -3,12 +3,17 @@ import { safeTaxYear, safeYMD } from '@/lib/schedule-c/taxDate';
 /** Holding bucket for a saved receipt whose calendar day is still unset. */
 export const NEEDS_MORE_INFORMATION = 'Needs more information';
 
+/** Set only when Needs more information is because the printed day is missing or unreadable. */
+export const UNREADABLE_DATE_REASON = 'unreadable_date';
+
 export interface ReceiptDatePlacement {
   /** Stored calendar day, or an empty string when the printed date is unset. */
   date: string;
   taxYear: number | null;
   /** Set when the receipt is saved with an amount and no calendar day. */
   status: typeof NEEDS_MORE_INFORMATION | null;
+  /** Present only when `status` is set because the date itself could not be read. */
+  statusReason?: typeof UNREADABLE_DATE_REASON;
 }
 
 /**
@@ -19,7 +24,8 @@ export interface ReceiptDatePlacement {
 export function placeReceiptDate(dateLike: unknown): ReceiptDatePlacement {
   const date = safeYMD(dateLike) ?? '';
   const taxYear = date ? safeTaxYear(date) : null;
-  return { date, taxYear, status: date ? null : NEEDS_MORE_INFORMATION };
+  if (!date) return { date, taxYear, status: NEEDS_MORE_INFORMATION, statusReason: UNREADABLE_DATE_REASON };
+  return { date, taxYear, status: null };
 }
 
 /**

@@ -1,5 +1,6 @@
-import { FieldPath } from 'firebase-admin/firestore';
+import { FieldPath, type FieldValue } from 'firebase-admin/firestore';
 import { saveTransactionChanges } from '@/lib/transactions/save-changes';
+import { clearUnreadableDateHold } from '@/lib/transactions/unreadable-date';
 import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { AiExplanation } from '@/lib/transactions/review-proposals';
@@ -64,6 +65,7 @@ export interface Transaction {
   user_id?: string;
   userId?: string;
   deductionStatus?: 'Likely Deductible' | 'Possibly Deductible' | 'Non-Deductible' | 'Needs more information';
+  statusReason?: string;
   analyzed?: boolean;
   analysis_status?: 'pending' | 'running' | 'completed' | 'failed';
   analysisStatus?: 'pending' | 'running' | 'completed' | 'failed';
@@ -170,6 +172,8 @@ function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction
     created_at: data.created_at,
     updated_at: data.updated_at,
     ai: data.ai || null,
+    ...(typeof data.deductionStatus === 'string' ? { deductionStatus: data.deductionStatus } : {}),
+    ...(typeof data.statusReason === 'string' ? { statusReason: data.statusReason } : {}),
     ...reviewHydrationFields(data),
   };
 }
@@ -413,8 +417,10 @@ export async function updateTransactionServerWithUserId(
     analysisStartedAt?: Date;
     analysisCompletedAt?: Date;
 
-    // New AI Analysis Fields
-    deductionStatus?: 'Likely Deductible' | 'Possibly Deductible' | 'Non-Deductible' | 'Needs more information';
+    // New AI Analysis Fields. FieldValue.delete() clears the unreadable-date hold.
+    deductionStatus?: 'Likely Deductible' | 'Possibly Deductible' | 'Non-Deductible' | 'Needs more information' | FieldValue;
+    statusReason?: string | FieldValue;
+    date?: string;
     confidence?: number;
     reasoning?: string;
     irsPublication?: string;
@@ -571,9 +577,11 @@ export async function updateTransactionFromPlaidServer(
     if (querySnapshot.empty) {
       return { data: null, error: new Error('Transaction not found') };
     }
-    const docRef = querySnapshot.docs[0].ref;
+    const saved = querySnapshot.docs[0];
+    const docRef = saved.ref;
     const updateData: any = {
       ...plaidFields,
+      ...clearUnreadableDateHold(saved.data(), plaidFields),
       updated_at: new Date(),
     };
     Object.keys(updateData).forEach((k) => updateData[k] === undefined && delete updateData[k]);

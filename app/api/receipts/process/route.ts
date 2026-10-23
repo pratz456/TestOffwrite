@@ -17,6 +17,7 @@ import {
   receiptSignatureMatches, safeReceiptName,
 } from '@/lib/firebase/receipt-security';
 import { placeReceiptDate } from '@/lib/receipts/receipt-date';
+import { clearUnreadableDateHold } from '@/lib/transactions/unreadable-date';
 import { safeYMD } from '@/lib/schedule-c/taxDate';
 import { transactionIdInput, transactionUpdatesInput } from '@/lib/transactions/client-updates';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
@@ -255,7 +256,7 @@ export async function POST(request: NextRequest) {
       ...(manualReceipt?.iso_currency_code ? { iso_currency_code: manualReceipt.iso_currency_code } : {}),
       category: receiptType === 'income' ? 'income' : receiptData.category || 'other',
       date: placedDate.date,
-      ...(placedDate.status ? { deductionStatus: placedDate.status } : {}),
+      ...(placedDate.status ? { deductionStatus: placedDate.status, statusReason: placedDate.statusReason } : {}),
       description: `Receipt: ${receiptData.merchant}`,
       notes: manualReceipt ? 'Receipt details confirmed manually.' : `Receipt created from OCR. OCR confidence: ${Math.round(receiptData.confidence * 100)}%.`,
       is_deductible: null,
@@ -310,9 +311,15 @@ export async function PUT(request: NextRequest) {
     const updates = transactionUpdatesInput.safeParse(body?.updates);
     if (!transactionId.success || !updates.success) return receiptResponse({ error: 'Provide a valid transaction and editable fields.' }, 400);
 
+    // A readable day replaces only the unreadable-date hold. Other statuses stay.
+    const existing = typeof updates.data.date === 'string'
+      ? await getTransactionServer(user.uid, transactionId.data)
+      : null;
+    const nextUpdates = { ...updates.data, ...clearUnreadableDateHold(existing?.data, updates.data) };
+
     // Update transaction with user corrections
     const { updateTransactionServerWithUserId } = await import('@/lib/firebase/transactions-server');
-    const { data, error } = await updateTransactionServerWithUserId(user.uid, transactionId.data, updates.data);
+    const { data, error } = await updateTransactionServerWithUserId(user.uid, transactionId.data, nextUpdates);
 
     if (error) {
       console.error('❌ [Receipt OCR] Update failed:', error);

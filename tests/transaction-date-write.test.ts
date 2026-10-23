@@ -74,7 +74,8 @@ describe('client transaction create stores a calendar day', () => {
     expect(firestore.setDoc).toHaveBeenCalledTimes(1);
     expect(firestore.stored?.date).toBe('');
     expect(firestore.stored?.deductionStatus).toBe('Needs more information');
-    expect(placeReceiptDate(result.data?.date)).toEqual({ date: '', taxYear: null, status: 'Needs more information' });
+    expect(firestore.stored?.statusReason).toBe('unreadable_date');
+    expect(placeReceiptDate(result.data?.date)).toEqual({ date: '', taxYear: null, status: 'Needs more information', statusReason: 'unreadable_date' });
 
     const queryModule = await import('firebase/firestore');
     vi.mocked(queryModule.getDocs).mockResolvedValue({
@@ -87,7 +88,7 @@ describe('client transaction create stores a calendar day', () => {
     expect(listed.error).toBeNull();
     expect(listed.data).toEqual([expect.objectContaining({
       trans_id: 'synthetic-tx', amount: 18.5, date: '', receipt_url: '/api/receipts/synthetic',
-      deductionStatus: 'Needs more information',
+      deductionStatus: 'Needs more information', statusReason: 'unreadable_date',
     })]);
     expect(summarizeReceiptYears(listed.data).needsMoreInformation).toEqual({ label: 'Needs more information', count: 1, amount: 18.5 });
   });
