@@ -21,6 +21,9 @@ interface Transaction {
   date: string;
   type?: 'expense' | 'income';
   is_deductible?: boolean | null;
+  schedule_c_line?: string | null;
+  scheduleC_line?: string | null;
+  review_status?: string;
   deductible_reason?: string;
   deduction_score?: number;
   description?: string;

@@ -28,6 +28,8 @@ export interface Transaction {
   ai_explanation?: AiExplanation | null;
   transaction_kind?: TransactionKind;
   review_status?: string;
+  schedule_c_line?: string | null;
+  scheduleC_line?: string | null;
   review_source?: string;
   review_suggestion_id?: string | null;
   reviewed_at?: string;

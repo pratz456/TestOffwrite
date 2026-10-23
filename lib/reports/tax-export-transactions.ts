@@ -42,6 +42,8 @@ export async function readTaxExportTransactions(uid: string, taxYear: number): P
       account_id: record.account_id ?? record.accountId,
       is_deductible: (record.is_deductible ?? record.deductible ?? null) as boolean | null,
       pending: record.pending as boolean | null | undefined,
+      schedule_c_line: typeof record.schedule_c_line === 'string' || record.schedule_c_line === null ? record.schedule_c_line : null,
+      scheduleC_line: typeof record.scheduleC_line === 'string' || record.scheduleC_line === null ? record.scheduleC_line : null,
     };
   });
 }

@@ -67,6 +67,13 @@ describe('confirmed transaction amounts displayed to the owner', () => {
     expect(summary.contributions.size).toBe(0);
   });
 
+  it('display deductions: a confirmed 179D-labeled dues row contributes 0', () => {
+    const row = expense({ id: 'dues-179d', amount: 120, date: '2026-06-15', category: 'SERVICE_PROFESSIONAL_DUES', schedule_c_line: '27a (179D)' });
+    const summary = summarizeConfirmedDeductions([row], 2026);
+    expect(summary.totalDeductible).toBe(0);
+    expect(summary.contributions.get(row)).toBe(0);
+  });
+
   it('blocks duplicate identifiers and permits an explicitly full business allocation', () => {
     expect(summarizeConfirmedDeductions([expense(), expense()]).totalDeductible).toBeNull();
     expect(summarizeConfirmedDeductions([expense({ businessUsePercent: 100 })]).totalDeductible).toBe(100);

@@ -159,6 +159,9 @@ export interface ScheduleCTransactionLike {
   superseded_by?: string | null;
   merchant_name?: string;
   id?: string;
+  /** Saved Schedule C label. Energy-named 27a/27b labels stay out of totals. */
+  schedule_c_line?: string | null;
+  scheduleC_line?: string | null;
   [key: string]: unknown;
 }
 

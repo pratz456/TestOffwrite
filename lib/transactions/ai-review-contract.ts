@@ -92,6 +92,8 @@ export function reviewHydrationFields(record: Record<string, any>) {
     ai_customized_reason: typeof record.ai_customized_reason === 'string' ? record.ai_customized_reason : null,
     ai_explanation: record.ai_explanation && typeof record.ai_explanation === 'object' ? record.ai_explanation : null,
     transaction_kind: record.transaction_kind,
+    schedule_c_line: typeof record.schedule_c_line === 'string' || record.schedule_c_line === null ? record.schedule_c_line : null,
+    scheduleC_line: typeof record.scheduleC_line === 'string' || record.scheduleC_line === null ? record.scheduleC_line : null,
     review_status: record.review_status,
     review_source: record.review_source,
     review_suggestion_id: record.review_suggestion_id,

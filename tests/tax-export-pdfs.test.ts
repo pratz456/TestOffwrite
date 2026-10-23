@@ -40,7 +40,7 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) =
 import { POST as scheduleC } from '../app/api/tax/schedule-c/export/route';
 import { GET as calculateC } from '../app/api/tax/schedule-c/calculate/route';
 import { GET as autoSE } from '../app/api/tax/schedule-se/auto/route';
-import { loadScheduleSEData } from '../lib/reports/load-schedule-se';
+import { loadScheduleCRecords, loadScheduleSEData } from '../lib/reports/load-schedule-se';
 import { generateScheduleSEPDF } from '../lib/reports/scheduleSE';
 import { generateForm4562PDF } from '../lib/reports/form4562';
 import { generateForm8829PDF } from '../lib/reports/form8829';
@@ -100,12 +100,28 @@ describe('Schedule C real PDF and request integrity', () => {
     const view = inspectText(); expect((await scheduleC(request({ year: 2026, includeAppendix: false }))).status).toBe(200);
     expect(view.text()).not.toContain('PRIVATE-DETAIL-MARKER'); expect(view.text()).toContain('omitted at your request');
   });
+  it('schedule-c export route: a confirmed 179D-labeled dues row contributes 0', async () => {
+    state.transactions = [{ id: 'dues-179d', trans_id: 'dues-179d', merchant_name: 'AIGA', amount: 120, date: '2026-06-15', iso_currency_code: 'USD', category: 'SERVICE_PROFESSIONAL_DUES', is_deductible: true, review_status: 'confirmed', schedule_c_line: '27a (179D)' }];
+    const response = await scheduleC(request({ year: 2026, format: 'csv' }));
+    expect(response.status).toBe(200);
+    const csv = await response.text();
+    expect(csv).toContain('2026-06-15,AIGA,SERVICE_PROFESSIONAL_DUES,,120,0,');
+    expect(csv).not.toContain(',120,120,');
+  });
   it('uses the actual changed OtherExpenses line reference by year', () => {
     expect(scheduleCExportLine('27a', 2024)).toBe('27a'); expect(scheduleCExportLine('27a', 2025)).toBe('27b'); expect(scheduleCExportLine('24b', 2026)).toBe('24b');
   });
 });
 
 describe('selected-year SE source and worksheet', () => {
+  it('loadScheduleCRecords: a confirmed 179D-labeled dues row contributes 0', async () => {
+    state.transactions = [{ id: 'dues-179d', trans_id: 'dues-179d', merchant_name: 'AIGA', amount: 120, date: '2026-06-15', iso_currency_code: 'USD', category: 'SERVICE_PROFESSIONAL_DUES', is_deductible: true, review_status: 'confirmed', schedule_c_line: '27a (179D)' }];
+    const records = await loadScheduleCRecords('export-owner', 2026);
+    expect(records.transactions[0]?.schedule_c_line).toBe('27a (179D)');
+    expect(records.expense.totalDeductible).toBe(0);
+    expect(records.expense.lineItems.review?.transactionCount).toBe(1);
+    expect(records.expense.lineItems['27a']).toBeUndefined();
+  });
   it('shares W2 wage-base reduction and current records with the preview, ignoring saved summaries', async () => {
     state.records.w2_income = [record({ wages: 180000, socialSecurityWages: 180000, medicareWages: 180000 }), record({ wages: 999999 }, 2025)];
     state.records.tax_summary = [record({ scheduleCNetProfit: 999999, taxYear: 2024 })];

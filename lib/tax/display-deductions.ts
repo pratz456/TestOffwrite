@@ -54,7 +54,10 @@ export function summarizeConfirmedDeductions<T extends object>(records: readonly
       reviewMessage = 'Review recorded deduction overrides before showing confirmed deduction totals. These adjustments have not been applied.';
       continue;
     }
-    const normalized = { ...record, amount, date, category: typeof record.category === 'string' ? record.category : '' } as ScheduleCTransactionLike;
+    const normalized = {
+      ...record, amount, date, category: typeof record.category === 'string' ? record.category : '',
+      schedule_c_line: record.schedule_c_line, scheduleC_line: record.scheduleC_line,
+    } as ScheduleCTransactionLike;
     const contribution = aggregateScheduleC([normalized], date.slice(0, 4), CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible;
     contributions.set(original, contribution);
     deductionCents += Math.round(contribution * 100);
