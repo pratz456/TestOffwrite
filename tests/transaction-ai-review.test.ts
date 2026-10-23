@@ -644,7 +644,7 @@ describe('correcting an energy-labeled dues row', () => {
     expect(response.status).toBe(200);
     expect(record().schedule_c_line).toBeNull();
     expect(record().category).toBe('SERVICE_PROFESSIONAL_DUES');
-    expect(convertTransactionsToCSV([record()]).split('\r\n')[1]).toContain(`,${code},${code},`);
+    expect(convertTransactionsToCSV([record()]).split('\r\n')[1]).toContain(`,${code} (Other expenses),${code} (Other expenses),`);
     const after = aggregateScheduleC([record() as any], year, undefined, { mode: 'confirmed-only' });
     expect(after.totalDeductible).toBe(120);
     expect(after.lineItems['27a']).toMatchObject({ deductible: 120 });

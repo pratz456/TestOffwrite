@@ -1,5 +1,5 @@
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
-import { printedScheduleCLine } from '@/lib/schedule-c/export-lines';
+import { scheduleCLineCsvCell } from '@/lib/schedule-c/export-lines';
 import { resolveScheduleCPrint } from '@/lib/schedule-c/line-labels';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
@@ -24,22 +24,22 @@ function printedLineCell(value: unknown, taxYear: number | null): string {
   if (typeof value !== 'string') return '';
   const code = value.trim();
   if (!/^\d{1,2}[a-z]?$/.test(code)) return value.trim();
-  return printedScheduleCLine(code, taxYear) ?? '';
+  return scheduleCLineCsvCell(code, taxYear);
 }
-/** Recorded column follows resolveScheduleCPrint. Other expenses prints through otherExpensesYearPrint: 27a for 2017 through 2024, 27b for 2025 and later, and no line for 2016 and earlier. The audit column keeps the raw saved label. */
+/** Recorded column follows resolveScheduleCPrint. Other expenses prints through otherExpensesYearPrint as "27a (Other expenses)" for 2017 through 2024 and "27b (Other expenses)" for 2025 and later. 2016 and earlier, and a missing line, stay blank. The audit column keeps the raw saved label. */
 function scheduleCCells(record: ExportRecord, taxYear: number | null, categoryLine: string | null): { recorded: string; mapped: string; audit: string; needsMore: boolean } {
   const raw = record.schedule_c_line ?? record.scheduleC_line;
   const audit = typeof raw === 'string' ? raw : '';
   const decision = resolveScheduleCPrint({ reviewStatus: record.review_status, categoryLine, label: typeof raw === 'string' ? raw : null });
-  const mapped = categoryLine ? printedScheduleCLine(categoryLine, taxYear) ?? '' : '';
+  const mapped = categoryLine ? scheduleCLineCsvCell(categoryLine, taxYear) : '';
   if (decision.kind === 'needs-more-information') return { recorded: '', mapped: '', audit, needsMore: true };
   if (decision.kind === 'other-expenses' || (decision.kind === 'line' && (decision.line === '27a' || decision.line === '27b'))) {
-    const recorded = printedScheduleCLine('27a', taxYear) ?? '';
+    const recorded = scheduleCLineCsvCell('27a', taxYear);
     const categoryIsOther = categoryLine === '27a' || categoryLine === '27b';
     return { recorded, mapped: categoryIsOther ? (recorded || mapped) : mapped, audit, needsMore: !recorded };
   }
   if (decision.kind === 'line') {
-    const recorded = printedScheduleCLine(decision.line, taxYear) ?? '';
+    const recorded = scheduleCLineCsvCell(decision.line, taxYear);
     return { recorded, mapped, audit, needsMore: false };
   }
   return { recorded: printedLineCell(raw, taxYear), mapped, audit, needsMore: false };

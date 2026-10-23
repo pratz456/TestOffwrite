@@ -54,3 +54,10 @@ export function printedScheduleCLine(internalLine: string | null | undefined, ta
   if (taxYear === null) return '';
   return scheduleCExportLine(internalLine, taxYear);
 }
+
+/** CSV Schedule C line cell. Other expenses includes its label. A withheld or missing line stays blank. */
+export function scheduleCLineCsvCell(internalLine: string | null | undefined, taxYear: number | null): string {
+  const printed = printedScheduleCLine(internalLine, taxYear) ?? '';
+  if (printed === '27a' || printed === '27b') return `${printed} (Other expenses)`;
+  return printed;
+}

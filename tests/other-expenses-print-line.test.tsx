@@ -30,6 +30,7 @@ import { composeExplanation, normalizeExplanation, scheduleCLineFor, type Explai
 import { PROFESSION_PRIORS, type ProfessionMerchantHint } from '@/lib/ai/profession-priors';
 import { CATEGORY_SCHEDULE_C_LINE, TRANSACTION_TAX_EVIDENCE } from '@/lib/ai/transaction-tax-policy';
 import { assembleAuditSupportPacket, auditSupportPacketCSV, buildEvidenceRecord, type AuditSupportPacket } from '@/lib/reports/audit-support-packet';
+import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { convertTransactionsToCSV, type ExportRecord } from '@/lib/reports/transaction-export';
 import { aggregateScheduleC } from '@/lib/schedule-c/aggregate';
 import { OTHER_EXPENSES_YEAR_FREE_LINE, printedScheduleCLine, scheduleCExportLine } from '@/lib/schedule-c/export-lines';
@@ -114,19 +115,19 @@ afterEach(() => { vi.useRealTimers(); });
 describe('printed Other expenses line', () => {
   it('prints 27b for 2025 and 2026 and 27a for 2024 in both transaction export columns', () => {
     for (const date of ['2025-03-01', '2026-03-02']) {
-      expect(exportColumns(dues({ date }))).toEqual({ recorded: '27b', mapped: '27b' });
+      expect(exportColumns(dues({ date }))).toEqual({ recorded: '27b (Other expenses)', mapped: '27b (Other expenses)' });
     }
-    expect(exportColumns(dues({ date: '2024-06-15' }))).toEqual({ recorded: '27a', mapped: '27a' });
-    expect(exportColumns(dues({ date: '2025-01-01', created_at: '2024-12-31T12:00:00Z' }))).toEqual({ recorded: '27b', mapped: '27b' });
+    expect(exportColumns(dues({ date: '2024-06-15' }))).toEqual({ recorded: '27a (Other expenses)', mapped: '27a (Other expenses)' });
+    expect(exportColumns(dues({ date: '2025-01-01', created_at: '2024-12-31T12:00:00Z' }))).toEqual({ recorded: '27b (Other expenses)', mapped: '27b (Other expenses)' });
   });
 
   it('maps the recorded code and the category code independently', () => {
-    expect(exportColumns(dues({ date: '2025-03-01', category: 'SERVICE_SUBSCRIPTION' }))).toEqual({ recorded: '27b', mapped: '18' });
+    expect(exportColumns(dues({ date: '2025-03-01', category: 'SERVICE_SUBSCRIPTION' }))).toEqual({ recorded: '27b (Other expenses)', mapped: '18' });
     expect(exportColumns(dues({ date: '2024-06-15', category: 'SERVICE_SUBSCRIPTION', schedule_c_line: '18' }))).toEqual({ recorded: '18', mapped: '18' });
-    expect(exportColumns(dues({ date: '2024-06-15', schedule_c_line: '18' }))).toEqual({ recorded: '27a', mapped: '27a' });
-    expect(exportColumns(dues({ date: '2025-03-01', schedule_c_line: ' 27a ' })).recorded).toBe('27b');
+    expect(exportColumns(dues({ date: '2024-06-15', schedule_c_line: '18' }))).toEqual({ recorded: '27a (Other expenses)', mapped: '27a (Other expenses)' });
+    expect(exportColumns(dues({ date: '2025-03-01', schedule_c_line: ' 27a ' })).recorded).toBe('27b (Other expenses)');
     expect(exportColumns(dues({ date: '2025-03-01', category: 'SERVICE_SUBSCRIPTION', schedule_c_line: 'ask preparer' })).recorded).toBe('ask preparer');
-    expect(exportColumns(dues({ date: '2025-03-01', schedule_c_line: 'ask preparer' })).recorded).toBe('27b');
+    expect(exportColumns(dues({ date: '2025-03-01', schedule_c_line: 'ask preparer' })).recorded).toBe('27b (Other expenses)');
   });
 
   it('prints 27b for 2025 and 2026 and 27a for 2024 on the audit packet CSV', () => {
@@ -140,12 +141,12 @@ describe('printed Other expenses line', () => {
 
   it('uses the paid or posted date when the record was saved in a later year', () => {
     const december = dues({ date: '2024-12-31' });
-    expect(exportColumns(december)).toEqual({ recorded: '27a', mapped: '27a' });
+    expect(exportColumns(december)).toEqual({ recorded: '27a (Other expenses)', mapped: '27a (Other expenses)' });
     expect(auditLine(december)).toBe('27a');
     expect(whereItGoes(december, 2025)).toBe('Schedule C line 27a (Other expenses)');
     const posted = dues({ datetime: '2024-12-31T15:00:00Z' });
     delete posted.date;
-    expect(exportColumns(posted)).toEqual({ recorded: '27a', mapped: '27a' });
+    expect(exportColumns(posted)).toEqual({ recorded: '27a (Other expenses)', mapped: '27a (Other expenses)' });
     expect(auditLine(posted)).toBe('27a');
     expect(whereItGoes(posted, 2025)).toBe('Schedule C line 27a (Other expenses)');
   });
@@ -176,8 +177,8 @@ describe('printed Other expenses line', () => {
     expect(printedScheduleCLine('27a', 2017)).toBe('27a');
     expect(printedScheduleCLine('27a', 2018)).toBe('27a');
     expect(printedScheduleCLine('27a', 2021)).toBe('27a');
-    expect(exportColumns(dues({ date: '2024-06-15', schedule_c_line: '27b' }))).toEqual({ recorded: '27a', mapped: '27a' });
-    expect(exportColumns(dues({ date: '2025-04-01', schedule_c_line: '27b' }))).toEqual({ recorded: '27b', mapped: '27b' });
+    expect(exportColumns(dues({ date: '2024-06-15', schedule_c_line: '27b' }))).toEqual({ recorded: '27a (Other expenses)', mapped: '27a (Other expenses)' });
+    expect(exportColumns(dues({ date: '2025-04-01', schedule_c_line: '27b' }))).toEqual({ recorded: '27b (Other expenses)', mapped: '27b (Other expenses)' });
     const missing = dues({ schedule_c_line: '27b' });
     delete missing.date;
     delete missing.datetime;
@@ -277,11 +278,11 @@ describe('stored and supplied Other expenses sentences', () => {
 
   it('prints a stored schedule_c_line of 27b on the transaction CSV by charge year', () => {
     const older = convertTransactionsToCSV([dues({ date: '2024-06-01', schedule_c_line: '27b' })]);
-    expect(older.split('\r\n')[1]).toContain(',27a,27a,');
-    expect(csvRow(older)['Recorded Schedule C Line']).toBe('27a');
+    expect(older.split('\r\n')[1]).toContain(',27a (Other expenses),27a (Other expenses),');
+    expect(csvRow(older)['Recorded Schedule C Line']).toBe('27a (Other expenses)');
     const newer = convertTransactionsToCSV([dues({ date: '2025-06-01', schedule_c_line: '27b' })]);
-    expect(newer.split('\r\n')[1]).toContain(',27b,27b,');
-    expect(csvRow(newer)['Recorded Schedule C Line']).toBe('27b');
+    expect(newer.split('\r\n')[1]).toContain(',27b (Other expenses),27b (Other expenses),');
+    expect(csvRow(newer)['Recorded Schedule C Line']).toBe('27b (Other expenses)');
     const missing = dues({ schedule_c_line: '27b' });
     delete missing.date;
     delete missing.datetime;
@@ -465,7 +466,7 @@ describe('energy labels and unknown parentheticals', () => {
       const row = dues({ date, schedule_c_line: '27a' });
       expect(scheduleCExportLine('27a', year)).toBe(code);
       expect(printedScheduleCLine('27a', year)).toBe(code);
-      expect(exportColumns(row)).toEqual({ recorded: code, mapped: code });
+      expect(exportColumns(row)).toEqual({ recorded: `${code} (Other expenses)`, mapped: `${code} (Other expenses)` });
       expect(whereItGoes(row, year)).toBe(`Schedule C line ${code} (Other expenses)`);
       expect(normalizeExplanation({ ...SAVED_CARD, scheduleCLine: 'Schedule C line 27a (Other expenses)' }, { chargeDate: date })?.scheduleCLine)
         .toBe(`Schedule C line ${code} (Other expenses)`);
@@ -483,6 +484,25 @@ describe('energy labels and unknown parentheticals', () => {
     const totals = aggregateScheduleC([earlier as never], '2016', undefined, { mode: 'confirmed-only' });
     expect(totals.totalDeductible).toBe(0);
     expect(totals.totalExpenses).toBe(0);
+  });
+
+  it('prints 27a (Other expenses) for 2017 and 2024 and 27b (Other expenses) for 2025 in both CSV line cells', () => {
+    for (const year of [2017, 2024, 2025]) {
+      const cell = `${year >= 2025 ? '27b' : '27a'} (Other expenses)`;
+      const row = dues({ date: `${year}-06-15`, schedule_c_line: '27a' });
+      expect(exportColumns(row)).toEqual({ recorded: cell, mapped: cell });
+      expect(csvRow(convertTransactionsToCSV([row]))['Saved Schedule C Label (audit)']).toBe('27a');
+      const summary = aggregateScheduleC([row as never], String(year), undefined, { mode: 'confirmed-only' }).lineItems['27a'];
+      if (!summary) throw new Error('missing Other expenses summary');
+      const planning = generateScheduleCCSV([summary], year).split('\r\n')[1].split(',')[3];
+      expect(planning).toBe(cell);
+    }
+    const earlier = dues({ date: '2016-06-15', schedule_c_line: '27a' });
+    expect(exportColumns(earlier)).toEqual({ recorded: '', mapped: '' });
+    const review = aggregateScheduleC([earlier as never], '2016', undefined, { mode: 'confirmed-only' }).lineItemsArray;
+    const blankRow = generateScheduleCCSV(review, 2016).split('\r\n')[1];
+    expect(blankRow).toBeTruthy();
+    expect(blankRow.split(',')[3]).toBe('');
   });
 
   it('rejects an impossible calendar day and keeps a real leap day', () => {
@@ -504,8 +524,8 @@ describe('energy labels and unknown parentheticals', () => {
       expect(normalizeExplanation({ ...SAVED_CARD, scheduleCLine: label }, { chargeDate: '2024-06-15' })?.scheduleCLine).toBe('Schedule C line 27a (Other expenses)');
       expect(normalizeExplanation({ ...SAVED_CARD, scheduleCLine: label }, { chargeDate: '2025-06-15' })?.scheduleCLine).toBe('Schedule C line 27b (Other expenses)');
       expect(normalizeExplanation({ ...SAVED_CARD, scheduleCLine: label }, { chargeDate: undefined })?.scheduleCLine).toBeNull();
-      expect(exportColumns(dues({ date: '2024-06-15', category: 'SERVICE_SUBSCRIPTION', schedule_c_line: label })).recorded).toBe('27a');
-      expect(exportColumns(dues({ date: '2025-06-15', category: 'SERVICE_SUBSCRIPTION', schedule_c_line: label })).recorded).toBe('27b');
+      expect(exportColumns(dues({ date: '2024-06-15', category: 'SERVICE_SUBSCRIPTION', schedule_c_line: label })).recorded).toBe('27a (Other expenses)');
+      expect(exportColumns(dues({ date: '2025-06-15', category: 'SERVICE_SUBSCRIPTION', schedule_c_line: label })).recorded).toBe('27b (Other expenses)');
       const undated = dues({ category: 'SERVICE_SUBSCRIPTION', schedule_c_line: label });
       delete undated.date;
       delete undated.datetime;

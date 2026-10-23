@@ -270,7 +270,7 @@ it('serves complete signed Schedule C CSV with formula-safe merchant text', asyn
   state.transactions = [{ id: 'refund', date: '2026-01-01', iso_currency_code: 'USD', amount: -20, is_deductible: true, merchant_name: '=HYPERLINK("bad")', category: 'unknown' }];
   const response = await scheduleC(request({ year: 2026, format: 'csv' }));
   expect(response.status).toBe(200); expect(response.headers.get('content-type')).toContain('text/csv');
-  const csv = await response.text(); expect(csv).toContain("'=HYPERLINK"); expect(csv).toContain(',27b,-20,-20,');
+  const csv = await response.text(); expect(csv).toContain("'=HYPERLINK"); expect(csv).toContain(',27b (Other expenses),-20,-20,');
 });
 
 

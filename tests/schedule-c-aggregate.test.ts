@@ -348,7 +348,7 @@ describe('Other expenses year print and energy labels', () => {
       expect(scheduleCExportLine(summary.lineCode, year)).toBe(printed);
       const csv = generateScheduleCCSV([summary], year);
       const cells = csv.split('\r\n')[1].split(',');
-      expect(cells[3]).toBe(printed);
+      expect(cells[3]).toBe(`${printed} (Other expenses)`);
     }
   });
 });
