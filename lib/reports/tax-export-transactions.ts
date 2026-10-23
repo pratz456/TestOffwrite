@@ -1,15 +1,30 @@
 import { readOwnedTransactions } from './export-records';
-import { exportDate, selectExportYear, transactionAmount, ExportReviewRequiredError } from './transaction-export';
+import { selectExportYear, transactionAmount, ExportReviewRequiredError } from './transaction-export';
+import { chargeDay, receivedChargeDateText } from '@/lib/schedule-c/taxDate';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
 
+export interface TaxExportReadOptions {
+  /**
+   * Schedule C file export lists every unreadable-date row and does not refuse
+   * for that reason. Tax calculations leave this off and still refuse.
+   */
+  includeNeedsMoreInformation?: boolean;
+}
+
 /**
- * Complete owner-verified records; invalid dates/amounts cannot disappear from a
- * tax calculation. Superseded duplicates are dropped here as well as in the
- * reader, so no tax total can count them.
+ * Complete owner-verified records. Superseded duplicates are dropped here as well
+ * as in the reader, so no tax total can count them. Other review failures still
+ * refuse the read. Unreadable charge dates refuse unless the caller is listing them.
  */
-export async function readTaxExportTransactions(uid: string, taxYear: number): Promise<ScheduleCTransactionLike[]> {
-  const records = selectExportYear((await readOwnedTransactions(uid)).filter(record => !isSupersededRecord(record)), taxYear);
+export async function readTaxExportTransactions(uid: string, taxYear: number, options: TaxExportReadOptions = {}): Promise<ScheduleCTransactionLike[]> {
+  const owned = (await readOwnedTransactions(uid)).filter(record => !isSupersededRecord(record));
+  const records = options.includeNeedsMoreInformation
+    ? owned.filter(record => {
+      const day = chargeDay(record);
+      return day === null || day.startsWith(`${taxYear}-`);
+    })
+    : selectExportYear(owned, taxYear);
   const seen = new Set<string>();
   return records.map(record => {
     const identity = record.trans_id ?? record.id;
@@ -34,9 +49,11 @@ export async function readTaxExportTransactions(uid: string, taxYear: number): P
         throw new ExportReviewRequiredError('A confirmed expense has a recorded deduction override. Review and reconcile that adjustment before creating a tax summary; the current calculation cannot apply it safely.');
       }
     }
+    const day = chargeDay(record);
     return { ...record, id: String(record.trans_id ?? record.id ?? ''), trans_id: String(record.trans_id ?? record.id ?? ''), amount,
       type: amount < 0 ? 'income' : 'expense',
-      date: exportDate(record.date ?? record.datetime)!,
+      date: day ?? '',
+      ...(day ? {} : { received_date_text: receivedChargeDateText(record) }),
       category: typeof record.category === 'string' ? record.category : '',
       merchant_name: String(record.merchant_name ?? record.merchant ?? record.name ?? ''),
       account_id: record.account_id ?? record.accountId,

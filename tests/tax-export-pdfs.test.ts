@@ -229,10 +229,29 @@ describe('Form 1040 planning PDF prints its review notes', () => {
 });
 
 describe('complete tax-export input validation', () => {
-  it.each([{ date: '2026-02-30', amount: 10 }, { date: '2026-02-01', amount: 'unknown' }, { date: '2026-02-01', amount: 10, iso_currency_code: 'EUR' }])('requires review instead of silently dropping malformed records %j', async invalid => {
+  it.each([{ date: '2026-02-01', amount: 'unknown' }, { date: '2026-02-01', amount: 10, iso_currency_code: 'EUR' }])('requires review instead of silently dropping malformed records %j', async invalid => {
     state.transactions = [{ iso_currency_code: 'USD', ...invalid, category: 'unknown', is_deductible: true }];
     const response = await scheduleC(request({ year: 2026 }));
     expect(response.status).toBe(422); expect(await response.json()).toMatchObject({ code: 'EXPORT_REVIEW_REQUIRED' });
+  });
+  it('exports a selected year when the only problem is an unreadable charge date', async () => {
+    state.transactions = [{ id: 'dated', merchant_name: 'DATED-SUPPLIES', iso_currency_code: 'USD', date: '2026-03-01', amount: 40, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true, review_status: 'confirmed', pending: false },
+      { id: 'undated', merchant_name: 'UNDATED-MERCHANT', iso_currency_code: 'USD', date: '2026-02-30', amount: 10, category: 'unknown', is_deductible: true, review_status: 'confirmed', pending: false }];
+    const view = inspectText();
+    const response = await scheduleC(request({ year: 2026, format: 'pdf' }));
+    expect(response.status).toBe(200);
+    const text = view.text();
+    expect(text).toContain("aren't assigned to any year");
+    expect(text).toContain('UNDATED-MERCHANT');
+    expect(text).toContain('2026-02-30');
+    expect(text).toContain('$40.00');
+    expect(text).not.toContain('$50.00');
+  });
+  it('still refuses an unreadable date when the amount is also invalid', async () => {
+    state.transactions = [{ iso_currency_code: 'USD', date: '2026-02-30', amount: 'unknown', category: 'unknown', is_deductible: true }];
+    const response = await scheduleC(request({ year: 2026 }));
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code: 'EXPORT_REVIEW_REQUIRED', error: expect.stringContaining('invalid amount') });
   });
   it.each([{ iso_currency_code: undefined }, { deduction_override: 0 }, { deductible_amount: 30 }, { deduction_amount: 30 }, { deductible_amount_override: 30 }, { deduction_percentage: 50 }])('requires review for unknown currency or an unapplied deduction adjustment %j', async facts => {
     state.transactions = [{ id: 'review', date: '2026-03-01', amount: 100, category: 'unknown', is_deductible: true, iso_currency_code: 'USD', ...facts }];
