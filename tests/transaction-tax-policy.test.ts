@@ -585,26 +585,74 @@ describe('2026-09-23 source-audit regressions', () => {
     expect(result?.customized_reason).toContain('may be current expenses without that election');
     expect(result?.customized_reason).not.toContain('looks like an asset');
   });
-  it('car loan interest and vehicle personal property tax are not treated as costs already in the standard mileage rate', () => {
-    const interest = analyze(
+  it('car loan interest and vehicle personal property tax follow the base review with the switch off, and the separate-cost review only with it on', () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    const interestOff = analyze(
       { category: 'vehicle_expense', evidence_ids: ['travel-463'], schedule_c_line: '9' },
       { merchant: 'Toyota Financial', amount_usd: 180, business_purpose: 'Interest on the car loan for business miles this year.' },
     );
-    expect(interest).toMatchObject({ status: 'ok', is_deductible: true, category: 'vehicle_expense', deductible_percent: 100 });
-    expect(`${interest?.customized_reason} ${interest?.questions?.join(' ')}`).not.toContain('cannot be deducted again');
-    const propertyTax = analyze(
+    expect(interestOff).toMatchObject({
+      status: 'needs_more_info', category: 'vehicle_expense', missing_fields: ['transaction_kind'],
+    });
+    expect(interestOff?.is_deductible).toBeUndefined();
+    expect(interestOff?.deductible_percent).toBeUndefined();
+    expect(interestOff?.schedule_c_line).toBeUndefined();
+    expect(interestOff?.reason).toBe('Payments of this kind (taxes, loan principal, investments, fines or donations) are not Schedule C expenses even when paid from the business account. Confirm what this payment was before it is treated as an expense.');
+    const propertyTaxOff = analyze(
       { category: 'vehicle_expense', evidence_ids: ['taxes-licenses-sch-c'], schedule_c_line: '9' },
       { merchant: 'County Treasurer', amount_usd: 90, business_purpose: 'Personal property tax on the car for the business share.' },
     );
-    expect(propertyTax).toMatchObject({ status: 'ok', is_deductible: true, category: 'taxes_licenses', deductible_percent: 100 });
-    expect(propertyTax?.questions?.join(' ') ?? '').not.toContain('home office');
-    expect(`${propertyTax?.customized_reason}`).not.toContain('cannot be deducted again');
-    const fuel = analyze(
+    expect(propertyTaxOff).toMatchObject({
+      status: 'needs_more_info', category: 'vehicle_expense', schedule_c_line: '9', missing_fields: ['business_purpose'],
+    });
+    expect(propertyTaxOff?.is_deductible).toBeUndefined();
+    expect(propertyTaxOff?.deductible_percent).toBeUndefined();
+    expect(propertyTaxOff?.category).not.toBe('taxes_licenses');
+    expect(propertyTaxOff?.questions?.[0]).toBe('What did you buy or pay for, and how was it used in your business?');
+    const fuelOff = analyze(
       { category: 'other' },
       { merchant: 'Jiffy Lube', amount_usd: 40, business_purpose: 'Oil change on the work car this month.' },
     );
-    expect(fuel).toMatchObject({ status: 'needs_more_info', category: 'vehicle_expense' });
-    expect(fuel?.customized_reason).toContain('cannot be deducted again');
+    expect(fuelOff).toMatchObject({ status: 'needs_more_info', category: 'vehicle_expense' });
+    expect(fuelOff?.customized_reason).toContain('cannot be deducted again');
+
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    const interestOn = analyze(
+      { category: 'vehicle_expense', evidence_ids: ['travel-463'], schedule_c_line: '9' },
+      { merchant: 'Toyota Financial', amount_usd: 180, business_purpose: 'Interest on the car loan for business miles this year.' },
+    );
+    expect(interestOn).toMatchObject({ status: 'needs_more_info', category: 'vehicle_expense', missing_fields: ['business_use_percentage'] });
+    expect(interestOn?.questions?.[0]).toBe(SEPARATE_VEHICLE_COST_SHARE.question);
+    expect(`${interestOn?.customized_reason} ${interestOn?.questions?.join(' ')}`).not.toContain('cannot be deducted again');
+    expect(interestOn?.is_deductible).toBeUndefined();
+    const propertyTaxOn = analyze(
+      { category: 'vehicle_expense', evidence_ids: ['taxes-licenses-sch-c'], schedule_c_line: '9' },
+      { merchant: 'County Treasurer', amount_usd: 90, business_purpose: 'Personal property tax on the car for the business share.' },
+    );
+    expect(propertyTaxOn).toMatchObject({ status: 'needs_more_info', category: 'taxes_licenses', missing_fields: ['business_use_percentage'] });
+    expect(propertyTaxOn?.questions?.[0]).toBe(SEPARATE_VEHICLE_COST_SHARE.question);
+    expect(propertyTaxOn?.questions?.join(' ') ?? '').not.toContain('home office');
+    expect(`${propertyTaxOn?.customized_reason}`).not.toContain('cannot be deducted again');
+    const shared = { ...ctx, vehicle_business_use_percentage: 100 };
+    const interestSaved = analyze(
+      { category: 'vehicle_expense', evidence_ids: ['travel-463'], schedule_c_line: '9' },
+      { merchant: 'Toyota Financial', amount_usd: 180, business_purpose: 'Interest on the car loan for business miles this year.' },
+      shared,
+    );
+    expect(interestSaved).toMatchObject({ status: 'ok', is_deductible: true, category: 'vehicle_expense', deductible_percent: 100 });
+    const propertyTaxSaved = analyze(
+      { category: 'vehicle_expense', evidence_ids: ['taxes-licenses-sch-c'], schedule_c_line: '9' },
+      { merchant: 'County Treasurer', amount_usd: 90, business_purpose: 'Personal property tax on the car for the business share.' },
+      shared,
+    );
+    expect(propertyTaxSaved).toMatchObject({ status: 'ok', is_deductible: true, category: 'taxes_licenses', deductible_percent: 100 });
+    const fuelOn = analyze(
+      { category: 'other' },
+      { merchant: 'Jiffy Lube', amount_usd: 40, business_purpose: 'Oil change on the work car this month.' },
+    );
+    expect(fuelOn).toMatchObject({ status: 'needs_more_info', category: 'vehicle_expense' });
+    expect(fuelOn?.customized_reason).toContain('cannot be deducted again');
+    vi.unstubAllEnvs();
   });
 
   it('interest and vehicle property tax use the recorded share under both methods, and parking and tolls stay in full', () => {

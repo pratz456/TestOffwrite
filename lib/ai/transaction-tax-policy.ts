@@ -406,7 +406,9 @@ export function groundTransactionAnalysis(
   // Saved context, merchant descriptor and the model's own item description. Only review
   // gates read this; nothing here can approve a deduction.
   const savedAndMerchant = `${saved} ${text(transaction.merchant)} ${text(transaction.merchant_name)}`;
-  const separateVehicleCost = standardMileageSeparateCost(savedAndMerchant);
+  // Interest and vehicle property tax are separate costs only while the vehicle copy switch is on.
+  // With it off, this stays empty so the base review questions still run.
+  const separateVehicleCost = mileageVehicleCopyEnabled() ? standardMileageSeparateCost(savedAndMerchant) : null;
   const reviewText = `${savedAndMerchant} ${explanation}`;
   const itemContext = categoryContext(input, transaction);
   // Merchant and profession intelligence choose the gate and its question; they never approve.
@@ -465,7 +467,7 @@ export function groundTransactionAnalysis(
     if ((remittedBusinessTax || federalBusinessTax || stateFilingFee) && (!result.category || ['other', 'legal_professional'].includes(result.category))) {
       result.category = 'taxes_licenses';
     }
-    if (separateVehicleCost === 'property_tax' && (!result.category || ['other', 'vehicle_expense', 'home_office'].includes(result.category))) {
+    if (mileageVehicleCopyEnabled() && separateVehicleCost === 'property_tax' && (!result.category || ['other', 'vehicle_expense', 'home_office'].includes(result.category))) {
       result.category = 'taxes_licenses';
     }
   }
@@ -784,7 +786,7 @@ export function groundTransactionAnalysis(
       addEvidence('home-587');
       requireInfo(result, 'home_office_eligibility', 'Is this rent for a separate business location, or for the home where you live? If it is your home, is a space used regularly and exclusively for business?',
         'Rent for the home you live in is not a business rent expense; only a qualifying home office deduction can include part of it. Rent for a separate business location is generally deductible as business rent.');
-    } else if (result.is_deductible === true && propertyTax && !remittedBusinessTax && separateVehicleCost !== 'property_tax') {
+    } else if (result.is_deductible === true && propertyTax && !remittedBusinessTax && !(mileageVehicleCopyEnabled() && separateVehicleCost === 'property_tax')) {
       // Property tax on the home is a Form 8829 item; on business assets or a business location it is line 23 (approved below).
       addEvidence('home-587'); addEvidence('taxes-licenses-sch-c');
       result.category = 'home_office';
