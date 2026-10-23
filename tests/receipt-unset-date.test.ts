@@ -108,4 +108,73 @@ describe('an ambiguous receipt date is saved unset', () => {
     expect(placeReceiptDate('2025-12-01')).toEqual({ date: '2025-12-01', taxYear: 2025, status: null });
     expect(safeYMD('2025/13/01')).toBeNull();
   });
+
+  it('saves 12/1/2025 with no date while the clock is frozen in 2026, then files the user date in 2025', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-07-04T15:00:00.000Z'));
+    try {
+      const file = new File([PNG], 'receipt.png', { type: 'image/png' });
+      const frozen = new Date();
+      const todayIso = frozen.toISOString().slice(0, 10);
+      const todayLocal = localDay(frozen);
+      const fileIso = new Date(file.lastModified).toISOString().slice(0, 10);
+      const fileLocal = localDay(new Date(file.lastModified));
+      expect(todayIso).toBe('2026-07-04');
+      expect(todayIso.startsWith('2026-')).toBe(true);
+
+      const body = new FormData();
+      body.append('file', file);
+      body.append('mode', 'commit');
+      const response = await POST(new NextRequest('https://staging.example/api/receipts/process', { method: 'POST', body }));
+
+      expect(response.status).toBe(200);
+      const written = mocks.createTransaction.mock.calls[0][2] as {
+        amount: number; date: string; deductionStatus?: string; trans_id: string; tax_year?: unknown; taxYear?: unknown;
+      };
+      const uploadedAt = mocks.receiptCreate.mock.calls.map(call => (call[1] as { uploadedAt?: Date }).uploadedAt).find(Boolean) as Date;
+      const uploadIso = uploadedAt.toISOString().slice(0, 10);
+      const uploadLocal = localDay(uploadedAt);
+      expect(uploadIso).toBe('2026-07-04');
+
+      expect(written.amount).toBe(25);
+      expect(written.date).toBe('');
+      expect(written.date).not.toBe(todayIso);
+      expect(written.date).not.toBe(todayLocal);
+      expect(written.date).not.toBe(fileIso);
+      expect(written.date).not.toBe(fileLocal);
+      expect(written.date).not.toBe(uploadIso);
+      expect(written.date).not.toBe(uploadLocal);
+      expect(written).not.toHaveProperty('tax_year');
+      expect(written).not.toHaveProperty('taxYear');
+      expect(written.deductionStatus).toBe('Needs more information');
+
+      const saved = [
+        { trans_id: written.trans_id, amount: written.amount, date: written.date, deductionStatus: written.deductionStatus },
+        { trans_id: 'dated-2025', amount: 8, date: '2025-03-03' },
+      ];
+      const needsMoreInformation = saved.filter(row => placeReceiptDate(row.date).status === 'Needs more information');
+      expect(needsMoreInformation).toEqual([{ trans_id: written.trans_id, amount: 25, date: '', deductionStatus: 'Needs more information' }]);
+
+      const update = await PUT(new NextRequest('https://staging.example/api/receipts/process', {
+        method: 'PUT',
+        body: JSON.stringify({ transactionId: written.trans_id, updates: { date: '2025-12-01' } }),
+      }));
+      expect(update.status).toBe(200);
+      expect(mocks.updateTransaction).toHaveBeenCalledWith(owner, written.trans_id, { date: '2025-12-01' });
+
+      const filed = saved.map(row => row.trans_id === written.trans_id ? { ...row, date: '2025-12-01' } : row);
+      expect(filed.filter(row => placeReceiptDate(row.date).status === 'Needs more information')).toEqual([]);
+      expect(filed.filter(row => placeReceiptDate(row.date).taxYear === 2025)).toEqual([
+        { trans_id: written.trans_id, amount: 25, date: '2025-12-01', deductionStatus: 'Needs more information' },
+        { trans_id: 'dated-2025', amount: 8, date: '2025-03-03' },
+      ]);
+      expect(placeReceiptDate('2025-12-01')).toEqual({ date: '2025-12-01', taxYear: 2025, status: null });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
+
+function localDay(value: Date): string {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+}
