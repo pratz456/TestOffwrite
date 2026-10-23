@@ -570,7 +570,7 @@ describe('Schedule C other expenses line follows the tax year', () => {
   });
 
   it('replaces the other expenses placeholder from the date year', () => {
-    expect(withOtherExpensesLine(`Schedule C line ${OTHER_EXPENSES_LINE_TOKEN}`, null)).toBe('Schedule C line 27a for 2023 and 2024, or 27b for 2025 and later');
+    expect(withOtherExpensesLine(`Schedule C line ${OTHER_EXPENSES_LINE_TOKEN}`, null)).toBe('Schedule C line 27a for 2024 and earlier, or 27b for 2025 and later');
     expect(withOtherExpensesLine(`Schedule C line ${OTHER_EXPENSES_LINE_TOKEN}`, 2023)).toBe('Schedule C line 27a');
     expect(withOtherExpensesLine(`Schedule C line ${OTHER_EXPENSES_LINE_TOKEN}`, 2025)).toBe('Schedule C line 27b');
     expect(withOtherExpensesLine('Schedule C line 18', null)).toBe('Schedule C line 18');

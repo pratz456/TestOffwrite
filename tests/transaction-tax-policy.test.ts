@@ -246,7 +246,7 @@ describe('curated transaction tax grounding', () => {
     expect(prompt).not.toContain('Pub 535');
     expect(prompt).not.toContain('OTHER_EXPENSES_LINE');
     expect(transactionTaxPolicyPrompt({ ...tx, date_iso: '1/1/2025' })).not.toContain('OTHER_EXPENSES_LINE');
-    expect(transactionTaxPolicyPrompt({ ...tx, date_iso: '1/1/2025' })).toContain('27a for 2023 and 2024, or 27b for 2025 and later');
+    expect(transactionTaxPolicyPrompt({ ...tx, date_iso: '1/1/2025' })).toContain('27a for 2024 and earlier, or 27b for 2025 and later');
     expect(transactionTaxYear({ ...tx, date_iso: '2026-02-31' })).toBeNull();
   });
   it('supplies actionable documentation when the model omits it', () => {
