@@ -139,7 +139,7 @@ describe('printed Other expenses line', () => {
     expect(auditSupportPacketCSV(packet)).toContain(',27b (Other expenses),');
   });
 
-  it('withholds a 2025 dues row labeled 27a (179D) and keeps line 18 on a mapped software row', () => {
+  it('withholds a 2025 dues row labeled 27a (179D) and prints a subscription on Other expenses', () => {
     const context = { uid: 'owner', tripsByDate: new Map(), yearTripCount: 0, receiptsByTransaction: new Map() };
     const energy = buildEvidenceRecord(dues({ date: '2025-06-15', schedule_c_line: '27a (179D)', amount: 120, merchant_name: 'AIGA' }), context);
     expect(energy.scheduleCLine).toBeNull();
@@ -154,7 +154,7 @@ describe('printed Other expenses line', () => {
     const plain = buildEvidenceRecord(dues({ date: '2025-06-15', schedule_c_line: '27a', amount: 80 }), context);
     expect(plain.scheduleCLine).toBe('27b (Other expenses)');
     const software = buildEvidenceRecord(dues({ date: '2025-06-15', category: 'SERVICE_SUBSCRIPTION', schedule_c_line: '27b (Other expenses)', amount: 40 }), context);
-    expect(software.scheduleCLine).toBe('18');
+    expect(software.scheduleCLine).toBe('27b (Other expenses)');
   });
 
   it('uses the paid or posted date when the record was saved in a later year', () => {
