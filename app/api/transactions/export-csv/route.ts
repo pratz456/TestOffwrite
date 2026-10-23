@@ -26,8 +26,7 @@ export async function GET(request: NextRequest) {
     if (filter === 'non-deductible') records = records.filter(tx => recordedDeductibility(tx) === false);
     if (filter === 'unreviewed') records = records.filter(tx => recordedDeductibility(tx) === null);
     records.sort((a, b) => String(a.date ?? a.datetime ?? '').localeCompare(String(b.date ?? b.datetime ?? '')));
-    const csv = convertTransactionsToCSV(records);
-    return new NextResponse(csv, { headers: {
+    return new NextResponse(convertTransactionsToCSV(records), { headers: {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': `attachment; filename="writeoff-preparer-transactions-${year ?? 'all-years'}-${filter}.csv"`,
       'Cache-Control': 'private, no-store',
