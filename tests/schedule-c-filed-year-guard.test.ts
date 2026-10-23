@@ -265,9 +265,12 @@ beforeEach(async () => {
   harness.uid = 'owner';
   harness.transactions = [];
   harness.csvTransactions = [];
-  harness.db?.records.clear();
-  harness.db?.stuckReads.clear();
-  if (harness.db) harness.db.holdOpenTransaction = false;
+  if (harness.db) {
+    harness.db.holdOpenTransaction = false;
+    await (harness.db as { settled?: Promise<void> }).settled;
+    harness.db.records.clear();
+    harness.db.stuckReads.clear();
+  }
   setScheduleCClockForTests(clock);
   setCurrentScheduleCRulesForTests(null);
 });
@@ -761,7 +764,7 @@ describe('filed year guard', () => {
     const exportId = error.mock.calls.find(call => call[0] === 'Pending export marker was not written')?.[1];
     expect(exportId).toEqual(expect.any(String));
     expect(String(exportId).length).toBeGreaterThan(0);
-    expect(error).toHaveBeenCalledWith('Export record write failed', expect.any(Error));
+    expect(error).not.toHaveBeenCalledWith('Export record write failed', expect.any(Error));
     expect(pendingMarkers()).toHaveLength(0);
     expect(savedExports()).toEqual([expect.objectContaining({ totalDeductible: 55, exportSequence: 1 })]);
     const read = await readFiledYear(new NextRequest('http://localhost/api/tax/schedule-c/filed-year?year=2025'));
@@ -988,6 +991,12 @@ describe('filed year guard', () => {
       const timedOut = error.mock.calls.find(call => call[0] === 'Pending export marker write timed out and is unconfirmed');
       expect(timedOut?.[1]).toEqual(expect.any(String));
       expect(String(timedOut?.[1]).length).toBeGreaterThan(0);
+      expect(savedExports()).toHaveLength(0);
+      expect(error).not.toHaveBeenCalledWith('Export record write timed out and is unconfirmed', expect.anything());
+      expect(error).not.toHaveBeenCalledWith('Export record write failed', expect.anything());
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(pendingMarkers()).toHaveLength(1);
+      expect(savedExports()).toHaveLength(0);
     } finally {
       harness.markerWriteDelayMs = 0;
       await vi.advanceTimersByTimeAsync(10000);
@@ -1081,7 +1090,12 @@ describe('filed year guard', () => {
       expect(savedExports().map(row => row.exportSequence).sort((left, right) => Number(left) - Number(right))).toEqual([1, 3]);
       expect(savedExports().every(row => row.totalDeductible === 100)).toBe(true);
       expect(savedExports().some(row => row.exportSequence === 2)).toBe(false);
-      expect((await readLatestExportRecord('owner', 2025))?.totalDeductible).toBe(100);
+      const sequence3 = savedExports().find(row => row.exportSequence === 3);
+      expect(sequence3?.sha256).toBe(hash(csv));
+      expect(savedExports().find(row => row.exportSequence === 1)?.sha256).toBe('held');
+      expect((await readLatestExportRecord('owner', 2025))?.charges).toEqual([
+        expect.objectContaining({ id: 'ad1', merchant: 'Secret Merchant', date: '2025-06-01', category: 'SERVICE_ADVERTISING', contribution: 100 }),
+      ]);
       expect((await readHeldYearExport('owner', 2025)).latestExportUnrecorded).toBe(false);
       expect(error).toHaveBeenCalledTimes(1);
     } finally {
@@ -1151,7 +1165,7 @@ describe('filed year guard', () => {
     expect(lines.slice(merchant, merchant + 4)).toEqual(['North Merchant', '8', '$100.00', '$100.00']);
   });
 
-  it('logs a malformed latest export record', async () => {
+  it('logs a malformed latest export record once per export', async () => {
     const { adminDb } = await import('@/lib/firebase/admin');
     await saveExportLog('older', 'schedule-c-pdf', 40, 'ad1', CLOCK.toISOString(), 1);
     await adminDb.collection('user_export_records').doc('bad-latest').set({
@@ -1161,9 +1175,85 @@ describe('filed year guard', () => {
     await adminDb.collection('user_export_records').doc('ignored-kind').set({
       uid: 'owner', kind: 'planning-pdf', taxYear: 2025, exportedAt: CLOCK.toISOString(),
     });
+    harness.transactions = [confirmed({ id: 'ad1', amount: 250, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect((await readLatestExportRecord('owner', 2025))?.totalDeductible).toBe(40);
+    const response = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+    expect(response.status).toBe(200);
+    const csv = await response.text();
+    expect(csv).toContain('SERVICE_ADVERTISING,8,40,40');
     expect(error).toHaveBeenCalledTimes(1);
     expect(error).toHaveBeenCalledWith('Malformed Schedule C export record', 'bad-latest');
+  });
+
+  it('returns the file within the one 4 second deadline when the marker and the record writes hang', async () => {
+    vi.useFakeTimers();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    harness.reservationDelayMs = 1500;
+    harness.markerWriteDelayMs = 30000;
+    harness.recordWriteDelayMs = 30000;
+    harness.transactions = [confirmed({ id: 'ad1', amount: 80, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    const started = Date.now();
+    let settled = false;
+    const pending = scheduleCExport(exportBody({ year: 2025, format: 'csv' })).then(response => {
+      settled = true;
+      return response;
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(settled).toBe(true);
+      expect(Date.now() - started).toBeLessThanOrEqual(4000);
+      const response = await pending;
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('SERVICE_ADVERTISING');
+      expect(savedExports()).toHaveLength(0);
+      expect(error).toHaveBeenCalledWith('Pending export marker write timed out and is unconfirmed', expect.any(String));
+      expect(error).not.toHaveBeenCalledWith('Export record write timed out and is unconfirmed', expect.anything());
+      expect(error).not.toHaveBeenCalledWith('Export record write failed', expect.anything());
+      await vi.advanceTimersByTimeAsync(30000);
+      expect(pendingMarkers()).toHaveLength(1);
+      expect(savedExports()).toHaveLength(0);
+    } finally {
+      harness.reservationDelayMs = 0;
+      harness.markerWriteDelayMs = 0;
+      harness.recordWriteDelayMs = 0;
+      await vi.advanceTimersByTimeAsync(60000);
+      vi.useRealTimers();
+    }
+  });
+
+  it('commits a held transaction and then releases blocked writes and query reads', async () => {
+    const db = harness.db as unknown as {
+      holdOpenTransaction: boolean;
+      records: Map<string, Record<string, unknown>>;
+      collection: (name: string) => {
+        doc: (id: string) => { set: (data: Record<string, unknown>) => Promise<unknown> };
+        get: () => Promise<{ docs: Array<{ data: () => Record<string, unknown> | undefined }> }>;
+      };
+      runTransaction: (work: (tx: {
+        get: (target: unknown) => Promise<unknown>;
+        set: (target: unknown, data: Record<string, unknown>) => void;
+      }) => Promise<unknown>) => Promise<unknown>;
+    };
+    const counter = db.collection('user_export_sequences').doc('counter');
+    db.holdOpenTransaction = true;
+    const transaction = db.runTransaction(async tx => {
+      await tx.get(counter);
+      tx.set(counter, { next: 2 });
+      return 2;
+    });
+    let wrote = false;
+    const write = db.collection('user_export_sequences').doc('counter').set({ next: 9 }).then(() => { wrote = true; });
+    let queried = false;
+    const read = db.collection('user_export_sequences').get().then(snap => { queried = true; return snap; });
+    await Promise.resolve();
+    expect(wrote).toBe(false);
+    expect(queried).toBe(false);
+    db.holdOpenTransaction = false;
+    await expect(transaction).resolves.toBe(2);
+    await write;
+    const snap = await read;
+    expect(wrote).toBe(true);
+    expect(queried).toBe(true);
+    expect(snap.docs.map(doc => doc.data())).toEqual([{ next: 9 }]);
   });
 });

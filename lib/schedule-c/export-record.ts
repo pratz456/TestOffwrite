@@ -22,8 +22,18 @@ export const EXPORT_RECORDS = 'user_export_records';
 export const EXPORT_SEQUENCES = 'user_export_sequences';
 /** One document per export id until that export's record commits. Admin SDK only. */
 export const EXPORT_PENDING = 'user_export_pending';
-/** Shared wait for every read and write on the export path. */
+/** Total wait for the export path, counted from the first Firestore step. */
 export const EXPORT_RECORD_WRITE_TIMEOUT_MS = 4000;
+
+/** Remaining time in the one export deadline. Steps share this clock. */
+export interface ExportDeadline {
+  remaining(): number;
+}
+
+export function startExportDeadline(limitMs = EXPORT_RECORD_WRITE_TIMEOUT_MS): ExportDeadline {
+  const endsAt = Date.now() + limitMs;
+  return { remaining: () => Math.max(0, endsAt - Date.now()) };
+}
 
 /**
  * Only schedule-c-pdf and schedule-c-csv are written. Those are the only
@@ -138,22 +148,35 @@ async function reserveExportSequence(uid: string, taxYear: number | null): Promi
   });
 }
 
+function waitBudget(deadline?: ExportDeadline): number {
+  return deadline ? deadline.remaining() : EXPORT_RECORD_WRITE_TIMEOUT_MS;
+}
+
 /**
- * Waits up to 4 seconds for the sequence reservation. Failure and timeout
- * log one line and return immediately. Nothing else is written for this
- * download, so it cannot set or change the held total. A reservation that
- * commits after the wait leaves a sequence gap and no record.
+ * Waits for the sequence reservation using only the time still left on the
+ * export deadline. Failure and timeout log one line and return immediately.
+ * Nothing else is written for this download, so it cannot set or change the
+ * held total. A reservation that commits after the wait leaves a sequence
+ * gap and no record.
  */
-async function reserveExportSequenceWithin(uid: string, taxYear: number | null, exportId: string): Promise<number | null> {
+async function reserveExportSequenceWithin(uid: string, taxYear: number | null, exportId: string, deadline: ExportDeadline): Promise<number | null> {
   let settled = false;
   const attempt = reserveExportSequence(uid, taxYear);
+  const giveUp = () => {
+    if (settled) return;
+    settled = true;
+    console.error('Export sequence reservation failed or timed out', exportId);
+  };
+  const wait = deadline.remaining();
+  if (wait <= 0) {
+    giveUp();
+    return null;
+  }
   return new Promise(resolve => {
     const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      console.error('Export sequence reservation failed or timed out', exportId);
+      giveUp();
       resolve(null);
-    }, EXPORT_RECORD_WRITE_TIMEOUT_MS);
+    }, wait);
     attempt.then(
       sequence => {
         if (settled) return;
@@ -172,15 +195,20 @@ async function reserveExportSequenceWithin(uid: string, taxYear: number | null, 
   });
 }
 
-/** Bounds one export read or write. The caller stops waiting when the timer fires. */
-export function awaitExportStep<T>(work: Promise<T>): Promise<T> {
+/** Bounds one export read or write by the time still left. A missing deadline uses the full budget on its own. */
+export function awaitExportStep<T>(work: Promise<T>, deadline?: ExportDeadline): Promise<T> {
+  const wait = waitBudget(deadline);
+  if (wait <= 0) {
+    void work.then(() => undefined, () => undefined);
+    return Promise.reject(new Error('Schedule C export step timed out'));
+  }
   return new Promise((resolve, reject) => {
     let settled = false;
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
       reject(new Error('Schedule C export step timed out'));
-    }, EXPORT_RECORD_WRITE_TIMEOUT_MS);
+    }, wait);
     work.then(
       value => {
         if (settled) return;
@@ -198,8 +226,13 @@ export function awaitExportStep<T>(work: Promise<T>): Promise<T> {
   });
 }
 
-/** Writes the pending marker after the file exists and before it is served. */
-async function writeMarkerWithin(uid: string, taxYear: number | null, exportId: string, exportSequence: number): Promise<void> {
+/**
+ * Writes the pending marker after the file exists and before it is served.
+ * Returns false when the write fails or the deadline runs out. The caller
+ * then skips the record write. The marker write is not cancelled: a set that
+ * already started can still land later.
+ */
+async function writeMarkerWithin(uid: string, taxYear: number | null, exportId: string, exportSequence: number, deadline: ExportDeadline): Promise<boolean> {
   let timedOut = false;
   const write = adminDb.collection(EXPORT_PENDING).doc(exportId).set({
     uid, taxYear, exportId, createdAt: new Date(), exportSequence,
@@ -210,20 +243,28 @@ async function writeMarkerWithin(uid: string, taxYear: number | null, exportId: 
       else throw error;
     },
   );
+  const wait = deadline.remaining();
+  if (wait <= 0) {
+    timedOut = true;
+    console.error('Pending export marker write timed out and is unconfirmed', exportId);
+    return false;
+  }
   try {
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         timedOut = true;
         reject(new Error('Pending export marker write timed out'));
-      }, EXPORT_RECORD_WRITE_TIMEOUT_MS);
+      }, wait);
       write.then(
         () => { clearTimeout(timer); resolve(); },
         (error: unknown) => { clearTimeout(timer); reject(error); },
       );
     });
+    return true;
   } catch (error) {
     if (timedOut) console.error('Pending export marker write timed out and is unconfirmed', exportId);
     else console.error('Pending export marker was not written', exportId, error);
+    return false;
   }
 }
 
@@ -259,13 +300,13 @@ async function writeExportRecord(record: ExportRecordDocument, exportId: string)
 }
 
 /**
- * Waits up to 4 seconds for the record transaction. On timeout the download
- * returns at once: the timeout writes nothing and awaits nothing further.
- * A commit that lands later may still clear the marker. A rejection after
- * that timeout is logged with the export id. A rejection inside the wait
- * is logged as failed.
+ * Waits for the record transaction using only the time still left. On timeout
+ * the download returns at once and awaits nothing further. The timeout does
+ * not cancel the transaction. A commit that lands later may still clear the
+ * marker. A rejection after that timeout is logged with the export id. A
+ * rejection inside the wait is logged as failed.
  */
-async function safeWriteExportRecord(record: ExportRecordDocument, exportId: string): Promise<void> {
+async function safeWriteExportRecord(record: ExportRecordDocument, exportId: string, deadline: ExportDeadline): Promise<void> {
   let timedOut = false;
   const write = writeExportRecord(record, exportId).then(
     () => {
@@ -276,12 +317,18 @@ async function safeWriteExportRecord(record: ExportRecordDocument, exportId: str
       else throw error;
     },
   );
+  const wait = deadline.remaining();
+  if (wait <= 0) {
+    timedOut = true;
+    console.error('Export record write timed out and is unconfirmed', exportId);
+    return;
+  }
   try {
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         timedOut = true;
         reject(new Error('Export record write timed out'));
-      }, EXPORT_RECORD_WRITE_TIMEOUT_MS);
+      }, wait);
       write.then(
         () => { clearTimeout(timer); resolve(); },
         (error: unknown) => { clearTimeout(timer); reject(error); },
@@ -295,16 +342,20 @@ async function safeWriteExportRecord(record: ExportRecordDocument, exportId: str
 
 /**
  * Reserves the serve time sequence, writes the marker, then writes the record.
- * The file is already built. A reservation failure or timeout logs one line
- * and writes nothing else, so this download cannot set or change the held total.
- * A reservation that commits after the timeout leaves a gap and no record.
+ * All three share the export deadline. The file is already built. A reservation
+ * failure or timeout logs one line and writes nothing else, so this download
+ * cannot set or change the held total. A reservation that commits after the
+ * timeout leaves a gap and no record. A marker failure or timeout skips the
+ * record write. The open marker, if it lands, is what a later export clears.
  */
-export async function recordServedExport(record: Omit<ExportRecordDocument, 'exportSequence'>): Promise<void> {
+export async function recordServedExport(record: Omit<ExportRecordDocument, 'exportSequence'>, deadline?: ExportDeadline): Promise<void> {
+  const budget = deadline ?? startExportDeadline();
   const exportId = randomUUID();
-  const exportSequence = await reserveExportSequenceWithin(record.uid, record.taxYear, exportId);
+  const exportSequence = await reserveExportSequenceWithin(record.uid, record.taxYear, exportId, budget);
   if (exportSequence === null) return;
-  await writeMarkerWithin(record.uid, record.taxYear, exportId, exportSequence);
-  await safeWriteExportRecord({ ...record, exportSequence }, exportId);
+  const marked = await writeMarkerWithin(record.uid, record.taxYear, exportId, exportSequence, budget);
+  if (!marked) return;
+  await safeWriteExportRecord({ ...record, exportSequence }, exportId, budget);
 }
 
 export async function readTaxYearConfirmation(uid: string, year: number): Promise<TaxYearConfirmation | null> {
@@ -367,13 +418,23 @@ async function rankLatestExport(uid: string, year: number): Promise<RankedExport
   return latest;
 }
 
-export async function readLatestExportRecord(uid: string, year: number): Promise<ScheduleCExportSnapshot | null> {
+export async function readLatestExportRecord(uid: string, year: number, deadline?: ExportDeadline): Promise<ScheduleCExportSnapshot | null> {
   try {
-    return (await awaitExportStep(rankLatestExport(uid, year)))?.snapshot ?? null;
+    return (await awaitExportStep(rankLatestExport(uid, year), deadline))?.snapshot ?? null;
   } catch {
     console.error('Schedule C export record could not be read');
     return null;
   }
+}
+
+function markerBlocksLatest(docs: Array<{ data: () => Record<string, unknown> | undefined }>, latest: RankedExport | null): boolean {
+  return docs.some(doc => {
+    if (!latest) return true;
+    const sequence = assignedSequence(doc.data()?.exportSequence);
+    if (sequence === null) return false;
+    if (latest.exportSequence === null) return true;
+    return sequence > latest.exportSequence;
+  });
 }
 
 /**
@@ -386,33 +447,52 @@ export async function readLatestExportRecord(uid: string, year: number): Promise
 export async function readHeldYearExport(uid: string, year: number): Promise<{ prior: ScheduleCExportSnapshot | null; latestExportUnrecorded: boolean }> {
   const pending = await adminDb.collection(EXPORT_PENDING).where('uid', '==', uid).where('taxYear', '==', year).get();
   const latest = await rankLatestExport(uid, year);
-  const blocking = pending.docs.some(doc => {
-    if (!latest) return true;
-    const sequence = assignedSequence(doc.data()?.exportSequence);
-    if (sequence === null) return false;
-    if (latest.exportSequence === null) return true;
-    return sequence > latest.exportSequence;
-  });
-  if (blocking) return { prior: null, latestExportUnrecorded: true };
+  if (markerBlocksLatest(pending.docs, latest)) return { prior: null, latestExportUnrecorded: true };
   return { prior: latest?.snapshot ?? null, latestExportUnrecorded: false };
 }
 
-export async function loadFiledYearState(uid: string, year: number): Promise<{ prior: ScheduleCExportSnapshot | null; confirmedRulesVersion: string | null; latestExportUnrecorded: boolean }> {
-  if (year >= currentCalendarYear()) return { prior: null, confirmedRulesVersion: null, latestExportUnrecorded: false };
+export async function loadFiledYearState(uid: string, year: number, deadline?: ExportDeadline): Promise<{ prior: ScheduleCExportSnapshot | null; confirmedRulesVersion: string | null; latestExportUnrecorded: boolean; stored: ScheduleCExportSnapshot | null }> {
+  if (year >= currentCalendarYear()) return { prior: null, confirmedRulesVersion: null, latestExportUnrecorded: false, stored: null };
   let failed = false;
-  const fallback = <T>(value: T) => () => {
-    failed = true;
-    return value;
-  };
-  const [confirmation, recorded] = await Promise.all([
-    awaitExportStep(readTaxYearConfirmation(uid, year)).catch(fallback(null)),
-    awaitExportStep(readHeldYearExport(uid, year)).catch(fallback({ prior: null, latestExportUnrecorded: false })),
-  ]);
+  const markFailed = () => { failed = true; };
+  // One ranking for this export. A malformed record is logged inside that ranking.
+  const latestPromise = awaitExportStep(rankLatestExport(uid, year), deadline).then(
+    value => value,
+    () => {
+      console.error('Schedule C export record could not be read');
+      markFailed();
+      return null;
+    },
+  );
+  const confirmationPromise = awaitExportStep(readTaxYearConfirmation(uid, year), deadline).then(
+    value => value,
+    () => {
+      markFailed();
+      return null;
+    },
+  );
+  const [confirmation, latest] = await Promise.all([confirmationPromise, latestPromise]);
+  let blocking = false;
+  if (deadline && deadline.remaining() <= 0) {
+    markFailed();
+  } else {
+    try {
+      const pending = await awaitExportStep(
+        adminDb.collection(EXPORT_PENDING).where('uid', '==', uid).where('taxYear', '==', year).get(),
+        deadline,
+      );
+      blocking = markerBlocksLatest(pending.docs, latest);
+    } catch {
+      markFailed();
+    }
+  }
   if (failed) console.error('Schedule C filed year state could not be read');
   const confirmedRulesVersion = confirmation?.rulesVersion ?? null;
   const held = shouldHoldYear(uid, year) && confirmedRulesVersion !== currentScheduleCRules().version;
-  if (!held) return { prior: null, confirmedRulesVersion, latestExportUnrecorded: false };
-  return { prior: recorded.prior, confirmedRulesVersion, latestExportUnrecorded: recorded.latestExportUnrecorded };
+  const stored = latest?.snapshot ?? null;
+  if (!held) return { prior: null, confirmedRulesVersion, latestExportUnrecorded: false, stored };
+  if (blocking) return { prior: null, confirmedRulesVersion, latestExportUnrecorded: true, stored };
+  return { prior: stored, confirmedRulesVersion, latestExportUnrecorded: false, stored };
 }
 
 export async function confirmTaxYear(request: NextRequest): Promise<NextResponse> {
