@@ -202,7 +202,7 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bfreshbooks\b|\bwave\s*(?:apps|financial|accounting)\b|\bxero\b|\bbench\s*accounting\b|\bbill\.com\b/i, 'Bookkeeping software', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Bookkeeping and invoicing software for the business' }),
   entry(/\bhoneybook\b|\bdubsado\b|\b17hats\b|\bhellobonsai\b|\bbonsai\s*(?:inc|tech)\b/i, 'Client management platform', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Client contracts, invoicing and booking software for the business', paysOut: true }),
   entry(/\bgetharvest\b|\bharvest\s*(?:app|inc|time)\b|\btoggl\b|\bexpensify\b/i, 'Time and expense tracking', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Time and expense tracking software for the business' }),
-  entry(/\bgusto\b|\badp\b|\bpaychex\b/i, 'Payroll service', 'other', '27a', 'business_likely', { defaultPurpose: 'Payroll or contractor-payment service fees for the business', notes: 'Wages paid through the service are line 26; contractor payments are line 11; only the service fee is line 27a.' }),
+  entry(/\bgusto\b|\badp\b|\bpaychex\b/i, 'Payroll service', 'other', '27a', 'business_likely', { defaultPurpose: 'Payroll or contractor-payment service fees for the business', notes: 'Wages paid through the service are line 26; contractor payments are line 11; only the service fee is other expenses (line 27a for 2024 and earlier and line 27b for 2025 and later).' }),
   entry(/\bkajabi\b|\bteachable\b|\bthinkific\b|\bpodia\b/i, 'Course platform', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Course and membership platform for selling the business\'s content', paysOut: true }),
   entry(/\bconvertkit\b|\bkit\.com\b|\bflodesk\b|\bklaviyo\b|\bbeehiiv\b|\bconstant\s*contact\b/i, 'Email marketing platform', 'advertising_marketing', '8', 'business_likely', { defaultPurpose: 'Email marketing platform for business newsletters' }),
   entry(/\bsubstack\b/i, 'Substack', 'software_subscriptions', '18', 'needs_purpose', { question: 'Is this a subscription you pay for reading (personal unless it is research for your business) or a payout of your own publication (business income)?' }),
@@ -378,7 +378,7 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bcpa\b|\baccounting\b|\bbookkeep/i, 'Accounting / bookkeeping service', 'legal_professional', '17', 'needs_purpose', { question: Q.legal }),
   entry(/\blaw\s*(?:office|firm|group)\b|\battorney\b|\besq\b/i, 'Law firm', 'legal_professional', '17', 'needs_purpose', { question: Q.legal }),
 
-  // Education and training (Schedule C line 27a) --------------------------------------------------
+  // Education and training (other expenses) --------------------------------------------------
   entry(/\budemy\b/i, 'Udemy', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
   entry(/\bcoursera\b/i, 'Coursera', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
   entry(/\bmasterclass\b/i, 'MasterClass', 'education_training', '27a', 'needs_purpose', { question: Q.education }),

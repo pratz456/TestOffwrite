@@ -4,9 +4,11 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
 
 import { assistantRequestSchema } from '../lib/tax-assistant/contract';
 import {
-  assistantContextForModel, assistantProfileFacts, composeForYou, mentionedMerchantFacts, merchantCandidates, type AssistantContext, type AssistantTransactionRow,
+  assistantContextForModel, assistantProfileFacts, composeForYou, forYouPlacement, mentionedMerchantFacts, merchantCandidates, type AssistantContext, type AssistantTransactionRow,
 } from '../lib/tax-assistant/context';
 import { buildGuidanceMessages, guidanceResponse, validateAssessment } from '../lib/tax-assistant/guidance';
+import { GUIDANCE_SOURCES } from '../lib/tax-assistant/knowledge';
+import { OTHER_EXPENSES_LINE_TOKEN } from '../lib/schedule-c/other-expenses-line';
 
 const uid = 'synthetic-owner';
 const row = (overrides: Partial<AssistantTransactionRow> = {}): AssistantTransactionRow => ({
@@ -98,7 +100,7 @@ describe('for-you paragraph', () => {
 
   it('states the owner\'s numbers, the packet placement and a review action', () => {
     const forYou = composeForYou(context, 'software-subscriptions');
-    expect(forYou?.paragraph).toBe('You have 12 Adobe charges in 2026 totaling $659.88; all are unreviewed. If they are used in your graphic designer work, they belong on Schedule C line 18 (office expense) or line 27a (other expenses).');
+    expect(forYou?.paragraph).toBe('You have 12 Adobe charges in 2026 totaling $659.88; all are unreviewed. If they are used in your graphic designer work, they belong on Schedule C line 18 (office expense) or line 27b (other expenses).');
     expect(forYou?.action).toEqual({ screen: 'transactions', merchantKey: 'adobe systems', count: 12, label: 'Review these 12 charges' });
     expect(composeForYou(context, 'owner-draws')?.paragraph).toContain('Your business is saved as a sole proprietor, which reports on Schedule C.');
   });
@@ -119,6 +121,19 @@ describe('for-you paragraph', () => {
   it('uses other expenses (Part V) when no year is known', () => {
     const forYou = composeForYou({ profile: assistantProfileFacts(profile), merchant: null }, 'software-subscriptions');
     expect(forYou?.paragraph).toBe('For your graphic designer work, the placement above (Schedule C line 18 (office expense) or other expenses (Part V)) is where a qualifying cost is reported.');
+  });
+
+  it('names Part V for every other expenses placement when no year is known', () => {
+    const placements = GUIDANCE_SOURCES.flatMap(source => source.placement && source.placement.includes(OTHER_EXPENSES_LINE_TOKEN) ? [source.placement] : []);
+    expect(placements.length).toBeGreaterThan(0);
+    for (const placement of placements) {
+      const result = forYouPlacement(placement, null);
+      expect(result).toContain('other expenses (Part V)');
+      expect(result).not.toContain('line other expenses');
+      expect(result).not.toContain('Part V) (');
+      expect(result).not.toContain(OTHER_EXPENSES_LINE_TOKEN);
+      expect(result.slice(result.indexOf('Part V'))).not.toContain('(other expenses)');
+    }
   });
 
   it('uses saved methods for home and vehicle topics without a merchant', () => {
