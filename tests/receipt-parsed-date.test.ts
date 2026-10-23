@@ -225,6 +225,18 @@ const VERIFIED: Array<[string, string, string]> = [
   ['Valid Until Date 06/30/2026\n01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
   ['Return by 02/15/2026\n01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
   ['01/02/2026\nCheck-out Date 01/05/2026\nTotal $12.34', '01/05/2026', '2026-01-05'],
+  ['Order Date 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Order Date: 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Thank you for your order on 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Your order on Jan 15, 2026\nTotal $12.34', 'Jan 15, 2026', '2026-01-15'],
+  ['Thanks for your order by 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Ticket Date 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Ref Date 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Table Date 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Delivered on 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Delivery on Jan 15, 2026\nTotal $12.34', 'Jan 15, 2026', '2026-01-15'],
+  ['Offer on 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Order shipped by 01/20/2026\nOrder date 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
 ];
 const RULING: Array<[string, string]> = [
   ['Order placed 12/29/2025\nPaid Jan 2, 2026\nTotal $12.34', '2026-01-02'],

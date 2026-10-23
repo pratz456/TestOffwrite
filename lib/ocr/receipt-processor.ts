@@ -96,9 +96,30 @@ function allowsMonthPeriod(token: string, dotted: boolean): boolean {
 
 /**
  * A skip phrase drops a date when it sits on the same line, directly before the
- * date or directly after it. The gap may be spaces and : # , . - only. Before
- * the date, that gap may also be one bridge word: Date, on, by, until, or thru.
+ * date or directly after it. The gap may be spaces and : # , . - only. Phrases
+ * in BRIDGE_SKIP_PHRASES may also have one bridge word before the date: Date,
+ * on, by, until, or thru. Every other skip phrase keeps the strict gap.
  */
+/** Only these skip phrases may bridge across Date, on, by, until, or thru. */
+const BRIDGE_SKIP_PHRASES = new Set([
+  'return',
+  'returns',
+  'exp',
+  'expire',
+  'expires',
+  'expired',
+  'expiry',
+  'expiration',
+  'expiring',
+  'statement',
+  'arrival',
+  'check-in',
+  'valid',
+  'until',
+  'thru',
+  'through',
+  'shipped',
+]);
 const SKIP_PHRASES = [
   'returns accepted until',
   'estimated delivery date',
@@ -190,7 +211,7 @@ function gapAllows(gap: string): boolean {
   return /^[ \t:#,\.\-]*$/.test(gap);
 }
 
-/** A skip word is still next to the date when Date, on, by, until, or thru is the only word between them. */
+/** Bridge phrases are still next to the date when Date, on, by, until, or thru is the only word between them. */
 function skipGapAllows(gap: string): boolean {
   if (gapAllows(gap)) return true;
   return /^[ \t:#,\.\-]*(?:date|on|by|until|thru)[ \t:#,\.\-]*$/i.test(gap);
@@ -213,7 +234,9 @@ function adjacentMatchLength(line: string, dateStart: number, dateEnd: number, p
 }
 
 function dateIsSkipped(line: string, dateStart: number, dateEnd: number): boolean {
-  return SKIP_PHRASES.some(phrase => adjacentMatchLength(line, dateStart, dateEnd, phrase, true) > 0);
+  return SKIP_PHRASES.some(phrase =>
+    adjacentMatchLength(line, dateStart, dateEnd, phrase, BRIDGE_SKIP_PHRASES.has(phrase)) > 0
+  );
 }
 
 function labelTier(line: string, dateStart: number, dateEnd: number): number {
