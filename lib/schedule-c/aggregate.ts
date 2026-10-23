@@ -220,7 +220,7 @@ export function chargeRecursFromMerchant(tx: MerchantFields, peers: readonly Mer
   return false;
 }
 
-function descriptionOf(tx: { description?: unknown }): string {
+function descriptionOf(tx: ScheduleCTransactionLike): string {
   return typeof tx.description === 'string' ? tx.description : '';
 }
 
@@ -230,7 +230,7 @@ function descriptionOf(tx: { description?: unknown }): string {
  * A one-off at or under $2,500.00 is Part V with the de minimis election note.
  * A one-off over $2,500.00, or a description that says multi-year or lifetime, needs more information.
  */
-function softwareTreatment(tx: ScheduleCTransactionLike, peers: readonly ScheduleCTransactionLike[]): CategoryTreatment {
+function softwareTreatment(tx: ScheduleCTransactionLike, peers: readonly MerchantFields[]): CategoryTreatment {
   if (MULTI_YEAR_OR_LIFETIME.test(descriptionOf(tx))) return NEEDS_MORE;
   if (tx.schedule_c_recurring === true || chargeRecursFromMerchant(tx, peers)) return partV(null);
   const cents = chargeAmountCents(tx.amount);
@@ -243,7 +243,7 @@ function softwareTreatment(tx: ScheduleCTransactionLike, peers: readonly Schedul
  * Year printing of Part V stays in otherExpensesYearPrint. A static map line is returned unchanged.
  * Ruled categories are pharmacy, home improvement, computers, and SERVICE_SUBSCRIPTION.
  */
-export function resolveCategoryTreatment(tx: ScheduleCTransactionLike, peers: readonly ScheduleCTransactionLike[] = [], categoryMap: Record<string, CategoryMapEntry> = CATEGORY_MAP): CategoryTreatment {
+export function resolveCategoryTreatment(tx: ScheduleCTransactionLike, peers: readonly MerchantFields[] = [], categoryMap: Record<string, CategoryMapEntry> = CATEGORY_MAP): CategoryTreatment {
   const category = typeof tx.category === 'string' ? tx.category.trim() : '';
   if (category === 'GENERAL_MERCHANDISE_PHARMACY') return tx.is_deductible === true ? NEEDS_MORE : PERSONAL_ZERO;
   if (category === 'GENERAL_MERCHANDISE_HOME_IMPROVEMENT') return NEEDS_MORE;
