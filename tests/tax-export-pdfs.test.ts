@@ -228,6 +228,21 @@ describe('Schedule C real PDF and request integrity', () => {
     expect(view.text()).toContain('$12,000.00');
     expect(view.text()).not.toContain('$24,000.00');
   });
+  it('keeps export at 200 for a saved same-payments decision while legacy reconfirm is off', async () => {
+    delete process.env.legacyDecisionReconfirm;
+    state.records.gross_receipts = [record({ id: 'r1', amount: 12000, source: 'Synthetic platform', date: '2026-01-31', type: 'freelance' })];
+    state.records.income_1099 = [record({ id: 'k1', amount: 12000, formType: '1099-K', payerName: 'Synthetic platform' })];
+    state.records.income_reconciliations = [record({
+      id: 'legacy', decision: 'same_payments', version: 1, platformFeeAmount: null,
+      sources: [{ kind: 'form_1099', id: 'k1', amount: 12000 }, { kind: 'gross_receipt', id: 'r1', amount: 12000 }],
+    })];
+    const before = JSON.stringify(state.records);
+    for (const format of ['pdf', 'csv'] as const) {
+      const response = await scheduleC(request({ year: 2026, format, includeAppendix: false }));
+      expect(response.status).toBe(200);
+    }
+    expect(JSON.stringify(state.records)).toBe(before);
+  });
   it('R-34 still exports a file for a version 1 same-payments decision', async () => {
     state.records.gross_receipts = [record({ id: 'r1', amount: 12000, source: 'Synthetic platform', date: '2026-01-31', type: 'freelance' })];
     state.records.income_1099 = [record({ id: 'k1', amount: 12000, formType: '1099-K', payerName: 'Synthetic platform' })];

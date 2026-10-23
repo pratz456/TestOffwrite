@@ -1,5 +1,6 @@
 import { IncomeReconciliationRequiredError, listIncomeSourceCandidates, type IncomeRecord } from './business-income';
 import { CORRECTED_ORIGINAL_BADGE, LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_WARNING } from './income-reconciliation-copy';
+import { legacyDecisionReconfirm } from './reconciliation-feature';
 import {
   normalizeReconciliationDecision, resolveIncomeSources, sourceKey, validateReconciliationDecision,
   type FeeExpenseCandidate, type IncomeReconciliationConflict, type IncomeSourceCandidate, type IncomeSourceRef,
@@ -49,7 +50,7 @@ export interface SavedDecisionView {
   decidedAt: string | null;
   /** False when the decision no longer matches the current records and is reported as a conflict. */
   applied: boolean;
-  /** True only for a same_payments decision saved before this change (version missing or 1). */
+  /** True only while legacyDecisionReconfirm is on, for a same_payments decision with version missing or 1. */
   needsReconfirm: boolean;
   /** Non-blocking warning while r10_5LegacyNecReopen is off. */
   legacyNecWarning?: string;
@@ -103,7 +104,7 @@ function decisionView(record: IncomeRecord, appliedIds: ReadonlySet<string>, war
     countedAmount: typeof record.countedAmount === 'number' && Number.isFinite(record.countedAmount) ? record.countedAmount : null,
     decidedAt: str(record.decidedAt) || null,
     applied: appliedIds.has(id),
-    needsReconfirm: record.decision === 'same_payments' && (record.version === undefined || record.version === null || record.version === 1),
+    needsReconfirm: legacyDecisionReconfirm() && record.decision === 'same_payments' && (record.version === undefined || record.version === null || record.version === 1),
     ...(warningIds.has(id) ? { legacyNecWarning: LEGACY_NEC_WARNING } : {}),
     ...(reopenedIds.has(id) ? { changeNotice: LEGACY_NEC_CHANGE_NOTICE } : {}),
   };

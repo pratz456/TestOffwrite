@@ -528,22 +528,76 @@ describe('legacy decisions and copy', () => {
     expect(reconcileBusinessIncome(2026, [], receipts, forms, [legacy])).toMatchObject(
       reconcileBusinessIncome(2026, [], receipts, forms, [current]),
     );
-    const summary = summarizeIncomeReconciliation(2026, { transactions: [], receipts, forms, decisions: [legacy] });
-    expect(summary.grossReceipts).toBe(12000);
-    expect(summary.netReceipts).toBe(12000);
-    expect(summary.decisions[0].needsReconfirm).toBe(true);
+    process.env.legacyDecisionReconfirm = '1';
+    try {
+      const summary = summarizeIncomeReconciliation(2026, { transactions: [], receipts, forms, decisions: [legacy] });
+      expect(summary.grossReceipts).toBe(12000);
+      expect(summary.netReceipts).toBe(12000);
+      expect(summary.decisions[0].needsReconfirm).toBe(true);
+    } finally {
+      delete process.env.legacyDecisionReconfirm;
+    }
+  });
+
+  it('keeps every saved decision on the old total when legacy reconfirm is off, and does not ask', () => {
+    const receipts = [receipt('r1', 12000)];
+    const forms = [form('k1', 12000)];
+    const sources = [ref('form_1099', 'k1', 12000), ref('gross_receipt', 'r1', 12000)];
+    const saved = { ...decision('d1', 'same_payments', sources), version: 1, countedAmount: 12000 };
+    const confirmed = { ...decision('d2', 'same_payments', sources), version: 2, choiceConfirmedAt: '2026-04-01T00:00:00.000Z', countedAmount: 12000 };
+    try {
+      for (const value of [undefined, 'true', '0'] as const) {
+        if (value === undefined) delete process.env.legacyDecisionReconfirm;
+        else process.env.legacyDecisionReconfirm = value;
+        for (const row of [saved, confirmed]) {
+          expect(() => reconcileBusinessIncome(2026, [], receipts, forms, [row])).not.toThrow();
+          const result = reconcileBusinessIncome(2026, [], receipts, forms, [row]);
+          expect(result.grossReceipts).toBe(12000);
+          expect(result.netReceipts).toBe(12000);
+          const summary = summarizeIncomeReconciliation(2026, { transactions: [], receipts, forms, decisions: [row] });
+          expect(summary.conflicts).toEqual([]);
+          expect(summary.grossReceipts).toBe(12000);
+          expect(summary.decisions[0].needsReconfirm).toBe(false);
+        }
+      }
+    } finally {
+      delete process.env.legacyDecisionReconfirm;
+    }
+  });
+
+  it('asks once about a saved same-payments decision only when legacy reconfirm is on', () => {
+    const receipts = [receipt('r1', 12000)];
+    const forms = [form('k1', 12000)];
+    const sources = [ref('form_1099', 'k1', 12000), ref('gross_receipt', 'r1', 12000)];
+    const saved = { ...decision('d1', 'same_payments', sources), version: 1, countedAmount: 12000 };
+    process.env.legacyDecisionReconfirm = '1';
+    try {
+      expect(() => reconcileBusinessIncome(2026, [], receipts, forms, [saved])).not.toThrow();
+      expect(reconcileBusinessIncome(2026, [], receipts, forms, [saved]).grossReceipts).toBe(12000);
+      const summary = summarizeIncomeReconciliation(2026, { transactions: [], receipts, forms, decisions: [saved] });
+      expect(summary.grossReceipts).toBe(12000);
+      expect(summary.conflicts).toEqual([]);
+      expect(summary.decisions[0].needsReconfirm).toBe(true);
+    } finally {
+      delete process.env.legacyDecisionReconfirm;
+    }
   });
 
   it('R-33 does not ask to reconfirm version 1 separate-income or fee decisions', () => {
-    const summary = summarizeIncomeReconciliation(2026, {
-      transactions: [deposit('t1', 6000), deposit('t2', 4000)], receipts: [], forms: [form('k1', 10500), form('n1', 2500, '1099-NEC', 'Client B')],
-      decisions: [
-        { ...decision('fee', 'k_includes_fees', [ref('form_1099', 'k1', 10500), ref('transaction', 't1', 6000), ref('transaction', 't2', 4000)], { platformFeeAmount: 500 }), version: 1 },
-        { ...decision('sep', 'separate_income', [ref('form_1099', 'n1', 2500)]), version: 1 },
-      ],
-    });
-    expect(summary.decisions.map(item => item.needsReconfirm)).toEqual([false, false]);
-    expect(summary.grossReceipts).toBe(13000);
+    process.env.legacyDecisionReconfirm = '1';
+    try {
+      const summary = summarizeIncomeReconciliation(2026, {
+        transactions: [deposit('t1', 6000), deposit('t2', 4000)], receipts: [], forms: [form('k1', 10500), form('n1', 2500, '1099-NEC', 'Client B')],
+        decisions: [
+          { ...decision('fee', 'k_includes_fees', [ref('form_1099', 'k1', 10500), ref('transaction', 't1', 6000), ref('transaction', 't2', 4000)], { platformFeeAmount: 500 }), version: 1 },
+          { ...decision('sep', 'separate_income', [ref('form_1099', 'n1', 2500)]), version: 1 },
+        ],
+      });
+      expect(summary.decisions.map(item => item.needsReconfirm)).toEqual([false, false]);
+      expect(summary.grossReceipts).toBe(13000);
+    } finally {
+      delete process.env.legacyDecisionReconfirm;
+    }
   });
 
   it('R-36 and R-37 keep the threshold wording and drop the banned claims', () => {

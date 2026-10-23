@@ -42,7 +42,7 @@ import {
   COMPARE_DIFF, COMPARE_SAME_AMOUNT, COMPARE_TITLE, CONFIRM_FORMS_REQUIRED, CONFIRM_SAME_BACK, CONFIRM_SAME_TITLE, CONFIRM_SAME_YES,
   CORRECTED_ORIGINAL_BADGE, CORRECTED_PICK_QUESTION, CORRECTED_PREVIEW, DECISION_HELP_CORRECTED, DECISION_LABEL_CORRECTED,
   DECISION_LABEL_NOT_BUSINESS, ERR_REASON_AMOUNT, GUIDE_ANSWER_APP, GUIDE_ANSWER_BANK, GUIDE_HINT_APP, GUIDE_HINT_BANK,
-  GUIDE_QUESTION, LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_YES, LEGACY_NEC_WARNING, NO_CHOICE_YET, NO_FORM_NO_INCOME, PANEL_FORMS_NOTE,
+  GUIDE_QUESTION, LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_TITLE, LEGACY_RECONFIRM_YES, LEGACY_NEC_WARNING, NO_CHOICE_YET, NO_FORM_NO_INCOME, PANEL_FORMS_NOTE,
   SAME_DISABLED_NEC, fillIncomeCopy,
 } from '../lib/tax-rules/income-reconciliation-copy';
 import { incomeReconciliationPath } from '../lib/tax-rules/income-reconciliation-response';
@@ -113,6 +113,7 @@ beforeEach(() => {
   harness.slots = []; harness.cursor = 0; harness.effects = []; harness.request.mockReset(); harness.navigate.mockReset(); harness.changed.mockReset();
   harness.request.mockImplementation(api);
   delete process.env.r10_5LegacyNecReopen;
+  delete process.env.legacyDecisionReconfirm;
   records.transactions = []; records.receipts = [receipt('r1', 12000)]; records.forms = [form('k1', 12000)]; records.decisions = []; nextId = 0;
 });
 
@@ -383,7 +384,20 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     expect(text(render(panel))).toContain(ERR_REASON_AMOUNT);
   });
 
+  it('does not ask about a saved same-payments decision while legacy reconfirm is off', async () => {
+    delete process.env.legacyDecisionReconfirm;
+    records.decisions = [{ id: 'legacy', taxYear: 2026, decision: 'same_payments', platformFeeAmount: null, countedAmount: 12000, decidedAt: '2026-02-01T00:00:00.000Z', version: 1,
+      sources: [{ kind: 'form_1099', id: 'k1', amount: 12000, label: '1099-K · Synthetic platform' }, { kind: 'gross_receipt', id: 'r1', amount: 12000, label: 'Direct income · Synthetic platform' }] }];
+    render(panel); await flush();
+    const shown = text(render(panel));
+    expect(shown).not.toContain(LEGACY_RECONFIRM_BODY);
+    expect(shown).not.toContain(LEGACY_RECONFIRM_TITLE);
+    expect(shown).toContain('$12,000.00');
+    expect(shown).not.toContain('on hold');
+  });
+
   it('R-31 confirms a legacy same-payments decision once', async () => {
+    process.env.legacyDecisionReconfirm = '1';
     records.decisions = [{ id: 'legacy', taxYear: 2026, decision: 'same_payments', platformFeeAmount: null, countedAmount: 12000, decidedAt: '2026-02-01T00:00:00.000Z', version: 1,
       sources: [{ kind: 'form_1099', id: 'k1', amount: 12000, label: '1099-K · Synthetic platform' }, { kind: 'gross_receipt', id: 'r1', amount: 12000, label: 'Direct income · Synthetic platform' }] }];
     render(panel); await flush();
@@ -400,6 +414,7 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
   });
 
   it('R-32 opens a legacy decision for a new answer with nothing selected', async () => {
+    process.env.legacyDecisionReconfirm = '1';
     records.decisions = [{ id: 'legacy', taxYear: 2026, decision: 'same_payments', platformFeeAmount: null, countedAmount: 12000, decidedAt: '2026-02-01T00:00:00.000Z', version: 1,
       sources: [{ kind: 'form_1099', id: 'k1', amount: 12000, label: '1099-K · Synthetic platform' }, { kind: 'gross_receipt', id: 'r1', amount: 12000, label: 'Direct income · Synthetic platform' }] }];
     render(panel); await flush();
@@ -599,6 +614,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
   });
 
   it('R-52 confirms a legacy two-form decision before the PATCH', async () => {
+    process.env.legacyDecisionReconfirm = '1';
     records.receipts = [];
     records.forms = [form('k1', 12000), form('n1', 12000, '1099-NEC', 'Client A')];
     records.decisions = [{ id: 'legacy', taxYear: 2026, decision: 'same_payments', platformFeeAmount: null, countedAmount: 12000, decidedAt: '2026-02-01T00:00:00.000Z', version: 1,
