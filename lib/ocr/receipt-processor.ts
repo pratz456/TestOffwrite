@@ -95,9 +95,17 @@ function allowsMonthPeriod(token: string, dotted: boolean): boolean {
 }
 
 /** Lines that are not the purchase date. Whole words, a check number, and "visit by". Order already covers an order placed line. */
-const DATE_LINE_EXCLUSION = /\b(?:returns?|until|valid|through|thru|expires?|expiry|offer|due|printed|order|table|invoice|inv|ref|ticket|exp)\b|\bcheck\s*#|\bvisit\s+by\b/i;
-/** A purchase label outranks an unlabeled date elsewhere on the receipt. */
-const PURCHASE_DATE_LABEL = /\b(?:date|purchased|purchase|transaction|sale|check-out|checkout|paid)\b/i;
+const DATE_LINE_EXCLUSION = /\b(?:returns?|until|valid|through|thru|expires?|expiration|expiring|expiry|offer|due|printed|print|order|table|invoice|inv|ref|ticket|exp|shipped|ship|delivered|delivery|statement|arrival|exchange)\b|\bcheck\s*#|\bvisit\s+by\b/i;
+/** Words that mark a purchase line. "date" is not one of them. */
+const PURCHASE_WORD = /\b(?:purchased|purchase|transaction|sale|check-out|checkout|paid)\b/i;
+/** "Date" at the start of the line, as in "Date:" or "Date 01/05/2026". */
+const DATE_LABEL_AT_START = /^\s*date\b/i;
+/** "date" also counts inside Purchase Date, Transaction Date, and Sale Date. */
+const NAMED_DATE_LABEL = /\b(?:purchase|transaction|sale)\s+date\b/i;
+
+function lineHasPurchaseLabel(line: string): boolean {
+  return PURCHASE_WORD.test(line) || DATE_LABEL_AT_START.test(line) || NAMED_DATE_LABEL.test(line);
+}
 
 type ReceiptDateCandidate = { raw: string; index: number; iso: string; line: string };
 
@@ -127,13 +135,13 @@ function withoutSkippedDateLines(candidates: ReceiptDateCandidate[]): ReceiptDat
 }
 
 function withPurchaseLabelPreference(candidates: ReceiptDateCandidate[]): ReceiptDateCandidate[] {
-  const labeled = candidates.filter(candidate => PURCHASE_DATE_LABEL.test(candidate.line));
+  const labeled = candidates.filter(candidate => lineHasPurchaseLabel(candidate.line));
   return labeled.length > 0 ? labeled : candidates;
 }
 
 function withoutConflictingUnlabeledYears(candidates: ReceiptDateCandidate[]): ReceiptDateCandidate[] {
-  if (candidates.some(candidate => PURCHASE_DATE_LABEL.test(candidate.line))) return candidates;
-  const years = new Set(candidates.map(candidate => candidate.iso.slice(0, 4)));
+  const labeled = candidates.filter(candidate => lineHasPurchaseLabel(candidate.line));
+  const years = new Set((labeled.length > 0 ? labeled : candidates).map(candidate => candidate.iso.slice(0, 4)));
   return years.size > 1 ? [] : candidates;
 }
 

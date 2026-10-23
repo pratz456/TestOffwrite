@@ -145,8 +145,26 @@ const LABEL_STEP = '03/15/2026\nDate: Jan 5, 2026\nTotal $12.34';
 const CALENDAR: Array<[string, string, string]> = [
   ['Feb 4, 2026 Jan 5, 2026\nTotal $12.34', 'Jan 5, 2026', '2026-01-05'],
   ['Jan 20, 2026\nJan 3, 2026\nTotal $12.34', 'Jan 3, 2026', '2026-01-03'],
-  ['Date: 01/05/2026\nPaid 12/30/2025\nTotal $12.34', '12/30/2025', '2025-12-30'],
+  ['Jan 20, 2026\nJan 5, 2026\nTotal $12.34', 'Jan 5, 2026', '2026-01-05'],
   ['2026-01-05\nJan 5, 2026\nTotal $12.34', 'Jan 5, 2026', '2026-01-05'],
+];
+const SHIPPING: Array<[string, string, string]> = [
+  ['Dec 30, 2025\nCoupon Expiration Date 01/31/2026\nTotal $12.34', 'Dec 30, 2025', '2025-12-30'],
+  ['Departure 12/31/2025\nPrint Date 01/02/2026\nTotal $12.34', '12/31/2025', '2025-12-31'],
+  ['12/30/2025\nShip Date 01/05/2026\nTotal $12.34', '12/30/2025', '2025-12-30'],
+  ['12/30/2025\nEstimated Delivery Date 01/05/2026\nTotal $12.34', '12/30/2025', '2025-12-30'],
+  ['12/30/2025\nCoupon Expiration: 01/31/2026\nTotal $12.34', '12/30/2025', '2025-12-30'],
+  ['12/30/2025\nExchange by 01/29/2026\nTotal $12.34', '12/30/2025', '2025-12-30'],
+  ['12/30/2025\nExpiring 01/05/2026\nTotal $12.34', '12/30/2025', '2025-12-30'],
+  ['12/30/2025\nShipped 01/05/2026\nTotal $12.34', '12/30/2025', '2025-12-30'],
+  ['12/30/2025\nDelivered 01/05/2026\nTotal $12.34', '12/30/2025', '2025-12-30'],
+  ['12/30/2025\nStatement 01/05/2026\nTotal $12.34', '12/30/2025', '2025-12-30'],
+  ['12/30/2025\nArrival 01/05/2026\nTotal $12.34', '12/30/2025', '2025-12-30'],
+  ['Transaction Date 12/31/2025\nPayment Date 01/02/2026\nTotal $12.34', '12/31/2025', '2025-12-31'],
+];
+const LABELED_TWO_YEARS = [
+  'Date: 12/31/2025\nPaid 01/02/2026\nTotal $12.34',
+  'Date: 01/05/2026\nPaid 12/30/2025\nTotal $12.34',
 ];
 const RULING: Array<[string, string]> = [
   ['Order placed 12/29/2025\nPaid Jan 2, 2026\nTotal $12.34', '2026-01-02'],
@@ -371,6 +389,26 @@ describe('OCR save uses the printed calendar day', () => {
     const response = await POST(request());
     expect(response.status).toBe(200);
     expect((await response.json()).transaction.date).toBe('2026-01-05');
+  });
+
+  it.each(LABELED_TWO_YEARS)('saves no date when labeled dates span two years in %j', async text => {
+    expect(extractDate(text)).toBe('');
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: 'Enter a real receipt date before saving' });
+    expect(mocks.createTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each(SHIPPING)('keeps the purchase day and skips the later line in %j', async (text, raw, iso) => {
+    const extracted = extractDate(text);
+    expect(extracted).toBe(raw);
+    expect(normalizeDateToISO(extracted)).toBe(iso);
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({ date: iso }));
+    expect((await response.json()).transaction.date).toBe(iso);
   });
 
   it.each(CALENDAR)('saves the earliest calendar day from %j', async (text, raw, iso) => {
