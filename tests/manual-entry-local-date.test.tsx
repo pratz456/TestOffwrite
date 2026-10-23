@@ -77,6 +77,10 @@ describe('manual entries use the local calendar date', () => {
         inputs.find(node => node.props.placeholder?.startsWith('e.g.'))!.props.onChange({ target: { value: 'Synthetic entry' } });
         inputs.find(node => node.props.type === 'number')!.props.onChange({ target: { value: '25' } });
         dateInput.props.onChange({ target: { value: '2025-04-09' } });
+        if (mode === 'expense') {
+          walk(tree).find(node => typeof node.props.onValueChange === 'function' && node.props.value !== 'expense' && node.props.value !== 'income')!
+            .props.onValueChange('SERVICE_ADVERTISING');
+        }
         const form = walk(render(Screen)).find(node => node.type === 'form')!;
 
         // Midnight may pass while the form is open. Save the user's date and
@@ -91,5 +95,61 @@ describe('manual entries use the local calendar date', () => {
         expect(walk(render(Screen)).find(node => node.props.type === 'date')!.props.value).toBe(date.next);
       });
     }
+  }
+});
+
+function textOf(node: unknown): string {
+  if (Array.isArray(node)) return node.map(textOf).join('');
+  if (node && typeof node === 'object' && 'props' in node) return textOf((node as Element).props.children);
+  return node == null || typeof node === 'boolean' ? '' : String(node);
+}
+function categorySelect(tree: Element) {
+  const select = walk(tree).find(node => typeof node.props.onValueChange === 'function' && node.props.value !== 'expense' && node.props.value !== 'income');
+  if (!select) throw new Error('missing category select');
+  return select;
+}
+
+describe('manual expense category is chosen before save', () => {
+  for (const [name, Screen] of screens) {
+    it(`${name}: a default expense is blocked at save and is never silently dropped`, async () => {
+      vi.setSystemTime(new Date(2026, 9, 23, 12, 30));
+      let tree = render(Screen);
+      walk(tree).find(node => node.props.placeholder?.startsWith('e.g.'))!.props.onChange({ target: { value: 'Synthetic entry' } });
+      walk(tree).find(node => node.props.type === 'number')!.props.onChange({ target: { value: '25' } });
+      tree = render(Screen);
+      expect(textOf(tree)).toContain('Pick a category');
+      const submit = walk(tree).find(node => node.props.type === 'submit');
+      expect(submit?.props.disabled).toBe(true);
+      await walk(tree).find(node => node.type === 'form')!.props.onSubmit({ preventDefault() {} });
+      expect(harness.request).not.toHaveBeenCalled();
+      expect(textOf(render(Screen))).toContain('Pick a category');
+    });
+
+    it(`${name}: other requires a description, and is_deductible starts off`, async () => {
+      vi.setSystemTime(new Date(2026, 9, 23, 12, 30));
+      const tree = render(Screen);
+      const initial = harness.slots[4] as { category: string; is_deductible: boolean };
+      expect(initial.category).toBe('');
+      expect(initial.is_deductible).toBe(false);
+      walk(tree).find(node => node.props.placeholder?.startsWith('e.g.'))!.props.onChange({ target: { value: 'Synthetic entry' } });
+      walk(tree).find(node => node.props.type === 'number')!.props.onChange({ target: { value: '25' } });
+      categorySelect(tree).props.onValueChange('other');
+      let next = render(Screen);
+      expect(textOf(next)).toContain('Description');
+      expect(walk(next).find(node => node.props.type === 'submit')?.props.disabled).toBe(true);
+      await walk(next).find(node => node.type === 'form')!.props.onSubmit({ preventDefault() {} });
+      expect(harness.request).not.toHaveBeenCalled();
+      expect(textOf(render(Screen))).toContain('Add a description');
+      const notes = walk(render(Screen)).find(node => typeof node.props.placeholder === 'string' && /Invoice|Receipt/.test(node.props.placeholder));
+      notes!.props.onChange({ target: { value: 'Booth supplies for the client fair' } });
+      next = render(Screen);
+      expect(walk(next).find(node => node.props.type === 'submit')?.props.disabled).toBe(false);
+      await walk(next).find(node => node.type === 'form')!.props.onSubmit({ preventDefault() {} });
+      expect(harness.request).toHaveBeenCalledTimes(1);
+      const payload = JSON.parse(harness.request.mock.calls[0][1].body);
+      expect(payload.category).toBe('other');
+      expect(payload.notes).toBe('Booth supplies for the client fair');
+      expect(payload.is_deductible).toBe(false);
+    });
   }
 });

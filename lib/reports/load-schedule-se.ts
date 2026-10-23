@@ -31,7 +31,7 @@ export async function loadScheduleCRecords(uid: string, taxYear: number) {
   const transactions = tx;
   const filingStatus = normalizeFilingStatus(profile.data.filing_status);
   const receipts = reconcileBusinessIncome(taxYear, transactions.map(row => ({ ...row })), gross.docs.map(doc => ({ ...doc.data(), id: doc.id })), forms.docs.map(doc => ({ ...doc.data(), id: doc.id })), decisions);
-  const expense = aggregateScheduleC(transactions, String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' });
+  const expense = aggregateScheduleC(transactions, String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only', fuelProfile: profile.data });
   const w2 = summarizeW2Income(wages.docs.map(doc => doc.data()));
   return {
     taxYear, profile: profile.data, transactions, receipts, expense, w2, w2Count: wages.docs.length,

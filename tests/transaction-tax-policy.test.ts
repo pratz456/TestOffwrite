@@ -268,7 +268,7 @@ describe('merchant- and profession-aware grounding (2026-09-17.2)', () => {
   it('a business_likely merchant with no purpose gets a proposed purpose, never an approval', () => {
     const result = analyze(software(), { merchant: 'Figma', business_purpose: undefined });
     expect(result).toMatchObject({
-      status: 'needs_more_info', missing_fields: ['business_purpose'], proposed_purpose: 'Design software subscription used for client work', schedule_c_line: '18',
+      status: 'needs_more_info', missing_fields: ['business_purpose'], proposed_purpose: 'Design software subscription used for client work', schedule_c_line: '27a',
       questions: ['Is this Figma charge your design software subscription used for client work? Confirm or edit the purpose.'], evidence_ids: ['software-334'],
     });
     expect(result?.is_deductible).toBeUndefined(); expect(result?.deductible_percent).toBeUndefined();
@@ -276,10 +276,19 @@ describe('merchant- and profession-aware grounding (2026-09-17.2)', () => {
     expect(analyze(software(), { merchant: 'Unknown Vendor', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', business_purpose: undefined })?.proposed_purpose).toBeUndefined();
     expect(analyze(software(), { merchant: 'LinkedIn', business_purpose: undefined })).toMatchObject({ missing_fields: ['business_purpose'], questions: [expect.stringContaining('job-search')] });
   });
+  it('keeps a model energy label and sets needs_more_info instead of dropping it', () => {
+    for (const label of ['27a (179D)', 'Line 27a (Form 7205)', '27b (Energy efficient commercial buildings)']) {
+      const result = analyze({ schedule_c_line: label });
+      expect(result?.status, label).toBe('needs_more_info');
+      expect(result?.schedule_c_line, label).toBe(label);
+      expect(result?.is_deductible, label).toBeUndefined();
+      expect(result?.missing_fields, label).toEqual(['energy_efficient_buildings']);
+    }
+  });
   it('caller- or model-supplied proposed_purpose and schedule_c_line are dropped and recomputed', () => {
     const forged = { proposed_purpose: 'Whatever the model says', schedule_c_line: '99' } as Partial<OutputType>;
     const approved = analyze({ ...software(), ...forged }, { merchant: 'Figma' });
-    expect(approved).toMatchObject({ status: 'ok', is_deductible: true, schedule_c_line: '18' });
+    expect(approved).toMatchObject({ status: 'ok', is_deductible: true, schedule_c_line: '27a' });
     expect(approved?.proposed_purpose).toBeUndefined();
     const personal = analyze({ ...forged, transaction_kind: 'personal', is_deductible: false, expense_type: 'personal', evidence_ids: ['personal-262'] }, { merchant: 'Netflix' });
     expect(personal?.status).toBe('ok'); expect(personal?.proposed_purpose).toBeUndefined(); expect(personal?.schedule_c_line).toBeUndefined();

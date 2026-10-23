@@ -31,6 +31,7 @@ vi.mock('sonner', () => ({ toast: { error: harness.error, warning: vi.fn(), succ
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: harness.api }));
 vi.mock('@/lib/firebase/client', () => ({ auth: { currentUser: { getIdToken: async () => 'synthetic-id-token' } } }));
 import { ScheduleCExportScreen } from '../components/schedule-c-export-screen';
+import { reviewHydrationFields } from '@/lib/transactions/ai-review-contract';
 
 const props = {
   user: { id: 'synthetic-user' }, onBack: () => {},
@@ -59,6 +60,24 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('Schedule C supported-year selection', () => {
+  it('export screen: a confirmed 179D-labeled dues row contributes 0', () => {
+    const stored = { id: 'dues-179d', merchant_name: 'AIGA', amount: 120, category: 'SERVICE_PROFESSIONAL_DUES', date: '2026-06-15', is_deductible: true, review_status: 'confirmed', schedule_c_line: '27a (179D)' };
+    const hydrated = reviewHydrationFields(stored);
+    expect(hydrated.schedule_c_line).toBe('27a (179D)');
+    const input = {
+      user: { id: 'synthetic-user' }, onBack: () => {},
+      transactions: [{
+        id: stored.id, merchant_name: stored.merchant_name, amount: stored.amount, category: stored.category,
+        date: stored.date, is_deductible: stored.is_deductible, review_status: hydrated.review_status,
+        schedule_c_line: hydrated.schedule_c_line, scheduleC_line: hydrated.scheduleC_line,
+      }],
+    };
+    render(input);
+    const body = text(render(input));
+    expect(body).toContain('$0.00');
+    expect(body).toContain('Needs more information');
+    expect(body).not.toContain('$120.00');
+  });
   it('offers 2026, 2025 and 2024 and defaults to the latest supported year', () => {
     const select = walk(render()).find(node => node.type === 'select');
     expect(walk(select).filter(node => node.type === 'option').map(node => node.props.value)).toEqual(['2026', '2025', '2024']);

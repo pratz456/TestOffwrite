@@ -36,6 +36,13 @@ export async function POST(request: NextRequest) {
   const numAmount = Math.abs(Number(amount));
   const txType: 'income' | 'expense' = type === 'income' ? 'income' : 'expense';
   const storedAmount = txType === 'income' ? -numAmount : numAmount;
+  const trimmedCategory = category?.trim() ?? '';
+  if (txType === 'expense' && !trimmedCategory) {
+    return NextResponse.json({ error: 'Pick a category' }, { status: 400 });
+  }
+  if (txType === 'expense' && trimmedCategory.toLowerCase() === 'other' && !notes?.trim()) {
+    return NextResponse.json({ error: 'Add a description' }, { status: 400 });
+  }
 
   const accountRef = adminDb.collection('user_profiles').doc(user.uid).collection('accounts').doc(MANUAL_ACCOUNT_ID);
   const accountDoc = await accountRef.get();
@@ -53,7 +60,7 @@ export async function POST(request: NextRequest) {
     amount: storedAmount,
     ...(iso_currency_code ? { iso_currency_code } : {}),
     date,
-    category: category || (txType === 'income' ? 'income' : 'other'),
+    category: txType === 'income' ? trimmedCategory || 'income' : trimmedCategory,
     notes: notes?.trim() || '',
     business_purpose: business_purpose?.trim() || '',
     type: txType,

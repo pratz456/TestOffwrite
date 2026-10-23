@@ -86,7 +86,7 @@ async function transport(url: string) {
   h.lastJson = await response.clone().json();
   return response;
 }
-function expense(amount: number, extra = {}) { return { amount, date: '2026-09-02', iso_currency_code: 'USD', category: 'office_expense', is_deductible: true, ...extra }; }
+function expense(amount: number, extra = {}) { return { amount, date: '2026-09-02', iso_currency_code: 'USD', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', merchant_name: 'Supplier', is_deductible: true, ...extra }; }
 beforeEach(() => {
   h.slots = []; h.cursor = 0; h.effects = []; h.uid = 'dashboard-owner';
   h.profile = { id: h.uid, filing_status: 'Single', income: 0 }; h.tx = []; h.records = { tax_organizers: [reviewedPersonalDeductionOrganizer()] }; h.paid = 0; h.apiError = null; h.lastJson = null;

@@ -11,8 +11,8 @@ describe('manual-account income and expense-refund reconciliation', () => {
   it('does not count the same current-year expense refund as receipts and a reduced expense', async () => {
     mock.read.mockResolvedValue([
       { ...saved, trans_id: 'client', category: 'INCOME', amount: -100000, type: 'income', is_deductible: false },
-      { ...saved, trans_id: 'office', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', amount: 100, type: 'expense', is_deductible: true },
-      { ...saved, trans_id: 'refund', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', amount: -20, type: 'expense', is_deductible: true },
+      { ...saved, trans_id: 'office', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', amount: 100, type: 'expense', is_deductible: true, merchant_name: 'Supplier' },
+      { ...saved, trans_id: 'refund', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', amount: -20, type: 'expense', is_deductible: true, merchant_name: 'Supplier' },
     ]);
     const transactions = await readTaxExportTransactions('owner', 2026);
     // Exercise the actual reader that derives income from the negative sign.

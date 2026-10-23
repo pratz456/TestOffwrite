@@ -6,6 +6,7 @@ import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { matchProfessions, professionHint } from './profession-priors';
 import { redactIdentifierText } from '@/lib/security/identifier-redaction';
 import { BUSINESS_STANDARD_MILEAGE_RATES } from '@/lib/tax-rules/mileage-rates';
+import { isEnergyBuildings27b } from '@/lib/schedule-c/line-labels';
 
 /** Selected, reviewed federal rules. This is not retrieval over the entire tax code. */
 export const TRANSACTION_TAX_POLICY_VERSION = 'federal-transactions-2026-09-23.2';
@@ -77,18 +78,18 @@ export const TRANSACTION_TAX_EVIDENCE = [
   added('information-returns-6041', '26 USC 6041 — Information returns for contractor payments (Form 1099-NEC)', codeUrl(6041), 'Current Code as amended by P.L. 119-21: $600 for 2025 payments; $2,000 for payments after 2025, indexed after 2026',
     'A business that pays an unincorporated contractor $600 or more during 2025, or $2,000 or more in a calendar year after 2025 (indexed for inflation after 2026), must file Form 1099-NEC and furnish a copy; the deduction does not depend on filing, but the duty and the contractor\'s Form W-9 are part of the record. Payments made by card or through a third-party settlement platform such as PayPal goods-and-services, Upwork or Fiverr are reported by the platform on Form 1099-K (§6050W) instead of by you. When contract labor is confirmed, ask for the contractor\'s name, entity type and yearly total.',
     'Threshold and §6041(h) indexing verified in the current uscode.house.gov text on 2026-09-17; the 1099-K carve-out follows the Instructions for Forms 1099-MISC and 1099-NEC.'),
-  added('education-reg-1.162-5', 'Treas. Reg. §1.162-5 — Expenses for education', 'https://www.ecfr.gov/current/title-26/section-1.162-5', 'Current eCFR text; selected rule; Schedule C line 27a',
+  added('education-reg-1.162-5', 'Treas. Reg. §1.162-5 — Expenses for education', 'https://www.ecfr.gov/current/title-26/section-1.162-5', 'Current eCFR text; selected rule; Schedule C line 27b (other expenses; line 27a on 2024 returns)',
     'Education is deductible when it maintains or improves skills required in your present business, or is required to keep your status or license, and it is not education that meets the minimum requirements of your trade or qualifies you for a new trade or business. Common false positives: courses to start a different line of work, degree programs that qualify you for a new profession, general-interest or personal-development classes, and coaching unrelated to a skill you sell. Eligibility needs the course topic, how it relates to the services you already provide, and the receipt.'),
   added('insurance-334', 'IRS Publication 334, ch. 8 — Insurance (business premiums vs. self-employed health insurance)', PUB_334, '2025 publication; Schedule C line 15; §162(l) health premiums via Form 7206',
     'Premiums for business liability, professional or errors-and-omissions coverage, business property, commercial auto (only under the actual-expense vehicle method), workers\' compensation and business interruption coverage are deductible on Schedule C line 15. Health, dental and vision premiums for you and your family are not a Schedule C expense: they are a Schedule 1 adjustment computed on Form 7206 (§162(l)) that does not reduce self-employment tax, and life or disability insurance on yourself is personal. Eligibility needs the policy type, the insured business risk or property, and the premium statement.'),
-  added('bank-fees-334', 'IRS Publication 334, ch. 8 — Bank charges and payment processing fees', PUB_334, '2025 publication; "Other Expenses You Can Deduct"; Schedule C line 10 or 27a',
-    'Service charges, wire and ACH fees, merchant processing fees (Stripe, Square, PayPal) and annual fees on cards or accounts used for the business are deductible (Schedule C line 10, commissions and fees, or line 27a). Fees on a personal account, interest and overdraft charges from personal spending, and ATM fees for personal cash are not. Eligibility needs the account or processor the fee came from and that the account carries business activity.'),
+  added('bank-fees-334', 'IRS Publication 334, ch. 8 — Bank charges and payment processing fees', PUB_334, '2025 publication; "Other Expenses You Can Deduct"; Schedule C line 10 or Schedule C line 27b (other expenses; line 27a on 2024 returns)',
+    'Service charges, wire and ACH fees, merchant processing fees (Stripe, Square, PayPal) and annual fees on cards or accounts used for the business are deductible (Schedule C line 10, commissions and fees, or Schedule C line 27b (other expenses; line 27a on 2024 returns)). Fees on a personal account, interest and overdraft charges from personal spending, and ATM fees for personal cash are not. Eligibility needs the account or processor the fee came from and that the account carries business activity.'),
   added('platform-fees-1099k', 'IRS — Understanding your Form 1099-K (gross receipts vs. platform fees)', 'https://www.irs.gov/businesses/understanding-your-form-1099-k', 'IRS page as reviewed 2026-09-17; selected rule; Schedule C line 10',
     'Marketplace and payment-platform payouts (Etsy, Amazon, Shopify Payments, Stripe, Upwork, rideshare and delivery apps) usually arrive net of fees while Form 1099-K reports the gross amount: report gross receipts and deduct the commissions and processing fees separately (Schedule C line 10). Treating a net payout as income understates receipts and hides the deductible fees. Eligibility needs the platform statement showing gross sales and the fees withheld.'),
-  source('dues-274a3', '26 USC 274(a)(3) — Club dues disallowed; professional and trade association dues', codeUrl(274), 'Current Code; selected rule with Publication 334 ch. 8; Schedule C line 27a',
-    'No deduction is allowed for membership in any club organized for business, pleasure, recreation or other social purpose: gyms, health and athletic clubs, country and golf clubs, airline and hotel clubs, and social or dining clubs, even when networking or fitness supports your work. Dues to professional and trade associations, chambers of commerce, boards of trade, licensing boards and civic or public-service organizations remain ordinary business expenses (Schedule C line 27a) when membership serves the business. Exclude lobbying and political portions using the association notice (§162(e)); an unspecified business-use percentage does not establish that allocation. Eligibility needs the organization type and its role in your business; a facility used exclusively in the business, such as space you rent to train clients, is a rent question rather than a dues question.', '2026-09-23'),
-  added('gifts-274b', '26 USC 274(b) — Business gifts limited to $25 per recipient per year', codeUrl(274), 'Current Code; selected rule; Schedule C line 27a',
-    'Gifts to clients, referral sources or vendors are deductible only up to $25 per recipient per year (Schedule C line 27a); items costing $4 or less with your business name permanently imprinted and distributed widely, and signs or displays used on the recipient\'s premises, fall outside the cap. Common false positives: gifts to family or friends, gift cards used personally, and event tickets given away, which follow the entertainment disallowance. Eligibility needs the recipient, the business relationship, the cost and the date.'),
+  source('dues-274a3', '26 USC 274(a)(3) — Club dues disallowed; professional and trade association dues', codeUrl(274), 'Current Code; selected rule with Publication 334 ch. 8; Schedule C line 27b (other expenses; line 27a on 2024 returns)',
+    'No deduction is allowed for membership in any club organized for business, pleasure, recreation or other social purpose: gyms, health and athletic clubs, country and golf clubs, airline and hotel clubs, and social or dining clubs, even when networking or fitness supports your work. Dues to professional and trade associations, chambers of commerce, boards of trade, licensing boards and civic or public-service organizations remain ordinary business expenses (Schedule C line 27b (other expenses; line 27a on 2024 returns)) when membership serves the business. Exclude lobbying and political portions using the association notice (§162(e)); an unspecified business-use percentage does not establish that allocation. Eligibility needs the organization type and its role in your business; a facility used exclusively in the business, such as space you rent to train clients, is a rent question rather than a dues question.', '2026-09-23'),
+  added('gifts-274b', '26 USC 274(b) — Business gifts limited to $25 per recipient per year', codeUrl(274), 'Current Code; selected rule; Schedule C line 27b (other expenses; line 27a on 2024 returns)',
+    'Gifts to clients, referral sources or vendors are deductible only up to $25 per recipient per year (Schedule C line 27b (other expenses; line 27a on 2024 returns)); items costing $4 or less with your business name permanently imprinted and distributed widely, and signs or displays used on the recipient\'s premises, fall outside the cap. Common false positives: gifts to family or friends, gift cards used personally, and event tickets given away, which follow the entertainment disallowance. Eligibility needs the recipient, the business relationship, the cost and the date.'),
   added('phone-internet-262', '26 USC 262(b) — Telephone and internet: business-use allocation', codeUrl(262), 'Current Code; selected rule with Publication 334 ch. 8; Schedule C line 25',
     'Phone and internet plans are usually mixed use: only the documented business share of the bill is deductible (Schedule C line 25), and the basic local charge for the first landline into your home is personal by statute. Cell phones stopped being listed property in 2010 (P.L. 111-240 amended §280F), so no trip-style log is required, but deducting a full family or single personal plan is a common false positive. Eligibility needs the recorded business-use percentage or a dedicated business line and the monthly statement.',
     'Removal of cellular telephones from §280F(d)(4) confirmed in the amendment notes of the current uscode.house.gov text on 2026-09-17.'),
@@ -145,9 +146,9 @@ export const CATEGORY_EVIDENCE: Record<ExpenseCategory, readonly string[]> = {
 const VEHICLE_PURCHASE_EVIDENCE = ['assets-946', 'capital-263', 'travel-463', 'mileage-rates'] as const;
 /** Schedule C line per expense category (2025 Instructions for Schedule C); a matching merchant entry can refine it. */
 export const CATEGORY_SCHEDULE_C_LINE: Record<ExpenseCategory, string | null> = {
-  advertising_marketing: '8', supplies_small_tools: '22', software_subscriptions: '18', contract_labor: '11', equipment: '13',
+  advertising_marketing: '8', supplies_small_tools: '22', software_subscriptions: '27a', contract_labor: '11', equipment: '13',
   vehicle_expense: '9', parking_tolls: '9', travel: '24a', meals_50: '24b', home_office: '30', utilities_phone_internet: '25', education_training: '27a',
-  dues_and_memberships: '27a', bank_and_payment_fees: '10', rent: '20b', insurance: '15', legal_professional: '17', taxes_licenses: '23',
+  dues_and_memberships: '27a', bank_and_payment_fees: '27a', rent: '20b', insurance: '15', legal_professional: '17', taxes_licenses: '23',
   repairs_maintenance: '21', other: null,
 };
 
@@ -377,6 +378,9 @@ export function groundTransactionAnalysis(
 ): OutputType | null {
   const result: OutputType = { ...input };
   // Server-owned; a caller or model never supplies them.
+  // An energy label is the exception: it is kept and the row is needs_more_info, so it is not reported as Other expenses.
+  const suppliedScheduleLine = typeof result.schedule_c_line === 'string' ? result.schedule_c_line : '';
+  const energyFromModel = suppliedScheduleLine && isEnergyBuildings27b(suppliedScheduleLine) ? suppliedScheduleLine : '';
   delete result.proposed_purpose; delete result.schedule_c_line;
   const ids = [...(result.evidence_ids ?? [])];
   if (!Array.isArray(ids) || !ids.length || ids.length > 3 || ids.some(id => !TRANSACTION_EVIDENCE_IDS.includes(id)) || new Set(ids).size !== ids.length) return null;
@@ -926,8 +930,16 @@ export function groundTransactionAnalysis(
   // The Schedule C line names where a confirmed expense would be reported; it is display metadata, not an approval.
   if (result.transaction_kind === 'expense' && result.status !== 'blocked' && result.category && input.expense_type !== 'personal' && result.expense_type !== 'personal'
       && result.is_deductible !== false && !result.missing_fields?.includes('transaction_kind')) {
-    const line = merchant.category === result.category && merchant.scheduleCLine ? merchant.scheduleCLine : CATEGORY_SCHEDULE_C_LINE[result.category];
+    const merchantLine = merchant.category === result.category && merchant.scheduleCLine ? merchant.scheduleCLine : null;
+    const line = upworkPlatformFee ? '10' : merchantLine ?? CATEGORY_SCHEDULE_C_LINE[result.category];
     if (line) result.schedule_c_line = line;
+  }
+  // Restored after the category line assignment, which still runs when is_deductible is unset.
+  if (energyFromModel) {
+    requireInfo(result, 'energy_efficient_buildings',
+      'This label names the energy-efficient commercial buildings deduction (section 179D / Form 7205). What was purchased, and is it an ordinary business expense instead?',
+      'A label that names energy-efficient commercial buildings, section 179D, or Form 7205 is not reported as Other expenses. It needs more information before it can be included.');
+    result.schedule_c_line = energyFromModel;
   }
   // Model-selected ids lead, but a gate's cited rules and the category rule are never squeezed out by them.
   const required = [...new Set([...gateEvidence, ...(categoryRule ? [categoryRule] : [])])].slice(0, 3);

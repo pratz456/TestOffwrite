@@ -9,7 +9,7 @@ import { formatRecordedTransactionAmount } from '@/lib/transactions/amount-displ
 
 const expense = (facts: Record<string, unknown> = {}) => ({
   id: 'one', date: '2026-12-31T23:59:00-08:00', amount: 100, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES',
-  iso_currency_code: 'USD', is_deductible: true, review_status: 'confirmed', ...facts,
+  merchant_name: 'Supplier', iso_currency_code: 'USD', is_deductible: true, review_status: 'confirmed', ...facts,
 });
 
 describe('confirmed transaction amounts displayed to the owner', () => {
@@ -34,8 +34,8 @@ describe('confirmed transaction amounts displayed to the owner', () => {
   });
   it('reconciles signed meal cents and refunds with the Schedule C aggregate and CSV', () => {
     const records = [expense(), expense({ id: 'refund', amount: -20 }),
-      expense({ id: 'meal', category: 'FOOD_AND_DRINK_RESTAURANT', amount: 10.01 }),
-      expense({ id: 'meal-refund', category: 'FOOD_AND_DRINK_RESTAURANT', amount: -1.01 })];
+      expense({ id: 'meal', category: 'FOOD_AND_DRINK_RESTAURANT', amount: 10.01, merchant_name: 'Cafe' }),
+      expense({ id: 'meal-refund', category: 'FOOD_AND_DRINK_RESTAURANT', amount: -1.01, merchant_name: 'Cafe' })];
     const summary = summarizeConfirmedDeductions(records, 2026);
     const exported = aggregateScheduleC(records, '2026', CATEGORY_MAP, { mode: 'confirmed-only' });
     expect(summary.totalRecordedAmount).toBe(89);
@@ -65,6 +65,13 @@ describe('confirmed transaction amounts displayed to the owner', () => {
     expect(summary.reviewMessage).toBeTruthy();
     expect(summary.totalDeductible).toBeNull(); expect(summary.totalRecordedAmount).toBeNull();
     expect(summary.contributions.size).toBe(0);
+  });
+
+  it('display deductions: a confirmed 179D-labeled dues row contributes 0', () => {
+    const row = expense({ id: 'dues-179d', amount: 120, date: '2026-06-15', category: 'SERVICE_PROFESSIONAL_DUES', schedule_c_line: '27a (179D)' });
+    const summary = summarizeConfirmedDeductions([row], 2026);
+    expect(summary.totalDeductible).toBe(0);
+    expect(summary.contributions.get(row)).toBe(0);
   });
 
   it('blocks duplicate identifiers and permits an explicitly full business allocation', () => {

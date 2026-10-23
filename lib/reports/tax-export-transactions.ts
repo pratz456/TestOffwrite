@@ -3,6 +3,24 @@ import { exportDate, selectExportYear, transactionAmount, ExportReviewRequiredEr
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
 
+const MIXED_USE_MESSAGE = 'A confirmed expense has a mixed-use or invalid business-use percentage. Review and reconcile the allocation before creating a tax summary; the current calculation cannot apply that percentage safely.';
+const OVERRIDE_MESSAGE = 'A confirmed expense has a recorded deduction override. Review and reconcile that adjustment before creating a tax summary; the current calculation cannot apply it safely.';
+
+/** Fuel uses the vehicle percentage. A mixed charge percentage must not block the export. Every other confirmed expense still blocks. */
+export function taxExportBlockReason(record: Record<string, unknown>): string | null {
+  const category = typeof record.category === 'string' ? record.category : '';
+  if (category === 'TRANSPORTATION_FUEL' || category === 'TRANSPORTATION_GAS') return null;
+  if ((record.is_deductible ?? record.deductible) !== true || record.pending === true) return null;
+  const allocations = ['business_percent', 'business_use_percent', 'business_use_percentage', 'businessUsePercent']
+    .filter(key => Object.prototype.hasOwnProperty.call(record, key)).map(key => record[key]);
+  const equipment = record.equipment_details;
+  if (equipment && typeof equipment === 'object' && 'business_use_percentage' in equipment) allocations.push((equipment as { business_use_percentage?: unknown }).business_use_percentage);
+  if (allocations.some(value => typeof value !== 'number' || !Number.isFinite(value) || value !== 100)) return MIXED_USE_MESSAGE;
+  if (['deduction_override', 'deductible_amount', 'deduction_amount', 'deductible_amount_override', 'deduction_percentage']
+    .some(key => record[key] !== undefined && record[key] !== null)) return OVERRIDE_MESSAGE;
+  return null;
+}
+
 /**
  * Complete owner-verified records; invalid dates/amounts cannot disappear from a
  * tax calculation. Superseded duplicates are dropped here as well as in the
@@ -21,19 +39,8 @@ export async function readTaxExportTransactions(uid: string, taxYear: number): P
     const currency = record.iso_currency_code;
     if (amount === null) throw new ExportReviewRequiredError('A saved transaction has an invalid amount. Correct it before creating a tax summary.');
     if (currency !== 'USD' || record.unofficial_currency_code) throw new ExportReviewRequiredError('Missing or non-USD transaction currencies require reviewed U.S. dollar amounts before creating a tax summary.');
-    if ((record.is_deductible ?? record.deductible) === true && record.pending !== true) {
-      const allocations = ['business_percent', 'business_use_percent', 'business_use_percentage', 'businessUsePercent']
-        .filter(key => Object.prototype.hasOwnProperty.call(record, key)).map(key => record[key]);
-      const equipment = record.equipment_details;
-      if (equipment && typeof equipment === 'object' && 'business_use_percentage' in equipment) allocations.push(equipment.business_use_percentage);
-      if (allocations.some(value => typeof value !== 'number' || !Number.isFinite(value) || value !== 100)) {
-        throw new ExportReviewRequiredError('A confirmed expense has a mixed-use or invalid business-use percentage. Review and reconcile the allocation before creating a tax summary; the current calculation cannot apply that percentage safely.');
-      }
-      if (['deduction_override', 'deductible_amount', 'deduction_amount', 'deductible_amount_override', 'deduction_percentage']
-        .some(key => record[key] !== undefined && record[key] !== null)) {
-        throw new ExportReviewRequiredError('A confirmed expense has a recorded deduction override. Review and reconcile that adjustment before creating a tax summary; the current calculation cannot apply it safely.');
-      }
-    }
+    const block = taxExportBlockReason(record);
+    if (block) throw new ExportReviewRequiredError(block);
     return { ...record, id: String(record.trans_id ?? record.id ?? ''), trans_id: String(record.trans_id ?? record.id ?? ''), amount,
       type: amount < 0 ? 'income' : 'expense',
       date: exportDate(record.date ?? record.datetime)!,
@@ -42,6 +49,8 @@ export async function readTaxExportTransactions(uid: string, taxYear: number): P
       account_id: record.account_id ?? record.accountId,
       is_deductible: (record.is_deductible ?? record.deductible ?? null) as boolean | null,
       pending: record.pending as boolean | null | undefined,
+      schedule_c_line: typeof record.schedule_c_line === 'string' || record.schedule_c_line === null ? record.schedule_c_line : null,
+      scheduleC_line: typeof record.scheduleC_line === 'string' || record.scheduleC_line === null ? record.scheduleC_line : null,
     };
   });
 }

@@ -12,8 +12,8 @@ import {
 import { EXPENSE_CATEGORIES, TRANSACTION_EVIDENCE_IDS } from '@/lib/ai/transaction-tax-policy';
 
 const LINES_BY_CATEGORY: Record<string, string[]> = {
-  advertising_marketing: ['8'], vehicle_expense: ['9'], bank_and_payment_fees: ['10'], contract_labor: ['11'], equipment: ['13'],
-  other: ['15', '16b', '17', '21', '23', '27a'], software_subscriptions: ['18'], rent: ['20a', '20b'], supplies_small_tools: ['22'],
+  advertising_marketing: ['8'], vehicle_expense: ['9'], bank_and_payment_fees: ['10', '27a'], contract_labor: ['11'], equipment: ['13'],
+  other: ['15', '16b', '17', '21', '23', '27a'], software_subscriptions: ['27a'], rent: ['20a', '20b'], supplies_small_tools: ['22'],
   travel: ['24a'], meals_50: ['24b'], utilities_phone_internet: ['25'], education_training: ['27a'], dues_and_memberships: ['27a'], home_office: ['30'],
 };
 
@@ -140,7 +140,7 @@ describe('analysis context wiring', () => {
   it('sends profession_context and tx.merchant_intelligence built from bank text only', () => {
     const built = buildAnalysisContext(transaction, context, extras);
     expect(built.profession_context).toContain('Graphic / UX designer');
-    expect(built.tx.merchant_intelligence).toMatchObject({ name: 'Adobe', category: 'software_subscriptions', schedule_c_line: '18', disposition: 'business_likely', confidence: 'high' });
+    expect(built.tx.merchant_intelligence).toMatchObject({ name: 'Adobe', category: 'software_subscriptions', schedule_c_line: '27a', disposition: 'business_likely', confidence: 'high' });
     expect(built.tx.merchant_intelligence?.default_purpose).toMatch(/design/i);
     expect(buildAnalysisContext({ ...transaction, merchant: 'XYZ 4471' }, context, extras).tx.merchant_intelligence).toBeNull();
     expect(buildAnalysisContext(transaction, { ...context, profession: [] }, extras).profession_context).toBeNull();

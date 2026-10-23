@@ -35,7 +35,10 @@ function confirmed(fields: Record<string, unknown> = {}): ExportRecord {
 function packet(transactions: ExportRecord[], extra: Partial<AuditSupportInputs> = {}, year = 2026) {
   return assembleAuditSupportPacket(uid, year, { transactions, trips: [], receipts: [], ...extra }, new Date('2026-09-17T12:00:00Z'));
 }
-const only = (transactions: ExportRecord[], extra: Partial<AuditSupportInputs> = {}) => packet(transactions, extra).deductions[0];
+const only = (transactions: ExportRecord[], extra: Partial<AuditSupportInputs> = {}) => {
+  const result = packet(transactions, extra);
+  return result.deductions[0] ?? result.needsMoreInformation[0];
+};
 const trip = (fields: Record<string, unknown> = {}) => ({ id: `trip-${++sequence}`, recordPath: `user_profiles/${uid}/mileage_trips/trip-${sequence}`, date: '2026-03-10', startLocation: 'Home office', endLocation: 'Client site', miles: 12, roundTrip: true, businessPurpose: 'Client kickoff', ...fields });
 beforeEach(() => { sequence = 0; state.rows.clear(); state.fail = ''; });
 
@@ -195,6 +198,39 @@ describe('totals, mileage log and retention', () => {
     ]);
     const credit = result.deductions.find(record => record.amount === -10)!;
     expect(credit.direction).toBe('credit'); expect(credit.substantiation.missing).toEqual([]);
+  });
+  it('keeps a withheld 179D row out of the confirmed totals', async () => {
+    const result = packet([
+      confirmed({ amount: 80, merchant_name: 'Office supply', category: 'SERVICE_SUBSCRIPTION' }),
+      confirmed({ amount: 120, merchant_name: 'AIGA', category: 'SERVICE_PROFESSIONAL_DUES', schedule_c_line: '27a (179D)' }),
+    ]);
+    expect(result.summary.recordedAmount).toBe(80);
+    expect(result.summary.deductionCount).toBe(1);
+    expect(result.summary.byStatus).toEqual({ complete: { count: 1, amount: 80 }, needs_records: { count: 0, amount: 0 } });
+    expect(result.summary.byCategory).toEqual([
+      { category: 'general', label: 'Ordinary business expense', count: 1, amount: 80, complete: 1, needsRecords: 0 },
+    ]);
+    expect(result.deductions.map(record => record.merchant)).toEqual(['Office supply']);
+    expect(result.needsMoreInformation).toHaveLength(1);
+    expect(result.needsMoreInformation[0]).toMatchObject({ merchant: 'AIGA', amount: 120, scheduleCLine: null, substantiation: { status: 'complete' } });
+    expect(result.needsMoreInformation[0].substantiation.advisories).toContain('Needs more information');
+    expect(result.summary.needsMoreInformation).toEqual({ count: 1, amount: 120 });
+    const csv = auditSupportPacketCSV(result).split('\r\n');
+    expect(csv.find(line => line.includes('Office supply'))).toMatch(/^Confirmed deduction,/);
+    expect(csv.find(line => line.includes('AIGA'))).toMatch(/^Needs more information,/);
+    expect(csv.some(line => line.startsWith('Confirmed deduction,') && line.includes('AIGA'))).toBe(false);
+    const spy = vi.spyOn(PDFPage.prototype, 'drawText');
+    await generateAuditSupportPDF(result);
+    const calls = spy.mock.calls.map(call => String(call[0]));
+    const text = calls.join('\n');
+    expect(text).toContain('All confirmed deductions\n1\n$80.00');
+    expect(text).not.toContain('$200.00');
+    const heading = calls.findIndex(value => value === 'Needs more information');
+    expect(heading).toBeGreaterThan(-1);
+    expect(calls.slice(0, heading).join('\n')).not.toContain('AIGA');
+    expect(calls.slice(heading).join('\n')).toContain('AIGA');
+    expect(calls.slice(heading).join('\n')).toContain('$120.00');
+    spy.mockRestore();
   });
   it('lists mileage trips at the IRS rate for each trip date and flags trips missing elements', () => {
     const result = packet([], { trips: [trip({ date: '2026-03-10', miles: 100 }), trip({ date: '2026-08-01', miles: 10, businessPurpose: '' }), trip({ date: '2025-12-31', miles: 500 }), trip({ date: 'invalid', miles: 5 })] });

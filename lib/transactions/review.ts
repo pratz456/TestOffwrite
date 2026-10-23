@@ -204,6 +204,8 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       reviewed_at: new Date().toISOString(), tax_review_required: deduction === null,
       updated_at: new Date(),
       ...(savedShare !== null ? { business_use_percentage: savedShare, deductible_percent: savedShare } : {}),
+      // A corrected category drops the saved model line. Confirm keeps whatever line was already stored.
+      ...(input.action === 'correct' ? { schedule_c_line: null } : {}),
     };
     tx.update(ref, update);
     return hydrateReviewTransaction({ ...data, ...update }, id);

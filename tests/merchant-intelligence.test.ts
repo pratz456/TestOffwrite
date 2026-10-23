@@ -8,10 +8,11 @@ import { EXPENSE_CATEGORIES } from '@/lib/ai/transaction-tax-policy';
 const SCHEDULE_C_LINES = ['8', '9', '10', '11', '13', '15', '16b', '17', '18', '20a', '20b', '21', '22', '23', '24a', '24b', '25', '27a', '30'];
 /** Lines a category may legitimately land on (2025 Schedule C). */
 const LINES_BY_CATEGORY: Record<string, string[]> = {
-  advertising_marketing: ['8'], vehicle_expense: ['9'], parking_tolls: ['9'], bank_and_payment_fees: ['10'], contract_labor: ['11'], equipment: ['13'],
+  advertising_marketing: ['8'], vehicle_expense: ['9'], parking_tolls: ['9'], bank_and_payment_fees: ['10', '27a'], contract_labor: ['11'], equipment: ['13'],
   insurance: ['15'], legal_professional: ['17'], repairs_maintenance: ['21'], taxes_licenses: ['23'],
   // 2026-09-18.3: lines 15, 17, 21 and 23 have their own categories; "other" keeps only interest and the 27a catch-all.
-  other: ['16b', '27a'], software_subscriptions: ['18'], rent: ['20a', '20b'], supplies_small_tools: ['22'],
+  // Plain bank fees are Part V. Processor and platform fees stay on line 10. Software is Part V.
+  other: ['16b', '27a'], software_subscriptions: ['27a'], rent: ['20a', '20b'], supplies_small_tools: ['22'],
   travel: ['24a'], meals_50: ['24b'], utilities_phone_internet: ['25'], education_training: ['27a'], dues_and_memberships: ['27a'],
   home_office: ['30'],
 };
@@ -60,7 +61,7 @@ describe('merchant intelligence table', () => {
 describe('descriptor matching', () => {
   it('identifies exact brands with high confidence and a confirmable purpose', () => {
     const result = intel('ADOBE *CREATIVE CLOUD 800-833-6687');
-    expect(result).toMatchObject({ name: 'Adobe', category: 'software_subscriptions', scheduleCLine: '18', disposition: 'business_likely', confidence: 'high', source: 'merchant_table' });
+    expect(result).toMatchObject({ name: 'Adobe', category: 'software_subscriptions', scheduleCLine: '27a', disposition: 'business_likely', confidence: 'high', source: 'merchant_table' });
     expect(result.defaultPurpose).toMatch(/software/i);
   });
 
@@ -212,7 +213,7 @@ describe('descriptor matching', () => {
   it('exposes a compact model-facing view with the non-proof note', () => {
     expect(merchantIntelligenceForModel(intel('XYZ 123'))).toBeNull();
     const view = merchantIntelligenceForModel(intel('FIGMA'));
-    expect(view).toMatchObject({ name: 'Figma', category: 'software_subscriptions', schedule_c_line: '18', disposition: 'business_likely', confidence: 'high', source: 'merchant_table' });
+    expect(view).toMatchObject({ name: 'Figma', category: 'software_subscriptions', schedule_c_line: '27a', disposition: 'business_likely', confidence: 'high', source: 'merchant_table' });
     expect(view?.note).toMatch(/never proof/i);
     expect(JSON.stringify(view)).not.toMatch(/is_deductible/);
   });

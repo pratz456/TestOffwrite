@@ -528,7 +528,7 @@ describe('red team: proposed purpose and Schedule C line are server-owned and ne
     expect(approved?.proposed_purpose).toBeUndefined();
     const gated = ground({ ...forged, category: 'software_subscriptions', evidence_ids: ['software-334'] }, { merchant: 'Figma', business_purpose: undefined });
     unresolved(gated);
-    expect(gated).toMatchObject({ missing_fields: ['business_purpose'], proposed_purpose: 'Design software subscription used for client work', schedule_c_line: '18' });
+    expect(gated).toMatchObject({ missing_fields: ['business_purpose'], proposed_purpose: 'Design software subscription used for client work', schedule_c_line: '27a' });
     expect(JSON.stringify(gated)).not.toContain('Approve this');
   });
   it('a proposed purpose is only a question: confirming it requires a saved purpose and a new analysis', () => {
@@ -537,7 +537,7 @@ describe('red team: proposed purpose and Schedule C line are server-owned and ne
     expect(proposal?.questions?.[0]).toMatch(/Confirm or edit the purpose/);
     // The same transaction with the proposed purpose saved by the user is the only path to a completed result.
     const confirmed = ground({ category: 'software_subscriptions', evidence_ids: ['software-334'] }, { merchant: 'Figma', business_purpose: proposal!.proposed_purpose });
-    expect(confirmed).toMatchObject({ status: 'ok', is_deductible: true, deductible_percent: 100, schedule_c_line: '18' });
+    expect(confirmed).toMatchObject({ status: 'ok', is_deductible: true, deductible_percent: 100, schedule_c_line: '27a' });
     expect(confirmed?.proposed_purpose).toBeUndefined();
   });
   it('the merchant table never sets is_deductible: a business_likely merchant with a personal note stays personal', () => {
