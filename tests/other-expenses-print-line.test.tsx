@@ -237,6 +237,44 @@ describe('stored and supplied Other expenses sentences', () => {
     expect(exportColumns(dues({ date: '', datetime: '2024-12-31' }))).toEqual({ recorded: YEAR_FREE, mapped: YEAR_FREE });
   });
 
+  it('prints a bare supplied 27b through lineSentence for the charge year', () => {
+    for (const supplied of ['27b', '27B', '  27b  ', 'line 27b', 'LINE   27B', 'Schedule C line 27b', 'schedule   c   line   27b', 'Schedule C line 27b (Other expenses)']) {
+      expect(scheduleCLineFor(duesResult({ schedule_c_line: supplied }), '2024-06-01')).toBe('Schedule C line 27a (Other expenses)');
+      expect(scheduleCLineFor(duesResult({ schedule_c_line: supplied }), '2025-06-01')).toBe('Schedule C line 27b (Other expenses)');
+      expect(scheduleCLineFor(duesResult({ schedule_c_line: supplied }), undefined)).toBe(YEAR_FREE);
+    }
+  });
+
+  it('reprints a stored 27b card from the charge date when that date changes', () => {
+    const card = (scheduleCLine: string, chargeDate: string) => renderToStaticMarkup(
+      <ExplanationCard explanation={normalizeExplanation({ ...saved, scheduleCLine }, { chargeDate })} />,
+    );
+    for (const stored of ['27b (Other expenses)', '27B (Other expenses)', 'Schedule C line 27b (Other expenses)', 'Schedule C line 27b (see Part V)']) {
+      const older = card(stored, '2024-06-01');
+      expect(older).toContain('Where it goes:');
+      expect(older).toContain('Schedule C line 27a (Other expenses)');
+      expect(older).not.toContain('27b');
+      const newer = card(stored, '2025-06-01');
+      expect(newer).toContain('Where it goes:');
+      expect(newer).toContain('Schedule C line 27b (Other expenses)');
+    }
+  });
+
+  it('prints a stored schedule_c_line of 27b on the transaction CSV by charge year', () => {
+    const older = convertTransactionsToCSV([dues({ date: '2024-06-01', schedule_c_line: '27b' })]);
+    expect(older.split('\r\n')[1]).toContain(',27a,27a,');
+    expect(csvRow(older)['Recorded Schedule C Line']).toBe('27a');
+    const newer = convertTransactionsToCSV([dues({ date: '2025-06-01', schedule_c_line: '27b' })]);
+    expect(newer.split('\r\n')[1]).toContain(',27b,27b,');
+    expect(csvRow(newer)['Recorded Schedule C Line']).toBe('27b');
+    const missing = dues({ schedule_c_line: '27b' });
+    delete missing.date;
+    delete missing.datetime;
+    const undated = convertTransactionsToCSV([missing]);
+    expect(undated).toContain(YEAR_FREE);
+    expect(csvRow(undated)['Recorded Schedule C Line']).toBe(YEAR_FREE);
+  });
+
   it('treats a supplied 27b as Other expenses on every result path', () => {
     for (const supplied of ['27b', '27B', 'line 27b', 'LINE 27B (other expenses)', 'Schedule C line 27b', 'schedule c line 27b (Other expenses)']) {
       expect(scheduleCLineFor(duesResult({ schedule_c_line: supplied }), '2024-06-15')).toBe('Schedule C line 27a (Other expenses)');
@@ -255,11 +293,19 @@ describe('stored and supplied Other expenses sentences', () => {
     expect(shown('schedule c line 27b', '2025-04-01')).toBe('Schedule C line 27b (Other expenses)');
     expect(shown('Schedule C line 27b (other expenses)', undefined)).toBe(YEAR_FREE);
     expect(shown('Schedule C line 18 (Office expense)', '2025-04-01')).toBe('Schedule C line 18 (Office expense)');
-    for (const chargeDate of ['2024-06-15', '2025-04-01', undefined]) {
-      let line: string | null | undefined = YEAR_FREE;
+  });
+
+  it('never rewrites the exact year-free sentence', () => {
+    const exact = 'Schedule C line 27b (other expenses; line 27a on 2024 returns)';
+    expect(exact).toBe(OTHER_EXPENSES_YEAR_FREE_LINE);
+    for (const chargeDate of ['2024-06-01', '2025-06-01', undefined]) {
+      let line: string | null | undefined = exact;
       for (let pass = 0; pass < 3; pass += 1) line = shown(line!, chargeDate);
-      expect(line).toBe(YEAR_FREE);
+      expect(line).toBe(exact);
+      const html = renderToStaticMarkup(<ExplanationCard explanation={normalizeExplanation({ ...saved, scheduleCLine: exact }, { chargeDate })} />);
+      expect(html).toContain(exact);
     }
+    expect(scheduleCLineFor(duesResult({ schedule_c_line: exact }), '2024-06-01')).toBe(exact);
   });
 });
 

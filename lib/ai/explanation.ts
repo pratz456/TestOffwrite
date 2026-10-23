@@ -194,9 +194,16 @@ function isSuppliedOtherExpenses(value: string): boolean {
   return value !== OTHER_EXPENSES_YEAR_FREE_LINE && /^(?:schedule\s+c\s+line\s+|line\s+)?27[ab](?:\s*\([^)]*\))?$/i.test(value);
 }
 
-/** A saved card sentence that names Other expenses as 27a or 27b. The exact year-free sentence stays as stored. */
+/**
+ * A saved card sentence for Other expenses.
+ * 27a sentences keep the "Schedule C line" prefix they were saved with.
+ * 27b sentences also match a bare "27b (Other expenses)" or "line 27b", because that code was stored as Other expenses.
+ * The exact year-free sentence is excluded by string equality and is never rewritten.
+ */
 function isStoredOtherExpensesSentence(value: string): boolean {
-  return value !== OTHER_EXPENSES_YEAR_FREE_LINE && /^schedule\s+c\s+line\s+27[ab](?:\s*\([^)]*\))?$/i.test(value);
+  if (value === OTHER_EXPENSES_YEAR_FREE_LINE) return false;
+  if (/^schedule\s+c\s+line\s+27a(?:\s*\([^)]*\))?$/i.test(value)) return true;
+  return /^(?:schedule\s+c\s+line\s+|line\s+)?27b(?:\s*\([^)]*\))?$/i.test(value);
 }
 
 /** Prefer the policy's placement; otherwise the export taxonomy line for the suggested category. */
@@ -371,7 +378,7 @@ export function composeExplanation({ result, transaction, profile, taxYear }: Co
 
 /**
  * Validates a stored `ai_explanation` payload before the UI renders it; any malformed record renders nothing.
- * Pass `{ chargeDate }` when rendering. A stored "Schedule C line 27a" or "Schedule C line 27b" sentence is reprinted from that date as Other expenses.
+ * Pass `{ chargeDate }` when rendering. A stored "Schedule C line 27a" sentence, or a stored 27b sentence such as "27b (Other expenses)" or "Schedule C line 27b (...)", is reprinted from that date as Other expenses.
  * The exact year-free sentence is never rewritten. Other stored lines stay as saved. Omitting the display argument leaves every stored line unchanged, so this does not rewrite records.
  */
 export function normalizeExplanation(value: unknown, display?: { chargeDate: unknown }): TransactionExplanation | null {
