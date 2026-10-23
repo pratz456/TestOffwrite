@@ -1,4 +1,4 @@
-import { aggregateScheduleC, categoryMapForTaxYear, type LineItemSummary } from '@/lib/schedule-c/aggregate';
+import { aggregateScheduleC, categoryMapForTaxYear, UNREADABLE_DATE_REVIEW, type LineItemSummary, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
 import { resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
@@ -8,6 +8,8 @@ export interface ScheduleCExportData {
   /** `ssn` and `ein` are masked display values (last four digits); callers never pass full identifiers. */
   name?: string; ssn?: string; profession?: string; naicsCode?: string; ein?: string;
   includeAppendix: boolean;
+  /** Confirmed records with no readable year. Listed in the appendix and omitted from totals. */
+  unreadableDates?: readonly ScheduleCTransactionLike[];
 }
 export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   const pdf = await createPlanningPDF('Schedule C - business records for review', data.taxYear);
@@ -39,7 +41,12 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
       const contribution = aggregateScheduleC([tx], String(data.taxYear), categoryMapForTaxYear(resolveOtherExpensesYear(tx)), { mode: 'confirmed-only' }).totalDeductible;
       return [tx.date, tx.merchant_name || tx.id || 'Unnamed record', scheduleCExportLine(item.lineCode, data.taxYear), money(tx.amount), money(contribution)];
     }));
-    pdf.table(['Date', 'Merchant / record', 'Line', 'Signed amount', 'Contribution'], rows.length ? rows : [['', 'No confirmed records in this year', '', money(0), money(0)]], [68, 235, 35, 95, 95]);
+    const flagged = (data.unreadableDates ?? []).map(tx => {
+      const signed = typeof tx.amount === 'number' && Number.isFinite(tx.amount) ? money(tx.amount) : '';
+      return [typeof tx.date === 'string' ? tx.date : '', tx.merchant_name || tx.id || 'Unnamed record', '', signed, UNREADABLE_DATE_REVIEW];
+    });
+    const appendix = [...rows, ...flagged];
+    pdf.table(['Date', 'Merchant / record', 'Line', 'Signed amount', 'Contribution'], appendix.length ? appendix : [['', 'No confirmed records in this year', '', money(0), money(0)]], [68, 235, 35, 95, 95]);
   } else pdf.paragraph('Transaction appendix omitted at your request. Retain the detailed records and receipts with your preparer.');
   pdf.paragraph('Reference: irs.gov/pub/irs-pdf/f1040sc.pdf and irs.gov/pub/irs-prior/f1040sc--2024.pdf. Unsupported font characters are preserved as U+codepoints.');
   return pdf.save();

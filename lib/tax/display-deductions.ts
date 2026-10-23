@@ -21,6 +21,10 @@ export function summarizeConfirmedDeductions<T extends object>(records: readonly
   for (const original of records) {
     const record = original as Record<string, unknown>;
     if (!isConfirmedScheduleCExpense(record as unknown as ScheduleCTransactionLike)) continue;
+    if (resolveOtherExpensesYear(record) == null) {
+      reviewMessage = 'Review missing or invalid transaction dates before showing confirmed deduction totals.';
+      continue;
+    }
     const date = exportDate(record.date ?? record.datetime);
     if (!date) {
       reviewMessage = 'Review missing or invalid transaction dates before showing confirmed deduction totals.';

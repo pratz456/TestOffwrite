@@ -66,11 +66,16 @@ function isCalendarDay(year: number, month: number, day: number): boolean {
 }
 
 /**
- * Year used only to pick the other-expenses line.
- * Accepts a real YYYY-MM-DD, or the date part of a full ISO timestamp.
- * The month and day must be a real calendar day. The year is the four digits in the string.
+ * Calendar year for the other expenses line and for Schedule C grouping.
+ * A JS Date, or an object with toDate(), is converted to an ISO string first,
+ * the same way the export date reader does. A string that is not ISO is not a year.
+ * The month and day must be a real calendar day. An impossible day is not rolled forward.
  */
 export function strictOtherExpensesDateYear(value: unknown): number | null {
+  try {
+    if (value instanceof Date) value = value.toISOString();
+    if (value && typeof value === 'object' && 'toDate' in value && typeof value.toDate === 'function') value = value.toDate().toISOString();
+  } catch { return null; }
   if (typeof value !== 'string') return null;
   const match = /^(\d{4})-(\d{2})-(\d{2})(?:$|T)/.exec(value.trim());
   if (!match) return null;

@@ -431,11 +431,16 @@ export interface LineItemSummary {
   transactions: ScheduleCTransactionLike[];
 }
 
+/** Shown on a confirmed export row when the transaction date has no readable year. The amount is not a total. */
+export const UNREADABLE_DATE_REVIEW = 'Date could not be read. Review before filing.';
+
 export interface AggregateScheduleCResult {
   totalExpenses: number;
   totalDeductible: number;
   lineItems: Record<string, LineItemSummary>;
   lineItemsArray: LineItemSummary[];
+  /** Confirmed records with no readable year. They are listed for review and are not part of the totals. */
+  unreadableDates: ScheduleCTransactionLike[];
   counts: { deductible: number; year: number };
 }
 
@@ -459,10 +464,15 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
   const mode: AggregateScheduleCMode = options.mode ?? 'confirmed-only';
   // Use timezone-safe year extraction (avoid local Date parsing shifting around year boundaries).
   // Superseded duplicates of an earlier reviewed record never reach either mode.
+  const unreadableDates: T[] = [];
   const yearTransactions = transactions.filter((t) => {
     if (isSupersededRecord(t)) return false;
     const y = resolveOtherExpensesYear(t);
-    return y !== null && y.toString() === yearStr;
+    if (y == null) {
+      if (isConfirmedScheduleCExpense(t)) unreadableDates.push(t);
+      return false;
+    }
+    return y.toString() === yearStr;
   });
 
   // CPA-grade logic:
@@ -548,6 +558,7 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
     totalDeductible,
     lineItems,
     lineItemsArray,
+    unreadableDates,
     counts: { deductible: deductibleTransactions.length, year: yearTransactions.length },
   };
 }
