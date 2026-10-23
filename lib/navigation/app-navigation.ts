@@ -1,4 +1,5 @@
 import { Home, CreditCard, Eye, Sparkles, TrendingUp, Minus, FolderOpen, ClipboardCheck, Briefcase, PenLine, BarChart3, Calculator, ListChecks, CalendarDays, Settings, type LucideIcon } from 'lucide-react';
+import { filingAuthNavLabel, filingNavName, PREPARER_NAV_RENAME } from '../copy/preparer-copy';
 
 export interface AppNavigationItem { name: string; href: string; icon: LucideIcon; description: string }
 
@@ -13,7 +14,7 @@ export const RECORD_NAVIGATION: AppNavigationItem[] = [
   { name: 'Income', href: '/protected?screen=income-tracking', icon: TrendingUp, description: 'Business income and 1099 records' },
   { name: 'Deductions', href: '/protected?screen=deductions-entry', icon: Minus, description: 'Health insurance, retirement and HSA' },
   { name: 'Categories', href: '/protected?screen=categories', icon: FolderOpen, description: 'Expense categories and rules' },
-  { name: 'Filing & exports', href: '/protected?screen=tax-filing-hub', icon: ClipboardCheck, description: 'Prepare and export for filing' },
+  { name: filingNavName(PREPARER_NAV_RENAME), href: '/protected?screen=tax-filing-hub', icon: ClipboardCheck, description: 'Get your records ready and export them for your tax preparer' },
 ];
 
 export const TAX_TOOL_NAVIGATION: AppNavigationItem[] = [
@@ -22,7 +23,7 @@ export const TAX_TOOL_NAVIGATION: AppNavigationItem[] = [
   { name: 'Quarterly taxes', href: '/protected?screen=quarterly-taxes', icon: CalendarDays, description: 'Review estimated payments' },
   { name: 'Reports', href: '/protected/reports', icon: BarChart3, description: 'Tax reports and analytics' },
   { name: 'Depreciation (4562)', href: '/protected/form4562', icon: Calculator, description: 'Business assets and depreciation' },
-  { name: 'Filing authorization', href: '/protected?screen=form-8879', icon: PenLine, description: 'Provider signatures and historical records' },
+  { name: filingAuthNavLabel(PREPARER_NAV_RENAME), href: '/protected?screen=form-8879', icon: PenLine, description: 'Provider signatures and historical records' },
 ];
 
 export const ACCOUNT_NAVIGATION: AppNavigationItem[] = [
