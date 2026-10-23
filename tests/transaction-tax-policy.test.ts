@@ -598,6 +598,8 @@ describe('2026-09-23 source-audit regressions', () => {
     expect(interestOff?.deductible_percent).toBeUndefined();
     expect(interestOff?.schedule_c_line).toBeUndefined();
     expect(interestOff?.reason).toBe('Payments of this kind (taxes, loan principal, investments, fines or donations) are not Schedule C expenses even when paid from the business account. Confirm what this payment was before it is treated as an expense.');
+    expect(interestOff?.questions?.[0]).toBe('Car loan principal is not an expense. Under actual expenses the business share of the interest and depreciation may count; under standard mileage neither does. Which method do you use, and what share of miles are business?');
+    expect(interestOff?.questions?.[0]).not.toContain('can count with either method');
     const propertyTaxOff = analyze(
       { category: 'vehicle_expense', evidence_ids: ['taxes-licenses-sch-c'], schedule_c_line: '9' },
       { merchant: 'County Treasurer', amount_usd: 90, business_purpose: 'Personal property tax on the car for the business share.' },

@@ -448,7 +448,7 @@ export function groundTransactionAnalysis(
   /** An insurer that sells only business coverage (Hiscox, Next, Thimble, biBERK, The Hartford's small-business line). */
   const businessInsurer = merchant.category === 'insurance' && merchant.confidence === 'high' && merchant.disposition === 'business_likely';
   if (kind === 'expense' && result.expense_type !== 'personal') {
-    if (result.category === 'vehicle_expense' && /\buber\s*eats\b/i.test(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`)) {
+    if (mileageVehicleCopyEnabled() && result.category === 'vehicle_expense' && /\buber\s*eats\b/i.test(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`)) {
       result.category = 'meals_50';
     }
     const placeable = !result.category || result.category === 'other';
@@ -811,28 +811,20 @@ export function groundTransactionAnalysis(
       addEvidence('capital-263');
       requireInfo(result, 'asset_treatment', hint?.question ?? 'What was purchased, when was it first used for business, and have you recorded the de minimis safe harbor election or a depreciation election for this year?',
         `This purchase needs item-level review to distinguish supplies from assets. The de minimis safe harbor generally uses a $${DE_MINIMIS_ITEM_CEILING.toLocaleString('en-US')} per-item or per-invoice ceiling without an applicable financial statement ($5,000 with one), plus consistent book-expensing and an annual election. A bank-charge total does not establish item cost or capitalization: qualifying materials, supplies and repairs may be current expenses without that election, while assets may need depreciation or a separate expensing election. Review the asset treatment before deducting it in full.`);
-    } else if (result.is_deductible === true && hiredVehicleFare(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`) &&
-      (mileageVehicleCopyEnabled() ? result.category !== 'meals_50' : result.category === 'vehicle_expense')) {
-      // A hired fare follows the trip. With the copy switch on it is transportation, never the method for the user's own car.
-      if (mileageVehicleCopyEnabled()) {
-        const farePurpose = hiredFarePurpose(purpose);
-        result.category = 'travel';
-        if (farePurpose === 'personal') {
-          markPersonal(HIRED_FARE_PERSONAL.reason, 'Recorded as a personal trip.');
-        } else if (farePurpose === 'business') {
-          result.status = 'ok';
-          result.is_deductible = true;
-          result.expense_type = 'business';
-          result.deductible_percent = 100;
-        } else {
-          requireInfo(result, 'business_purpose', HIRED_FARE_PURPOSE.question, HIRED_FARE_PURPOSE.reason);
-        }
-      } else {
-        const provided = percentage(transaction.business_use_percentage);
+    } else if (mileageVehicleCopyEnabled() && result.is_deductible === true && hiredVehicleFare(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`) &&
+      result.category !== 'meals_50') {
+      // A hired fare follows the trip. It is transportation, never the method for the user's own car.
+      const farePurpose = hiredFarePurpose(purpose);
+      result.category = 'travel';
+      if (farePurpose === 'personal') {
+        markPersonal(HIRED_FARE_PERSONAL.reason, 'Recorded as a personal trip.');
+      } else if (farePurpose === 'business') {
         result.status = 'ok';
         result.is_deductible = true;
         result.expense_type = 'business';
-        result.deductible_percent = provided ?? 100;
+        result.deductible_percent = 100;
+      } else {
+        requireInfo(result, 'business_purpose', HIRED_FARE_PURPOSE.question, HIRED_FARE_PURPOSE.reason);
       }
     } else if (mileageVehicleCopyEnabled() && result.is_deductible === true && separateVehicleCost) {
       // Interest and vehicle personal property tax stay out of the mileage hold, and count only at the recorded share.
@@ -856,7 +848,7 @@ export function groundTransactionAnalysis(
         result.deductible_percent = share;
       }
     } else if (result.is_deductible === true && ['equipment', 'home_office', 'vehicle_expense', 'travel'].includes(result.category ?? '') &&
-      !(result.category === 'vehicle_expense' && (separateVehicleCost || hiredVehicleFare(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`)))) {
+      !(mileageVehicleCopyEnabled() && result.category === 'vehicle_expense' && (separateVehicleCost || hiredVehicleFare(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`)))) {
       const questions: Record<string, [string, string]> = {
         equipment: ['asset_treatment', 'What was purchased, when was it first used for business, and what business-use records and depreciation elections apply?'],
         home_office: ['home_office_eligibility', 'Is the space used regularly and exclusively for business, and which eligible method and business area apply?'],

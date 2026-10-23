@@ -10,6 +10,7 @@
  * (104 detailed values, fetched 2026-09-17). Schedule C line numbers follow the 2025 Instructions
  * for Schedule C and this app's export mapping in lib/schedule-c/aggregate.ts.
  */
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import type { TransactionInput } from './analyzeTransaction';
 import type { ExpenseCategory } from './transaction-tax-policy';
 
@@ -444,7 +445,7 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bsofi\b/i, 'SoFi', null, null, 'transfer_or_deposit', { question: 'SoFi covers loans, banking and investing. Was this a loan payment (not an expense), a transfer between your own accounts, or a fee on an account used for the business?' }),
   entry(/\bnelnet\b|\bmohela\b|\bsallie\s*mae\b|\bnavient\b|\baidvantage\b|\bgreat\s*lakes\s*(?:educational|higher|loan|ed)\b|\bglelsi\b|\bstudent\s*loan\b|\bearnest\s*(?:operations|loan)/i, 'Student loan servicer', null, null, 'not_an_expense', { question: 'Student loan payments are not business expenses (up to $2,500 of interest may be a Schedule 1 adjustment). Confirm this was not a business purchase.' }),
   entry(/\bmortgage\b|\brocket\s*mtg\b|\bmr\.?\s*cooper\b|\bpennymac\b|\bfreedom\s*mortgage\b|\bloandepot\b|\bnewrez\b/i, 'Mortgage servicer', null, null, 'not_an_expense', { question: Q.mortgage }),
-  entry(/\btoyota\s*financial\b|\bhonda\s*financial\b|\bford\s*credit\b|\bgm\s*financial\b|\bally\s*(?:auto|financial)\b|\bcapital\s*one\s*auto\b|\bauto\s*loan\b|\bcar\s*payment\b/i, 'Auto loan', 'vehicle_expense', '9', 'not_an_expense', { question: 'Car loan principal is not an expense. The business share of the interest can count with either method. Depreciation follows the method you chose. Which method do you use, and what share of the interest was for business miles?' }),
+  entry(/\btoyota\s*financial\b|\bhonda\s*financial\b|\bford\s*credit\b|\bgm\s*financial\b|\bally\s*(?:auto|financial)\b|\bcapital\s*one\s*auto\b|\bauto\s*loan\b|\bcar\s*payment\b/i, 'Auto loan', 'vehicle_expense', '9', 'not_an_expense', { question: 'Car loan principal is not an expense. Under actual expenses the business share of the interest and depreciation may count; under standard mileage neither does. Which method do you use, and what share of miles are business?' }),
   entry(/\bsep\s*ira\b|\bsolo\s*401\b|\bira\s*contribution\b|\bhsa\s*contribution\b|\bhealth\s*savings\b|\blively\s*(?:hsa|inc)\b|\bhealthequity\b/i, 'Retirement / HSA contribution', null, null, 'schedule_1', { question: 'SEP-IRA, solo 401(k) and HSA contributions are Schedule 1 adjustments, not Schedule C expenses. Confirm this was a contribution rather than a business purchase.', notes: 'Schedule 1 placement of self-employed retirement (§404(h), §62(a)(6)) and HSA (§223) contributions is outside the evidence packet; the question asks rather than applies it.' }),
   entry(/\bgo\s*fund\s*me\b|\bgofundme\b|\bred\s*cross\b|\bunited\s*way\b|\bsalvation\s*army\b|\bdonation\b|\bcharity\b|\bfoundation\b|\bchurch\b|\bministr(?:y|ies)\b/i, 'Charity / donation', null, null, 'not_an_expense', { question: Q.donation }),
   entry(/\bkindercare\b|\bbright\s*horizons\b|\bcare\.com\b|\bdaycare\b|\bchild\s*care\b|\bpreschool\b/i, 'Childcare', null, null, 'personal_likely', { question: Q.childcare }),
@@ -650,6 +651,15 @@ export function findMerchantEntry(descriptor: string): MerchantIntelligenceEntry
 
 const CREDIT_QUESTION = 'Money came into the account from this merchant. Is this a payout of your sales or earnings (business income at the gross amount, before fees), a refund of an earlier purchase, or a transfer?';
 
+/** Base auto-loan question. The copy switch replaces it with the interest-share wording. */
+export const AUTO_LOAN_QUESTION = 'Car loan principal is not an expense. Under actual expenses the business share of the interest and depreciation may count; under standard mileage neither does. Which method do you use, and what share of miles are business?';
+const AUTO_LOAN_QUESTION_WITH_VEHICLE_COPY = 'Car loan principal is not an expense. The business share of the interest can count with either method. Depreciation follows the method you chose. Which method do you use, and what share of the interest was for business miles?';
+
+function merchantQuestion(question: string | undefined): string | null {
+  if (question === AUTO_LOAN_QUESTION && mileageVehicleCopyEnabled()) return AUTO_LOAN_QUESTION_WITH_VEHICLE_COPY;
+  return question ?? null;
+}
+
 /**
  * Best available merchant knowledge for a transaction. A credit (negative amount) from any
  * merchant is a payout, refund or transfer question rather than an expense disposition.
@@ -667,7 +677,7 @@ export function merchantIntelligence(transaction: Partial<TransactionInput>): Me
       name: matched.name, category: paysOut ? null : matched.category, scheduleCLine: paysOut ? null : matched.scheduleCLine,
       disposition: paysOut ? 'transfer_or_deposit' : matched.disposition,
       defaultPurpose: paysOut ? null : matched.defaultPurpose ?? null,
-      question: paysOut ? CREDIT_QUESTION : matched.question ?? null,
+      question: paysOut ? CREDIT_QUESTION : merchantQuestion(matched.question),
       notes: matched.notes ?? null, subtype: paysOut ? null : matched.subtype ?? null,
       confidence: 'high', source: 'merchant_table', plaidCategory,
     };
