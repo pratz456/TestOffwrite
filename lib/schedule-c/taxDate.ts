@@ -45,11 +45,34 @@ function realIsoDay(day: string): string | null {
 }
 
 /**
+ * NN/NN/YYYY. One part over 12 has only one valid reading. Equal parts are that day.
+ * Both parts 12 or under and different can be read two ways, so the day stays unreadable.
+ */
+function numericSlashDay(text: string): string | null {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(text);
+  if (!match) return null;
+  const first = Number(match[1]);
+  const second = Number(match[2]);
+  const year = match[3];
+  let month: number;
+  let day: number;
+  if (first > 12 && second > 12) return null;
+  if (first > 12) { day = first; month = second; }
+  else if (second > 12) { month = first; day = second; }
+  else if (first === second) { month = first; day = second; }
+  else return null;
+  return realIsoDay(`${year}-${pad2(month)}-${pad2(day)}`);
+}
+
+/**
  * Calendar day of a charge, using the same rules as the transaction export Tax Date.
  * Leading and trailing spaces are ignored. A real YYYY-MM-DD is kept. An ISO
  * timestamp, a trailing Z, or a space and a time (hours and minutes, seconds
  * optional) uses that same written day when the first ten characters round-trip
  * through noon UTC. A year first slash date YYYY/MM/DD is that written day.
+ * A numeric slash date NN/NN/YYYY counts only when one reading is possible:
+ * one part over 12, or both parts equal. Two different parts that are both
+ * 12 or under stay unreadable. An impossible day stays unreadable.
  * An English month name, full or abbreviated, with the day before or after it,
  * is that written day. A weekday prefix and a clock time do not change the day.
  * Impossible days, blanks, and junk are undated. Save time, upload time, and
@@ -72,6 +95,9 @@ export function calendarChargeDay(value: unknown): string | null {
   }
   const slash = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(text);
   if (slash) return realIsoDay(`${slash[1]}-${slash[2]}-${slash[3]}`);
+  const numeric = numericSlashDay(text);
+  if (numeric) return numeric;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(text)) return null;
   return writtenMonthDay(text);
 }
 

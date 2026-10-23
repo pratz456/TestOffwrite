@@ -20,14 +20,16 @@ function needsMoreInformationCount(rows: readonly { date?: unknown; datetime?: u
 }
 
 const formats = [
-  ['slash date', '01/05/2025'],
-  ['epoch number', Date.UTC(2025, 0, 5)],
-  ['impossible date', '2025-02-30'],
-  ['impossible day with a time', '2025-02-30 10:00:00'],
-  ['impossible written day', 'Feb 30, 2025'],
-  ['impossible year first slash day', '2025/02/30'],
-  ['impossible year first slash month', '2025/13/01'],
-  ['missing date', undefined],
+  ['a slash date that can be read two ways', '01/05/2025'],
+  ['an epoch number', Date.UTC(2025, 0, 5)],
+  ['an impossible date', '2025-02-30'],
+  ['an impossible day with a time', '2025-02-30 10:00:00'],
+  ['an impossible written day', 'Feb 30, 2025'],
+  ['an impossible year first slash day', '2025/02/30'],
+  ['an impossible year first slash month', '2025/13/01'],
+  ['an impossible numeric slash day', '02/30/2025'],
+  ['an impossible numeric slash month', '13/13/2025'],
+  ['a missing date', undefined],
 ] as const;
 
 function charge(id: string, amount: number, date: unknown) {
@@ -42,7 +44,7 @@ function charge(id: string, amount: number, date: unknown) {
 }
 
 describe('unreadable charge dates stay in Needs more information and out of totals', () => {
-  it.each(formats)('counts a %s in Needs more information and in no total', (_label, date) => {
+  it.each(formats)('counts %s in Needs more information and in no total', (_label, date) => {
     const dated = charge('dated', 40, '2025-06-01');
     const unreadable = charge('unreadable', 100, date);
     const rows = [dated, unreadable];

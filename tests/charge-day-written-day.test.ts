@@ -91,10 +91,31 @@ const counted: Sample[] = [
   { input: '2025/01/01', day: '2025-01-01' },
   { input: '2025/12/31', day: '2025-12-31' },
   { input: '2026/01/01', day: '2026-01-01' },
+  { input: '12/31/2025', day: '2025-12-31' },
+  { input: '12/31/2024', day: '2024-12-31' },
+  { input: '31/12/2025', day: '2025-12-31' },
+  { input: '31/12/2024', day: '2024-12-31' },
+  { input: '01/01/2026', day: '2026-01-01' },
+  { input: '01/01/2025', day: '2025-01-01' },
+  { input: '05/05/2025', day: '2025-05-05' },
+  { input: '02/02/2025', day: '2025-02-02' },
+  { input: '12/12/2025', day: '2025-12-12' },
+  { input: '01/13/2025', day: '2025-01-13' },
+  { input: '13/01/2025', day: '2025-01-13' },
+  { input: '06/15/2025', day: '2025-06-15' },
+  { input: '15/06/2025', day: '2025-06-15' },
+  { input: '02/29/2024', day: '2024-02-29' },
+  { input: '29/02/2024', day: '2024-02-29' },
 ];
 
 const dropped: Array<{ label: string; input: unknown }> = [
-  { label: 'US slash', input: '01/05/2025' },
+  { label: 'two way slash 01/05/2025', input: '01/05/2025' },
+  { label: 'two way slash 01/02/2026', input: '01/02/2026' },
+  { label: 'two way slash 11/12/2025', input: '11/12/2025' },
+  { label: 'two way slash 12/11/2025', input: '12/11/2025' },
+  { label: 'impossible numeric slash day', input: '02/30/2025' },
+  { label: 'impossible numeric slash 02/29/2025', input: '02/29/2025' },
+  { label: 'impossible numeric slash month', input: '13/13/2025' },
   { label: 'epoch number', input: Date.UTC(2025, 0, 5) },
   { label: 'impossible day', input: '2025-02-30' },
   { label: 'impossible day with a time', input: '2025-02-30 10:00:00' },
@@ -132,6 +153,28 @@ describe('written charge days keep the day and the tax year', () => {
     }
     if (baseYear !== null && baseYear === year) expect(safeTaxYear(input)).toBe(baseYear);
     countedIn(input, year);
+  });
+});
+
+describe('numeric slash dates on the year boundary', () => {
+  it.each([
+    ['12/31/2025', '2025-12-31', 2025],
+    ['01/01/2026', '2026-01-01', 2026],
+    ['31/12/2025', '2025-12-31', 2025],
+  ])('%s counts in %i', (input, day, year) => {
+    expect(safeYMD(input)).toBe(day);
+    expect(safeTaxYear(input)).toBe(year);
+    countedIn(input, year);
+  });
+
+  it.each(['01/02/2026', '01/05/2025'])('%s goes to Needs more information', (input) => {
+    expect(safeYMD(input)).toBeNull();
+    expect(safeTaxYear(input)).toBeNull();
+    for (const year of ['2024', '2025', '2026']) {
+      const totals = aggregateScheduleC([row(input)], year, CATEGORY_MAP, { mode: 'confirmed-only' });
+      expect(totals.totalDeductible).toBe(0);
+      expect(totals.needsMoreInformation).toBe(1);
+    }
   });
 });
 
