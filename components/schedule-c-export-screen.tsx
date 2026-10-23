@@ -76,6 +76,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [includeAppendix, setIncludeAppendix] = useState(true);
   const [lineDetails, setLineDetails] = useState<Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }>>({});
+  const [needsMoreInformationCount, setNeedsMoreInformationCount] = useState(0);
 
 
   // Memoize transactions array reference to prevent unnecessary re-renders
@@ -113,6 +114,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
       .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
 
     setCategorySummaries(summaries);
+    setNeedsMoreInformationCount(aggregation.needsMoreInformation.length);
     setTotalDeductible(aggregation.totalDeductible);
     setDeductibleCount(aggregation.counts.deductible);
     setConfirmedCount(aggregation.counts.deductible);
@@ -316,6 +318,11 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
           <h3 className="text-lg font-semibold text-foreground mb-4">
             Schedule C Preview - Tax Year {selectedYear}
           </h3>
+          {needsMoreInformationCount > 0 && (
+            <p className="mb-4 text-sm text-foreground">
+              Needs more information ({needsMoreInformationCount})
+            </p>
+          )}
 
           {/* Enhanced Form Style Preview */}
           {categorySummaries.length > 0 && (

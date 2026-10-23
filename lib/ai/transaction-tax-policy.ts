@@ -6,6 +6,7 @@ import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { matchProfessions, professionHint } from './profession-priors';
 import { redactIdentifierText } from '@/lib/security/identifier-redaction';
 import { BUSINESS_STANDARD_MILEAGE_RATES } from '@/lib/tax-rules/mileage-rates';
+import { isEnergyBuildings27b } from '@/lib/schedule-c/line-labels';
 
 /** Selected, reviewed federal rules. This is not retrieval over the entire tax code. */
 export const TRANSACTION_TAX_POLICY_VERSION = 'federal-transactions-2026-09-23.2';
@@ -377,6 +378,9 @@ export function groundTransactionAnalysis(
 ): OutputType | null {
   const result: OutputType = { ...input };
   // Server-owned; a caller or model never supplies them.
+  // An energy label is the exception: it is kept and the row is needs_more_info, so it is not reported as Other expenses.
+  const suppliedScheduleLine = typeof result.schedule_c_line === 'string' ? result.schedule_c_line : '';
+  const energyFromModel = suppliedScheduleLine && isEnergyBuildings27b(suppliedScheduleLine) ? suppliedScheduleLine : '';
   delete result.proposed_purpose; delete result.schedule_c_line;
   const ids = [...(result.evidence_ids ?? [])];
   if (!Array.isArray(ids) || !ids.length || ids.length > 3 || ids.some(id => !TRANSACTION_EVIDENCE_IDS.includes(id)) || new Set(ids).size !== ids.length) return null;
@@ -928,6 +932,13 @@ export function groundTransactionAnalysis(
       && result.is_deductible !== false && !result.missing_fields?.includes('transaction_kind')) {
     const line = merchant.category === result.category && merchant.scheduleCLine ? merchant.scheduleCLine : CATEGORY_SCHEDULE_C_LINE[result.category];
     if (line) result.schedule_c_line = line;
+  }
+  // Restored after the category line assignment, which still runs when is_deductible is unset.
+  if (energyFromModel) {
+    requireInfo(result, 'energy_efficient_buildings',
+      'This label names the energy-efficient commercial buildings deduction (section 179D / Form 7205). What was purchased, and is it an ordinary business expense instead?',
+      'A label that names energy-efficient commercial buildings, section 179D, or Form 7205 is not reported as Other expenses. It needs more information before it can be included.');
+    result.schedule_c_line = energyFromModel;
   }
   // Model-selected ids lead, but a gate's cited rules and the category rule are never squeezed out by them.
   const required = [...new Set([...gateEvidence, ...(categoryRule ? [categoryRule] : [])])].slice(0, 3);

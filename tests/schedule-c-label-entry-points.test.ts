@@ -14,16 +14,19 @@ const dues = {
 
 describe('Schedule C callers keep a 179D label', () => {
   it('schedule C csv: a confirmed 179D-labeled dues row contributes 0', () => {
-    const lines = aggregateScheduleC([dues], '2026', CATEGORY_MAP, { mode: 'confirmed-only' }).lineItemsArray;
-    const csv = generateScheduleCCSV(lines, 2026);
+    const totals = aggregateScheduleC([dues], '2026', CATEGORY_MAP, { mode: 'confirmed-only' });
+    expect(totals.lineItems.review).toBeUndefined();
+    expect(Object.values(totals.lineItems).some(item => item.lineName === 'Needs more information')).toBe(false);
+    const csv = generateScheduleCCSV(totals.lineItemsArray, 2026, totals.needsMoreInformation);
     expect(csv).toContain('2026-06-15,AIGA,SERVICE_PROFESSIONAL_DUES,,120,0,');
+    expect(csv).toContain('Needs more information');
     expect(csv).not.toContain(',120,120,');
   });
 
   it('schedule C pdf: a confirmed 179D-labeled dues row contributes 0', async () => {
     const spy = vi.spyOn(PDFPage.prototype, 'drawText');
-    const lines = aggregateScheduleC([dues], '2026', CATEGORY_MAP, { mode: 'confirmed-only' }).lineItemsArray;
-    await generateScheduleCPlanningPDF({ taxYear: 2026, grossReceipts: 0, lineItems: lines, includeAppendix: true });
+    const totals = aggregateScheduleC([dues], '2026', CATEGORY_MAP, { mode: 'confirmed-only' });
+    await generateScheduleCPlanningPDF({ taxYear: 2026, grossReceipts: 0, lineItems: totals.lineItemsArray, needsMoreInformation: totals.needsMoreInformation, includeAppendix: true });
     const drawn = spy.mock.calls.map(call => String(call[0]));
     expect(drawn.filter(value => value === '$120.00')).toHaveLength(1);
     expect(drawn).toContain('$0.00');

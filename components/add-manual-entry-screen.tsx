@@ -48,20 +48,25 @@ export function AddManualEntryScreen({ user, onBack, onSaved, defaultType = "exp
     merchant_name: "",
     amount: "",
     date: localCalendarYMD(),
-    category: "other",
+    category: "",
     notes: "",
     business_purpose: "",
-    is_deductible: null as boolean | null,
+    is_deductible: false as boolean | null,
   }));
 
   const reset = () => {
-    setForm({ merchant_name: "", amount: "", date: localCalendarYMD(), category: "other", notes: "", business_purpose: "", is_deductible: null });
+    setForm({ merchant_name: "", amount: "", date: localCalendarYMD(), category: "", notes: "", business_purpose: "", is_deductible: false });
     setSaved(false);
     setError(null);
   };
 
+  const categoryMissing = entryType === "expense" && !form.category.trim();
+  const descriptionMissing = entryType === "expense" && form.category === "other" && !form.notes.trim();
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (entryType === "expense" && !form.category.trim()) { setError("Pick a category"); return; }
+    if (entryType === "expense" && form.category === "other" && !form.notes.trim()) { setError("Add a description"); return; }
     const amount = parseFloat(form.amount);
     if (!form.merchant_name.trim() || isNaN(amount) || amount <= 0) return;
     setSaving(true); setError(null);
@@ -73,6 +78,8 @@ export function AddManualEntryScreen({ user, onBack, onSaved, defaultType = "exp
           amount,
           iso_currency_code: 'USD',
           type: entryType,
+          // Income keeps the previous stored category. Expenses send only a category the user picked.
+          category: entryType === "income" ? "other" : form.category,
           is_deductible: entryType === "expense" ? form.is_deductible : null,
         }),
       });
@@ -168,8 +175,8 @@ export function AddManualEntryScreen({ user, onBack, onSaved, defaultType = "exp
                   {entryType === "expense" && (
                     <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground">Category</Label>
-                      <Select value={form.category} onValueChange={v => setForm(p => ({ ...p, category: v }))}>
-                        <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
+                      <Select value={form.category || undefined} onValueChange={v => setForm(p => ({ ...p, category: v }))}>
+                        <SelectTrigger className="bg-background"><SelectValue placeholder="Pick a category" /></SelectTrigger>
                         <SelectContent>
                           {EXPENSE_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
                         </SelectContent>
@@ -190,8 +197,9 @@ export function AddManualEntryScreen({ user, onBack, onSaved, defaultType = "exp
                   </div>
                 )}
 
+                {categoryMissing && <p className="text-xs text-muted-foreground">Pick a category</p>}
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Notes (optional)</Label>
+                  <Label className="text-xs text-muted-foreground">{entryType === "expense" && form.category === "other" ? "Description *" : "Notes (optional)"}</Label>
                   <Textarea
                     value={form.notes}
                     onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
@@ -222,7 +230,7 @@ export function AddManualEntryScreen({ user, onBack, onSaved, defaultType = "exp
 
                 <div className="flex gap-3 pt-1">
                   <Button type="button" variant="outline" onClick={onBack} className="flex-1">Cancel</Button>
-                  <Button type="submit" disabled={saving || !form.merchant_name.trim() || !form.amount} className="flex-1 gap-2">
+                  <Button type="submit" disabled={saving || !form.merchant_name.trim() || !form.amount || categoryMissing || descriptionMissing} className="flex-1 gap-2">
                     {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                     Save {entryType === "expense" ? "Expense" : "Income"}
                   </Button>

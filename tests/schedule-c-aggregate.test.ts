@@ -286,6 +286,7 @@ describe('vehicle costs count only a business use percent from 0 through 100', (
       expect(stored).not.toBe(tx);
       expect(stored.deductionStatus).toBe('Needs more information');
       expect(stored.reasoning).toBe(reason);
+      expect(res.needsMoreInformation).toEqual([]);
       expect(tx.deductionStatus).toBe('Likely Deductible');
       expect(tx.reasoning).toBe('Saved reason');
     } else {
@@ -322,13 +323,11 @@ describe('Other expenses year print and energy labels', () => {
       const expected = rows.filter(row => String(row.date).startsWith(year));
       for (const mode of ['confirmed-only', 'default'] as const) {
         const totals = aggregateScheduleC(expected, year, CATEGORY_MAP, { mode });
-        const review = totals.lineItems.review;
-        expect(review?.lineName).toBe('Needs more information');
-        expect(review?.lineCode).toBe('');
-        expect(review?.deductible).toBe(0);
-        expect(review?.total).toBe(0);
-        expect(review?.transactionCount).toBe(expected.length);
-        expect(review?.transactions.map(tx => tx.id).sort()).toEqual(expected.map(tx => tx.id).sort());
+        expect(totals.lineItems.review).toBeUndefined();
+        expect(Object.values(totals.lineItems).some(item => item.lineName === 'Needs more information' || item.lineCode === 'review')).toBe(false);
+        expect(totals.needsMoreInformation).toHaveLength(expected.length);
+        expect(totals.needsMoreInformation.map(tx => tx.id).sort()).toEqual(expected.map(tx => tx.id).sort());
+        expect(totals.needsMoreInformation.every(tx => tx.deductionStatus === 'Needs more information')).toBe(true);
         expect(totals.totalDeductible).toBe(0);
         expect(totals.totalExpenses).toBe(0);
         expect(totals.lineItems['27a']).toBeUndefined();

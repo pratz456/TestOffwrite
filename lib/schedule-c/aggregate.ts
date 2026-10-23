@@ -198,6 +198,8 @@ export interface AggregateScheduleCResult {
   totalDeductible: number;
   lineItems: Record<string, LineItemSummary>;
   lineItemsArray: LineItemSummary[];
+  /** Confirmed rows withheld from every Schedule C line. Not a line item and not part of either total. */
+  needsMoreInformation: ScheduleCTransactionLike[];
   counts: { deductible: number; year: number };
 }
 
@@ -232,13 +234,9 @@ function otherExpensesLineKey(year: number | null): string {
   return print.status === 'line' ? print.code : '27a';
 }
 
-function addReviewItem(lineItems: Record<string, LineItemSummary>, tx: ScheduleCTransactionLike) {
-  const key = 'review';
-  if (!lineItems[key]) {
-    lineItems[key] = { lineCode: '', lineName: NEEDS_MORE_INFORMATION, total: 0, deductible: 0, transactionCount: 0, transactions: [] };
-  }
-  lineItems[key].transactionCount += 1;
-  lineItems[key].transactions.push({ ...tx, deductionStatus: NEEDS_MORE_INFORMATION, reasoning: NEEDS_MORE_INFORMATION });
+/** Withheld rows sit beside the line totals. They are not a Schedule C line and add nothing to a total. */
+function addReviewItem(needsMoreInformation: ScheduleCTransactionLike[], tx: ScheduleCTransactionLike) {
+  needsMoreInformation.push({ ...tx, deductionStatus: NEEDS_MORE_INFORMATION, reasoning: NEEDS_MORE_INFORMATION });
 }
 
 /** Existing analysis status. The reason is the one already shown when this percent is missing. */
@@ -279,6 +277,7 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
       : yearTransactions.filter(isBusinessExpense);
 
   const lineItems: Record<string, LineItemSummary> = {};
+  const needsMoreInformation: ScheduleCTransactionLike[] = [];
 
   const halfCentsAwayFromZero = (cents: number): number => {
     // For odd cents, round 0.5 away from zero (deterministic for odd-cent meals).
@@ -297,7 +296,7 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
     const label = savedScheduleCLabel(tx);
     const decision = resolveScheduleCPrint({ categoryLine, label });
     if (decision.kind === 'needs-more-information' || (decision.kind === 'passthrough' && !info && !rawCategory && label)) {
-      addReviewItem(lineItems, tx);
+      addReviewItem(needsMoreInformation, tx);
       continue;
     }
     // Mapped categories keep info.line as the summary key. Other expenses stays 27a there.
@@ -307,7 +306,7 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
     const lineName = info ? info.name : 'Other expenses';
     const otherBucket = decision.kind === 'other-expenses' || lineKey === '27a' || lineKey === '27b';
     if (otherBucket && otherExpensesYearPrint(chargeYear).status === 'withhold') {
-      addReviewItem(lineItems, tx);
+      addReviewItem(needsMoreInformation, tx);
       continue;
     }
 
@@ -349,7 +348,7 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
     if (isSupersededRecord(tx) || safeTaxYear(tx.date) !== null) continue;
     const included = mode === 'confirmed-only' ? isConfirmedScheduleCExpense(tx) : isBusinessExpense(tx);
     if (!included) continue;
-    addReviewItem(lineItems, tx);
+    addReviewItem(needsMoreInformation, tx);
   }
 
   const lineItemsArray = Object.values(lineItems).sort((a, b) => {
@@ -366,6 +365,7 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
     totalDeductible,
     lineItems,
     lineItemsArray,
+    needsMoreInformation,
     counts: { deductible: deductibleTransactions.length, year: yearTransactions.length },
   };
 }

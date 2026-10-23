@@ -2,7 +2,8 @@ import { readBankHistoryReviewSummary, type BankHistoryReviewSummary } from '@/l
 import { adminDb } from '@/lib/firebase/admin';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
-import { printedScheduleCLine } from '@/lib/schedule-c/export-lines';
+import { printedScheduleCLine, scheduleCLineCsvCell } from '@/lib/schedule-c/export-lines';
+import { resolveScheduleCPrint } from '@/lib/schedule-c/line-labels';
 import { BUSINESS_STANDARD_MILEAGE_RATES, businessMileageRateForDate, summarizeBusinessMileage } from '@/lib/tax-rules/mileage-rates';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
@@ -160,6 +161,42 @@ function businessUsePercent(record: ExportRecord): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : typeof value === 'string' && value.trim() && Number.isFinite(Number(value)) ? Number(value) : null;
 }
 
+const AUDIT_NEEDS_MORE_INFORMATION = 'Needs more information';
+
+function savedAuditLabel(record: ExportRecord): string | null {
+  const raw = record.schedule_c_line ?? record.scheduleC_line;
+  return typeof raw === 'string' && raw.trim() ? raw : null;
+}
+
+/**
+ * Same precedence as aggregateScheduleC: energy, then an Other-expenses category, then an allowlisted label, then Needs more information.
+ * A category mapped to any other line keeps that line, including when the saved label is an allowlisted 27a or 27b.
+ * Withheld rows leave the line blank and record Needs more information on the advisory, not as a line.
+ */
+function auditScheduleCLine(category: string, label: string | null, taxYear: number | null, advisories: string[]): string | null {
+  const categoryLine = CATEGORY_MAP[category]?.line ?? null;
+  const decision = resolveScheduleCPrint({ categoryLine, label });
+  const withhold = () => {
+    advisories.push(AUDIT_NEEDS_MORE_INFORMATION);
+    return null;
+  };
+  if (decision.kind === 'needs-more-information') return withhold();
+  if (decision.kind === 'other-expenses') {
+    if (categoryLine && categoryLine !== '27a' && categoryLine !== '27b') return printedScheduleCLine(categoryLine, taxYear);
+    const cell = scheduleCLineCsvCell('27a', taxYear);
+    return cell ? cell : withhold();
+  }
+  if (decision.kind === 'line') {
+    const cell = scheduleCLineCsvCell(decision.line, taxYear);
+    return cell || null;
+  }
+  if (categoryLine) {
+    const cell = scheduleCLineCsvCell(categoryLine, taxYear);
+    return cell || null;
+  }
+  return label;
+}
+
 /** One confirmed deduction paired with the records on file and the §274(d) elements still missing. */
 export function buildEvidenceRecord(record: ExportRecord, context: { uid: string; tripsByDate: Map<string, number>; yearTripCount: number; receiptsByTransaction: Map<string, ExportRecord[]> }): AuditEvidenceRecord {
   const identity = String(record.trans_id ?? record.id ?? '');
@@ -223,7 +260,7 @@ export function buildEvidenceRecord(record: ExportRecord, context: { uid: string
     transactionId: identity,
     detailPath: `/protected?screen=transaction-detail&transactionId=${encodeURIComponent(identity)}&from=reports`,
     date, merchant: text(record.merchant_name ?? record.merchant ?? record.name, 300) ?? 'Unnamed record', amount, direction, currency: 'USD',
-    category, categoryLabel: humanize(category), scheduleCLine: printedScheduleCLine(CATEGORY_MAP[category]?.line ?? null, chargeTaxYear(record.date ?? record.datetime)),
+    category, categoryLabel: humanize(category), scheduleCLine: auditScheduleCLine(category, savedAuditLabel(record), chargeTaxYear(record.date ?? record.datetime), advisories),
     substantiation: { category: type, label: rule.label, strict: rule.strict, status: missing.length ? 'needs_records' : 'complete', missing, advisories },
     businessPurpose: purpose, attendees, clientProject,
     travel: { destination, datesRecorded }, mileage, linkedTrips, receipts, receiptDeclaredOutsideApp: declared,

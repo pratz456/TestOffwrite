@@ -131,23 +131,41 @@ describe('printed Other expenses line', () => {
   });
 
   it('prints 27b for 2025 and 2026 and 27a for 2024 on the audit packet CSV', () => {
-    expect(auditLine(dues({ date: '2025-03-01' }))).toBe('27b');
-    expect(auditLine(dues({ date: '2026-03-02' }))).toBe('27b');
-    expect(auditLine(dues({ date: '2024-06-15' }))).toBe('27a');
+    expect(auditLine(dues({ date: '2025-03-01' }))).toBe('27b (Other expenses)');
+    expect(auditLine(dues({ date: '2026-03-02' }))).toBe('27b (Other expenses)');
+    expect(auditLine(dues({ date: '2024-06-15' }))).toBe('27a (Other expenses)');
     const packet = assembleAuditSupportPacket('owner', 2025, { transactions: [dues({ date: '2025-04-02' })], trips: [], receipts: [] }, new Date('2026-02-01T00:00:00Z'));
-    expect(packet.deductions[0].scheduleCLine).toBe('27b');
-    expect(auditSupportPacketCSV(packet)).toContain(',27b,');
+    expect(packet.deductions[0].scheduleCLine).toBe('27b (Other expenses)');
+    expect(auditSupportPacketCSV(packet)).toContain(',27b (Other expenses),');
+  });
+
+  it('withholds a 2025 dues row labeled 27a (179D) and keeps line 18 on a mapped software row', () => {
+    const context = { uid: 'owner', tripsByDate: new Map(), yearTripCount: 0, receiptsByTransaction: new Map() };
+    const energy = buildEvidenceRecord(dues({ date: '2025-06-15', schedule_c_line: '27a (179D)', amount: 120, merchant_name: 'AIGA' }), context);
+    expect(energy.scheduleCLine).toBeNull();
+    expect(energy.substantiation.advisories).toContain('Needs more information');
+    expect(energy.review.label).not.toBe('Needs more information');
+    const csv = auditSupportPacketCSV({ deductions: [energy], mileageLog: { trips: [] } } as unknown as AuditSupportPacket);
+    expect(csv).toContain('Needs more information');
+    expect(csv).not.toContain('27b');
+    const earlier = buildEvidenceRecord(dues({ date: '2024-06-15', schedule_c_line: '27a (179D)', amount: 90 }), context);
+    expect(earlier.scheduleCLine).toBeNull();
+    expect(earlier.substantiation.advisories).toContain('Needs more information');
+    const plain = buildEvidenceRecord(dues({ date: '2025-06-15', schedule_c_line: '27a', amount: 80 }), context);
+    expect(plain.scheduleCLine).toBe('27b (Other expenses)');
+    const software = buildEvidenceRecord(dues({ date: '2025-06-15', category: 'SERVICE_SUBSCRIPTION', schedule_c_line: '27b (Other expenses)', amount: 40 }), context);
+    expect(software.scheduleCLine).toBe('18');
   });
 
   it('uses the paid or posted date when the record was saved in a later year', () => {
     const december = dues({ date: '2024-12-31' });
     expect(exportColumns(december)).toEqual({ recorded: '27a (Other expenses)', mapped: '27a (Other expenses)' });
-    expect(auditLine(december)).toBe('27a');
+    expect(auditLine(december)).toBe('27a (Other expenses)');
     expect(whereItGoes(december, 2025)).toBe('Schedule C line 27a (Other expenses)');
     const posted = dues({ datetime: '2024-12-31T15:00:00Z' });
     delete posted.date;
     expect(exportColumns(posted)).toEqual({ recorded: '27a (Other expenses)', mapped: '27a (Other expenses)' });
-    expect(auditLine(posted)).toBe('27a');
+    expect(auditLine(posted)).toBe('27a (Other expenses)');
     expect(whereItGoes(posted, 2025)).toBe('Schedule C line 27a (Other expenses)');
   });
 
@@ -499,8 +517,10 @@ describe('energy labels and unknown parentheticals', () => {
     }
     const earlier = dues({ date: '2016-06-15', schedule_c_line: '27a' });
     expect(exportColumns(earlier)).toEqual({ recorded: '', mapped: '' });
-    const review = aggregateScheduleC([earlier as never], '2016', undefined, { mode: 'confirmed-only' }).lineItemsArray;
-    const blankRow = generateScheduleCCSV(review, 2016).split('\r\n')[1];
+    const withheld = aggregateScheduleC([earlier as never], '2016', undefined, { mode: 'confirmed-only' });
+    expect(withheld.lineItemsArray).toEqual([]);
+    expect(Object.values(withheld.lineItems).some(item => item.lineName === 'Needs more information')).toBe(false);
+    const blankRow = generateScheduleCCSV(withheld.lineItemsArray, 2016, withheld.needsMoreInformation).split('\r\n')[1];
     expect(blankRow).toBeTruthy();
     expect(blankRow.split(',')[3]).toBe('');
   });

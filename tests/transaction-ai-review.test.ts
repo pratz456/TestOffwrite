@@ -628,6 +628,22 @@ describe('interest, vehicle property tax, and hired fares', () => {
   });
 });
 
+describe('confirming an energy-labeled row', () => {
+  it('confirm keeps schedule_c_line on a 179D row and leaves it out of every total', async () => {
+    change({ schedule_c_line: '27a (179D)' });
+    const response = await send(confirm());
+    expect(response.status).toBe(200);
+    expect(record().schedule_c_line).toBe('27a (179D)');
+    const totals = aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' });
+    expect(totals.totalDeductible).toBe(0);
+    expect(totals.totalExpenses).toBe(0);
+    expect(totals.lineItems['22']).toBeUndefined();
+    expect(totals.needsMoreInformation).toHaveLength(1);
+    expect(totals.needsMoreInformation[0].schedule_c_line).toBe('27a (179D)');
+    expect(Object.values(totals.lineItems).some(item => item.lineName === 'Needs more information')).toBe(false);
+  });
+});
+
 describe('correcting an energy-labeled dues row', () => {
   it.each([
     ['2024-06-15', '2024', '27a'],
