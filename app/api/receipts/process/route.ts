@@ -165,10 +165,12 @@ export async function POST(request: NextRequest) {
       manualReceipt = parsed.data;
     }
     // Manual confirmation must work even when OCR could not read the image.
+    // The caller supplies the IANA zone for a Date or a timestamp. This request leaves it unset.
     setStep(manualReceipt ? 'manual-confirmation' : 'ocr');
+    const userTimeZone = undefined;
     const ocrResult: OCRResult = manualReceipt
       ? { success: true, data: { ...manualReceipt, confidence: 0, rawText: '', items: [] }, processingTime: 0 }
-      : await receiptProcessor.processReceipt(bytes);
+      : await receiptProcessor.processReceipt(bytes, userTimeZone);
 
     if (!ocrResult.success || !ocrResult.data) {
       console.error('❌ [Receipt OCR] OCR failed:', ocrResult.error);

@@ -55,7 +55,7 @@ jobs:
       - name: Unit and contract tests
         run: npm test
 
-      - name: Receipt dates in Tokyo and Los Angeles
+      - name: Receipt dates in Tokyo, Los Angeles, and UTC
         run: npm run test:receipt-tz
 
       - name: Build application without provider access

@@ -58,10 +58,35 @@ function calendarDay(year: number, month: number, day: number): string | null {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === iso ? iso : null;
 }
 
-/** The calendar day in local time, checked with the same real-day rule as a written date. */
-function localCalendarDay(date: Date): string | null {
-  if (!Number.isFinite(date.getTime())) return null;
-  return calendarDay(date.getFullYear(), date.getMonth() + 1, date.getDate());
+/** A real IANA zone name. Anything else, including a missing value, is not a zone. */
+function ianaTimeZone(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: value });
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Calendar day of an instant in an explicit IANA zone.
+ * The zone is read with Intl.DateTimeFormat. The process clock is not used.
+ * A missing or unknown zone returns null.
+ */
+function localCalendarDay(date: Date, timeZone: string | undefined): string | null {
+  const zone = ianaTimeZone(timeZone);
+  if (!zone || !Number.isFinite(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: zone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const year = Number(parts.find(part => part.type === 'year')?.value);
+  const month = Number(parts.find(part => part.type === 'month')?.value);
+  const day = Number(parts.find(part => part.type === 'day')?.value);
+  return calendarDay(year, month, day);
 }
 
 /** Clock time by parts. An hour such as 25 is rejected. The date is not shifted through local time. */
@@ -475,7 +500,7 @@ export class ReceiptProcessor {
     }
   }
 
-  async processReceipt(imageFile: File | Buffer): Promise<OCRResult> {
+  async processReceipt(imageFile: File | Buffer, userTimeZone?: string): Promise<OCRResult> {
     const startTime = Date.now();
     
     try {
@@ -507,8 +532,8 @@ export class ReceiptProcessor {
         data: {
           merchant: receiptData.merchant || 'Unknown Merchant',
           amount: receiptData.amount || 0,
-          // An unreadable date must be entered by the user, never defaulted to today.
-          date: this.normalizeDateToISO(receiptData.date) || '',
+          // An unreadable date stays blank. A Date or timestamp needs the caller supplied zone.
+          date: this.normalizeDateToISO(receiptData.date, userTimeZone) || '',
           category: receiptData.category,
           items: receiptData.items,
           confidence: confidence / 100,
@@ -789,12 +814,12 @@ export class ReceiptProcessor {
     return { direction: 'expense', confidence: 0.55 };
   }
 
-  private normalizeDateToISO(dateLike: any): string | null {
+  private normalizeDateToISO(dateLike: any, userTimeZone?: string): string | null {
     try {
       if (!dateLike) return null;
       if (typeof dateLike === 'string') return dateFromWrittenParts(dateLike);
-      if (dateLike instanceof Date) return localCalendarDay(dateLike);
-      if (typeof dateLike === 'number') return localCalendarDay(new Date(dateLike));
+      if (dateLike instanceof Date) return localCalendarDay(dateLike, userTimeZone);
+      if (typeof dateLike === 'number') return localCalendarDay(new Date(dateLike), userTimeZone);
       return null;
     } catch {
       return null;
