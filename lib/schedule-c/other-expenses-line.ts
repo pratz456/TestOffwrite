@@ -7,7 +7,7 @@
  * https://www.irs.gov/pub/irs-prior/f1040sc--2025.pdf
  *
  * Saved analyses may store either code. Readers do not write them back.
- * Both codes mean other expenses, and the shown line comes from the tax year.
+ * Both codes mean other expenses, and the shown line comes from the transaction date.
  */
 
 /**
@@ -26,6 +26,16 @@ export const OTHER_EXPENSES_CONFIRMED_FIRST_YEAR = 2023;
 /** Other expenses line for a tax year. Years before OTHER_EXPENSES_27B_FIRST_YEAR are 27a. */
 export function otherExpensesLine(taxYear: number): '27a' | '27b' {
   return taxYear >= OTHER_EXPENSES_27B_FIRST_YEAR ? '27b' : '27a';
+}
+
+/** Placeholder in static sentences. Display sites replace it with the year's line. */
+export const OTHER_EXPENSES_LINE_TOKEN = 'OTHER_EXPENSES_LINE';
+
+export function withOtherExpensesLine(text: string, taxYear: number | null | undefined): string {
+  const line = typeof taxYear === 'number' && Number.isFinite(taxYear)
+    ? otherExpensesLine(taxYear)
+    : `27a for ${OTHER_EXPENSES_27B_FIRST_YEAR - 1} and earlier, or 27b for ${OTHER_EXPENSES_27B_FIRST_YEAR} and later`;
+  return text.replaceAll(OTHER_EXPENSES_LINE_TOKEN, line);
 }
 
 /**
@@ -55,8 +65,12 @@ function isCalendarDay(year: number, month: number, day: number): boolean {
   return day <= lengths[month - 1];
 }
 
-/** Calendar year of one ISO date. The date part is used as written, with no time zone shift. */
-function otherExpensesYearFromDate(value: unknown): number | null {
+/**
+ * Year used only to pick the other-expenses line.
+ * Accepts a real YYYY-MM-DD, or the date part of a full ISO timestamp.
+ * The month and day must be a real calendar day. The year is the four digits in the string.
+ */
+export function strictOtherExpensesDateYear(value: unknown): number | null {
   if (typeof value !== 'string') return null;
   const match = /^(\d{4})-(\d{2})-(\d{2})(?:$|T)/.exec(value.trim());
   if (!match) return null;
@@ -66,31 +80,14 @@ function otherExpensesYearFromDate(value: unknown): number | null {
   return isCalendarDay(year, month, day) ? year : null;
 }
 
-/**
- * Year for the other-expenses line. The transaction date only.
- * otherExpensesTaxYearFallback is the unused tax_year switch. This function does not call it.
- */
+/** Year for the other-expenses line. The first present transaction date only. A missing or invalid date is no year. */
 export function resolveOtherExpensesYear(record: object | null | undefined): number | null {
   if (record == null || typeof record !== 'object') return null;
   const source = record as Record<string, unknown>;
   for (const key of ['date', 'datetime', 'date_iso'] as const) {
     const value = source[key];
     if (value == null || value === '') continue;
-    return otherExpensesYearFromDate(value);
-  }
-  return null;
-}
-
-/**
- * tax_year when a date is missing. Not used for the shown line.
- * A model tax year is not read. The later switch is to call this from resolveOtherExpensesYear.
- */
-export function otherExpensesTaxYearFallback(record: object | null | undefined): number | null {
-  if (record == null || typeof record !== 'object') return null;
-  const source = record as Record<string, unknown>;
-  for (const value of [source.tax_year, source.taxYear]) {
-    const year = typeof value === 'number' ? value : typeof value === 'string' && /^\d{4}$/.test(value.trim()) ? Number(value) : NaN;
-    if (Number.isInteger(year) && year >= 1900 && year <= 2200) return year;
+    return strictOtherExpensesDateYear(value);
   }
   return null;
 }

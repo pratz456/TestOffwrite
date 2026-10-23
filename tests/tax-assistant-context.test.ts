@@ -116,6 +116,15 @@ describe('for-you paragraph', () => {
     expect(reviewed?.action).toEqual({ screen: 'transactions', merchantKey: 'adobe systems', count: 12, label: 'See these 12 charges' });
   });
 
+  it('uses other expenses (Part V) when no year is known', () => {
+    const forYou = composeForYou({ profile: assistantProfileFacts(profile), merchant: null }, 'software-subscriptions');
+    expect(forYou?.paragraph).toContain('other expenses (Part V)');
+    expect(forYou?.paragraph).not.toContain('OTHER_EXPENSES_LINE');
+    expect(forYou?.paragraph).not.toContain('line 27a');
+    expect(forYou?.paragraph).not.toContain('line 27b');
+    expect(forYou?.paragraph).not.toContain('27a for');
+  });
+
   it('uses saved methods for home and vehicle topics without a merchant', () => {
     const home = composeForYou({ ...context, merchant: null }, 'home-office');
     expect(home?.paragraph).toBe('Your saved home office method is the simplified method, so the answer above applies through that method.');

@@ -1,5 +1,6 @@
 import { learningMerchantKey } from '@/lib/ai/learning-engine';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
+import { OTHER_EXPENSES_LINE_TOKEN, withOtherExpensesLine } from '@/lib/schedule-c/other-expenses-line';
 import { guidanceSource } from './knowledge';
 
 /** Last-N read the assistant is allowed; merchant facts never come from an unbounded scan. */
@@ -241,6 +242,19 @@ const STATE_TOPICS = new Set(['state-taxes-licenses', 'estimated-taxes', 'when-t
 // These packets need topic-specific context before any personalized placement advice is appropriate.
 const PERSONAL_CREDIT_TOPICS = new Set(['marketplace-premium-credit', 'savers-match', 'scholarship-contribution-credit']);
 
+/** No transaction date: name the schedule part and do not print a line number. */
+function forYouPlacement(placement: string, year: number | null): string {
+  if (typeof year === 'number' && Number.isFinite(year)) return withOtherExpensesLine(placement, year);
+  return placement
+    .replaceAll(OTHER_EXPENSES_LINE_TOKEN, 'other expenses (Part V)')
+    .replaceAll('line 27b (other expenses)', 'other expenses (Part V)')
+    .replaceAll('line 27a (other expenses)', 'other expenses (Part V)')
+    .replaceAll('line 27b', 'other expenses (Part V)')
+    .replaceAll('line 27a', 'other expenses (Part V)')
+    .replaceAll(' or 27b', ' or other expenses (Part V)')
+    .replaceAll(' or 27a', ' or other expenses (Part V)');
+}
+
 /**
  * The "For you" paragraph. Every number comes from the owner's own rows; every rule comes from the
  * reviewed packet. Returns null when nothing personal is known, so the UI shows nothing rather than filler.
@@ -251,6 +265,8 @@ export function composeForYou(context: AssistantContext | null | undefined, topi
   const sentences: string[] = [];
   const packet = guidanceSource(topic);
   const work = profile.profession ? `${profile.profession} work` : 'business';
+  const year = typeof merchant?.taxYear === 'number' && Number.isFinite(merchant.taxYear) ? merchant.taxYear : null;
+  const placement = packet?.placement ? forYouPlacement(packet.placement, year) : undefined;
 
   if (merchant) {
     const plural = merchant.count === 1 ? '' : 's';
@@ -260,10 +276,10 @@ export function composeForYou(context: AssistantContext | null | undefined, topi
         ? `${merchant.unreviewedCount === 1 ? 'it is' : 'all are'} unreviewed`
         : `${merchant.unreviewedCount} ${merchant.unreviewedCount === 1 ? 'is' : 'are'} unreviewed`;
     sentences.push(`You have ${merchant.count} ${merchant.displayName} charge${plural} in ${merchant.taxYear} totaling ${usd(merchant.totalCents)}; ${unreviewed}.`);
-    if (packet?.placement) {
-      sentences.push(/^Not (deductible|a deduction)/i.test(packet.placement)
-        ? `The reviewed rule above treats ${merchant.count === 1 ? 'this charge' : 'these charges'} as personal unless the exception described applies (${packet.placement}).`
-        : `If ${merchant.count === 1 ? 'it is' : 'they are'} used in your ${work}, ${merchant.count === 1 ? 'it belongs' : 'they belong'} on ${packet.placement}.`);
+    if (placement) {
+      sentences.push(/^Not (deductible|a deduction)/i.test(placement)
+        ? `The reviewed rule above treats ${merchant.count === 1 ? 'this charge' : 'these charges'} as personal unless the exception described applies (${placement}).`
+        : `If ${merchant.count === 1 ? 'it is' : 'they are'} used in your ${work}, ${merchant.count === 1 ? 'it belongs' : 'they belong'} on ${placement}.`);
     }
   }
 
@@ -288,8 +304,8 @@ export function composeForYou(context: AssistantContext | null | undefined, topi
   if (STATE_TOPICS.has(topic) && profile.state) {
     sentences.push(`${profile.state} state rules are not covered here; this answer is federal only.`);
   }
-  if (!merchant && !HOME_TOPICS.has(topic) && !VEHICLE_TOPICS.has(topic) && profile.profession && packet?.placement && !/^Not /.test(packet.placement)) {
-    sentences.push(`For your ${work}, the placement above (${packet.placement}) is where a qualifying cost is reported.`);
+  if (!merchant && !HOME_TOPICS.has(topic) && !VEHICLE_TOPICS.has(topic) && profile.profession && placement && !/^Not /.test(placement)) {
+    sentences.push(`For your ${work}, the placement above (${placement}) is where a qualifying cost is reported.`);
   }
 
   if (!sentences.length) return null;

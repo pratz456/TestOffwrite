@@ -244,6 +244,8 @@ describe('curated transaction tax grounding', () => {
       'A vehicle over 6,000 pounds is not automatically fully deductible', 'prior-year deduction recoveries',
       'standard mileage already includes', 'time of day do not establish', 'Return irs_refs=null']) expect(prompt).toContain(phrase);
     expect(prompt).not.toContain('Pub 535');
+    expect(prompt).not.toContain('OTHER_EXPENSES_LINE');
+    expect(transactionTaxPolicyPrompt({ ...tx, date_iso: '1/1/2025' })).not.toContain('OTHER_EXPENSES_LINE');
     expect(transactionTaxYear({ ...tx, date_iso: '2026-02-31' })).toBeNull();
   });
   it('supplies actionable documentation when the model omits it', () => {
@@ -340,6 +342,14 @@ describe('merchant- and profession-aware grounding (2026-09-17.2)', () => {
       { merchant: 'Planet Fitness', business_purpose: 'Monthly floor fee to train my clients' }, trainer);
     expect(result?.evidence_ids).toEqual(['dues-274a3', 'personal-262', 'rent-334']);
     expect(uncitedReferences([result?.customized_reason, ...(result?.questions ?? [])].join(' '), result?.evidence_ids ?? [])).toEqual([]);
+  });
+  it('writes the other expenses line from the transaction date', () => {
+    expect(analyze({ category: 'education_training', evidence_ids: ['education-reg-1.162-5'] }, { date: '2024-06-01', date_iso: '2025-06-01' })?.schedule_c_line).toBe('27a');
+    expect(analyze({ category: 'education_training', evidence_ids: ['education-reg-1.162-5'] }, { date: undefined, date_iso: undefined, tax_year: 2025 } as Partial<TransactionInput>)?.schedule_c_line).toBeUndefined();
+    const invalidFirst = analyze({ category: 'education_training', evidence_ids: ['education-reg-1.162-5'] }, { date: '2024-13-45', date_iso: '2025-06-01', tax_year: 2025 } as Partial<TransactionInput>);
+    expect(invalidFirst?.status).toBe('ok');
+    expect(invalidFirst?.tax_year).toBe(2025);
+    expect(invalidFirst?.schedule_c_line).toBeUndefined();
   });
   it('the Schedule C line table agrees with the app\'s Schedule C aggregation map', () => {
     for (const review of REVIEW_CATEGORIES) {

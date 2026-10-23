@@ -112,7 +112,8 @@ describe('descriptor matching', () => {
   });
 
   it('maps personal signals, government, transfers and Schedule 1 items with a question instead of a category conclusion', () => {
-    expect(intel('PLANET FITNESS')).toMatchObject({ disposition: 'personal_likely', category: 'dues_and_memberships', scheduleCLine: '27a' });
+    expect(intel('PLANET FITNESS')).toMatchObject({ disposition: 'personal_likely', category: 'dues_and_memberships', scheduleCLine: '27b' });
+    expect(intel('PLANET FITNESS', { date_iso: undefined, tax_year: 2025 }).scheduleCLine).toBeNull();
     expect(intel('PLANET FITNESS').question).toMatch(/gym dues/i);
     expect(intel('AIGA MEMBERSHIP DUES')).toMatchObject({ disposition: 'business_likely', category: 'dues_and_memberships' });
     expect(intel('IRS USATAXPYMT')).toMatchObject({ name: 'IRS', disposition: 'not_an_expense', category: null, scheduleCLine: null });

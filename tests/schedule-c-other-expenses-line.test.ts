@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PDFPage } from 'pdf-lib';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
-import { OTHER_EXPENSES_27B_FIRST_YEAR, otherExpensesLine, otherExpensesTaxYearFallback, readStoredAiScheduleCLines, resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
+import { OTHER_EXPENSES_27B_FIRST_YEAR, OTHER_EXPENSES_LINE_TOKEN, otherExpensesLine, publishedOtherExpensesLine, readStoredAiScheduleCLines, resolveOtherExpensesYear, strictOtherExpensesDateYear, withOtherExpensesLine } from '@/lib/schedule-c/other-expenses-line';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
@@ -12,7 +12,10 @@ import { convertTransactionsToCSV, TRANSACTION_CSV_HEADERS } from '@/lib/reports
 import { normalizeExplanation, scheduleCLineFor } from '@/lib/ai/explanation';
 import { reviewHydrationFields } from '@/lib/transactions/ai-review-contract';
 import { suggestionOtherExpensesNeedsReview, suggestionScheduleCLine } from '@/lib/transactions/review-proposals';
-import { safeTaxYear } from '@/lib/schedule-c/taxDate';
+import { safeTaxYear, safeYMD } from '@/lib/schedule-c/taxDate';
+import { groundTransactionAnalysis } from '@/lib/ai/transaction-tax-policy';
+import { merchantIntelligence } from '@/lib/ai/merchant-intelligence';
+import type { OutputType, TransactionInput, UserContext } from '@/lib/ai/analyzeTransaction';
 
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
 import { assembleAuditSupportPacket, auditSupportPacketCSV, buildEvidenceRecord } from '@/lib/reports/audit-support-packet';
@@ -442,7 +445,7 @@ describe('Schedule C other expenses line follows the tax year', () => {
       },
     };
     expect(resolveOtherExpensesYear(record)).toBeNull();
-    expect(otherExpensesTaxYearFallback(record)).toBe(2025);
+    expect(publishedOtherExpensesLine('27a', resolveOtherExpensesYear(record))).toEqual({ line: null, needsReview: true });
     expect(resolveOtherExpensesYear({ date: '', datetime: null, date_iso: '2025-03-01' })).toBe(2025);
     expect(resolveOtherExpensesYear({ date: '2024-13-45', datetime: '2025-06-01' })).toBeNull();
     const columns = csvColumns(record);
@@ -466,12 +469,37 @@ describe('Schedule C other expenses line follows the tax year', () => {
     expect(record.schedule_c_line).toBe('27a');
     expect(normalizeExplanation(record.ai_explanation, resolveOtherExpensesYear(record))?.scheduleCLine).toBeNull();
     expect(scheduleCLineFor({ schedule_c_line: '27a', category: 'education_training', transaction_kind: 'expense', status: 'ok' } as never, resolveOtherExpensesYear(record))).toBeNull();
+    expect(merchantIntelligence({ merchant: 'PLANET FITNESS', amount_usd: 20, tax_year: 2025 } as Partial<TransactionInput>).scheduleCLine).toBeNull();
+    const analysis = {
+      status: 'ok', transaction_kind: 'expense', category: 'education_training', is_deductible: true, expense_type: 'business',
+      evidence_ids: ['education-reg-1.162-5'], confidence: 0.9, audit_risk: 'low',
+      customized_reason: 'The course maintains design skills already used for client work. Keep the receipt.',
+      key_analysis_factor: 'Education for the current design business.',
+    } as OutputType;
+    const analyst = { user_id: 'synthetic', profession: ['Designer'], filing_state: 'CA', business_entity: 'sole_proprietor' } as UserContext;
+    const undated = groundTransactionAnalysis(
+      analysis,
+      { tx_id: 'tax-year-only', merchant: 'Course vendor', amount_usd: OTHER_EXPENSE_AMOUNT, date_iso: '', business_purpose: 'Course that maintains design skills already used for client work.', tax_year: 2025 } as TransactionInput,
+      analyst,
+      'synthetic-model',
+    );
+    expect(undated?.schedule_c_line).toBeUndefined();
+    expect(undated?.tax_year).toBeNull();
+    const invalidDate = { tx_id: 'invalid-first-date', merchant: 'Course vendor', amount_usd: OTHER_EXPENSE_AMOUNT, date: '2024-13-45', date_iso: '2025-06-01', business_purpose: 'Course that maintains design skills already used for client work.', tax_year: 2025 } as TransactionInput;
+    const written = groundTransactionAnalysis(analysis, invalidDate, analyst, 'synthetic-model');
+    expect(written?.status).toBe('ok');
+    expect(written?.tax_year).toBe(2025);
+    expect(written?.schedule_c_line).toBeUndefined();
+    expect(publishedOtherExpensesLine('27a', resolveOtherExpensesYear(invalidDate))).toEqual({ line: null, needsReview: true });
     const source = readFileSync('lib/schedule-c/other-expenses-line.ts', 'utf8');
+    expect(source).not.toContain('otherExpensesTaxYearFallback');
+    expect(source).not.toMatch(/\btax_year\b/);
+    expect(source).not.toMatch(/\bai_tax_year\b/);
     const start = source.indexOf('export function resolveOtherExpensesYear');
     const resolver = source.slice(start, source.indexOf('\n/**', start));
-    expect(resolver).not.toContain('otherExpensesTaxYearFallback');
+    expect(resolver).toContain('strictOtherExpensesDateYear');
+    expect(resolver).not.toContain('taxYear');
     expect(resolver).not.toContain('tax_year');
-    expect(resolver).not.toContain('ai_tax_year');
   });
 
   function invalidDateRecord(date: string) {
@@ -503,6 +531,50 @@ describe('Schedule C other expenses line follows the tax year', () => {
     expect(evidence.amount).toBe(OTHER_EXPENSE_AMOUNT);
     expect(record.schedule_c_line).toBe('27a');
   }
+
+  it('keeps safeYMD and tax year grouping when the line reader rejects the date', () => {
+    expect(safeYMD('2024-13-45')).toBe('2024-13-45');
+    expect(safeYMD('2024-06-01')).toBe('2024-06-01');
+    expect(safeTaxYear('2024-13-45')).toBe(2024);
+    expect(strictOtherExpensesDateYear('2024-13-45')).toBeNull();
+    expect(strictOtherExpensesDateYear('2024-06-01')).toBe(2024);
+    expect(strictOtherExpensesDateYear('2024-02-29')).toBe(2024);
+    expect(strictOtherExpensesDateYear('2023-02-29')).toBeNull();
+    const invalid = {
+      amount: OTHER_EXPENSE_AMOUNT,
+      date: '2024-13-45',
+      category: 'SERVICE_EDUCATION',
+      is_deductible: true as const,
+      review_status: 'confirmed' as const,
+      merchant_name: 'INVALID-GROUP',
+      id: 'invalid-group',
+    };
+    expect(resolveOtherExpensesYear(invalid)).toBeNull();
+    const grouped = aggregateScheduleC([invalid], '2024', CATEGORY_MAP, { mode: 'confirmed-only' });
+    expect(grouped.lineItems['27a']).toMatchObject({ lineCode: '27a', deductible: OTHER_EXPENSE_AMOUNT });
+    expect(grouped.lineItems['27b']).toBeUndefined();
+    expect(grouped.totalDeductible).toBe(OTHER_EXPENSE_AMOUNT);
+    const valid = aggregateScheduleC([{ ...invalid, date: '2024-06-01', id: 'valid-group' }], '2024', CATEGORY_MAP, { mode: 'confirmed-only' });
+    expect(valid.lineItems['27a']).toMatchObject({ lineCode: '27a', deductible: OTHER_EXPENSE_AMOUNT });
+    expect(valid.totalDeductible).toBe(OTHER_EXPENSE_AMOUNT);
+    expect(generateScheduleCCSV(grouped.lineItemsArray, 2024)).toContain(',27a,80.25,');
+    expect(generateScheduleCCSV(valid.lineItemsArray, 2024)).toContain(',27a,80.25,');
+    const taxDate = readFileSync('lib/schedule-c/taxDate.ts', 'utf8');
+    const aggregate = readFileSync('lib/schedule-c/aggregate.ts', 'utf8');
+    expect(taxDate).toContain('return s.slice(0, 10);');
+    expect(taxDate).not.toContain('strictOtherExpensesDateYear');
+    expect(aggregate).toContain('safeTaxYear(t.date)');
+    expect(aggregate).not.toContain('strictOtherExpensesDateYear');
+    expect(aggregate).not.toContain('resolveOtherExpensesYear');
+    expectBlankFlag('2024-13-45');
+  });
+
+  it('replaces the other expenses placeholder from the date year', () => {
+    expect(withOtherExpensesLine(`Schedule C line ${OTHER_EXPENSES_LINE_TOKEN}`, null)).toBe('Schedule C line 27a for 2024 and earlier, or 27b for 2025 and later');
+    expect(withOtherExpensesLine(`Schedule C line ${OTHER_EXPENSES_LINE_TOKEN}`, 2023)).toBe('Schedule C line 27a');
+    expect(withOtherExpensesLine(`Schedule C line ${OTHER_EXPENSES_LINE_TOKEN}`, 2025)).toBe('Schedule C line 27b');
+    expect(withOtherExpensesLine('Schedule C line 18', null)).toBe('Schedule C line 18');
+  });
 
   it('treats an impossible ISO date as no year and flags the line', () => {
     expectBlankFlag('2024-13-45');

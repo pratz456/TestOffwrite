@@ -3,6 +3,7 @@ import { findMerchantEntry, merchantDescriptor, merchantIntelligence, type Merch
 import { matchProfessions, professionHint } from './profession-priors';
 import { redactIdentifierText } from '@/lib/security/identifier-redaction';
 import { BUSINESS_STANDARD_MILEAGE_RATES } from '@/lib/tax-rules/mileage-rates';
+import { publishedOtherExpensesLine, resolveOtherExpensesYear, withOtherExpensesLine } from '@/lib/schedule-c/other-expenses-line';
 
 /** Selected, reviewed federal rules. This is not retrieval over the entire tax code. */
 export const TRANSACTION_TAX_POLICY_VERSION = 'federal-transactions-2026-09-23.2';
@@ -199,11 +200,12 @@ export function transactionTaxYear(transaction: TransactionInput): number | null
 }
 
 export function transactionTaxPolicyPrompt(transaction: TransactionInput): string {
+  const lineYear = resolveOtherExpensesYear(transaction);
   return `TRUSTED SERVER TAX POLICY ${TRANSACTION_TAX_POLICY_VERSION}
 Transaction tax year: ${transactionTaxYear(transaction) ?? 'unknown'}. Jurisdiction: US federal only.
 Supported scope: selected 2025 and 2026 self-employed sole-proprietor/disregarded single-member LLC transactions. Categorize other transactions where possible but withhold a tax determination. Do not calculate state tax, complete returns, corporate/partnership treatment, annual limits, 2027 treatment or asset elections.
 Use only the following evidence IDs for legal claims. Select up to three applicable IDs in evidence_ids, preferring the category-specific entry (for example software-334 for a software subscription, dues-274a3 for dues, mileage-rates for fuel or mileage) over business-162 alone; the server rejects evidence that does not fit the category. Return irs_refs=null; the server resolves titles and URLs. Do not invent sources, publication editions, Code sections, rates, deduction amounts or audit probabilities.
-${TRANSACTION_TAX_EVIDENCE.map(item => `${item.id} | ${item.title} | ${item.edition}\n${item.rule}`).join('\n\n')}`;
+${withOtherExpensesLine(TRANSACTION_TAX_EVIDENCE.map(item => `${item.id} | ${item.title} | ${item.edition}\n${item.rule}`).join('\n\n'), lineYear)}`;
 }
 
 function text(value: unknown) { return typeof value === 'string' ? value.trim() : ''; }
@@ -378,6 +380,7 @@ export function groundTransactionAnalysis(
   const ids = [...(result.evidence_ids ?? [])];
   if (!Array.isArray(ids) || !ids.length || ids.length > 3 || ids.some(id => !TRANSACTION_EVIDENCE_IDS.includes(id)) || new Set(ids).size !== ids.length) return null;
   const year = transactionTaxYear(transaction);
+  const lineYear = resolveOtherExpensesYear(transaction);
   const amount = transaction.amount_usd ?? transaction.amount;
   let kind = result.transaction_kind ?? 'unknown';
   result.transaction_kind = kind;
@@ -860,7 +863,8 @@ export function groundTransactionAnalysis(
   // The Schedule C line names where a confirmed expense would be reported; it is display metadata, not an approval.
   if (result.transaction_kind === 'expense' && result.status !== 'blocked' && result.category && input.expense_type !== 'personal' && result.expense_type !== 'personal'
       && result.is_deductible !== false && !result.missing_fields?.includes('transaction_kind')) {
-    const line = merchant.category === result.category && merchant.scheduleCLine ? merchant.scheduleCLine : CATEGORY_SCHEDULE_C_LINE[result.category];
+    let line = merchant.category === result.category && merchant.scheduleCLine ? merchant.scheduleCLine : CATEGORY_SCHEDULE_C_LINE[result.category];
+    if (line === '27a' || line === '27b') line = publishedOtherExpensesLine(line, lineYear).line;
     if (line) result.schedule_c_line = line;
   }
   // Model-selected ids lead, but a gate's cited rules and the category rule are never squeezed out by them.
@@ -868,7 +872,7 @@ export function groundTransactionAnalysis(
   result.evidence_ids = [...evidenceIds.filter(id => !required.includes(id)).slice(0, 3 - required.length), ...required];
   result.sources = result.evidence_ids.map(id => {
     const item = TRANSACTION_TAX_EVIDENCE.find(entry => entry.id === id)!;
-    return { id: item.id, title: item.title, url: item.url, edition: item.edition, reviewed_at: item.reviewed_at };
+    return { id: item.id, title: item.title, url: item.url, edition: withOtherExpensesLine(item.edition, lineYear), reviewed_at: item.reviewed_at };
   });
   result.irs_refs = result.sources.map(item => item.title);
   result.tax_year = year; result.jurisdiction = 'US-federal';
