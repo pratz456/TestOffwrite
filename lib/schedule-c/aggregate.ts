@@ -34,6 +34,7 @@ import {
   fuelDecision,
   hasExpenseDescription,
   isIncomeLike,
+  legacyOtherExpenseFee,
   isProcessorOrPlatformFee,
   isTransferLike,
   markedBusiness,
@@ -188,7 +189,8 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'GENERAL_SERVICES_EDUCATION': { line: '27a', name: 'Other expenses', code: '27a' },
   'GENERAL_SERVICES_OTHER_GENERAL_SERVICES': { line: '27a', name: 'Other expenses', code: '27a' },
   'BANK_FEES_LATE_FEES': { line: '16b', name: 'Interest: other', code: '16b' },
-  'BANK_FEES_INTEREST_CHARGE': { line: '16b', name: 'Interest: other', code: '16b' },
+  'BANK_FEES_CASH_ADVANCE': { line: '27a', name: 'Other expenses', code: '27a' },
+  'BANK_FEES_INTEREST_CHARGE': { line: '27a', name: 'Other expenses', code: '27a' },
 };
 
 const BUSINESS_CATEGORY_KEYS = new Set(Object.keys(CATEGORY_MAP));
@@ -325,7 +327,7 @@ export function exportCategoryDecision(category: string, record: { [key: string]
   const amountCents = typeof record.amount === 'number' && Number.isFinite(record.amount) ? Math.abs(Math.round(record.amount * 100)) : null;
   const overCap = amountCents !== null && amountCents > PART_V_AND_SUPPLIES_CAP_CENTS;
   const finish = (line: string | null): { line: string | null; withhold: boolean } => {
-    if (line && cappedLine(line) && overCap) return { line: null, withhold: true };
+    if (line && cappedLine(line) && overCap && !legacyOtherExpenseFee(raw)) return { line: null, withhold: true };
     return { line, withhold: false };
   };
   if (!ruled && !info) return raw ? { line: null, withhold: true } : { line: null, withhold: false };
@@ -335,7 +337,7 @@ export function exportCategoryDecision(category: string, record: { [key: string]
   if (ruled?.kind === 'described-other') return hasExpenseDescription(record) ? finish('27a') : { line: null, withhold: true };
   if (ruled?.kind === 'part-v') return finish(ruled.line || '27a');
   if (ruled?.kind === 'line') return finish(ruled.line || null);
-  if (ruled?.kind === 'late-fee' || ruled?.kind === 'interest') return { line: '16b', withhold: false };
+  if (ruled?.kind === 'late-fee') return { line: '16b', withhold: false };
   if (ruled?.kind === 'bank-split') {
     if (answeredPersonal(record)) return { line: null, withhold: false };
     if (isProcessorOrPlatformFee(record)) return { line: '10', withhold: false };
@@ -470,7 +472,8 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
       addReviewItem(needsMoreInformation, tx);
       return null;
     }
-    if (cappedLine(lineKey) && Math.abs(cents) > PART_V_AND_SUPPLIES_CAP_CENTS) {
+    const category = typeof tx.category === 'string' ? tx.category : '';
+    if (cappedLine(lineKey) && !legacyOtherExpenseFee(category) && Math.abs(cents) > PART_V_AND_SUPPLIES_CAP_CENTS) {
       addReviewItem(needsMoreInformation, tx);
       return null;
     }
@@ -541,13 +544,6 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
     }
     if (ruled?.kind === 'late-fee') {
       if (!answeredPersonal(tx)) placeOnLine(tx, '16b', 'Interest: other', cents);
-      continue;
-    }
-    if (ruled?.kind === 'interest') {
-      if (answeredPersonal(tx)) continue;
-      const share = finiteUsePercent(tx.business_use_percentage);
-      if (share === null) addReviewItem(needsMoreInformation, tx);
-      else placeOnLine(tx, '16b', 'Interest: other', Math.round(cents * share / 100));
       continue;
     }
     if (ruled?.kind === 'transfer') {

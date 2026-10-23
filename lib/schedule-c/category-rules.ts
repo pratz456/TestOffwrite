@@ -22,7 +22,6 @@ export type RuledKind =
   | 'described-other'
   | 'bank-split'
   | 'late-fee'
-  | 'interest'
   | 'transfer';
 
 export interface RuledCategory {
@@ -46,8 +45,17 @@ const AUTOMOTIVE: RuledCategory = { kind: 'automotive' };
 const OTHER: RuledCategory = { kind: 'described-other' };
 const BANK_SPLIT: RuledCategory = { kind: 'bank-split' };
 const LATE_FEE: RuledCategory = { kind: 'late-fee', line: '16b', name: 'Interest: other' };
-const INTEREST: RuledCategory = { kind: 'interest', line: '16b', name: 'Interest: other' };
 const TRANSFER: RuledCategory = { kind: 'transfer' };
+
+/**
+ * Card interest and cash-advance fees keep the 52f5788d fallback: Other expenses at the full confirmed amount.
+ * The alias table's 16b share entry is skipped. The ruling is still open, and the $2,500 cap does not apply.
+ */
+const LEGACY_OTHER_EXPENSE_FEES = new Set(['BANK_FEES_CASH_ADVANCE', 'BANK_FEES_INTEREST_CHARGE']);
+
+export function legacyOtherExpenseFee(category: string): boolean {
+  return LEGACY_OTHER_EXPENSE_FEES.has(category);
+}
 
 /** Keys whose ruling is not "use the static Schedule C line on CATEGORY_MAP". */
 export const RULED_CATEGORIES: Record<string, RuledCategory> = {
@@ -103,7 +111,8 @@ export const RULED_CATEGORIES: Record<string, RuledCategory> = {
   BANK_FEES_OTHER_BANK_FEES: BANK_SPLIT,
   bank_and_payment_fees: BANK_SPLIT,
   BANK_FEES_LATE_FEES: LATE_FEE,
-  BANK_FEES_INTEREST_CHARGE: INTEREST,
+  BANK_FEES_CASH_ADVANCE: partV(),
+  BANK_FEES_INTEREST_CHARGE: partV(),
 
   TRANSPORTATION_FUEL: FUEL,
   TRANSPORTATION_GAS: FUEL,

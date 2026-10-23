@@ -292,8 +292,24 @@ describe('alias head bank fees, caps and ruled lines', () => {
     expect(atm.lineItems['27a']?.deductible).toBe(3.5);
   });
 
-  it.skip('cash advance payoff on a credit account waits on an owner decision', () => {
-    expect(totals([charge({ category: 'BANK_FEES_CASH_ADVANCE', amount: 12, account_type: 'credit' })])).toBeDefined();
+  it('leaves card interest and cash advance fees on Other expenses at the full amount', () => {
+    for (const category of ['BANK_FEES_CASH_ADVANCE', 'BANK_FEES_INTEREST_CHARGE']) {
+      const res = totals([charge({
+        category,
+        amount: 3000,
+        date: '2025-08-14',
+        account_type: 'credit',
+        business_use_percentage: 40,
+        business_purpose: 'Cash went to my business',
+        notes: 'personal',
+      })]);
+      expect(res.lineItems['27a']?.deductible).toBe(3000);
+      expect(res.lineItems['16b']).toBeUndefined();
+      expect(res.needsMoreInformation).toEqual([]);
+      expect(res.totalDeductible).toBe(3000);
+    }
+    expect(PLAID_CATEGORY_MAP.find(item => item.detailed === 'BANK_FEES_INTEREST_CHARGE')?.scheduleCLine).toBe('16b');
+    expect(PLAID_CATEGORY_MAP.some(item => item.detailed === 'BANK_FEES_CASH_ADVANCE')).toBe(false);
   });
 
   it('caps line 22 and Part V at 2500 and sends software and blank other to needs more information past that line', () => {
