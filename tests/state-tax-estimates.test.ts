@@ -157,22 +157,11 @@ describe('California 2025', () => {
     expect(rules.behavioralHealthServicesTax).toBe(prior.behavioralHealthServicesTax);
     expect(rules.unmodeled).toBe(prior.unmodeled);
     expect(rules.unmodeled).toEqual(prior.unmodeled);
-    const otherYear = californiaRules(2024);
-    expect('kind' in otherYear).toBe(false);
-    if (!('kind' in otherYear)) expect(otherYear.reason).toMatch(/2025 only/);
   });
 
-  it('says 2027 is not supported yet', () => {
-    const rules = californiaRules(2027);
-    expect('kind' in rules).toBe(false);
-    if ('kind' in rules) return;
-    expect(rules).toEqual({ stateCode: 'CA', taxYear: 2027, reason: 'This tax year is not supported yet.' });
-    expect(rules.reason).not.toMatch(/2025 only/);
-    const later = californiaRules(2028);
-    expect('kind' in later).toBe(false);
-    if ('kind' in later) return;
-    expect(later.taxYear).toBe(2028);
-    expect(later.reason).toBe('This tax year is not supported yet.');
+  it.each([2024, 2027])('returns tax year %s with the generic unsupported reason', year => {
+    const rules = californiaRules(year);
+    expect(rules).toEqual({ stateCode: 'CA', taxYear: year, reason: 'This tax year is not supported yet.' });
   });
 });
 

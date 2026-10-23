@@ -84,17 +84,10 @@ const CA_2026: CaliforniaRules = {
   ],
 };
 
-const CA_2026_UNSUPPORTED: UnsupportedStateYear = {
-  stateCode: 'CA', taxYear: 2026,
-  reason: 'The Franchise Tax Board indexes California brackets, the standard deduction and exemption credits annually and had not published the 2026 Form 540 rate schedules or instructions at the September 17, 2026 review (the 2026 schedule URL returned not found). California is supported for 2025 only until the 2026 figures are published.',
-  sources: [{ url: 'https://www.ftb.ca.gov/forms/index.html', note: 'FTB forms and publications; 2026 Form 540 materials not yet available.' }],
-};
-
-const CA_LATER_YEAR_REASON = 'This tax year is not supported yet.';
+const CA_UNSUPPORTED_YEAR_REASON = 'This tax year is not supported yet.';
 
 export function californiaRules(taxYear: number): CaliforniaRules | UnsupportedStateYear {
   if (taxYear === 2025) return CA_2025;
   if (taxYear === 2026) return CA_2026;
-  if (taxYear >= 2027) return { stateCode: 'CA', taxYear, reason: CA_LATER_YEAR_REASON };
-  return CA_2026_UNSUPPORTED;
+  return { stateCode: 'CA', taxYear, reason: CA_UNSUPPORTED_YEAR_REASON };
 }
