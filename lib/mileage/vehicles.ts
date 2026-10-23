@@ -125,35 +125,15 @@ export function blankVehicle(id: string, existingCount: number): VehicleRecord {
   };
 }
 
-export function odometerReadingDates(
-  vehicle: Pick<VehicleRecord, 'datePlacedInService' | 'dateDisposed'> & { dateConvertedToBusiness?: string },
-  taxYear: number,
-): { startDate: string; endDate: string } {
+export function odometerReadingDates(vehicle: Pick<VehicleRecord, 'datePlacedInService' | 'dateDisposed'>, taxYear: number): { startDate: string; endDate: string } {
   const jan1 = `${taxYear}-01-01`;
   const dec31 = `${taxYear}-12-31`;
   const placed = vehicle.datePlacedInService;
-  const converted = vehicle.dateConvertedToBusiness ?? '';
-  let startDate = jan1;
-  if (placed && placed > startDate) startDate = placed;
-  if (converted && converted > startDate) startDate = converted;
   const disposed = vehicle.dateDisposed;
   return {
-    startDate,
+    startDate: placed && placed > jan1 ? placed : jan1,
     endDate: disposed && disposed < dec31 ? disposed : dec31,
   };
-}
-
-/** Business miles divided by miles driven between the stored reading points. Months in service are not applied. */
-export function businessMilesShare(readings: Pick<OdometerReadings, 'start' | 'end'>, businessMiles: number): number | null {
-  if (readings.start === null || readings.end === null || readings.end <= readings.start) return null;
-  if (!Number.isFinite(businessMiles) || businessMiles < 0) return null;
-  return businessMiles / (readings.end - readings.start);
-}
-
-/** Operating cost times the mileage share. Months in service are not applied. */
-export function operatingCostBusinessPortion(operatingCost: number, share: number): number | null {
-  if (!Number.isFinite(operatingCost) || operatingCost < 0 || !Number.isFinite(share) || share < 0) return null;
-  return operatingCost * share;
 }
 
 export function methodForYear(vehicle: VehicleRecord, taxYear: number): DeductionMethod {
@@ -308,7 +288,7 @@ function applyPatch(current: VehicleRecord, patch: VehiclePatch): VehicleRecord 
       end: patch.odometerEnd !== undefined ? patch.odometerEnd : previous.end,
     });
   }
-  if (patch.datePlacedInService !== undefined || patch.dateDisposed !== undefined || patch.dateConvertedToBusiness !== undefined) {
+  if (patch.datePlacedInService !== undefined || patch.dateDisposed !== undefined) {
     for (const [storedYear, readings] of Object.entries(next.odometerByYear)) {
       next.odometerByYear[storedYear] = stampReading(next, Number(storedYear), readings);
     }
@@ -325,7 +305,7 @@ function applyPatch(current: VehicleRecord, patch: VehiclePatch): VehicleRecord 
 }
 
 export function vehicleInBusinessUse(vehicle: VehicleRecord): boolean {
-  return vehicle.method !== 'unset' || vehicle.datePlacedInService !== '' || vehicle.dateConvertedToBusiness !== '';
+  return vehicle.method !== 'unset' || vehicle.datePlacedInService !== '';
 }
 
 function businessUseCount(vehicles: readonly VehicleRecord[]): number {
@@ -371,11 +351,7 @@ function withMethodHistory(current: VehicleRecord, next: VehicleRecord): Vehicle
   return result;
 }
 
-function stampReading(
-  vehicle: Pick<VehicleRecord, 'datePlacedInService' | 'dateDisposed'> & { dateConvertedToBusiness?: string },
-  taxYear: number,
-  readings: Pick<OdometerReadings, 'start' | 'end'>,
-): OdometerReadings {
+function stampReading(vehicle: Pick<VehicleRecord, 'datePlacedInService' | 'dateDisposed'>, taxYear: number, readings: Pick<OdometerReadings, 'start' | 'end'>): OdometerReadings {
   const dates = odometerReadingDates(vehicle, taxYear);
   return {
     start: readings.start,
@@ -396,7 +372,7 @@ export function saveVehicle(vehicles: readonly VehicleRecord[], vehicleId: strin
   if (invalid) return { ok: false, reason: invalid };
   const patched = applyPatch(current, patch);
   if (patch.method === undefined) {
-    const touchesRules = patch.ownership !== undefined || patch.datePlacedInService !== undefined || patch.dateConvertedToBusiness !== undefined;
+    const touchesRules = patch.ownership !== undefined || patch.datePlacedInService !== undefined;
     if (touchesRules) {
       const fleet = replaceVehicle(vehicles, patched);
       const reason = methodRuleReason(current, patched, fleet);

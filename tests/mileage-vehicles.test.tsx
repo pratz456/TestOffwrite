@@ -16,7 +16,6 @@ import {
   applyHomeDestination,
   assignTrips,
   blankVehicle,
-  businessMilesShare,
   countedMiles,
   emptyPartIV,
   groupTrips,
@@ -26,7 +25,6 @@ import {
   mileageDeductionTotal,
   normalizeStoredTrip,
   odometerForYear,
-  operatingCostBusinessPortion,
   partIVForYear,
   planLegacyVehicle,
   saveVehicle,
@@ -119,7 +117,7 @@ describe('mileage vehicles, trip types, and sorting', () => {
     });
     expect(partIVForYear(created, 2026)).toEqual(emptyPartIV());
     const vehicles = mustSave([created], 'v1', {
-      name: 'Civic', method: 'unset', ownership: 'owned', datePlacedInService: '2024-03-01', taxYear: 2026,
+      name: 'Civic', method: 'unset', ownership: 'owned', datePlacedInService: '2024-03-01', dateDisposed: '', dateConvertedToBusiness: '2026-07-01', taxYear: 2026,
       odometerStart: 1200, odometerEnd: 8400,
       partIV: { offDutyPersonalUse: 'yes', otherVehicleForPersonalUse: 'no', hasEvidence: 'yes', evidenceWritten: 'no' },
     });
@@ -128,6 +126,8 @@ describe('mileage vehicles, trip types, and sorting', () => {
     expect(saved.name).toBe('Civic');
     expect(saved.ownership).toBe('owned');
     expect(saved.datePlacedInService).toBe('2024-03-01');
+    expect(saved.dateDisposed).toBe('');
+    expect(saved.dateConvertedToBusiness).toBe('2026-07-01');
     expect(saved.odometerByYear['2026']).toEqual({ start: 1200, end: 8400, startDate: '2026-01-01', endDate: '2026-12-31' });
     expect(saved.partIVByYear['2026']).toEqual({ offDutyPersonalUse: 'yes', otherVehicleForPersonalUse: 'no', hasEvidence: 'yes', evidenceWritten: 'no' });
     expect(saved.partIVByYear['2025']).toBeUndefined();
@@ -540,39 +540,6 @@ describe('mileage vehicles, trip types, and sorting', () => {
     if (!again.ok) return;
     expect(methodForYear(again.vehicles.find(vehicle => vehicle.id === 'car-a')!, 2026)).toBe('standard_mileage');
     expect(again.vehicles.find(vehicle => vehicle.id === 'car-a')?.reviewItems.filter(item => item.id === 'mid_year_method_change')).toHaveLength(1);
-  });
-
-  it('11c a car placed in service on July 1 uses business miles over miles driven in that period', () => {
-    const placed = mustSave([blankVehicle('car', 0)], 'car', {
-      datePlacedInService: '2026-07-01', taxYear: 2026, odometerStart: 10000, odometerEnd: 16000,
-    });
-    const readings = odometerForYear(placed[0], 2026);
-    expect(readings).toEqual({ start: 10000, end: 16000, startDate: '2026-07-01', endDate: '2026-12-31' });
-    const businessMiles = 2400;
-    const milesDriven = readings.end! - readings.start!;
-    const share = businessMilesShare(readings, businessMiles);
-    expect(share).toBe(businessMiles / milesDriven);
-    expect(share).toBe(2400 / 6000);
-    expect(share).not.toBe((2400 / 6000) * (6 / 12));
-  });
-
-  it('11c a personal car converted to business on July 1 stores the conversion date and reading points', () => {
-    const converted = mustSave([blankVehicle('personal', 0)], 'personal', {
-      dateConvertedToBusiness: '2026-07-01', taxYear: 2026, odometerStart: 20000, odometerEnd: 26000,
-    });
-    const car = converted[0];
-    expect(car.dateConvertedToBusiness).toBe('2026-07-01');
-    expect(car.depreciationMethod).toBeNull();
-    const readings = odometerForYear(car, 2026);
-    expect(readings).toEqual({ start: 20000, end: 26000, startDate: '2026-07-01', endDate: '2026-12-31' });
-    expect(vehicleFromDocument(car.id, vehicleToDocument(car)).dateConvertedToBusiness).toBe('2026-07-01');
-    expect(vehicleFromDocument(car.id, vehicleToDocument(car)).odometerByYear['2026']).toEqual(readings);
-    const share = businessMilesShare(readings, 1500);
-    expect(share).toBe(1500 / 6000);
-    const portion = operatingCostBusinessPortion(800, share!);
-    expect(portion).toBe(200);
-    expect(portion).not.toBe(800 * (6 / 12));
-    expect(portion).not.toBe(800 * (1500 / 6000) * (6 / 12));
   });
 
   it('buildFederalTaxSnapshot output is unchanged for an existing fixture', () => {
