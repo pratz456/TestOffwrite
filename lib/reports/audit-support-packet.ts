@@ -2,6 +2,8 @@ import { readBankHistoryReviewSummary, type BankHistoryReviewSummary } from '@/l
 import { adminDb } from '@/lib/firebase/admin';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
+import { safeTaxYear } from '@/lib/schedule-c/taxDate';
 import { BUSINESS_STANDARD_MILEAGE_RATES, businessMileageRateForDate, summarizeBusinessMileage } from '@/lib/tax-rules/mileage-rates';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
@@ -222,7 +224,11 @@ export function buildEvidenceRecord(record: ExportRecord, context: { uid: string
     transactionId: identity,
     detailPath: `/protected?screen=transaction-detail&transactionId=${encodeURIComponent(identity)}&from=reports`,
     date, merchant: text(record.merchant_name ?? record.merchant ?? record.name, 300) ?? 'Unnamed record', amount, direction, currency: 'USD',
-    category, categoryLabel: humanize(category), scheduleCLine: CATEGORY_MAP[category]?.line ?? null,
+    category, categoryLabel: humanize(category), scheduleCLine: (() => {
+      const mapped = CATEGORY_MAP[category]?.line ?? null;
+      const year = safeTaxYear(date);
+      return mapped && year != null ? scheduleCExportLine(mapped, year) : mapped;
+    })(),
     substantiation: { category: type, label: rule.label, strict: rule.strict, status: missing.length ? 'needs_records' : 'complete', missing, advisories },
     businessPurpose: purpose, attendees, clientProject,
     travel: { destination, datesRecorded }, mileage, linkedTrips, receipts, receiptDeclaredOutsideApp: declared,

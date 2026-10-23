@@ -17,16 +17,20 @@
  */
 
 import { safeTaxYear } from './taxDate';
-import { SCHEDULE_C_OTHER_EXPENSES_LINE } from './other-expenses-line';
+import { otherExpensesLine } from './other-expenses-line';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
 import { isCountableRecord, isSupersededRecord } from '@/lib/transactions/record-scope';
 
 export type CategoryMapEntry = { line: string; name: string; code: string };
 
+/**
+ * Internal other-expenses marker. 27a and 27b both mean other expenses.
+ * aggregateScheduleC publishes otherExpensesLine(year) so the amount never lands on Form 7205.
+ */
 const OTHER_EXPENSES: CategoryMapEntry = {
-  line: SCHEDULE_C_OTHER_EXPENSES_LINE,
+  line: '27a',
   name: 'Other expenses',
-  code: SCHEDULE_C_OTHER_EXPENSES_LINE,
+  code: '27a',
 };
 
 export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
@@ -122,7 +126,7 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'SERVICE_GAS': { line: '25', name: 'Utilities', code: '25' },
   'SERVICE_WATER': { line: '25', name: 'Utilities', code: '25' },
 
-  // ── Other expenses (SCHEDULE_C_OTHER_EXPENSES_LINE) ─────────────────
+  // ── Other expenses (published with otherExpensesLine for the tax year) ─
   'ENTERTAINMENT_SPORTS_AND_OUTDOORS': OTHER_EXPENSES,
   'ENTERTAINMENT_ARTS': OTHER_EXPENSES,
   'ENTERTAINMENT_THEATER': OTHER_EXPENSES,
@@ -240,8 +244,10 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
 
   for (const tx of deductibleTransactions) {
     const info = categoryMap[tx.category];
-    const lineKey = info ? info.line : OTHER_EXPENSES.line;
-    const lineName = info ? info.name : OTHER_EXPENSES.name;
+    const rawLine = info ? info.line : otherExpensesLine(Number(yearStr));
+    const otherExpenses = rawLine === '27a' || rawLine === '27b';
+    const lineKey = otherExpenses ? otherExpensesLine(Number(yearStr)) : rawLine;
+    const lineName = otherExpenses || !info ? 'Other expenses' : info.name;
 
     if (!lineItems[lineKey]) {
       lineItems[lineKey] = {

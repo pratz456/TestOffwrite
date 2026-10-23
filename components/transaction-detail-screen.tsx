@@ -16,6 +16,7 @@ import { EvidenceImportDialog } from '@/components/evidence-import-dialog';
 import { AiTaxAnalysisDialog, AiTaxExplanation } from '@/components/ai-tax-explanation';
 import { ExplanationCard } from '@/components/ai/explanation-card';
 import { normalizeExplanation } from '@/lib/ai/explanation';
+import { safeTaxYear } from '@/lib/schedule-c/taxDate';
 import { PurposeConfirmChip } from '@/components/review/purpose-confirm-chip';
 import { BulkConfirmOffer, bulkOutcomeMessage } from '@/components/review/bulk-confirm-offer';
 import { AnalysisStatusNotice } from '@/components/analysis-status-notice';
@@ -755,7 +756,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
           ai_suggestion: result.ai_suggestion ?? null,
           // Replace the old question/facts with the explanation actually saved by this run.
           // A missing or invalid payload clears the stale card instead of retaining it.
-          ai_explanation: normalizeExplanation(result.explanation),
+          ai_explanation: normalizeExplanation(result.explanation, safeTaxYear(transaction.date)),
           // Keep nested `ai` in sync so list/detail views that read key_analysis_factors see fresh text.
           ai: transaction.ai
             ? {
@@ -861,7 +862,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
             {(analysisUnavailable || aiAvailability.status === 'unavailable') && <Button variant="outline" size="sm" className="h-11" onClick={checkAiAvailability} disabled={isAnalyzing || aiAvailability.status === 'checking'}>Check AI availability</Button>}
 
             {isAnalyzing || backgroundAnalysis ? <div className="space-y-3 py-2" role="status"><p className="text-sm text-muted-foreground">{profileRefresh ? 'Updating AI review using your new profile. Confirmed categories stay saved.' : factsRefresh ? 'Details saved. AI is updating your review automatically.' : analysisQueued ? 'Queued for automatic analysis. Results refresh here.' : 'Analyzing transaction…'}</p><div className="h-4 animate-pulse rounded bg-muted" /><div className="h-4 w-3/4 animate-pulse rounded bg-muted" /></div>
-              : transaction.ai_explanation ? <div className="space-y-2"><ExplanationCard explanation={normalizeExplanation(transaction.ai_explanation)} compact onAnswer={() => changeDetailSection('details')} />{transaction.ai_suggestion && <AiTaxAnalysisDialog key={transaction.ai_suggestion.id} suggestion={transaction.ai_suggestion} />}</div>
+              : transaction.ai_explanation ? <div className="space-y-2"><ExplanationCard explanation={normalizeExplanation(transaction.ai_explanation, safeTaxYear(transaction.date))} compact onAnswer={() => changeDetailSection('details')} />{transaction.ai_suggestion && <AiTaxAnalysisDialog key={transaction.ai_suggestion.id} suggestion={transaction.ai_suggestion} />}</div>
               : transaction.ai_suggestion ? <AiTaxExplanation key={transaction.ai_suggestion.id} suggestion={transaction.ai_suggestion} compact onAddContext={() => changeDetailSection('details')} />
               : <div className="space-y-2 text-sm text-muted-foreground">
                 {pipeline.outcome ? <AnalysisStatusNotice compact outcome={pipeline.outcome} accountIds={transaction.account_id ? [transaction.account_id] : []} disabled={isAnalyzing} className="text-foreground" />

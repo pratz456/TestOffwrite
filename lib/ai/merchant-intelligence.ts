@@ -12,7 +12,8 @@
  */
 import type { TransactionInput } from './analyzeTransaction';
 import type { ExpenseCategory } from './transaction-tax-policy';
-import { SCHEDULE_C_OTHER_EXPENSES_LINE } from '@/lib/schedule-c/other-expenses-line';
+import { otherExpensesLine } from '@/lib/schedule-c/other-expenses-line';
+import { safeTaxYear } from '@/lib/schedule-c/taxDate';
 
 export const MERCHANT_DISPOSITIONS = [
   /** Overwhelmingly a business tool for self-employed users; still needs the user's one-tap purpose confirmation. */
@@ -42,7 +43,7 @@ export interface MerchantIntelligenceEntry {
   pattern: RegExp;
   name: string;
   category: ExpenseCategory | null;
-  /** Schedule C line ('8', '9', '10', '11', '13', '15', '16b', '17', '18', '20a', '20b', '21', '22', '23', '24a', '24b', '25', other expenses, '30') or null. */
+  /** Schedule C line. Other expenses is stored as 27a; merchantIntelligence publishes otherExpensesLine for the transaction year. */
   scheduleCLine: string | null;
   disposition: MerchantDisposition;
   /** One-line purpose the USER can confirm or edit; never a tax conclusion. */
@@ -202,7 +203,7 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bfreshbooks\b|\bwave\s*(?:apps|financial|accounting)\b|\bxero\b|\bbench\s*accounting\b|\bbill\.com\b/i, 'Bookkeeping software', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Bookkeeping and invoicing software for the business' }),
   entry(/\bhoneybook\b|\bdubsado\b|\b17hats\b|\bhellobonsai\b|\bbonsai\s*(?:inc|tech)\b/i, 'Client management platform', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Client contracts, invoicing and booking software for the business', paysOut: true }),
   entry(/\bgetharvest\b|\bharvest\s*(?:app|inc|time)\b|\btoggl\b|\bexpensify\b/i, 'Time and expense tracking', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Time and expense tracking software for the business' }),
-  entry(/\bgusto\b|\badp\b|\bpaychex\b/i, 'Payroll service', 'other', SCHEDULE_C_OTHER_EXPENSES_LINE, 'business_likely', { defaultPurpose: 'Payroll or contractor-payment service fees for the business', notes: `Wages paid through the service are line 26; contractor payments are line 11; only the service fee is line ${SCHEDULE_C_OTHER_EXPENSES_LINE}.` }),
+  entry(/\bgusto\b|\badp\b|\bpaychex\b/i, 'Payroll service', 'other', '27a', 'business_likely', { defaultPurpose: 'Payroll or contractor-payment service fees for the business', notes: 'Wages paid through the service are line 26; contractor payments are line 11; only the service fee is other expenses (line 27a through 2024 and line 27b from 2025).' }),
   entry(/\bkajabi\b|\bteachable\b|\bthinkific\b|\bpodia\b/i, 'Course platform', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Course and membership platform for selling the business\'s content', paysOut: true }),
   entry(/\bconvertkit\b|\bkit\.com\b|\bflodesk\b|\bklaviyo\b|\bbeehiiv\b|\bconstant\s*contact\b/i, 'Email marketing platform', 'advertising_marketing', '8', 'business_likely', { defaultPurpose: 'Email marketing platform for business newsletters' }),
   entry(/\bsubstack\b/i, 'Substack', 'software_subscriptions', '18', 'needs_purpose', { question: 'Is this a subscription you pay for reading (personal unless it is research for your business) or a payout of your own publication (business income)?' }),
@@ -216,7 +217,7 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bvagaro\b|\bstyleseat\b|\bbooksy\b|\bglossgenius\b|\bsquare\s*appointments\b/i, 'Salon booking software', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Client booking and payment software for the salon or studio business' }),
   entry(/\bsimplepractice\b|\btherapynotes\b|\btherapy\s*notes\b|\bdoxy\.me\b|\bheadway\s*(?:health|inc)?\b|\bhelloalma\b|\balma\s*(?:health|care)\b/i, 'Practice management software', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Practice management and telehealth software for the private practice' }),
   entry(/\bpsychology\s*today\b/i, 'Psychology Today listing', 'advertising_marketing', '8', 'business_likely', { defaultPurpose: 'Directory listing advertising the private practice' }),
-  entry(/\bdistrokid\b|\btunecore\b|\bcd\s*baby\b/i, 'Music distribution service', 'other', SCHEDULE_C_OTHER_EXPENSES_LINE, 'business_likely', { defaultPurpose: 'Music distribution fees for the performing/recording business', notes: 'Negative amounts are royalty payouts (business income).', paysOut: true }),
+  entry(/\bdistrokid\b|\btunecore\b|\bcd\s*baby\b/i, 'Music distribution service', 'other', '27a', 'business_likely', { defaultPurpose: 'Music distribution fees for the performing/recording business', notes: 'Negative amounts are royalty payouts (business income).', paysOut: true }),
   entry(/\bsplice\b|\bnative\s*instruments\b|\bableton\b|\bizotope\b/i, 'Music production software', 'software_subscriptions', '18', 'business_likely', { defaultPurpose: 'Music production software used for paid work' }),
   entry(/\bshipstation\b|\bpirate\s*ship\b|\bstamps\.com\b|\bshippo\b|\beasypost\b/i, 'Shipping software', 'supplies_small_tools', '22', 'business_likely', { defaultPurpose: 'Shipping labels and postage for business orders' }),
   entry(/\bprintful\b|\bprintify\b|\bgooten\b/i, 'Print-on-demand supplier', 'supplies_small_tools', '22', 'business_likely', { defaultPurpose: 'Products fulfilled for customer orders (cost of goods sold)', notes: 'Cost of goods sold belongs in Schedule C Part III (line 4) rather than line 22; the app records it as supplies pending COGS support.' }),
@@ -242,7 +243,7 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
 
   // Advertising ----------------------------------------------------------------------------------
   entry(/\bmeta\s*(?:ads?|platforms|pay)\b|\bfacebk\b|\bfacebook\s*(?:ads?|adverts?)\b|\binstagram\s*ads?\b/i, 'Meta Ads (Facebook/Instagram)', 'advertising_marketing', '8', 'business_likely', { defaultPurpose: 'Social-media advertising promoting the business' }),
-  entry(/\blinkedin\s*(?:learning|lrn)\b/i, 'LinkedIn Learning', 'education_training', SCHEDULE_C_OTHER_EXPENSES_LINE, 'needs_purpose', { question: Q.education }),
+  entry(/\blinkedin\s*(?:learning|lrn)\b/i, 'LinkedIn Learning', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
   entry(/\blinkedin\s*(?:ads?|marketing)\b/i, 'LinkedIn Ads', 'advertising_marketing', '8', 'business_likely', { defaultPurpose: 'Professional-network advertising promoting the business' }),
   entry(/\blinkedin\b|\blnkd\b/i, 'LinkedIn Premium', 'software_subscriptions', '18', 'needs_purpose', { question: 'Is this LinkedIn Premium used to find clients or work for your business, or a job-search or personal plan?' }),
   entry(/\btiktok\s*(?:ads?|for\s*business)\b|\bpinterest\s*ads?\b|\bsnap(?:chat)?\s*ads?\b|\bx\s*ads\b|\btwitter\s*ads?\b/i, 'Social ads platform', 'advertising_marketing', '8', 'business_likely', { defaultPurpose: 'Social-media advertising promoting the business' }),
@@ -379,32 +380,32 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\blaw\s*(?:office|firm|group)\b|\battorney\b|\besq\b/i, 'Law firm', 'legal_professional', '17', 'needs_purpose', { question: Q.legal }),
 
   // Education and training (other expenses) --------------------------------------------------
-  entry(/\budemy\b/i, 'Udemy', 'education_training', SCHEDULE_C_OTHER_EXPENSES_LINE, 'needs_purpose', { question: Q.education }),
-  entry(/\bcoursera\b/i, 'Coursera', 'education_training', SCHEDULE_C_OTHER_EXPENSES_LINE, 'needs_purpose', { question: Q.education }),
-  entry(/\bmasterclass\b/i, 'MasterClass', 'education_training', SCHEDULE_C_OTHER_EXPENSES_LINE, 'needs_purpose', { question: Q.education }),
-  entry(/\bskillshare\b|\bdomestika\b|\bcreativelive\b/i, 'Skillshare', 'education_training', SCHEDULE_C_OTHER_EXPENSES_LINE, 'needs_purpose', { question: Q.education }),
-  entry(/\bpluralsight\b|\bfrontend\s*masters\b|\begghead\b|\bcodecademy\b|\bdatacamp\b/i, 'Developer training', 'education_training', SCHEDULE_C_OTHER_EXPENSES_LINE, 'needs_purpose', { question: Q.education }),
+  entry(/\budemy\b/i, 'Udemy', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
+  entry(/\bcoursera\b/i, 'Coursera', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
+  entry(/\bmasterclass\b/i, 'MasterClass', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
+  entry(/\bskillshare\b|\bdomestika\b|\bcreativelive\b/i, 'Skillshare', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
+  entry(/\bpluralsight\b|\bfrontend\s*masters\b|\begghead\b|\bcodecademy\b|\bdatacamp\b/i, 'Developer training', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
   entry(/\bwyzant\b|\boutschool\b|\bvarsity\s*tutors\b/i, 'Tutoring platform', null, null, 'needs_purpose', { question: 'Is this a platform fee or payout for tutoring you provide (business), or tutoring you bought for your family (personal)?' }),
-  entry(/\bkaplan\b|\bprinceton\s*review\b|\bbar\s*review\b|\bbarbri\b|\bthemis\b/i, 'Exam prep', 'education_training', SCHEDULE_C_OTHER_EXPENSES_LINE, 'personal_likely', { question: 'Exam preparation that qualifies you for a new profession or license is not deductible; continuing education in your current business is. Which was this?', subtype: 'education' }),
+  entry(/\bkaplan\b|\bprinceton\s*review\b|\bbar\s*review\b|\bbarbri\b|\bthemis\b/i, 'Exam prep', 'education_training', '27a', 'personal_likely', { question: 'Exam preparation that qualifies you for a new profession or license is not deductible; continuing education in your current business is. Which was this?', subtype: 'education' }),
 
   // Dues: gyms and clubs (personal) vs. professional associations (deductible) --------------------
-  entry(/\bplanet\s*fitness\b/i, 'Planet Fitness', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'personal_likely', { question: Q.gym }),
-  entry(/\bequinox\b/i, 'Equinox', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'personal_likely', { question: Q.gym }),
-  entry(/\bla\s*fitness\b|\b24\s*hour\s*fitness\b|\bcrunch\s*fitness\b|\banytime\s*fitness\b|\bymca\b|\blifetime\s*fitness\b|\blife\s*time\b|\bgold'?s\s*gym\b|\borangetheory\b|\bcrossfit\b|\bsoulcycle\b|\bbarry'?s\b|\bf45\b|\bpure\s*barre\b|\bcorepower\b/i, 'Gym / fitness studio', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'personal_likely', { question: Q.gym }),
-  entry(/\bpeloton\b/i, 'Peloton', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'personal_likely', { question: Q.gym }),
-  entry(/\bclasspass\b/i, 'ClassPass', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'personal_likely', { question: Q.gym }),
-  entry(/\bcountry\s*club\b|\bgolf\s*club\b|\bathletic\s*club\b|\bsoho\s*house\b|\byacht\s*club\b/i, 'Social / country club', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'personal_likely', { question: 'Club membership dues (country, golf, athletic, social and dining clubs) are not deductible even when used for networking. Was this a separately billed business meal or event instead?' }),
-  entry(/\baiga\b/i, 'AIGA (design association)', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'business_likely', { defaultPurpose: 'Professional design association dues' }),
-  entry(/\bnational\s*association\s*of\s*realtors\b|\bnar\s*dues\b|\brealtor(?:s)?\s*(?:association|assn|board)\b|\bassociation\s*of\s*realtors\b|\bmls\s*(?:dues|fee|listing)/i, 'REALTOR association / MLS', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'business_likely', { defaultPurpose: 'REALTOR association and MLS dues for the real estate business' }),
-  entry(/\baicpa\b|\bstate\s*society\s*of\s*cpas\b|\bnatp\b|\bnaea\b/i, 'Accounting association', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'business_likely', { defaultPurpose: 'Professional accounting association dues' }),
-  entry(/\bamerican\s*bar\s*association\b|\bstate\s*bar\b|\bbar\s*association\b/i, 'Bar association', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'business_likely', { defaultPurpose: 'Bar association dues and license fees for the law practice' }),
-  entry(/\bppa\b|\bprofessional\s*photographers\b|\basmp\b|\bwppi\b/i, 'Photography association', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'business_likely', { defaultPurpose: 'Professional photography association dues' }),
-  entry(/\bamta\b|\babmp\b/i, 'Massage therapy association', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'business_likely', { defaultPurpose: 'Massage therapy association dues and liability coverage' }),
-  entry(/\bnna\b|\bnational\s*notary\b/i, 'National Notary Association', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'business_likely', { defaultPurpose: 'Notary association dues and signing-agent certification' }),
-  entry(/\bnasw\b|\bapa\s*(?:membership|dues)\b|\bamerican\s*counseling\b|\baamft\b/i, 'Counseling association', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'business_likely', { defaultPurpose: 'Professional counseling association dues' }),
-  entry(/\bieee\b|\bacm\s*(?:membership|dues)\b|\bshrm\b|\bpmi\s*(?:membership|dues)\b|\bnahb\b|\bnfib\b/i, 'Professional association', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'business_likely', { defaultPurpose: 'Professional or trade association dues' }),
-  entry(/\bchamber\s*of\s*commerce\b/i, 'Chamber of Commerce', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'business_likely', { defaultPurpose: 'Chamber of commerce membership for the business' }),
-  entry(/\bnasm\b|\bace\s*fitness\b|\bissa\b|\bacsm\b/i, 'Fitness certification body', 'education_training', SCHEDULE_C_OTHER_EXPENSES_LINE, 'business_likely', { defaultPurpose: 'Personal-trainer certification renewal and continuing education' }),
+  entry(/\bplanet\s*fitness\b/i, 'Planet Fitness', 'dues_and_memberships', '27a', 'personal_likely', { question: Q.gym }),
+  entry(/\bequinox\b/i, 'Equinox', 'dues_and_memberships', '27a', 'personal_likely', { question: Q.gym }),
+  entry(/\bla\s*fitness\b|\b24\s*hour\s*fitness\b|\bcrunch\s*fitness\b|\banytime\s*fitness\b|\bymca\b|\blifetime\s*fitness\b|\blife\s*time\b|\bgold'?s\s*gym\b|\borangetheory\b|\bcrossfit\b|\bsoulcycle\b|\bbarry'?s\b|\bf45\b|\bpure\s*barre\b|\bcorepower\b/i, 'Gym / fitness studio', 'dues_and_memberships', '27a', 'personal_likely', { question: Q.gym }),
+  entry(/\bpeloton\b/i, 'Peloton', 'dues_and_memberships', '27a', 'personal_likely', { question: Q.gym }),
+  entry(/\bclasspass\b/i, 'ClassPass', 'dues_and_memberships', '27a', 'personal_likely', { question: Q.gym }),
+  entry(/\bcountry\s*club\b|\bgolf\s*club\b|\bathletic\s*club\b|\bsoho\s*house\b|\byacht\s*club\b/i, 'Social / country club', 'dues_and_memberships', '27a', 'personal_likely', { question: 'Club membership dues (country, golf, athletic, social and dining clubs) are not deductible even when used for networking. Was this a separately billed business meal or event instead?' }),
+  entry(/\baiga\b/i, 'AIGA (design association)', 'dues_and_memberships', '27a', 'business_likely', { defaultPurpose: 'Professional design association dues' }),
+  entry(/\bnational\s*association\s*of\s*realtors\b|\bnar\s*dues\b|\brealtor(?:s)?\s*(?:association|assn|board)\b|\bassociation\s*of\s*realtors\b|\bmls\s*(?:dues|fee|listing)/i, 'REALTOR association / MLS', 'dues_and_memberships', '27a', 'business_likely', { defaultPurpose: 'REALTOR association and MLS dues for the real estate business' }),
+  entry(/\baicpa\b|\bstate\s*society\s*of\s*cpas\b|\bnatp\b|\bnaea\b/i, 'Accounting association', 'dues_and_memberships', '27a', 'business_likely', { defaultPurpose: 'Professional accounting association dues' }),
+  entry(/\bamerican\s*bar\s*association\b|\bstate\s*bar\b|\bbar\s*association\b/i, 'Bar association', 'dues_and_memberships', '27a', 'business_likely', { defaultPurpose: 'Bar association dues and license fees for the law practice' }),
+  entry(/\bppa\b|\bprofessional\s*photographers\b|\basmp\b|\bwppi\b/i, 'Photography association', 'dues_and_memberships', '27a', 'business_likely', { defaultPurpose: 'Professional photography association dues' }),
+  entry(/\bamta\b|\babmp\b/i, 'Massage therapy association', 'dues_and_memberships', '27a', 'business_likely', { defaultPurpose: 'Massage therapy association dues and liability coverage' }),
+  entry(/\bnna\b|\bnational\s*notary\b/i, 'National Notary Association', 'dues_and_memberships', '27a', 'business_likely', { defaultPurpose: 'Notary association dues and signing-agent certification' }),
+  entry(/\bnasw\b|\bapa\s*(?:membership|dues)\b|\bamerican\s*counseling\b|\baamft\b/i, 'Counseling association', 'dues_and_memberships', '27a', 'business_likely', { defaultPurpose: 'Professional counseling association dues' }),
+  entry(/\bieee\b|\bacm\s*(?:membership|dues)\b|\bshrm\b|\bpmi\s*(?:membership|dues)\b|\bnahb\b|\bnfib\b/i, 'Professional association', 'dues_and_memberships', '27a', 'business_likely', { defaultPurpose: 'Professional or trade association dues' }),
+  entry(/\bchamber\s*of\s*commerce\b/i, 'Chamber of Commerce', 'dues_and_memberships', '27a', 'business_likely', { defaultPurpose: 'Chamber of commerce membership for the business' }),
+  entry(/\bnasm\b|\bace\s*fitness\b|\bissa\b|\bacsm\b/i, 'Fitness certification body', 'education_training', '27a', 'business_likely', { defaultPurpose: 'Personal-trainer certification renewal and continuing education' }),
 
   // Banks, cards and fees ------------------------------------------------------------------------
   entry(/\bmonthly\s*(?:service|maintenance)\s*fee\b|\bservice\s*charge\b|\bwire\s*(?:transfer\s*)?fee\b|\boverdraft\s*fee\b|\bnsf\s*fee\b|\bforeign\s*transaction\s*fee\b|\batm\s*fee\b/i, 'Bank fee', 'bank_and_payment_fees', '10', 'needs_purpose', { question: Q.bankFee }),
@@ -449,7 +450,7 @@ export const MERCHANT_INTELLIGENCE: readonly MerchantIntelligenceEntry[] = [
   entry(/\bsep\s*ira\b|\bsolo\s*401\b|\bira\s*contribution\b|\bhsa\s*contribution\b|\bhealth\s*savings\b|\blively\s*(?:hsa|inc)\b|\bhealthequity\b/i, 'Retirement / HSA contribution', null, null, 'schedule_1', { question: 'SEP-IRA, solo 401(k) and HSA contributions are Schedule 1 adjustments, not Schedule C expenses. Confirm this was a contribution rather than a business purchase.', notes: 'Schedule 1 placement of self-employed retirement (§404(h), §62(a)(6)) and HSA (§223) contributions is outside the evidence packet; the question asks rather than applies it.' }),
   entry(/\bgo\s*fund\s*me\b|\bgofundme\b|\bred\s*cross\b|\bunited\s*way\b|\bsalvation\s*army\b|\bdonation\b|\bcharity\b|\bfoundation\b|\bchurch\b|\bministr(?:y|ies)\b/i, 'Charity / donation', null, null, 'not_an_expense', { question: Q.donation }),
   entry(/\bkindercare\b|\bbright\s*horizons\b|\bcare\.com\b|\bdaycare\b|\bchild\s*care\b|\bpreschool\b/i, 'Childcare', null, null, 'personal_likely', { question: Q.childcare }),
-  entry(/\btuition\b|\bcommunity\s*college\b|\buniversity\b|\bcollege\b/i, 'Tuition / school', 'education_training', SCHEDULE_C_OTHER_EXPENSES_LINE, 'needs_purpose', { question: `${Q.education} Tuition for a family member is personal.`, subtype: 'education' }),
+  entry(/\btuition\b|\bcommunity\s*college\b|\buniversity\b|\bcollege\b/i, 'Tuition / school', 'education_training', '27a', 'needs_purpose', { question: `${Q.education} Tuition for a family member is personal.`, subtype: 'education' }),
 
   // Processor prefixes: the real merchant follows the prefix, so these come after every brand pattern.
   entry(/\bpaypal\s*\*/i, 'PayPal purchase', null, null, 'needs_purpose', { question: 'What was bought through PayPal, from whom, and how is it used in your business?' }),
@@ -530,7 +531,7 @@ export const PLAID_CATEGORY_MAP: readonly PlaidCategoryMapping[] = [
   plaid('GENERAL_MERCHANDISE_DEPARTMENT_STORES', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.item('this store') }),
   plaid('GENERAL_MERCHANDISE_DISCOUNT_STORES', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.item('this store') }),
   plaid('GENERAL_MERCHANDISE_ELECTRONICS', 'equipment', '13', 'needs_purpose', { question: Q.electronics }),
-  plaid('GENERAL_MERCHANDISE_GIFTS_AND_NOVELTIES', 'other', SCHEDULE_C_OTHER_EXPENSES_LINE, 'needs_purpose', { question: Q.gift, subtype: 'gift' }),
+  plaid('GENERAL_MERCHANDISE_GIFTS_AND_NOVELTIES', 'other', '27a', 'needs_purpose', { question: Q.gift, subtype: 'gift' }),
   plaid('GENERAL_MERCHANDISE_OFFICE_SUPPLIES', 'supplies_small_tools', '22', 'business_likely', { defaultPurpose: 'Office supplies used in the business' }),
   plaid('GENERAL_MERCHANDISE_ONLINE_MARKETPLACES', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.item('this marketplace') }),
   plaid('GENERAL_MERCHANDISE_PET_SUPPLIES', null, null, 'personal_likely', { question: Q.pet }),
@@ -542,7 +543,7 @@ export const PLAID_CATEGORY_MAP: readonly PlaidCategoryMapping[] = [
   plaid('HOME_IMPROVEMENT_FURNITURE', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.furniture }),
   plaid('HOME_IMPROVEMENT_HARDWARE', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.hardware }),
   plaid('HOME_IMPROVEMENT_REPAIR_AND_MAINTENANCE', 'repairs_maintenance', '21', 'needs_purpose', { question: Q.repair }),
-  plaid('HOME_IMPROVEMENT_SECURITY', 'other', SCHEDULE_C_OTHER_EXPENSES_LINE, 'needs_purpose', { question: 'Is this security service for a business location (deductible) or for your home (only a home-office share through Form 8829)?' }),
+  plaid('HOME_IMPROVEMENT_SECURITY', 'other', '27a', 'needs_purpose', { question: 'Is this security service for a business location (deductible) or for your home (only a home-office share through Form 8829)?' }),
   plaid('HOME_IMPROVEMENT_OTHER_HOME_IMPROVEMENT', null, null, 'needs_purpose', { question: Q.repair }),
   // MEDICAL (7): Schedule A, not Schedule C.
   plaid('MEDICAL_DENTAL_CARE', null, null, 'personal_likely', { question: Q.medical }),
@@ -553,7 +554,7 @@ export const PLAID_CATEGORY_MAP: readonly PlaidCategoryMapping[] = [
   plaid('MEDICAL_VETERINARY_SERVICES', null, null, 'personal_likely', { question: Q.pet }),
   plaid('MEDICAL_OTHER_MEDICAL', null, null, 'personal_likely', { question: Q.medical }),
   // PERSONAL_CARE (4)
-  plaid('PERSONAL_CARE_GYMS_AND_FITNESS_CENTERS', 'dues_and_memberships', SCHEDULE_C_OTHER_EXPENSES_LINE, 'personal_likely', { question: Q.gym }),
+  plaid('PERSONAL_CARE_GYMS_AND_FITNESS_CENTERS', 'dues_and_memberships', '27a', 'personal_likely', { question: Q.gym }),
   plaid('PERSONAL_CARE_HAIR_AND_BEAUTY', null, null, 'personal_likely', { question: Q.beauty }),
   plaid('PERSONAL_CARE_LAUNDRY_AND_DRY_CLEANING', null, null, 'personal_likely', { question: Q.dryCleaning }),
   plaid('PERSONAL_CARE_OTHER_PERSONAL_CARE', null, null, 'personal_likely', { question: Q.beauty }),
@@ -562,11 +563,11 @@ export const PLAID_CATEGORY_MAP: readonly PlaidCategoryMapping[] = [
   plaid('GENERAL_SERVICES_AUTOMOTIVE', 'vehicle_expense', '9', 'needs_purpose', { question: 'Is this vehicle used for business, what share of its miles are business, and do you use actual expenses (repairs count) or the standard mileage rate (already included)?', subtype: 'auto_service' }),
   plaid('GENERAL_SERVICES_CHILDCARE', null, null, 'personal_likely', { question: Q.childcare }),
   plaid('GENERAL_SERVICES_CONSULTING_AND_LEGAL', 'legal_professional', '17', 'needs_purpose', { question: Q.legal }),
-  plaid('GENERAL_SERVICES_EDUCATION', 'education_training', SCHEDULE_C_OTHER_EXPENSES_LINE, 'needs_purpose', { question: Q.education }),
+  plaid('GENERAL_SERVICES_EDUCATION', 'education_training', '27a', 'needs_purpose', { question: Q.education }),
   plaid('GENERAL_SERVICES_INSURANCE', 'insurance', '15', 'needs_purpose', { question: Q.insurance }),
   plaid('GENERAL_SERVICES_POSTAGE_AND_SHIPPING', 'supplies_small_tools', '22', 'needs_purpose', { question: Q.postage }),
   plaid('GENERAL_SERVICES_STORAGE', 'rent', '20b', 'needs_purpose', { question: Q.storage }),
-  plaid('GENERAL_SERVICES_OTHER_GENERAL_SERVICES', 'other', SCHEDULE_C_OTHER_EXPENSES_LINE, 'needs_purpose', { question: 'What service was this, and how does it relate to operating your business?' }),
+  plaid('GENERAL_SERVICES_OTHER_GENERAL_SERVICES', 'other', '27a', 'needs_purpose', { question: 'What service was this, and how does it relate to operating your business?' }),
   // GOVERNMENT_AND_NON_PROFIT (4)
   plaid('GOVERNMENT_AND_NON_PROFIT_DONATIONS', null, null, 'not_an_expense', { question: Q.donation }),
   plaid('GOVERNMENT_AND_NON_PROFIT_GOVERNMENT_DEPARTMENTS_AND_AGENCIES', 'taxes_licenses', '23', 'needs_purpose', { question: Q.government }),
@@ -651,6 +652,15 @@ export function findMerchantEntry(descriptor: string): MerchantIntelligenceEntry
 
 const CREDIT_QUESTION = 'Money came into the account from this merchant. Is this a payout of your sales or earnings (business income at the gross amount, before fees), a refund of an earlier purchase, or a transfer?';
 
+/** Catalog 27a and 27b both mean other expenses. The returned line follows the transaction year. */
+function publishedScheduleCLine(line: string | null, transaction: Partial<TransactionInput>): string | null {
+  if (!line) return line;
+  const year = safeTaxYear(transaction.date_iso ?? transaction.date);
+  if (year == null) return line;
+  const code = line.trim();
+  return code === '27a' || code === '27b' ? otherExpensesLine(year) : line;
+}
+
 /**
  * Best available merchant knowledge for a transaction. A credit (negative amount) from any
  * merchant is a payout, refund or transfer question rather than an expense disposition.
@@ -665,7 +675,7 @@ export function merchantIntelligence(transaction: Partial<TransactionInput>): Me
   if (matched) {
     const paysOut = credit && matched.disposition !== 'transfer_or_deposit';
     return {
-      name: matched.name, category: paysOut ? null : matched.category, scheduleCLine: paysOut ? null : matched.scheduleCLine,
+      name: matched.name, category: paysOut ? null : matched.category, scheduleCLine: paysOut ? null : publishedScheduleCLine(matched.scheduleCLine, transaction),
       disposition: paysOut ? 'transfer_or_deposit' : matched.disposition,
       defaultPurpose: paysOut ? null : matched.defaultPurpose ?? null,
       question: paysOut ? CREDIT_QUESTION : matched.question ?? null,
@@ -676,7 +686,7 @@ export function merchantIntelligence(transaction: Partial<TransactionInput>): Me
   if (plaidMapping) {
     const paysOut = credit && plaidMapping.disposition !== 'transfer_or_deposit';
     return {
-      name: null, category: paysOut ? null : plaidMapping.category, scheduleCLine: paysOut ? null : plaidMapping.scheduleCLine,
+      name: null, category: paysOut ? null : plaidMapping.category, scheduleCLine: paysOut ? null : publishedScheduleCLine(plaidMapping.scheduleCLine, transaction),
       disposition: paysOut ? 'transfer_or_deposit' : plaidMapping.disposition,
       defaultPurpose: paysOut ? null : plaidMapping.defaultPurpose ?? null,
       question: paysOut ? CREDIT_QUESTION : plaidMapping.question ?? null,

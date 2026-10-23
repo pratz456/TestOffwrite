@@ -8,6 +8,7 @@
 import type { OutputType } from './analyzeTransaction';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { readStoredScheduleCLineText } from '@/lib/schedule-c/other-expenses-line';
+import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { reviewCategory } from '@/lib/transactions/ai-review-contract';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 import { SUPPORTED_TAX_YEARS, type SupportedTaxYear } from '@/lib/tax-rules/federal-year-rules';
@@ -173,10 +174,17 @@ const FLOW_HEADLINES: Record<string, string> = {
 };
 
 const LINE_NAMES: Record<string, string> = Object.fromEntries(Object.values(CATEGORY_MAP).map(entry => [entry.line, entry.name]));
+LINE_NAMES['27a'] = 'Other expenses';
+LINE_NAMES['27b'] = 'Other expenses';
+
+function shownLine(line: string, taxYear: number | null): string {
+  return taxYear == null ? line : scheduleCExportLine(line, taxYear);
+}
 
 /** Prefer the policy's placement; otherwise the export taxonomy line for the suggested category. */
-export function scheduleCLineFor(result: ExplainableResult): string | null {
-  const supplied = readStoredScheduleCLineText(text(result.schedule_c_line, 120));
+export function scheduleCLineFor(result: ExplainableResult, taxYear?: number | null): string | null {
+  const year = typeof taxYear === 'number' && Number.isFinite(taxYear) ? taxYear : null;
+  const supplied = year == null ? text(result.schedule_c_line, 120) : readStoredScheduleCLineText(text(result.schedule_c_line, 120), year);
   if (supplied) {
     if (/^(schedule|form|not)\b/i.test(supplied)) return supplied;
     if (/^\d{1,2}[a-z]?$/.test(supplied)) return `Schedule C line ${supplied}${LINE_NAMES[supplied] ? ` (${LINE_NAMES[supplied]})` : ''}`;
@@ -187,7 +195,10 @@ export function scheduleCLineFor(result: ExplainableResult): string | null {
   if (kind !== 'expense' && kind !== 'unknown' || result.is_deductible === false) return null;
   const recorded = reviewCategory(result.category)?.recordedCategory;
   const entry = recorded ? CATEGORY_MAP[recorded] : undefined;
-  return entry ? `Schedule C line ${entry.line} (${entry.name})` : null;
+  if (!entry) return null;
+  const line = shownLine(entry.line, year);
+  const name = entry.line === '27a' || entry.line === '27b' ? 'Other expenses' : entry.name;
+  return `Schedule C line ${line} (${name})`;
 }
 
 function headlineFor(result: ExplainableResult, label: string | undefined): string {
@@ -336,7 +347,7 @@ export function composeExplanation({ result, transaction, profile, taxYear }: Co
     headline: `${headlineFor(result, category?.label)}${subject}`,
     why: whyFor(result),
     yourFacts: facts,
-    scheduleCLine: scheduleCLineFor(result),
+    scheduleCLine: scheduleCLineFor(result, taxYear),
     estimatedTaxEffect: estimate,
     strengthen: strengthenFor(result),
     nextQuestion: result.questions?.map(question => text(question, 300)).find(Boolean) ?? null,
@@ -344,7 +355,7 @@ export function composeExplanation({ result, transaction, profile, taxYear }: Co
 }
 
 /** Validates a stored `ai_explanation` payload before the UI renders it; any malformed record renders nothing. */
-export function normalizeExplanation(value: unknown): TransactionExplanation | null {
+export function normalizeExplanation(value: unknown, taxYear?: number | null): TransactionExplanation | null {
   const data = record(value);
   const headline = text(data.headline, 200);
   const why = text(data.why, 1200);
@@ -355,7 +366,7 @@ export function normalizeExplanation(value: unknown): TransactionExplanation | n
   const estimatedTaxEffect: EstimatedTaxEffect | null = low !== null && high !== null && effect.label === ESTIMATE_LABEL
     ? { low: Math.min(low, high), high: Math.max(low, high), label: ESTIMATE_LABEL, basis: text(effect.basis, 400) ?? '' } : null;
   return {
-    headline, why, yourFacts: strings(data.yourFacts), scheduleCLine: readStoredScheduleCLineText(text(data.scheduleCLine, 120)),
+    headline, why, yourFacts: strings(data.yourFacts), scheduleCLine: typeof taxYear === 'number' && Number.isFinite(taxYear) ? readStoredScheduleCLineText(text(data.scheduleCLine, 120), taxYear) : text(data.scheduleCLine, 120),
     estimatedTaxEffect, strengthen: strings(data.strengthen), nextQuestion: text(data.nextQuestion, 300),
   };
 }

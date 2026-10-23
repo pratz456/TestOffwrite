@@ -1,7 +1,6 @@
 "use client";
 
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
-import { SCHEDULE_C_OTHER_EXPENSES_LINE } from '@/lib/schedule-c/other-expenses-line';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -132,7 +131,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   }, []);
 
   const getScheduleCLineNumber = (lineItem: string): string => {
-    return scheduleCExportLine(lineNameToLineCode[lineItem] || SCHEDULE_C_OTHER_EXPENSES_LINE, Number(selectedYear));
+    return scheduleCExportLine(lineNameToLineCode[lineItem] || '27a', Number(selectedYear));
   };
 
   const handleExport = async () => {

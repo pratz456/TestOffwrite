@@ -1,4 +1,6 @@
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
+import { safeTaxYear } from '@/lib/schedule-c/taxDate';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 
@@ -62,6 +64,8 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
     if (equipment && typeof equipment === 'object' && 'business_use_percentage' in equipment) businessUse['equipment_details.business_use_percentage'] = equipment.business_use_percentage;
     const adjustments = Object.fromEntries(['deduction_override', 'deductible_amount', 'deduction_amount', 'deductible_amount_override', 'deduction_percentage'].filter(key => record[key] !== undefined).map(key => [key, record[key]]));
     const receiptPath = typeof rawPath === 'string' ? validateReceiptPreviewPath(rawPath) : null;
+    const year = safeTaxYear(record.date ?? record.datetime);
+    const shownLine = (line: unknown) => typeof line === 'string' && line && year != null ? scheduleCExportLine(line, year) : line ?? '';
     const review = [!date && 'Missing/invalid date', amount === null && 'Missing/invalid amount',
       !record.iso_currency_code && !record.unofficial_currency_code && 'Currency not recorded',
       record.pending === true && 'Pending record; reconcile posted transaction',
@@ -76,7 +80,7 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
       record.type, record.iso_currency_code ?? record.unofficial_currency_code ?? 'Not recorded', record.merchant_name ?? record.name ?? record.merchant,
       record.description, category, deductible === true ? 'Yes' : deductible === false ? 'No' : 'Unreviewed',
       record.pending === true ? 'Yes' : record.pending === false ? 'No' : 'Not recorded',
-      record.schedule_c_line ?? record.scheduleC_line, CATEGORY_MAP[category]?.line ?? '', record.business_purpose,
+      shownLine(record.schedule_c_line ?? record.scheduleC_line), shownLine(CATEGORY_MAP[category]?.line ?? ''), record.business_purpose,
       record.user_classification_reason, record.deductible_reason ?? record.deduction_reason, record.deduction_score ?? record.ai_confidence,
       record.receipt_filename, receiptPath, record.notes, Object.keys(businessUse).length ? businessUse : '', Object.keys(adjustments).length ? adjustments : '', review,
     ].map(csvCell).join(',');

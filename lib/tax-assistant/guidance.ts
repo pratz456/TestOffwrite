@@ -1,7 +1,7 @@
 import type OpenAI from 'openai';
 import { GUIDANCE_TOPICS, modelSelectionSchema, priorMessages, type AssistantRequest, type GuidanceTopic, type ModelAssessment } from './contract';
 import { assistantContextForModel, composeForYou, type AssistantContext } from './context';
-import { guidanceSource, SELECTABLE_TOPICS, sourcesForYear, yearNotice, type SelectableTopic } from './knowledge';
+import { guidanceSource, placementForYear, SELECTABLE_TOPICS, sourcesForYear, yearNotice, type SelectableTopic } from './knowledge';
 import { redactIdentifierText } from '@/lib/security/identifier-redaction';
 
 /**
@@ -18,7 +18,7 @@ export function topicAnswer(topic: GuidanceTopic, taxYear: number): string {
   const source = guidanceSource(topic);
   const answer = typeof source?.answer === 'function' ? source.answer(taxYear) : source?.answer ?? '';
   const parts = [answer];
-  if (source?.placement) parts.push(`**Where it goes:** ${source.placement}.`);
+  if (source?.placement) parts.push(`**Where it goes:** ${placementForYear(source.placement, taxYear)}.`);
   if (source?.records?.length) parts.push(`**Keep:** ${source.records.join('; ')}.`);
   return parts.join('\n\n');
 }
@@ -144,7 +144,7 @@ export function guidanceResponse(input: AssistantRequest, assessment: ModelAsses
     .map(({ id, title, url, reviewedAt }) => ({ id, title, url, reviewedAt }));
   const historyReply = [reply, ...assessment.photoObservations.map(o => `Unverified photo observation: ${o}`), ...assessment.questions].join('\n');
   // Personal facts are composed here from the owner's saved profile and rows; the model never sees or writes them.
-  const forYou = composeForYou(context, assessment.topic);
+  const forYou = composeForYou(context, assessment.topic, input.taxYear);
   return {
     reply,
     forYou,
