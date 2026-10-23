@@ -3,6 +3,7 @@ import type { Asset, DepreciationElections } from '@/lib/reports/calc4562';
 import type { HomeOfficeSettings } from '@/lib/reports/calc8829';
 import { calcScheduleSE } from '@/lib/reports/calcSE';
 import { compute1040 } from './compute-1040';
+import { additionalScheduleCLine16bInterest } from './obbba-deductions';
 import { computeScheduleCProfit } from './schedule-c-profit';
 import { reconcileBusinessIncome, type IncomeRecord } from './business-income';
 import { summarizeW2Income } from './w2-income';
@@ -48,8 +49,18 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const reconciliation = reconcileBusinessIncome(taxYear, transactions, input.grossReceipts, input.forms1099, input.reconciliationDecisions ?? []);
   const w2 = summarizeW2Income(input.w2Entries);
   const w2FederalWithheld = input.w2Entries.length ? w2.federalWithheld : amount(profile.w2_federal_withheld);
-  const { totalDeductible } = aggregateScheduleC([...transactions] as Parameters<typeof aggregateScheduleC>[0], String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' });
+  const expenseAggregate = aggregateScheduleC([...transactions] as Parameters<typeof aggregateScheduleC>[0], String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' });
+  const businessVehicle = profile.business_vehicle;
+  const vehicleLoanBusinessInterest = additionalScheduleCLine16bInterest({
+    taxYear, organizer: org,
+    vehicleBusinessUsePercentage: profile.vehicle_business_use_percentage,
+    businessVehicleBusinessUsePercentage: businessVehicle && typeof businessVehicle === 'object'
+      ? (businessVehicle as { business_use_percentage?: unknown }).business_use_percentage
+      : undefined,
+  }, expenseAggregate.lineItems['16b']?.transactions ?? []);
+  const totalDeductible = Math.round((expenseAggregate.totalDeductible + vehicleLoanBusinessInterest + Number.EPSILON) * 100) / 100;
   // Schedule C ordering shared with the SE loader: line 13 assets, line 29, line 30 home office, line 31.
+  // Line 16b is included in confirmed expenses. Interest already on that line is not added again.
   const scheduleC = computeScheduleCProfit({
     taxYear, grossReceipts: reconciliation.grossReceipts, confirmedExpenses: totalDeductible, w2Wages: w2.wages,
     assets: input.assets, depreciationElections: input.depreciationElections, homeOffice: input.homeOffice, legacyHomeOfficeMethod: profile.home_office_method,
@@ -139,6 +150,10 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   const location = readProfileLocation(profile);
   const result = compute1040({
     taxYear, filingStatus, personalDeductionOrganizer: org, scheduleCNetProfit, w2Wages: w2.wages,
+    vehicleBusinessUsePercentage: profile.vehicle_business_use_percentage,
+    businessVehicleBusinessUsePercentage: businessVehicle && typeof businessVehicle === 'object'
+      ? (businessVehicle as { business_use_percentage?: unknown }).business_use_percentage
+      : undefined,
     w2SocialSecurityWages: w2.socialSecurityWages, w2MedicareWages: w2.medicareWages,
     w2FederalWithheld, socialSecurityFederalWithheld, estimatedPayments: input.estimatedPayments,
     selfEmploymentTax: seCalc.totalSETax, halfSEDeduction: seCalc.halfSEDeduction,

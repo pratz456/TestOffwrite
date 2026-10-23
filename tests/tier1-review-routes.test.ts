@@ -135,13 +135,24 @@ describe('Schedule C loss through the routes', () => {
 describe('Working Families Tax Cuts deductions through the routes', () => {
   beforeEach(() => { state.records.gross_receipts = [{ userId: 'tier1-owner', taxYear: 2026, amount: 40000 }]; });
 
-  it('review-blocks SSTB tips and business-use vehicle interest', async () => {
+  it('review-blocks SSTB tips', async () => {
     await save({ obbbaDeductionFacts: reviewedOBBBADeductionFacts(2026, { hasQualifiedTips: 'yes', qualifiedTipsAmount: '8000', tipsOccupationListed: 'yes', tipsBusinessSSTB: 'yes' }) });
     await expectReview('OBBBA_DEDUCTION_REVIEW_REQUIRED', /Notice 2025-69/);
+  });
+
+  it('does not review-block a no on current personal use, and a no on the loan-date expectation leaves Schedule 1-A at 0 with no car loan needs more information entry', async () => {
+    state.profile = { filing_status: 'single', vehicle_business_use_percentage: 60 };
     await save({ obbbaDeductionFacts: reviewedOBBBADeductionFacts(2026, {
-      hasVehicleLoanInterest: 'yes', vehicleLoanInterestAmount: '3000', vehicleLoanAfter2024: 'yes', vehicleNewUSAssembled: 'yes', vehiclePersonalUse: 'no', vehicleLoanQualified: 'yes', vehicleVIN: SYNTHETIC_VIN,
+      hasVehicleLoanInterest: 'yes', vehicleLoanInterestAmount: '3000', vehicleLoanAfter2024: 'yes', vehicleNewUSAssembled: 'yes',
+      vehiclePersonalUse: 'no', vehicleExpectedPersonalUseOver50AtPurchase: 'no', vehicleLoanQualified: 'yes', vehicleVIN: SYNTHETIC_VIN,
     }) });
-    await expectReview('OBBBA_DEDUCTION_REVIEW_REQUIRED', /Schedule C business-interest rules/);
+    const response = await getEstimate(jsonRequest());
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.income.scheduleCNetProfit).toBe(38200);
+    expect(body.form1040.vehicleLoanInterestDeduction).toBe(0);
+    expect(body.form1040.obbbaDeductions.scheduleCLine16b).toBe(1800);
+    expect(body.form1040.obbbaDeductions.needsMoreInformation).toEqual([]);
   });
 
   it('applies the tips deduction on line 13b before QBI and shows it in the PDF', async () => {

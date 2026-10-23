@@ -57,6 +57,10 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'LOAN_INTEREST': { line: '16a', name: 'Interest (mortgage)', code: '16a' },
   'LOAN_INTEREST_MORTGAGE': { line: '16a', name: 'Interest (mortgage)', code: '16a' },
 
+  // ── Line 16b: Other interest (car payment or interest the owner placed here)
+  'BANK_FEES_INTEREST_CHARGE': { line: '16b', name: 'Other interest', code: '16b' },
+  'LOAN_PAYMENTS_CAR_PAYMENT': { line: '16b', name: 'Other interest', code: '16b' },
+
   // ── Line 17: Legal and professional services ─────────────────────────
   'SERVICE_ACCOUNTING': { line: '17', name: 'Legal and professional services', code: '17' },
   'SERVICE_CONSULTING': { line: '17', name: 'Legal and professional services', code: '17' },

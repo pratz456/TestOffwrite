@@ -10,6 +10,8 @@ import { reviewedOBBBADeductionFacts, SYNTHETIC_VIN } from './fixtures/tier1-fac
 
 const run = (facts: Partial<OBBBADeductionAnswers> | undefined, overrides: Partial<OBBBADeductionInput> = {}) => calculateOBBBADeductions({
   taxYear: 2026, filingStatus: 'single', agi: 100000, scheduleCNetProfit: 60000, usingStandardDeduction: true,
+  // Existing eligibility cases are 100% personal unless a test sets another share.
+  vehicleBusinessUsePercentage: 0,
   organizer: facts === undefined ? {} : { obbbaDeductionFacts: reviewedOBBBADeductionFacts(overrides.taxYear ?? 2026, facts) },
   ...overrides,
 });
@@ -17,7 +19,7 @@ const tips = (amount: string, extra: Partial<OBBBADeductionAnswers> = {}): Parti
   ({ hasQualifiedTips: 'yes', qualifiedTipsAmount: amount, tipsOccupationListed: 'yes', tipsBusinessSSTB: 'no', ...extra });
 const vehicle = (amount: string, extra: Partial<OBBBADeductionAnswers> = {}): Partial<OBBBADeductionAnswers> => ({
   hasVehicleLoanInterest: 'yes', vehicleLoanInterestAmount: amount, vehicleLoanAfter2024: 'yes', vehicleNewUSAssembled: 'yes',
-  vehiclePersonalUse: 'yes', vehicleLoanQualified: 'yes', vehicleVIN: SYNTHETIC_VIN, ...extra,
+  vehiclePersonalUse: 'yes', vehicleExpectedPersonalUseOver50AtPurchase: 'yes', vehicleLoanQualified: 'yes', vehicleVIN: SYNTHETIC_VIN, ...extra,
 });
 
 describe('Schedule 1-A intake states', () => {
@@ -128,8 +130,12 @@ describe('qualified passenger vehicle loan interest (§163(h)(4))', () => {
     expect(run(vehicle('3000', { vehicleLoanQualified: 'no' })).vehicleLoanInterest.reason).toContain('Leases');
   });
 
-  it('routes business-use vehicles to Schedule C review and requires a VIN', () => {
-    expect(() => run(vehicle('3000', { vehiclePersonalUse: 'no' }))).toThrow(/Schedule C business-interest rules/);
+  it('does not throw for a business-use answer and still requires a VIN when Schedule 1-A applies', () => {
+    let thrown = false;
+    let result: ReturnType<typeof run> | undefined;
+    try { result = run(vehicle('3000', { vehiclePersonalUse: 'no' })); } catch { thrown = true; }
+    expect(thrown).toBe(false);
+    expect(result).toMatchObject({ needsMoreInformation: [] });
     expect(() => run(vehicle('3000', { vehicleVIN: '' }))).toThrow(/17-character vehicle identification number/);
     expect(() => run(vehicle('3000', { vehicleVIN: '1HGCM82633A00435I' }))).toThrow(OBBBADeductionReviewRequiredError);
     expect(run(vehicle('3000', { vehicleVIN: SYNTHETIC_VIN.toLowerCase() })).vehicleLoanInterest.deduction).toBe(3000);
@@ -180,7 +186,7 @@ describe('Form 1040 applies Schedule 1-A before the QBI cap', () => {
   });
 
   it('adds overtime, vehicle interest and the senior deduction on line 13b and the §170(p) gift separately', () => {
-    const result = compute1040({ ...base, personalDeductionOrganizer: organizer({
+    const result = compute1040({ ...base, vehicleBusinessUsePercentage: 0, personalDeductionOrganizer: organizer({
       hasW2Overtime: 'yes', qualifiedOvertimeAmount: '5000', ...vehicle('5000'), hasNonItemizerCharity: 'yes', nonItemizerCashCharity: '1500',
     }, { dateOfBirth: '1960-01-01' }) });
     expect(result).toMatchObject({
@@ -190,7 +196,13 @@ describe('Form 1040 applies Schedule 1-A before the QBI cap', () => {
   });
 
   it('propagates the review errors instead of a partial deduction', () => {
-    expect(() => compute1040({ ...base, personalDeductionOrganizer: organizer(vehicle('3000', { vehiclePersonalUse: 'no' })) })).toThrow(OBBBADeductionReviewRequiredError);
+    let thrown = false;
+    let result: ReturnType<typeof compute1040> | undefined;
+    try {
+      result = compute1040({ ...base, vehicleBusinessUsePercentage: 60, businessVehicleBusinessUsePercentage: 60, personalDeductionOrganizer: organizer(vehicle('600', { vehiclePersonalUse: 'no' })) });
+    } catch { thrown = true; }
+    expect(thrown).toBe(false);
+    expect(result).toMatchObject({ obbbaDeductions: { needsMoreInformation: [] } });
     expect(() => compute1040({ ...base, scheduleCNetProfit: 20000, personalDeductionOrganizer: organizer(tips('4000', { tipsBusinessSSTB: 'yes' })) })).toThrow(OBBBADeductionReviewRequiredError);
   });
 });

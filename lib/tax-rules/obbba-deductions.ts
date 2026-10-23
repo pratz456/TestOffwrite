@@ -34,6 +34,12 @@ export interface OBBBADeductionAnswers {
   vehicleNewUSAssembled?: string;
   vehicleVIN?: string;
   vehiclePersonalUse?: string;
+  /**
+   * One-time loan-date test. Yes means expected personal use, including use by a spouse or relative,
+   * was more than half over the ownership period expected when the loan was incurred. Gates Schedule 1-A only.
+   * Treas. Reg. 1.163-16(f)(1). This year's actual business-use percentage is not this answer.
+   */
+  vehicleExpectedPersonalUseOver50AtPurchase?: string;
   vehicleLoanQualified?: string;
   hasNonItemizerCharity?: string;
   nonItemizerCashCharity?: string;
@@ -60,6 +66,13 @@ export const QUALIFIED_OVERTIME_LIMIT = 12500;
 export const QUALIFIED_OVERTIME_LIMIT_JOINT = 25000;
 /** §163(h)(4)(C)/(D): $10,000 interest limit; $200 per $1,000 (or fraction) of MAGI over $100,000 ($200,000 joint). */
 export const VEHICLE_LOAN_INTEREST_LIMIT = 10000;
+/**
+ * More than this percent of expected personal use over the ownership period expected at the loan date.
+ * Use by a spouse or relative counts. Exactly this percent is not enough.
+ * This year's actual business-use percentage does not gate Schedule 1-A.
+ * Treas. Reg. § 1.163-16(f)(1) (Fed. Reg. 2026-18219, Sep 8, 2026).
+ */
+export const VEHICLE_SCHEDULE_1A_PERSONAL_USE_THRESHOLD = 50;
 export const VEHICLE_LOAN_PHASEOUT_THRESHOLD = 100000;
 export const VEHICLE_LOAN_PHASEOUT_THRESHOLD_JOINT = 200000;
 export const VEHICLE_LOAN_PHASEOUT_PER_THOUSAND = 200;
@@ -118,6 +131,20 @@ export interface OBBBADeductionInput {
   scheduleCNetProfit: number;
   usingStandardDeduction: boolean;
   organizer: Record<string, unknown>;
+  /** Profile `vehicle_business_use_percentage`. Not a charge or account percentage. */
+  vehicleBusinessUsePercentage?: unknown;
+  /** Profile `business_vehicle.business_use_percentage`. */
+  businessVehicleBusinessUsePercentage?: unknown;
+}
+/** A placed Schedule C amount. Needs more information never appears in this list. */
+export interface OBBBALineItem {
+  line: '16b';
+  amount: number;
+}
+/** Its own list. These amounts are not Schedule C line items and are not deducted. */
+export interface NeedsMoreInformationItem {
+  amount: number;
+  note: string;
 }
 export interface OBBBADeductionResult {
   taxYear: number;
@@ -127,6 +154,12 @@ export interface OBBBADeductionResult {
   qualifiedTips: OBBBAItemResult;
   qualifiedOvertime: OBBBAItemResult;
   vehicleLoanInterest: OBBBAItemResult;
+  /** Business share of passenger vehicle loan interest placed on Schedule C line 16b. */
+  scheduleCLine16b: number;
+  /** Schedule C lines from these deductions. The unknown vehicle share is never included. */
+  lineItems: OBBBALineItem[];
+  /** Amounts held for a missing fact. Never merged into lineItems. */
+  needsMoreInformation: NeedsMoreInformationItem[];
   nonItemizerCharitable: OBBBAItemResult;
   /** Schedule 1-A Parts II–IV (the enhanced senior deduction, Part V, is calculated separately). */
   scheduleOneATotal: number;
@@ -136,10 +169,125 @@ export interface OBBBADeductionResult {
 }
 const none = (reason?: string): OBBBAItemResult => ({ deduction: 0, amountReported: 0, limitedAmount: 0, phaseoutReduction: 0, ...(reason ? { reason } : {}) });
 
+const DRAFT_COPY = 'draft, awaiting copy approval';
+/** Ask for the profile percentage. The whole interest stays off both forms until it is known. */
+export const VEHICLE_BUSINESS_SHARE_NOTE = `${DRAFT_COPY}. Enter the vehicle business use percentage so this car loan interest can be placed. WriteOff puts the business share on Schedule C line 16b. The same dollar is never counted in both places.`;
+/** Treas. Reg. 1.163-16(f)(1). Only a missing answer. An answer of no is $0 with no entry here. */
+export const VEHICLE_EXPECTED_PERSONAL_USE_NOTE = `${DRAFT_COPY}. This interest qualifies for Schedule 1-A only if the buyer expected more than ${VEHICLE_SCHEDULE_1A_PERSONAL_USE_THRESHOLD}% personal use on the loan date. WriteOff puts the business share on Schedule C. The same dollar is never counted in both places.`;
+const VEHICLE_EXPECTED_PERSONAL_USE_NO_REASON = `${DRAFT_COPY}. An answer of no leaves this interest off Schedule 1-A. WriteOff puts the business share on Schedule C line 16b. The same dollar is never counted in both places.`;
+
+function readVehicleBusinessPercent(value: unknown): { state: 'unset' } | { state: 'invalid' } | { state: 'set'; value: number } {
+  if (value === undefined || value === null || value === '') return { state: 'unset' };
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 100) return { state: 'invalid' };
+  return { state: 'set', value };
+}
+
+/**
+ * Profile fields only: `vehicle_business_use_percentage` and `business_vehicle.business_use_percentage`.
+ * A charge percentage or an account `businessUsePercent` is not an input.
+ * Both set and equal, or exactly one set: that percentage. Disagree, invalid, or neither: unknown.
+ */
+export function resolveVehicleBusinessUsePercentage(profilePercent: unknown, vehiclePercent: unknown): number | null {
+  const left = readVehicleBusinessPercent(profilePercent);
+  const right = readVehicleBusinessPercent(vehiclePercent);
+  if (left.state === 'invalid' || right.state === 'invalid') return null;
+  if (left.state === 'unset' && right.state === 'unset') return null;
+  if (left.state === 'set' && right.state === 'set' && left.value !== right.value) return null;
+  return left.state === 'set' ? left.value : right.state === 'set' ? right.value : null;
+}
+
+/** One rounding to cents. The other share is not the remainder. */
+function roundedPercentShare(amount: number, percent: number): number {
+  return round((amount * percent) / 100);
+}
+
+/** Line 16b keeps its rounded share. Any extra cent comes off the personal share so the two never exceed interest paid. */
+function personalShareWithinInterest(lenderInterest: number, businessShare: number, personalShare: number): number {
+  const cents = (amount: number) => Math.round((amount + Number.EPSILON) * 100);
+  const interestCents = cents(lenderInterest);
+  const businessCents = cents(businessShare);
+  const personalCents = cents(personalShare);
+  if (businessCents + personalCents <= interestCents) return personalShare;
+  return Math.max(0, interestCents - businessCents) / 100;
+}
+
+/**
+ * Schedule C line 16b business share, before AGI. Does not apply Schedule 1-A limits.
+ * hasVehicleLoanInterest yes means interest was paid on a car the taxpayer uses.
+ * New vehicle, United States assembly, loan date, expected personal use, qualified loan, and VIN
+ * decide only the personal share on Schedule 1-A. Publication 463 places this business share
+ * on line 16b under either car method.
+ * Unknown share contributes $0 here; the caller lists it under needs more information.
+ */
+export function scheduleCLine16bVehicleInterest(input: {
+  taxYear: number;
+  organizer: Record<string, unknown>;
+  vehicleBusinessUsePercentage: unknown;
+  businessVehicleBusinessUsePercentage: unknown;
+}): number {
+  const saved = readOBBBADeductionAnswers(input.organizer[OBBBA_DEDUCTION_FIELD]);
+  const facts = saved && saved.taxYear === input.taxYear ? saved : undefined;
+  if (!facts || facts.hasVehicleLoanInterest !== 'yes') return 0;
+  const interest = money(facts.vehicleLoanInterestAmount, 'passenger vehicle loan interest paid');
+  const businessPercent = resolveVehicleBusinessUsePercentage(input.vehicleBusinessUsePercentage, input.businessVehicleBusinessUsePercentage);
+  if (businessPercent === null) return 0;
+  return roundedPercentShare(interest, businessPercent);
+}
+
+const AUTO_LOAN_PAYMENT = /\btoyota\s*financial\b|\bhonda\s*financial\b|\bford\s*credit\b|\bgm\s*financial\b|\bally\s*(?:auto|financial)\b|\bcapital\s*one\s*auto\b|\bauto\s*loan\b|\bcar\s*payment\b/i;
+
+function sameCents(left: number, right: number): boolean {
+  return Math.round(left * 100) === Math.round(right * 100);
+}
+
+function lenderVehicleInterestAmount(organizer: Record<string, unknown>, taxYear: number): number {
+  const saved = readOBBBADeductionAnswers(organizer[OBBBA_DEDUCTION_FIELD]);
+  const facts = saved && saved.taxYear === taxYear ? saved : undefined;
+  if (!facts || facts.hasVehicleLoanInterest !== 'yes') return 0;
+  const raw = typeof facts.vehicleLoanInterestAmount === 'string' ? facts.vehicleLoanInterestAmount.trim() : '';
+  if (!/^\d+(?:\.\d{1,2})?$/.test(raw)) return 0;
+  return Number(raw);
+}
+
+/**
+ * Business share of vehicle loan interest that is not already on Schedule C line 16b.
+ * A car payment, or that loan's interest, already on the line counts once.
+ * Other interest on 16b does not absorb this share.
+ */
+export function additionalScheduleCLine16bInterest(
+  input: {
+    taxYear: number;
+    organizer: Record<string, unknown>;
+    vehicleBusinessUsePercentage: unknown;
+    businessVehicleBusinessUsePercentage: unknown;
+  },
+  line16bTransactions: ReadonlyArray<{ category?: unknown; merchant_name?: unknown; amount?: unknown }>,
+): number {
+  const businessShare = scheduleCLine16bVehicleInterest(input);
+  if (businessShare === 0) return 0;
+  const lenderInterest = lenderVehicleInterestAmount(input.organizer, input.taxYear);
+  const alreadyCents = line16bTransactions.reduce((sum, tx) => {
+    const category = typeof tx.category === 'string' ? tx.category : '';
+    const merchant = typeof tx.merchant_name === 'string' ? tx.merchant_name : '';
+    const amount = typeof tx.amount === 'number' && Number.isFinite(tx.amount) ? tx.amount : 0;
+    const carPayment = category === 'LOAN_PAYMENTS_CAR_PAYMENT' || AUTO_LOAN_PAYMENT.test(merchant);
+    const itsInterest = category === 'BANK_FEES_INTEREST_CHARGE'
+      && (AUTO_LOAN_PAYMENT.test(merchant) || sameCents(amount, lenderInterest) || sameCents(amount, businessShare));
+    if (!carPayment && !itsInterest) return sum;
+    return sum + Math.round(amount * 100);
+  }, 0);
+  return round(Math.max(0, businessShare - alreadyCents / 100));
+}
+
 /**
  * Below-the-line deductions taken after AGI whether or not itemizing (§63(b)(5)–(7)).
  * Unanswered intake produces no deduction and a warning; an explicit claim with
- * missing facts, an SSTB, a business-use vehicle or contractor overtime is review-blocked.
+ * missing facts, an SSTB, or contractor overtime is review-blocked.
+ * A missing vehicle business-use percentage is needs more information and does not throw.
+ * A missing loan-date personal-use expectation is the only expected-use case that
+ * creates needs more information. An answer of no is $0 on Schedule 1-A with no such entry.
+ * Treas. Reg. 1.163-16(i) covers tax years beginning after December 31, 2024 and before
+ * January 1, 2029. The expectation test uses that Schedule 1-A span and has no separate date gate.
  */
 export function calculateOBBBADeductions(input: OBBBADeductionInput): OBBBADeductionResult {
   const taxYear = getFederalTaxRules(input.taxYear).taxYear;
@@ -147,8 +295,11 @@ export function calculateOBBBADeductions(input: OBBBADeductionInput): OBBBADeduc
   const joint = filingStatus === 'married_filing_jointly';
   const separate = filingStatus === 'married_filing_separately';
   const warnings: string[] = [];
+  const lineItems: OBBBALineItem[] = [];
+  const needsMoreInformation: NeedsMoreInformationItem[] = [];
   const result: OBBBADeductionResult = {
     taxYear, reviewed: false, modifiedAGI: null, qualifiedTips: none(), qualifiedOvertime: none(), vehicleLoanInterest: none(),
+    scheduleCLine16b: 0, lineItems, needsMoreInformation,
     nonItemizerCharitable: none(), scheduleOneATotal: 0, total: 0, warnings,
   };
   if (taxYear < SCHEDULE_1A_FIRST_YEAR) {
@@ -224,27 +375,60 @@ export function calculateOBBBADeductions(input: OBBBADeductionInput): OBBBADeduc
       if (result.qualifiedOvertime.deduction > 0) warnings.push(`Qualified overtime deduction of ${usd(result.qualifiedOvertime.deduction)} applied on Schedule 1-A Part III from W-2 box 12 code TT. Only the FLSA-required premium portion qualifies; state-law or contract overtime does not.`);
     }
   }
-  // Part IV — qualified passenger vehicle loan interest (personal-use vehicles only).
+  // Part IV — qualified passenger vehicle loan interest.
+  // The intake yes is any car the taxpayer uses. Schedule 1-A qualification does not gate line 16b.
+  // The loan-date expectation is a one-time test as of the loan date. It gates Schedule 1-A only.
+  // Yes means expected personal use, including use by a spouse or relative, is more than the named threshold over the ownership period expected then.
+  // This year's actual business-use percentage sets only the Schedule C line 16b amount.
+  // Treas. Reg. 1.163-16(f)(1) (Fed. Reg. 2026-18219, Sep 8, 2026). Treas. Reg. 1.163-16(g)(2) would allow the business portion on Schedule 1-A.
+  // Publication 463 places that share on Schedule C line 16b under either car method, new or used. There is no filer choice.
+  // Each share is rounded once. If the two cents exceed the interest paid, the extra cent leaves Schedule 1-A.
   if (facts.hasVehicleLoanInterest === 'yes') {
-    const amountReported = money(facts.vehicleLoanInterestAmount, 'passenger vehicle loan interest paid');
-    const after2024 = yesNo(facts.vehicleLoanAfter2024, 'whether the loan was taken out after December 31, 2024');
-    const newUS = yesNo(facts.vehicleNewUSAssembled, 'whether the vehicle is new (original use began with you) with final assembly in the United States');
-    if (!yesNo(facts.vehiclePersonalUse, 'whether the vehicle is used for personal purposes rather than in your business')) {
-      review('interest on a vehicle used in your business follows the Schedule C business-interest rules (sections 162 and 163) with a business-use percentage, not Schedule 1-A Part IV. Record it with your vehicle expenses for review.');
-    }
-    const qualifiedLoan = yesNo(facts.vehicleLoanQualified, 'whether the loan is a first-lien purchase loan from an unrelated lender for a vehicle under 14,000 pounds (not a lease)');
-    const vin = typeof facts.vehicleVIN === 'string' ? facts.vehicleVIN.trim().toUpperCase() : '';
-    if (!after2024) result.vehicleLoanInterest = { ...none('Only loans incurred after December 31, 2024 qualify (section 163(h)(4)).'), amountReported };
-    else if (!newUS) result.vehicleLoanInterest = { ...none('Only new vehicles with final assembly in the United States qualify (section 163(h)(4)).'), amountReported };
-    else if (!qualifiedLoan) result.vehicleLoanInterest = { ...none('Leases, related-party loans and loans that are not a first lien on a qualifying vehicle do not qualify (section 163(h)(4)).'), amountReported };
-    else {
-      if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) review('enter the 17-character vehicle identification number; the VIN must be reported on Schedule 1-A line 22 to claim the deduction.');
-      const limitedAmount = round(Math.min(amountReported, VEHICLE_LOAN_INTEREST_LIMIT));
-      const phaseout = phaseoutReduction(magi, joint ? VEHICLE_LOAN_PHASEOUT_THRESHOLD_JOINT : VEHICLE_LOAN_PHASEOUT_THRESHOLD, VEHICLE_LOAN_PHASEOUT_PER_THOUSAND, 'ceil');
-      result.vehicleLoanInterest = { deduction: round(Math.max(0, limitedAmount - phaseout)), amountReported, limitedAmount, phaseoutReduction: phaseout };
-      if (result.vehicleLoanInterest.deduction > 0) warnings.push(`Qualified passenger vehicle loan interest deduction of ${usd(result.vehicleLoanInterest.deduction)} applied on Schedule 1-A Part IV for VIN ${vin}. Keep the lender interest statement and the final-assembly evidence (dealer label or NHTSA VIN decoder).`);
+    const lenderInterest = money(facts.vehicleLoanInterestAmount, 'passenger vehicle loan interest paid');
+    const businessPercent = resolveVehicleBusinessUsePercentage(input.vehicleBusinessUsePercentage, input.businessVehicleBusinessUsePercentage);
+    if (businessPercent === null) {
+      result.vehicleLoanInterest = { ...none(VEHICLE_BUSINESS_SHARE_NOTE), amountReported: lenderInterest };
+      needsMoreInformation.push({ amount: lenderInterest, note: VEHICLE_BUSINESS_SHARE_NOTE });
+    } else {
+      const businessShare = roundedPercentShare(lenderInterest, businessPercent);
+      const personalShare = personalShareWithinInterest(lenderInterest, businessShare, roundedPercentShare(lenderInterest, 100 - businessPercent));
+      // This year's actual business-use share sets line 16b only. It does not gate Schedule 1-A.
+      result.scheduleCLine16b = businessShare;
+      if (businessShare !== 0) lineItems.push({ line: '16b', amount: businessShare });
+      const expectation = facts.vehicleExpectedPersonalUseOver50AtPurchase;
+      if (expectation === 'no') {
+        // Expected personal use is not above the threshold, including exactly half. $0 on Schedule 1-A and no needs-more-information entry. Never throw.
+        result.vehicleLoanInterest = { ...none(VEHICLE_EXPECTED_PERSONAL_USE_NO_REASON), amountReported: personalShare };
+      } else if (expectation !== 'yes') {
+        // A missing answer is the only expected-use case that files needs more information. Never throw.
+        result.vehicleLoanInterest = { ...none(VEHICLE_EXPECTED_PERSONAL_USE_NOTE), amountReported: personalShare };
+        needsMoreInformation.push({ amount: personalShare, note: VEHICLE_EXPECTED_PERSONAL_USE_NOTE });
+      } else {
+        const after2024 = yesNo(facts.vehicleLoanAfter2024, 'whether the loan was taken out after December 31, 2024');
+        const newUS = yesNo(facts.vehicleNewUSAssembled, 'whether the vehicle is new (original use began with you) with final assembly in the United States');
+        const qualifiedLoan = yesNo(facts.vehicleLoanQualified, 'whether the loan is a first-lien purchase loan from an unrelated lender for a vehicle under 14,000 pounds (not a lease)');
+        const vin = typeof facts.vehicleVIN === 'string' ? facts.vehicleVIN.trim().toUpperCase() : '';
+        if (!after2024) {
+          result.vehicleLoanInterest = { ...none('Only loans incurred after December 31, 2024 qualify (section 163(h)(4)).'), amountReported: personalShare };
+        } else if (!newUS) {
+          result.vehicleLoanInterest = { ...none('Only new vehicles with final assembly in the United States qualify (section 163(h)(4)).'), amountReported: personalShare };
+        } else if (!qualifiedLoan) {
+          result.vehicleLoanInterest = { ...none('Leases, related-party loans and loans that are not a first lien on a qualifying vehicle do not qualify (section 163(h)(4)).'), amountReported: personalShare };
+        } else {
+          // Yes is the one-time loan-date test. The personal remainder goes on Schedule 1-A before the cap and phaseout.
+          if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) review('enter the 17-character vehicle identification number; the VIN must be reported on Schedule 1-A line 22 to claim the deduction.');
+          const limitedAmount = round(Math.min(personalShare, VEHICLE_LOAN_INTEREST_LIMIT));
+          const phaseout = phaseoutReduction(magi, joint ? VEHICLE_LOAN_PHASEOUT_THRESHOLD_JOINT : VEHICLE_LOAN_PHASEOUT_THRESHOLD, VEHICLE_LOAN_PHASEOUT_PER_THOUSAND, 'ceil');
+          const deduction = personalShareWithinInterest(lenderInterest, businessShare, round(Math.max(0, limitedAmount - phaseout)));
+          result.vehicleLoanInterest = { deduction, amountReported: personalShare, limitedAmount, phaseoutReduction: phaseout };
+          if (result.vehicleLoanInterest.deduction > 0) {
+            warnings.push(`Qualified passenger vehicle loan interest deduction of ${usd(result.vehicleLoanInterest.deduction)} applied on Schedule 1-A Part IV for VIN ${vin}. ${DRAFT_COPY}. WriteOff puts the business share on Schedule C line 16b. The same dollar is never counted in both places. Keep the lender interest statement and the final-assembly evidence (dealer label or NHTSA VIN decoder).`);
+          }
+        }
+      }
     }
   }
+  for (const item of needsMoreInformation) warnings.push(item.note);
   // §170(p) — cash gifts to public charities for taxpayers who do not itemize (2026 onward).
   if (!charityYear) result.nonItemizerCharitable = none(`The non-itemizer charitable deduction begins in ${NON_ITEMIZER_CHARITY_FIRST_YEAR}.`);
   else if (facts.hasNonItemizerCharity === 'yes') {

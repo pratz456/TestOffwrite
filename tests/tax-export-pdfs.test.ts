@@ -5,8 +5,9 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import type { UserProfile } from '../lib/firebase/profiles-server';
 import type { Asset } from '../lib/reports/calc4562';
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+import { reviewedOBBBADeductionFacts, SYNTHETIC_VIN } from './fixtures/tier1-facts';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
-const state = vi.hoisted(() => ({ records: {} as Record<string, Record<string, unknown>[]>, transactions: [] as Record<string, unknown>[], assets: [] as Asset[], fail: '', queries: [] as string[], extraWarnings: [] as string[] }));
+const state = vi.hoisted(() => ({ records: {} as Record<string, Record<string, unknown>[]>, transactions: [] as Record<string, unknown>[], assets: [] as Asset[], fail: '', queries: [] as string[], extraWarnings: [] as string[], profile: {} as Record<string, unknown> }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'export-owner' } }) }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: async () => ({ uid: 'export-owner' }) }));
@@ -22,7 +23,7 @@ vi.mock('@/lib/tax-rules/compute-1040', async importOriginal => {
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
 vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: async () => { if (state.fail === 'transactions') throw new Error('private failure'); return state.transactions; } }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: state.transactions, error: state.fail === 'transactions' ? new Error('private failure') : null }) }));
-vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { name: 'Synthetic Taxpayer', profession: 'Consultant', filing_status: 'single', primary_work_location: 'Home Office' }, error: state.fail === 'profile' ? new Error('private failure') : null }) }));
+vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { name: 'Synthetic Taxpayer', profession: 'Consultant', filing_status: 'single', primary_work_location: 'Home Office', ...state.profile }, error: state.fail === 'profile' ? new Error('private failure') : null }) }));
 vi.mock('@/lib/firebase/settings-server', () => ({
   getAssetsSettings: async () => ({ data: state.assets, error: state.fail === 'assets' ? new Error('private failure') : null }),
   getScheduleCSettings: async () => state.fail === 'assets'
@@ -46,6 +47,7 @@ import { generateForm4562PDF } from '../lib/reports/form4562';
 import { generateForm8829PDF } from '../lib/reports/form8829';
 import { scheduleCExportLine } from '../lib/schedule-c/export-lines';
 import { POST as form1040 } from '../app/api/tax/form-1040/route';
+import { GET as compute1040 } from '../app/api/tax/compute-1040/route';
 const profile = { name: 'Synthetic Taxpayer', filing_status: 'single' } as UserProfile;
 const request = (body: unknown) => new NextRequest('http://localhost/api/tax/schedule-c/export', { method: 'POST', body: JSON.stringify(body) });
 const record = (fields: Record<string, unknown>, taxYear = 2026) => ({ userId: 'export-owner', taxYear, ...fields });
@@ -60,7 +62,7 @@ function inspectText() {
     }
   } };
 }
-beforeEach(() => { vi.restoreAllMocks(); resetRateLimitStore(); state.records = { gross_receipts: [record({ amount: 100000 })] }; state.transactions = []; state.assets = []; state.fail = ''; state.queries = []; state.extraWarnings = []; });
+beforeEach(() => { vi.restoreAllMocks(); resetRateLimitStore(); state.records = { gross_receipts: [record({ amount: 100000 })] }; state.transactions = []; state.assets = []; state.fail = ''; state.queries = []; state.extraWarnings = []; state.profile = {}; });
 
 describe('Schedule C real PDF and request integrity', () => {
   it.each([2027, 2026.5, '2026junk', '', null])('rejects unsupported/malformed year %s before fetching records', async year => {
@@ -102,6 +104,209 @@ describe('Schedule C real PDF and request integrity', () => {
   });
   it('uses the actual changed OtherExpenses line reference by year', () => {
     expect(scheduleCExportLine('27a', 2024)).toBe('27a'); expect(scheduleCExportLine('27a', 2025)).toBe('27b'); expect(scheduleCExportLine('24b', 2026)).toBe('24b');
+  });
+
+  it('counts vehicle loan interest once when a car payment or that interest is already on line 16b', async () => {
+    state.profile = { vehicle_business_use_percentage: 60 };
+    state.records.tax_organizers = [record({ obbbaDeductionFacts: reviewedOBBBADeductionFacts(2026, { hasVehicleLoanInterest: 'yes', vehicleLoanInterestAmount: '600' }) })];
+    const placed = (fields: Record<string, unknown>) => ({ id: 'placed-interest', date: '2026-03-01', iso_currency_code: 'USD', is_deductible: true, ...fields });
+    const exportText = async () => {
+      const view = inspectText();
+      const response = await scheduleC(request({ year: 2026, includeAppendix: false }));
+      expect(response.status).toBe(200);
+      return view.text();
+    };
+    state.transactions = [placed({ merchant_name: 'TOYOTA FINANCIAL', amount: 360, category: 'LOAN_PAYMENTS_CAR_PAYMENT' })];
+    const carPayment = await exportText();
+    expect(carPayment).toContain('Other interest - 1 confirmed records');
+    expect(carPayment).toContain('$360.00');
+    expect(carPayment).toContain('$99,640.00');
+    expect(carPayment).not.toContain('$720.00');
+    expect(carPayment).not.toContain('$99,280.00');
+
+    state.transactions = [placed({ merchant_name: 'LENDER INTEREST', amount: 600, category: 'BANK_FEES_INTEREST_CHARGE' })];
+    const recordedInterest = await exportText();
+    expect(recordedInterest).toContain('Other interest - 1 confirmed records');
+    expect(recordedInterest).toContain('$600.00');
+    expect(recordedInterest).toContain('$99,400.00');
+    expect(recordedInterest).not.toContain('$960.00');
+    expect(recordedInterest).not.toContain('$99,040.00');
+
+    state.transactions = [placed({ merchant_name: 'SYNTHETIC CARD INTEREST', amount: 125, category: 'BANK_FEES_INTEREST_CHARGE' })];
+    const otherInterest = await exportText();
+    expect(otherInterest).toContain('Other interest - 1 confirmed records');
+    expect(otherInterest).toContain('$485.00');
+    expect(otherInterest).toContain('$99,515.00');
+    expect(otherInterest).not.toContain('$845.00');
+
+    state.transactions = [];
+    const computedOnly = await exportText();
+    expect(computedOnly).toContain('Other interest - 0 confirmed records');
+    expect(computedOnly).toContain('$360.00');
+    expect(computedOnly).toContain('$99,640.00');
+  });
+
+  const qualifyingFacts = (amount: string, extra: Record<string, string> = {}) => reviewedOBBBADeductionFacts(2026, {
+    hasVehicleLoanInterest: 'yes', vehicleLoanInterestAmount: amount, vehicleLoanAfter2024: 'yes', vehicleNewUSAssembled: 'yes',
+    vehiclePersonalUse: 'yes', vehicleExpectedPersonalUseOver50AtPurchase: 'yes', vehicleLoanQualified: 'yes', vehicleVIN: SYNTHETIC_VIN, ...extra,
+  });
+  const prepareInterest = (amount: string, businessPercent: number, extra: Record<string, string> = {}) => {
+    state.profile = { vehicle_business_use_percentage: businessPercent };
+    state.records.tax_organizers = [record(reviewedPersonalDeductionOrganizer(2026, {}, { obbbaDeductionFacts: qualifyingFacts(amount, extra) }))];
+  };
+  const exportedLine16b = async (label: string) => {
+    const view = inspectText();
+    const response = await scheduleC(request({ year: 2026, includeAppendix: false }));
+    expect(response.status).toBe(200);
+    const lines = view.text().split('\n');
+    const index = lines.indexOf(label);
+    expect(index).toBeGreaterThan(-1);
+    return lines[index + 1];
+  };
+  const scheduleOneA = async () => {
+    const response = await compute1040(new NextRequest('http://localhost/api/tax/compute-1040?year=2026'));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    return {
+      deduction: body.form1040.vehicleLoanInterestDeduction as number,
+      reported: body.form1040.obbbaDeductions.vehicleLoanInterest.amountReported as number,
+      scheduleOneA: body.form1040.scheduleOneADeductions as number,
+      profit: body.income.scheduleCNetProfit as number,
+      needsMoreInformation: body.form1040.obbbaDeductions.needsMoreInformation as { amount: number; note: string }[],
+      line16b: body.form1040.obbbaDeductions.scheduleCLine16b as number,
+    };
+  };
+
+  const withinInterest = (exported: string, deduction: number, interest: number) => {
+    const line = Number(exported.replace(/[$,]/g, ''));
+    const cents = (amount: number) => Math.round((amount + Number.EPSILON) * 100);
+    expect(cents(line) + cents(deduction)).toBeLessThanOrEqual(cents(interest));
+  };
+
+  it('exports 600 on line 16b and 0 on Schedule 1-A for a used car at 60 percent business', async () => {
+    prepareInterest('1000', 60, { vehicleNewUSAssembled: 'no' });
+    const exported = await exportedLine16b('Other interest - 0 confirmed records');
+    expect(exported).toBe('$600.00');
+    const schedule1A = await scheduleOneA();
+    expect(schedule1A.deduction).toBe(0);
+    expect(schedule1A.scheduleOneA).toBe(0);
+    expect(schedule1A.line16b).toBe(600);
+    expect(schedule1A.needsMoreInformation).toEqual([]);
+    expect(schedule1A.profit).toBe(99400);
+    withinInterest(exported, schedule1A.deduction, 1000);
+  });
+
+  it('exports 300 on line 16b and at most 700 on Schedule 1-A when expected and actual business use are 30 percent', async () => {
+    prepareInterest('1000', 30);
+    const exported = await exportedLine16b('Other interest - 0 confirmed records');
+    expect(exported).toBe('$300.00');
+    const schedule1A = await scheduleOneA();
+    expect(schedule1A.reported).toBe(700);
+    expect(schedule1A.reported).toBeLessThanOrEqual(700);
+    expect(schedule1A.deduction).toBeLessThanOrEqual(700);
+    expect(schedule1A.deduction).toBe(700);
+    expect(schedule1A.scheduleOneA).toBe(700);
+    expect(schedule1A.line16b).toBe(300);
+    expect(schedule1A.needsMoreInformation).toEqual([]);
+    expect(schedule1A.profit).toBe(99700);
+    withinInterest(exported, schedule1A.deduction, 1000);
+  });
+
+  it('exports 600 on line 16b and 0 on Schedule 1-A when expected business use is 60 percent', async () => {
+    prepareInterest('1000', 60, { vehicleExpectedPersonalUseOver50AtPurchase: 'no' });
+    const exported = await exportedLine16b('Other interest - 0 confirmed records');
+    expect(exported).toBe('$600.00');
+    const schedule1A = await scheduleOneA();
+    expect(schedule1A.deduction).toBe(0);
+    expect(schedule1A.scheduleOneA).toBe(0);
+    expect(schedule1A.line16b).toBe(600);
+    expect(schedule1A.needsMoreInformation).toEqual([]);
+    expect(schedule1A.profit).toBe(99400);
+    withinInterest(exported, schedule1A.deduction, 1000);
+  });
+
+  it('exports 0 on Schedule 1-A when expected personal use is exactly half', async () => {
+    prepareInterest('1000', 30, { vehicleExpectedPersonalUseOver50AtPurchase: 'no' });
+    const exported = await exportedLine16b('Other interest - 0 confirmed records');
+    expect(exported).toBe('$300.00');
+    const schedule1A = await scheduleOneA();
+    expect(schedule1A.deduction).toBe(0);
+    expect(schedule1A.scheduleOneA).toBe(0);
+    expect(schedule1A.line16b).toBe(300);
+    expect(schedule1A.needsMoreInformation).toEqual([]);
+    expect(schedule1A.profit).toBe(99700);
+    withinInterest(exported, schedule1A.deduction, 1000);
+  });
+
+  it('still qualifies when expected business use is 30 percent and this year is 70 percent', async () => {
+    prepareInterest('1000', 70);
+    const exported = await exportedLine16b('Other interest - 0 confirmed records');
+    expect(exported).toBe('$700.00');
+    const schedule1A = await scheduleOneA();
+    expect(schedule1A.reported).toBe(300);
+    expect(schedule1A.deduction).toBeLessThanOrEqual(300);
+    expect(schedule1A.deduction).toBe(300);
+    expect(schedule1A.scheduleOneA).toBe(300);
+    expect(schedule1A.line16b).toBe(700);
+    expect(schedule1A.needsMoreInformation).toEqual([]);
+    expect(schedule1A.profit).toBe(99300);
+    withinInterest(exported, schedule1A.deduction, 1000);
+  });
+
+  it('exports 200 on line 16b and 0 on Schedule 1-A when expected business use is 60 percent and this year is 20 percent', async () => {
+    prepareInterest('1000', 20, { vehicleExpectedPersonalUseOver50AtPurchase: 'no' });
+    const exported = await exportedLine16b('Other interest - 0 confirmed records');
+    expect(exported).toBe('$200.00');
+    const schedule1A = await scheduleOneA();
+    expect(schedule1A.deduction).toBe(0);
+    expect(schedule1A.scheduleOneA).toBe(0);
+    expect(schedule1A.line16b).toBe(200);
+    expect(schedule1A.needsMoreInformation).toEqual([]);
+    expect(schedule1A.profit).toBe(99800);
+    withinInterest(exported, schedule1A.deduction, 1000);
+  });
+
+  it('does not add computed interest a second time when a car payment is already on line 16b', async () => {
+    prepareInterest('1000', 60);
+    state.transactions = [{
+      id: 'placed-car-payment', merchant_name: 'TOYOTA FINANCIAL', amount: 600, date: '2026-03-01',
+      iso_currency_code: 'USD', category: 'LOAN_PAYMENTS_CAR_PAYMENT', is_deductible: true,
+    }];
+    const view = inspectText();
+    const response = await scheduleC(request({ year: 2026, includeAppendix: false }));
+    expect(response.status).toBe(200);
+    const text = view.text();
+    const lines = text.split('\n');
+    const index = lines.indexOf('Other interest - 1 confirmed records');
+    expect(index).toBeGreaterThan(-1);
+    expect(lines[index + 1]).toBe('$600.00');
+    expect(text).toContain('$99,400.00');
+    expect(text).not.toContain('$1,200.00');
+    expect(text).not.toContain('$98,800.00');
+    const schedule1A = await scheduleOneA();
+    expect(schedule1A.deduction).toBe(400);
+    expect(schedule1A.deduction).toBeLessThanOrEqual(400);
+    expect(schedule1A.scheduleOneA).toBe(400);
+    expect(schedule1A.line16b).toBe(600);
+    expect(schedule1A.needsMoreInformation).toEqual([]);
+    expect(schedule1A.profit).toBe(99400);
+    const line = Number(lines[index + 1].replace(/[$,]/g, ''));
+    expect(line + schedule1A.deduction).toBe(1000);
+    expect(line + schedule1A.deduction).toBeLessThanOrEqual(1000);
+  });
+
+  it('keeps exported line 16b plus Schedule 1-A within the interest paid', async () => {
+    prepareInterest('1.05', 30);
+    const exported = await exportedLine16b('Other interest - 0 confirmed records');
+    expect(exported).toBe('$0.32');
+    const schedule1A = await scheduleOneA();
+    expect(schedule1A.reported).toBe(0.73);
+    expect(schedule1A.deduction).toBe(0.73);
+    expect(schedule1A.scheduleOneA).toBe(0.73);
+    const cents = (amount: number) => Math.round((amount + Number.EPSILON) * 100);
+    const exportedCents = cents(Number(exported.replace(/[$,]/g, '')));
+    expect(exportedCents + cents(schedule1A.deduction)).toBe(105);
+    expect(exportedCents + cents(schedule1A.deduction)).toBeLessThanOrEqual(105);
   });
 });
 

@@ -174,5 +174,7 @@ it('vehicle-interest guidance uses the final expected-personal-use test and prev
     expect(answer).toContain('Mixed business use alone does not disqualify');
     expect(answer).toContain('Never deduct the same interest twice');
     expect(answer).toContain('gross vehicle weight rating below 14,000 pounds');
+    expect(answer).toContain('under either car method, whether the car is new or used');
+    expect(answer).not.toContain('Expected predominantly business use needs separate business-interest treatment');
   }
 });

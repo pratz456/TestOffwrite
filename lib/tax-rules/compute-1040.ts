@@ -33,6 +33,10 @@ export interface Form1040Input {
   filingStatus: 'single' | 'married_filing_jointly' | 'married_filing_separately' | 'head_of_household';
   /** Saved taxpayer declarations; annual routes always supply this, even when empty. */
   personalDeductionOrganizer?: Record<string, unknown>;
+  /** Profile vehicle_business_use_percentage. Charge and account percentages are not accepted. */
+  vehicleBusinessUsePercentage?: unknown;
+  /** Profile business_vehicle.business_use_percentage. */
+  businessVehicleBusinessUsePercentage?: unknown;
 
   // Income sources
   scheduleCNetProfit: number;       // From Schedule C Line 31
@@ -341,6 +345,8 @@ export function compute1040(input: Form1040Input, priorYearTax?: number): Form10
   // ── Step 4b: Schedule 1-A Parts II–IV and §170(p) (below AGI, before the Form 8995 cap) ──
   const obbbaDeductions = input.personalDeductionOrganizer === undefined ? undefined : calculateOBBBADeductions({
     taxYear, filingStatus, agi, scheduleCNetProfit: adjustedScheduleC, usingStandardDeduction, organizer: input.personalDeductionOrganizer,
+    vehicleBusinessUsePercentage: input.vehicleBusinessUsePercentage,
+    businessVehicleBusinessUsePercentage: input.businessVehicleBusinessUsePercentage,
   });
   if (obbbaDeductions) calculationWarnings.push(...obbbaDeductions.warnings);
   const qualifiedTipsDeduction = obbbaDeductions?.qualifiedTips.deduction ?? 0;
