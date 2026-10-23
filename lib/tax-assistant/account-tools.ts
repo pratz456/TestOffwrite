@@ -1,3 +1,5 @@
+import { LEGACY_NEC_WARNING } from '@/lib/tax-rules/income-reconciliation-copy';
+import { legacyNecReopen } from '@/lib/tax-rules/reconciliation-feature';
 import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { AccountResult } from './account-contract';
@@ -70,7 +72,8 @@ export function taxPositionResult(current: SavedTaxPosition, previous: SavedTaxP
     notes.push(`Compared with your assistant check on ${previous.checkedAt.slice(0, 10)}: estimated federal tax ${money(current.totalTax - previous.totalTax)}, recorded business receipts ${money(current.income - previous.income)}, confirmed transaction deductions ${money(current.deductions - previous.deductions)}. These are changes in saved estimates, not proof that any one purchase caused the tax change.`);
   } else if (changes) notes.push('This is your first comparable assistant check for this year. A private baseline is saved for your next comparison.');
   notes.push('Federal estimate from your saved records, not an annual income forecast or a filed return. Unconfirmed deductions are excluded. Missing income or facts can change the result.');
-  notes.push(...warnings.slice(0, 5).map(item => item.slice(0, 2000)));
+  const reviewNotes = legacyNecReopen() ? warnings : warnings.filter(item => item !== LEGACY_NEC_WARNING);
+  notes.push(...reviewNotes.slice(0, 5).map(item => item.slice(0, 2000)));
   const delta = comparable && previous ? current.totalTax - previous.totalTax : null;
   const reply = changes && delta !== null && previous
     ? `Your federal tax estimate is ${delta === 0 ? 'unchanged' : `${money(Math.abs(delta))} ${delta > 0 ? 'higher' : 'lower'}`} since your assistant check on ${previous.checkedAt.slice(0, 10)}. It is now ${money(current.totalTax)} for ${current.taxYear}.`

@@ -34,10 +34,16 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) =
   return { where(field: string, _op: string, value: unknown) { filters.push([field, value]); return this; }, limit() { return this; }, get: async () => {
     if (state.fail === name) throw new Error('private Firestore failure');
     const records = (state.records[name] || []).filter(row => filters.every(([key, value]) => row[key] === value));
-    return { empty: !records.length, docs: records.map((row, index) => ({ id: `record-${index}`, data: () => row })) };
+    return { empty: !records.length, docs: records.map((row, index) => {
+      const id = typeof row.id === 'string' ? row.id : `record-${index}`;
+      return { id, ref: { path: `${name}/${id}` }, data: () => row };
+    }) };
   } };
 } } }));
 import { POST as scheduleC } from '../app/api/tax/schedule-c/export/route';
+import * as scheduleCcsv from '../lib/reports/schedule-c-csv';
+import { ERR_SAME_NEEDS_K, LEGACY_NEC_REOPEN_REASON, LEGACY_NEC_WARNING } from '../lib/tax-rules/income-reconciliation-copy';
+import { reconcileBusinessIncome } from '../lib/tax-rules/business-income';
 import { GET as calculateC } from '../app/api/tax/schedule-c/calculate/route';
 import { GET as autoSE } from '../app/api/tax/schedule-se/auto/route';
 import { loadScheduleSEData } from '../lib/reports/load-schedule-se';
@@ -102,6 +108,186 @@ describe('Schedule C real PDF and request integrity', () => {
   });
   it('uses the actual changed OtherExpenses line reference by year', () => {
     expect(scheduleCExportLine('27a', 2024)).toBe('27a'); expect(scheduleCExportLine('27a', 2025)).toBe('27b'); expect(scheduleCExportLine('24b', 2026)).toBe('24b');
+  });
+  it('keeps both export formats at 422 and never builds the CSV', async () => {
+    state.records.gross_receipts = [];
+    state.records.income_1099 = [
+      record({ id: 'k1', amount: 10000, formType: '1099-K', payerName: 'Synthetic platform' }),
+      record({ id: 'n1', amount: 10000, formType: '1099-NEC', payerName: 'Synthetic client' }),
+    ];
+    const csv = vi.spyOn(scheduleCcsv, 'generateScheduleCCSV');
+    for (const format of ['csv', 'pdf'] as const) {
+      const response = await scheduleC(request({ year: 2026, format }));
+      expect(response.status).toBe(422);
+      expect(response.headers.get('content-disposition')).toBeNull();
+      const body = await response.json();
+      expect(body.code).toBe('INCOME_RECONCILIATION_REQUIRED');
+      expect(body.conflicts[0].reason).toBe('multiple_forms');
+      expect(body.reviewPath).toBe('/protected?screen=income-tracking&tab=reconcile&year=2026');
+    }
+    expect(csv).not.toHaveBeenCalled();
+    csv.mockRestore();
+  });
+  it('blocks export for a stale separate-income group and, only with the flag, a saved NEC match', async () => {
+    state.records.gross_receipts = [];
+    state.records.income_1099 = [
+      record({ id: 'k1', amount: 12000, formType: '1099-K', payerName: 'Synthetic platform' }),
+      record({ id: 'n1', amount: 11000, formType: '1099-NEC', payerName: 'Client A' }),
+    ];
+    state.records.income_reconciliations = [record({
+      id: 'group', decision: 'separate_income', version: 2, platformFeeAmount: null,
+      sources: [{ kind: 'form_1099', id: 'k1', amount: 12000 }, { kind: 'form_1099', id: 'n1', amount: 12000 }],
+    })];
+    const before = JSON.stringify(state.records);
+    const stale = await scheduleC(request({ year: 2026, format: 'pdf', includeAppendix: false }));
+    expect(stale.status).toBe(422);
+    expect((await stale.json()).code).toBe('INCOME_RECONCILIATION_REQUIRED');
+    expect(JSON.stringify(state.records)).toBe(before);
+
+    state.records.income_1099 = [
+      record({ id: 'n1', amount: 12000, formType: '1099-NEC', payerName: 'Client A' }),
+      record({ id: 'n2', amount: 12000, formType: '1099-NEC', payerName: 'Client B' }),
+    ];
+    state.records.income_reconciliations = [record({
+      id: 'legacy', decision: 'same_payments', version: 1, platformFeeAmount: null,
+      sources: [{ kind: 'form_1099', id: 'n1', amount: 12000 }, { kind: 'form_1099', id: 'n2', amount: 12000 }],
+    })];
+    const kept = await scheduleC(request({ year: 2026, format: 'pdf', includeAppendix: false }));
+    expect(kept.status).toBe(200);
+    process.env.legacyNecReopen = '1';
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
+    try {
+      const reopened = await scheduleC(request({ year: 2026, format: 'csv' }));
+      expect(reopened.status).toBe(422);
+      const body = await reopened.json();
+      expect(body.code).toBe('INCOME_RECONCILIATION_REQUIRED');
+      expect(body.reviewPath).toBe('/protected?screen=income-tracking&tab=reconcile&year=2026');
+      expect(body.conflicts).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          reason: 'stale_decision',
+          message: expect.stringContaining(ERR_SAME_NEEDS_K),
+        }),
+      ]));
+      expect(body.conflicts[0].message).toContain(LEGACY_NEC_REOPEN_REASON);
+      expect(state.records.income_reconciliations?.[0]).toMatchObject({ id: 'legacy', decision: 'same_payments' });
+      expect(state.records.income_1099?.map(row => row.amount)).toEqual([12000, 12000]);
+    } finally {
+      delete process.env.legacyNecReopen;
+      delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
+    }
+  });
+  it('exports pdf and csv for a saved NEC match while the switch is off', async () => {
+    delete process.env.legacyNecReopen;
+    const forms = [
+      { id: 'n1', amount: 12000, formType: '1099-NEC' as const, payerName: 'Client A' },
+      { id: 'n2', amount: 12000, formType: '1099-NEC' as const, payerName: 'Client B' },
+    ];
+    const saved = {
+      id: 'legacy', taxYear: 2026, decision: 'same_payments' as const, version: 1, platformFeeAmount: null, countedAmount: 12000,
+      sources: [{ kind: 'form_1099' as const, id: 'n1', amount: 12000 }, { kind: 'form_1099' as const, id: 'n2', amount: 12000 }],
+    };
+    const counted = reconcileBusinessIncome(2026, [], [], forms, [saved]);
+    expect(counted.grossReceipts).toBe(12000);
+    expect(counted.netReceipts).toBe(12000);
+    expect(counted.warnings).not.toContain(LEGACY_NEC_WARNING);
+    state.records.gross_receipts = [];
+    state.records.income_1099 = forms.map(form => record(form));
+    state.records.income_reconciliations = [record(saved)];
+    const before = JSON.stringify(state.records);
+    const view = inspectText();
+    for (const format of ['pdf', 'csv'] as const) {
+      const response = await scheduleC(request({ year: 2026, format, includeAppendix: false }));
+      expect(response.status).toBe(200);
+      if (format === 'pdf') expect(response.headers.get('content-disposition')).toContain('.pdf');
+      if (format === 'csv') expect(response.headers.get('content-type')).toContain('text/csv');
+    }
+    expect(view.text()).toContain('$12,000.00');
+    expect(view.text()).not.toContain('$24,000.00');
+    expect(view.text()).not.toContain(LEGACY_NEC_WARNING);
+    expect(JSON.stringify(state.records)).toBe(before);
+  });
+  it('keeps 2025 and 2024 NEC-only same-payments exports at the saved total while the switch is on', async () => {
+    const view = inspectText();
+    process.env.legacyNecReopen = '1';
+    try {
+      for (const taxYear of [2025, 2024]) {
+        state.records.gross_receipts = [];
+        state.records.income_1099 = [
+          record({ id: 'n1', amount: 12000, formType: '1099-NEC', payerName: 'Client A' }, taxYear),
+          record({ id: 'n2', amount: 12000, formType: '1099-NEC', payerName: 'Client B' }, taxYear),
+        ];
+        state.records.income_reconciliations = [record({
+          id: 'legacy', decision: 'same_payments', version: 1, platformFeeAmount: null, countedAmount: 12000,
+          sources: [{ kind: 'form_1099', id: 'n1', amount: 12000 }, { kind: 'form_1099', id: 'n2', amount: 12000 }],
+        }, taxYear)];
+        const before = JSON.stringify(state.records);
+        const response = await scheduleC(request({ year: taxYear, format: 'pdf', includeAppendix: false }));
+        expect(response.status).toBe(200);
+        expect(JSON.stringify(state.records)).toBe(before);
+      }
+    } finally {
+      delete process.env.legacyNecReopen;
+    }
+    expect(view.text()).toContain('$12,000.00');
+    expect(view.text()).not.toContain('$24,000.00');
+  });
+  it('keeps a 2025 export of two 1099-NECs plus deposits at the saved total while the reopen switch is on', async () => {
+    const view = inspectText();
+    process.env.legacyNecReopen = '1';
+    try {
+      state.records.gross_receipts = [];
+      state.transactions = [{
+        id: 't1', trans_id: 't1', account_id: 'bank-1', amount: -12000, category: 'income', type: 'income',
+        date: '2025-06-01', merchant_name: 'Client A', iso_currency_code: 'USD',
+      }];
+      state.records.income_1099 = [
+        record({ id: 'n1', amount: 12000, formType: '1099-NEC', payerName: 'Client A' }, 2025),
+        record({ id: 'n2', amount: 12000, formType: '1099-NEC', payerName: 'Client B' }, 2025),
+      ];
+      state.records.income_reconciliations = [record({
+        id: 'legacy', decision: 'same_payments', version: 1, platformFeeAmount: null, countedAmount: 12000,
+        sources: [
+          { kind: 'form_1099', id: 'n1', amount: 12000 },
+          { kind: 'form_1099', id: 'n2', amount: 12000 },
+          { kind: 'transaction', id: 't1', amount: 12000 },
+        ],
+      }, 2025)];
+      const before = JSON.stringify(state.records);
+      const response = await scheduleC(request({ year: 2025, format: 'pdf', includeAppendix: false }));
+      expect(response.status).toBe(200);
+      expect(JSON.stringify(state.records)).toBe(before);
+    } finally {
+      delete process.env.legacyNecReopen;
+    }
+    expect(view.text()).toContain('$12,000.00');
+    expect(view.text()).not.toContain('$24,000.00');
+  });
+  it('keeps export at 200 for a saved same-payments decision while legacy reconfirm is off', async () => {
+    delete process.env.legacyDecisionReconfirm;
+    state.records.gross_receipts = [record({ id: 'r1', amount: 12000, source: 'Synthetic platform', date: '2026-01-31', type: 'freelance' })];
+    state.records.income_1099 = [record({ id: 'k1', amount: 12000, formType: '1099-K', payerName: 'Synthetic platform' })];
+    state.records.income_reconciliations = [record({
+      id: 'legacy', decision: 'same_payments', version: 1, platformFeeAmount: null,
+      sources: [{ kind: 'form_1099', id: 'k1', amount: 12000 }, { kind: 'gross_receipt', id: 'r1', amount: 12000 }],
+    })];
+    const before = JSON.stringify(state.records);
+    for (const format of ['pdf', 'csv'] as const) {
+      const response = await scheduleC(request({ year: 2026, format, includeAppendix: false }));
+      expect(response.status).toBe(200);
+    }
+    expect(JSON.stringify(state.records)).toBe(before);
+  });
+  it('still exports a file for a version 1 same-payments decision', async () => {
+    state.records.gross_receipts = [record({ id: 'r1', amount: 12000, source: 'Synthetic platform', date: '2026-01-31', type: 'freelance' })];
+    state.records.income_1099 = [record({ id: 'k1', amount: 12000, formType: '1099-K', payerName: 'Synthetic platform' })];
+    state.records.income_reconciliations = [record({
+      id: 'legacy', decision: 'same_payments', version: 1, platformFeeAmount: null,
+      sources: [{ kind: 'form_1099', id: 'k1', amount: 12000 }, { kind: 'gross_receipt', id: 'r1', amount: 12000 }],
+    })];
+    const response = await scheduleC(request({ year: 2026, format: 'pdf', includeAppendix: false }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-disposition')).toContain('Schedule_C_2026_WriteOff.pdf');
+    expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(100);
   });
 });
 
@@ -216,6 +402,22 @@ describe('Form 1040 planning PDF prints its review notes', () => {
     expect(text).not.toMatch(/900000001|900-00-0001|900000002|900-00-0002|000123456789|071000013|123456|900-00-0003/);
     expect(text).not.toContain('SSN not filled in');
     checkFormBounds(view.spy); saveArtifact('form-1040-2026-masked-identifiers', new Uint8Array(await response.arrayBuffer()));
+  });
+
+  it('omits the NEC review warning from Form 1040 notes while legacyNecReopen is off', async () => {
+    delete process.env.legacyNecReopen;
+    state.extraWarnings = [LEGACY_NEC_WARNING];
+    const view = inspectText();
+    expect((await form1040(request1040())).status).toBe(200);
+    expect(view.text()).not.toContain(LEGACY_NEC_WARNING);
+    process.env.legacyNecReopen = '1';
+    try {
+      const shown = inspectText();
+      expect((await form1040(request1040())).status).toBe(200);
+      expect(shown.text()).toContain(LEGACY_NEC_WARNING);
+    } finally {
+      delete process.env.legacyNecReopen;
+    }
   });
 
   it('never prints a refund/balance page without its review notes block', async () => {

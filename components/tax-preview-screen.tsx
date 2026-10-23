@@ -10,6 +10,8 @@ import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 import type { BusinessTaxNotice, StateTaxComponents, StateTaxLine } from "@/lib/tax-rules/state";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { incomeReconciliationPath } from "@/lib/tax-rules/income-reconciliation-response";
+import { LEGACY_NEC_WARNING } from "@/lib/tax-rules/income-reconciliation-copy";
 
 interface Props {
   user: { id: string; email?: string };
@@ -35,7 +37,6 @@ const sourceLabel = (url: string) => { try { return new URL(url).hostname.replac
 const stringList = (value: unknown): string[] => Array.isArray(value)
   ? [...new Set(value.filter((item): item is string => typeof item === "string" && item.trim().length > 0))]
   : [];
-
 interface StateLine { label: string; amount: number; negative?: boolean }
 
 const lineList = (value: unknown): Partial<StateTaxLine>[] =>
@@ -71,6 +72,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reviewCode, setReviewCode] = useState<string | null>(null);
+  const [reviewPath, setReviewPath] = useState<string | null>(null);
   const [reviewConflicts, setReviewConflicts] = useState<Array<{ message: string; sources: Array<{ label: string; amount: number }> }>>([]);
   const [data, setData] = useState<any>(null);
   const [showDetails, setShowDetails] = useState(false);
@@ -78,13 +80,14 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
 
   const load = useCallback(async () => {
     const currentRequest = ++requestId.current;
-    setLoading(true); setError(null); setReviewCode(null); setReviewConflicts([]); setData(null);
+    setLoading(true); setError(null); setReviewCode(null); setReviewPath(null); setReviewConflicts([]); setData(null);
     try {
       const res = await makeAuthenticatedRequest(`/api/tax/compute-1040?year=${year}`);
       const result = await res.json();
       if (!res.ok) {
         if (currentRequest === requestId.current && res.status === 422 && typeof result.code === 'string') {
           setReviewCode(result.code);
+          setReviewPath(typeof result.reviewPath === 'string' && result.reviewPath ? result.reviewPath : null);
           // The income gate names conflicting records by reference so the owner knows what to reconcile.
           setReviewConflicts(Array.isArray(result.conflicts) ? result.conflicts.filter((c: unknown) => c && typeof c === 'object' && typeof (c as { message?: unknown }).message === 'string') : []);
         }
@@ -178,7 +181,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
             <p className="mt-1 text-sm text-muted-foreground">Your saved records are available. Resolve the issue above, then refresh to calculate your totals.</p>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               {[
-                { title: 'Income records', detail: 'Check payments and reconcile 1099 forms.', href: `/protected?screen=income-tracking&year=${year}` },
+                { title: 'Income records', detail: 'Check payments and reconcile 1099 forms.', href: reviewPath ?? incomeReconciliationPath(Number(year)) },
                 { title: 'Expense review', detail: 'Confirm business use and AI categories.', href: '/protected/transactions' },
                 { title: 'Tax organizer', detail: 'Review your filing details and deductions.', href: '/protected?screen=tax-organizer' },
               ].map(item => <Link key={item.title} href={item.href} className="group flex min-h-11 items-start gap-3 rounded-lg border border-border p-3 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -195,6 +198,14 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
             <p className="text-sm text-muted-foreground">Calculating your estimate…</p>
           </div>
         ) : f1040 ? (
+          <>
+          {calculationWarnings.includes(LEGACY_NEC_WARNING) && (
+            <div role="status" className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-100">
+              <ul aria-label="Records that need a reconciliation decision" className="space-y-1 text-xs leading-relaxed">
+                <li>{LEGACY_NEC_WARNING}</li>
+              </ul>
+            </div>
+          )}
           <div className="grid items-start gap-4 lg:grid-cols-2">
             <div className="space-y-3">
             <Card className="overflow-hidden rounded-2xl border-border/70 bg-card shadow-none">
@@ -262,7 +273,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                   <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
                 </summary>
                 <div className="px-3 pb-3">
-                  <TaxCalculationNotice taxYear={f1040.taxYear ?? year} warnings={f1040.calculationWarnings} />
+                  <TaxCalculationNotice taxYear={f1040.taxYear ?? year} warnings={calculationWarnings} />
                 </div>
               </details>
 
@@ -458,6 +469,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
               Uses published federal rules for {f1040.taxYear ?? year} and information saved in WriteOff. Actual tax may differ. Always verify with a tax professional before filing or making a tax payment.
             </p>
           </div>
+          </>
         ) : !loading && !error && (
           <div className="rounded-xl border border-border bg-card px-4 py-8 text-center">
             <DollarSign className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />

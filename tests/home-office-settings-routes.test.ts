@@ -31,8 +31,11 @@ vi.mock('@/lib/firebase/admin', () => {
       limit() { return query; },
       get: async () => {
         const prefix = `${path}/`;
-        const subDocs = [...store.docs.entries()].filter(([key]) => key.startsWith(prefix) && !key.slice(prefix.length).includes('/')).map(([key, data]) => ({ id: key.slice(prefix.length), data: () => data }));
-        const rows = (store.rows[path] ?? []).filter(row => filters.every(([key, value]) => row[key] === value)).map((row, index) => ({ id: `row-${index}`, data: () => row }));
+        const subDocs = [...store.docs.entries()].filter(([key]) => key.startsWith(prefix) && !key.slice(prefix.length).includes('/')).map(([key, data]) => ({ id: key.slice(prefix.length), ref: { path: key }, data: () => data }));
+        const rows = (store.rows[path] ?? []).filter(row => filters.every(([key, value]) => row[key] === value)).map((row, index) => {
+          const id = typeof row.id === 'string' ? row.id : `row-${index}`;
+          return { id, ref: { path: `${path}/${id}` }, data: () => row };
+        });
         const docs = [...subDocs, ...rows];
         return { empty: docs.length === 0, docs, forEach: (fn: (row: { id: string; data: () => Record<string, unknown> }) => void) => docs.forEach(fn) };
       },
@@ -50,6 +53,7 @@ import { GET as form4562Worksheet } from '../app/api/tax/form-4562/route';
 import { GET as compute1040 } from '../app/api/tax/compute-1040/route';
 import { GET as calculateScheduleC } from '../app/api/tax/schedule-c/calculate/route';
 import { GET as scheduleSE } from '../app/api/tax/schedule-se/auto/route';
+import { loadScheduleCRecords } from '../lib/reports/load-schedule-se';
 import { POST as exportForms } from '../app/api/reports/export/route';
 
 const json = (path: string, body?: unknown) => new NextRequest(`http://localhost/api/${path}`, body === undefined ? undefined : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -200,5 +204,36 @@ describe('worksheet and estimate routes share the 422 review contract', () => {
     const text = spy.mock.calls.map(call => call[0]).join(' ').replace(/\s+/g, ' ');
     expect(text).toContain('$1,800.00'); expect(text).toContain('$10,000.00'); expect(text).toContain('Rev. Proc. 2025-32'); expect(text).toContain('De minimis safe harbor');
     spy.mockRestore();
+  });
+});
+
+describe('profit paths use Schedule C line 3', () => {
+  it('gives the SE loader and the home office route the net receipts, not the 1099-K gross', async () => {
+    await postHomeOffice(json('settings/home-office', completeFacts));
+    store.rows.gross_receipts = [];
+    store.rows.income_1099 = [{ id: 'k1', userId: 'owner-a', taxYear: 2026, amount: 10000, formType: '1099-K', payerName: 'Synthetic platform' }];
+    store.rows.income_reconciliations = [{
+      id: 'd1', userId: 'owner-a', taxYear: 2026, decision: 'k_not_business_income', platformFeeAmount: 300,
+      notBusinessParts: [{ reason: 'refunds_credits', amount: 500 }],
+      sources: [
+        { kind: 'form_1099', id: 'k1', amount: 10000 },
+        { kind: 'transaction', id: 't1', amount: 5000 },
+        { kind: 'transaction', id: 't2', amount: 4200 },
+      ],
+    }];
+    store.transactions = [
+      { id: 't1', trans_id: 't1', amount: -5000, date: '2026-02-01', iso_currency_code: 'USD', category: 'income', merchant_name: 'Synthetic platform payout', account_id: 'bank-1' },
+      { id: 't2', trans_id: 't2', amount: -4200, date: '2026-03-01', iso_currency_code: 'USD', category: 'income', merchant_name: 'Synthetic platform payout', account_id: 'bank-1' },
+    ];
+    const records = await loadScheduleCRecords('owner-a', 2026);
+    expect(records.receipts.grossReceipts).toBe(10000);
+    expect(records.receipts.netReceipts).toBe(9500);
+    expect(records.section179BusinessIncome).toBe(9500);
+    const se = await (await scheduleSE(json('tax/schedule-se/auto?year=2026'))).json();
+    expect(se.grossReceipts).toBe(9500);
+    expect(se.netProfitBeforeDepreciation).toBe(9500);
+    const home = await (await homeOfficeWorksheet(json('tax/home-office?year=2026'))).json();
+    expect(home.scheduleC.grossReceipts).toBe(9500);
+    expect(home.scheduleC.grossReceipts).not.toBe(10000);
   });
 });

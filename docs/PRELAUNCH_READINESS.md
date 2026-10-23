@@ -13,7 +13,7 @@ Updated September 15, 2026. Priority confirmed by the owner: **pre-launch; fix t
 | Testing Firebase | `writeoff-production-testing` is accessible. Test app configuration, credentials and data isolation still need verification. |
 | Public domain | `writeoffapp.com` resolves to `199.36.158.100`; `www` aliases `writeoff-23910.web.app`. HTTPS responds successfully through Firebase/Google infrastructure. |
 | Latest Hosting release | September 1, 2026, 16:58:30 UTC; version `17c086c1c0be1937`. |
-| Vercel | Authenticated as `shahpratham99-9827`. Four older WriteOff projects in the available team, no domains listed. Current domain DNS points to Firebase. |
+| Vercel | Authenticated to the owner account. Four older WriteOff projects in the available team, no domains listed. Current domain DNS points to Firebase. |
 
 Source: authenticated GitHub/Firebase/Vercel CLI and API reads, DNS, HTTP headers, and a comparison with the deployed SSR source archive. The temporary source archive was deleted after inspection. No production release or data changes were made in this pass.
 

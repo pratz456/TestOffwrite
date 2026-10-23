@@ -12,6 +12,10 @@ import { PremiumFeatureGate, subscriptionGateDestination } from '@/components/pr
 import { useRouter } from 'next/navigation';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
+import { IncomeReconciliationExportCard, type ExportConflictRecord } from '@/components/income-reconciliation-export-card';
+import { reconciliationExportCardEnabled } from '@/lib/tax-rules/reconciliation-feature';
+import { LEGACY_RECONFIRM_TITLE } from '@/lib/tax-rules/income-reconciliation-copy';
 
 interface Transaction {
   id: string;
@@ -73,6 +77,8 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [includeAppendix, setIncludeAppendix] = useState(true);
   const [lineDetails, setLineDetails] = useState<Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }>>({});
+  const [incomeReview, setIncomeReview] = useState<{ conflicts: ExportConflictRecord[]; reviewPath: string } | null>(null);
+  const [needsReconfirm, setNeedsReconfirm] = useState(false);
 
 
   // Memoize transactions array reference to prevent unnecessary re-renders
@@ -121,6 +127,22 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
     // This preview reflects loaded records. The PDF reloads complete saved data
     // server-side for both formats.
   }, [calculateDeductions, transactionsKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    makeAuthenticatedRequest(`/api/income/reconciliation?year=${selectedYear}`)
+      .then(async response => {
+        if (!response.ok) return null;
+        return response.json().catch(() => null);
+      })
+      .then(body => {
+        if (cancelled || !body) return;
+        const decisions = Array.isArray(body.decisions) ? body.decisions : [];
+        setNeedsReconfirm(decisions.some((decision: { needsReconfirm?: boolean }) => decision.needsReconfirm === true));
+      })
+      .catch(() => { if (!cancelled) setNeedsReconfirm(false); });
+    return () => { cancelled = true; };
+  }, [selectedYear]);
 
   const lineNameToLineCode = useMemo(() => {
     const map: Record<string, string> = {};
@@ -177,11 +199,19 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
             router.push(subscriptionGateDestination(subscriptionStatus));
             return;
           }
+          if (response.status === 422 && errorData.code === 'INCOME_RECONCILIATION_REQUIRED' && reconciliationExportCardEnabled(errorData)) {
+            setIncomeReview({
+              conflicts: Array.isArray(errorData.conflicts) ? errorData.conflicts : [],
+              reviewPath: typeof errorData.reviewPath === 'string' ? errorData.reviewPath : `/protected?screen=income-tracking&tab=reconcile&year=${selectedYear}`,
+            });
+            return;
+          }
           throw new Error(errorData.message || errorData.error || `PDF generation failed: ${response.statusText}`);
         }
         throw new Error(`PDF generation failed: ${response.statusText}`);
       }
 
+      setIncomeReview(null);
       // Get the PDF blob
       const pdfBlob = await response.blob();
 
@@ -277,6 +307,22 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
             </div>
           )}
 
+          {incomeReview && (
+            <div className="mt-4">
+              <IncomeReconciliationExportCard
+                conflicts={incomeReview.conflicts}
+                onReconcile={() => router.push(incomeReview.reviewPath)}
+                onRetry={() => { void handleExport(); }}
+              />
+            </div>
+          )}
+          {needsReconfirm && (
+            <p className="mt-4 text-xs text-muted-foreground">
+              <button type="button" className="underline" onClick={() => router.push(`/protected?screen=income-tracking&tab=reconcile&year=${selectedYear}`)}>
+                {LEGACY_RECONFIRM_TITLE}
+              </button>
+            </p>
+          )}
           {/* Export Button */}
           <div className="mt-4 w-full">
             {!subscriptionLoading && !hasAccess ? (

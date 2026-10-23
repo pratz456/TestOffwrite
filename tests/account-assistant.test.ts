@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 import { accountResultSchema, isAccountActionHref } from '@/lib/tax-assistant/account-contract';
 import { extractTaxPosition, taxPositionResult, transactionAccountResult } from '@/lib/tax-assistant/account-tools';
+import { LEGACY_NEC_WARNING } from '@/lib/tax-rules/income-reconciliation-copy';
 const h = vi.hoisted(() => ({ authenticate: vi.fn(), create: vi.fn(), records: vi.fn(), tax: vi.fn(), guidance: vi.fn(), save: vi.fn(), key: true }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: h.authenticate }));
 vi.mock('@/lib/openai/client', () => ({ hasOpenAIAPIKey: () => h.key, getOpenAIModel: () => 'gpt-4o', getOpenAIClientOrThrow: () => ({ chat: { completions: { create: h.create } } }) }));
@@ -112,6 +113,19 @@ describe('account facts, scope and comparisons', () => {
     expect(taxPositionResult(current, previous, true).account.notes[0]).toContain('-$587.00');
     expect(taxPositionResult(current, { ...previous, userId: 'other' }, true).account.notes[0]).toContain('first comparable');
     expect(taxPositionResult(current, null, true).account.notes[0]).toContain('first comparable');
+  });
+  it('omits the NEC review warning from assistant notes while legacyNecReopen is off', () => {
+    delete process.env.legacyNecReopen;
+    const current = extractTaxPosition(tax, 'owner', 2026, now)!;
+    const hidden = taxPositionResult(current, null, false, [LEGACY_NEC_WARNING, 'Other limit']).account.notes.join('\n');
+    expect(hidden).not.toContain(LEGACY_NEC_WARNING);
+    expect(hidden).toContain('Other limit');
+    process.env.legacyNecReopen = '1';
+    try {
+      expect(taxPositionResult(current, null, false, [LEGACY_NEC_WARNING]).account.notes.join('\n')).toContain(LEGACY_NEC_WARNING);
+    } finally {
+      delete process.env.legacyNecReopen;
+    }
   });
   it.each(['https://evil.example', '//evil.example', 'javascript:alert(1)', '/api/user/delete', '/protected?screen=settings&redirect=evil'])('refuses non-navigation targets %s', href => expect(isAccountActionHref(href)).toBe(false));
 });

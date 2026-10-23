@@ -1,4 +1,6 @@
-import { resolveIncomeSources, type FeeExpenseCandidate, type IncomeReconciliationConflict, type IncomeSourceCandidate } from './income-reconciliation';
+import { OUTSIDE_SC_NOTE } from './income-reconciliation-copy';
+import { resolveIncomeSources, type FeeExpenseCandidate, type IncomeReconciliationConflict, type IncomeSourceCandidate, type OutsideScheduleCItem } from './income-reconciliation';
+import { kNotBusinessIncomeEnabled } from './reconciliation-feature';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 
 export type IncomeRecord = Record<string, unknown>;
@@ -71,7 +73,13 @@ export function listIncomeSourceCandidates(taxYear: number, transactions: Readon
     }
     const cents = money(form.amount);
     form1099Cents += cents;
-    const candidate: IncomeSourceCandidate = { kind: 'form_1099', id: recordId(form.id), amount: cents / 100, formType: form.formType, label: `${form.formType} · ${text(form.payerName) || text(form.payer) || 'Unknown payer'}` };
+    const payerName = text(form.payerName) || text(form.payer);
+    const candidate: IncomeSourceCandidate = {
+      kind: 'form_1099', id: recordId(form.id), amount: cents / 100, formType: form.formType,
+      label: `${form.formType} · ${payerName || 'Unknown payer'}`,
+      ...(payerName ? { payerName } : {}),
+      ...(typeof form.date === 'string' ? { date: form.date.slice(0, 10) } : {}),
+    };
     if (form.grossReceiptId !== undefined) {
       const receiptAmount = typeof form.grossReceiptId === 'string' ? receiptsById.get(form.grossReceiptId) : undefined;
       if (form.source !== 'document_import' || receiptAmount === undefined || receiptAmount !== cents) {
@@ -86,7 +94,12 @@ export function listIncomeSourceCandidates(taxYear: number, transactions: Readon
 }
 
 export interface BusinessIncomeReconciliation {
+  /** Schedule C line 1. Personal 1099-K amounts are excluded. Refunds stay inside line 1. */
   grossReceipts: number;
+  /** Schedule C line 2, returns and allowances, from owner-recorded 1099-K refunds and credits. */
+  returnsAndAllowances: number;
+  /** Schedule C line 3: grossReceipts minus returnsAndAllowances. Every profit calculation uses this. */
+  netReceipts: number;
   source: 'transactions' | 'gross_receipts' | 'income_1099' | 'reconciled' | 'none';
   /** Receipts documented on NEC/K forms (standalone, linked or reconciled); a subset view, never added to grossReceipts. */
   form1099Receipts: number;
@@ -95,6 +108,8 @@ export interface BusinessIncomeReconciliation {
   reconciledDecisionCount: number;
   /** Platform fees recorded with a 1099-K decision: review candidates, not recorded expenses. */
   feeExpenseCandidates: FeeExpenseCandidate[];
+  /** Owner-recorded 1099-K amounts that are not business income. On no Schedule C line. */
+  outsideScheduleC: OutsideScheduleCItem[];
   warnings: string[];
 }
 
@@ -118,9 +133,20 @@ export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyA
   for (const fee of resolution.feeExpenseCandidates) {
     warnings.push(`Platform fees of $${fee.amount.toFixed(2)} recorded with ${fee.label} are an expense candidate for your review. Gross receipts use the 1099-K gross amount; the fee is not recorded as a deductible expense until you add and confirm it.`);
   }
+  if (kNotBusinessIncomeEnabled()) {
+    for (const item of resolution.outsideScheduleC) {
+      warnings.push(`${OUTSIDE_SC_NOTE} Amount: $${item.amount.toFixed(2)}.`);
+    }
+  }
+  warnings.push(...resolution.notices);
   const unclaimedTotal = unclaimedCents.transaction + unclaimedCents.gross_receipt + unclaimedCents.form_1099;
+  const grossCents = resolution.reconciledCents + unclaimedTotal;
+  const grossReceipts = grossCents / 100;
+  const returnsAndAllowances = resolution.returnsCents / 100;
   return {
-    grossReceipts: (resolution.reconciledCents + unclaimedTotal) / 100,
+    grossReceipts,
+    returnsAndAllowances,
+    netReceipts: (grossCents - resolution.returnsCents) / 100,
     source: resolution.appliedDecisionIds.length ? 'reconciled'
       : unclaimedCents.transaction > 0 ? 'transactions' : unclaimedCents.gross_receipt > 0 ? 'gross_receipts' : unclaimedCents.form_1099 > 0 ? 'income_1099' : 'none',
     form1099Receipts: form1099Cents / 100,
@@ -128,6 +154,7 @@ export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyA
     unclassifiedCreditCount,
     reconciledDecisionCount: resolution.appliedDecisionIds.length,
     feeExpenseCandidates: resolution.feeExpenseCandidates,
+    outsideScheduleC: resolution.outsideScheduleC,
     warnings,
   };
 }

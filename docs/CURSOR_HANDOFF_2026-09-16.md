@@ -73,7 +73,7 @@ Older milestone reports contain historical statements such as “local only,” 
 
 - GitHub identity previously verified: `pratz456`.
 - Stripe account previously verified through authenticated dashboard: **`acct_1STnF2ExP8AN1raw`**.
-- Replacement Plaid team: **Pratham Shah**; verified admin `shahpratham99@gmail.com`; public client ID **`6aab263acbddc2000d721272`**. The production preflight pins this ID.
+- Replacement Plaid team: the verified admin on the production preflight; public client ID **`6aab263acbddc2000d721272`**. The production preflight pins this ID.
 - New Plaid production application was submitted September 16. At the last dashboard observation it was under review, with a security questionnaire outstanding and a provider estimate of 2–3 business days. This is not a promised approval/launch time.
 - Existing CLI authentication may be reusable on this machine; Codex browser sessions/tool handles are not guaranteed to transfer to Cursor. Check access without exposing credentials.
 

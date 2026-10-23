@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { IncomeReconciliationExportCard, reconciliationScreenTarget, type ExportConflictRecord } from "@/components/income-reconciliation-export-card";
+import { reconciliationExportCardEnabled } from "@/lib/tax-rules/reconciliation-feature";
 
 interface FilingHubProps {
   user: { id: string; email?: string };
@@ -45,6 +47,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
   const [section, setSection] = useState("prepare");
   const [exporting, setExporting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [incomeReview, setIncomeReview] = useState<{ conflicts: ExportConflictRecord[]; reviewPath: string } | null>(null);
   const [calculationWarnings, setCalculationWarnings] = useState<unknown>([]);
   const [hasTaxEstimate, setHasTaxEstimate] = useState(false);
   const loadRequest = useRef(0);
@@ -234,8 +237,16 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
         body: JSON.stringify(routes[formType] ? { year: Number(year) } : { type: formType, year: Number(year) }) });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (formType === 'schedule-c' && res.status === 422 && data.code === 'INCOME_RECONCILIATION_REQUIRED' && reconciliationExportCardEnabled(data)) {
+          if (active.current === context) setIncomeReview({
+            conflicts: Array.isArray(data.conflicts) ? data.conflicts : [],
+            reviewPath: typeof data.reviewPath === 'string' ? data.reviewPath : `/protected?screen=income-tracking&tab=reconcile&year=${year}`,
+          });
+          return;
+        }
         throw new Error(data.error || 'Export failed. Please retry.');
       }
+      if (formType === 'schedule-c' && active.current === context) setIncomeReview(null);
       const blob = await res.blob();
       if (active.current !== context) return;
       const objectUrl = URL.createObjectURL(blob);
@@ -412,6 +423,13 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
           </FilingTabs.Content>
 
           <FilingTabs.Content value="export" className="space-y-3 focus-visible:outline-none">
+            {incomeReview && (
+              <IncomeReconciliationExportCard
+                conflicts={incomeReview.conflicts}
+                onReconcile={() => onNavigate?.(reconciliationScreenTarget(incomeReview.reviewPath, year))}
+                onRetry={() => { void handleExport('schedule-c'); }}
+              />
+            )}
             <PreparerPackageCard year={Number(year)} userId={user.id} />
             <h2 className="text-sm font-semibold">Share with your tax preparer</h2>
             <section className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card px-3.5 py-3 sm:px-4">

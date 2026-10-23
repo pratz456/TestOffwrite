@@ -8,10 +8,25 @@ import { Label } from "@/components/ui/label";
 import { Loader2, Pencil, Trash2 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import {
-  DECISION_LABELS, INCOME_SOURCE_KINDS, RECONCILIATION_DECISION_TYPES, SOURCE_KIND_LABELS, sourceKey, toCents, validateReconciliationDecision,
-  type IncomeSourceKind, type ReconciliationDecisionType,
+  DECISION_LABELS, INCOME_SOURCE_KINDS, RECONCILIATION_DECISION_TYPES, SOURCE_KIND_LABELS, samePaymentsAllowed, sourceKey, toCents, validateReconciliationDecision,
+  type IncomeSourceCandidate, type IncomeSourceKind, type NotBusinessPart, type PaymentMethodHint, type ReconciliationDecisionType,
 } from "@/lib/tax-rules/income-reconciliation";
+import {
+  COMPARE_DIFF, COMPARE_ROW_AMOUNT, COMPARE_ROW_FORM, COMPARE_ROW_PAYER, COMPARE_SAME_AMOUNT, COMPARE_TITLE,
+  CONFIRM_SAME_BACK, CONFIRM_SAME_BODY, CONFIRM_SAME_DETAIL, CONFIRM_SAME_TITLE, CONFIRM_SAME_YES,
+  CORRECTED_ORIGINAL_BADGE, CORRECTED_PICK_QUESTION, CORRECTED_PREVIEW,
+  DECISION_HELP_CORRECTED, DECISION_HELP_NOT_BUSINESS, DECISION_HELP_PARTIAL, DECISION_LABEL_CORRECTED, DECISION_LABEL_NOT_BUSINESS, DECISION_LABEL_PARTIAL, ERR_REASON_AMOUNT,
+  GUIDE_ANSWER_APP, GUIDE_ANSWER_BANK, GUIDE_ANSWER_NOT_SURE,
+  GUIDE_HINT_APP, GUIDE_HINT_BANK, GUIDE_HINT_NOT_SURE, GUIDE_QUESTION, LEGACY_NEC_WARNING, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_TITLE,
+  LEGACY_RECONFIRM_YES, LINE_1_COUNTED, LINE_2_AMOUNT, LIVE_SUM_DIFFER, LIVE_SUM_LINE, LIVE_SUM_MATCH, NO_CHOICE_YET, NO_FORM_NO_INCOME,
+  OUTSIDE_SC_AMOUNT, PANEL_FORMS_NOTE, PANEL_SUMMARY_COUNTED, PARTIAL_OVERLAP_PREVIEW, REASON_ERROR, REASON_PERSONAL, REASON_PERSONAL_HELP, REASON_REFUNDS, REASON_REFUNDS_HELP,
+  DISMISS_NOTICE, NET_RECEIPTS, PARTIAL_OVERLAP_AMOUNT, RETURNS_AND_ALLOWANCES, SAME_DISABLED_NEC, SELECTED_1099_FORMS, SEPARATE_MULTI_PREVIEW,
+  fillIncomeCopy,
+} from "@/lib/tax-rules/income-reconciliation-copy";
 import type { IncomeReconciliationSummary, SavedDecisionView } from "@/lib/tax-rules/income-reconciliation-response";
+import { guidedReconciliationV1Enabled, kNotBusinessIncomeEnabled, reconciliationDecisionNeedsKSwitch } from "@/lib/tax-rules/reconciliation-feature";
+
+const BASE_FORMS_NOTE = "All business income is taxable whether or not a 1099 arrives. For 2025 and later, a platform sends a 1099-K only above $20,000 and 200 transactions, and it reports gross amounts before fees.";
 
 interface IncomeReconciliationPanelProps {
   taxYear: number;
@@ -20,27 +35,65 @@ interface IncomeReconciliationPanelProps {
 }
 
 const fmt = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const changeNoticeKey = (id: string) => `legacyNecReopen.changeNoticeDismissedAt.${id}`;
+const readChangeNoticeDismissedAt = (id: string) => {
+  try { return typeof localStorage === "undefined" ? null : localStorage.getItem(changeNoticeKey(id)); } catch { return null; }
+};
+const writeChangeNoticeDismissedAt = (id: string) => {
+  const at = new Date().toISOString();
+  try { if (typeof localStorage !== "undefined") localStorage.setItem(changeNoticeKey(id), at); } catch { /* view state only */ }
+  return at;
+};
 const KIND_TITLES: Record<IncomeSourceKind, string> = { form_1099: "1099 forms", gross_receipt: "Direct income", transaction: "Bank income" };
 const DECISION_HELP: Record<ReconciliationDecisionType, string> = {
   same_payments: "The selected records report the same payments, so they count once.",
   separate_income: "No other record reports this income, so it counts in addition to everything else.",
   k_includes_fees: "The 1099-K reports gross amounts and the platform kept fees before depositing. Gross receipts use the 1099-K amount; the fee is listed for your review, not deducted.",
+  k_not_business_income: DECISION_HELP_NOT_BUSINESS,
+  partial_overlap: DECISION_HELP_PARTIAL,
+  corrected_form_replaces: DECISION_HELP_CORRECTED,
 };
 const LOAD_ERROR = "Could not load income sources. Try again.";
+const GUIDE_ANSWERS: Array<{ hint: PaymentMethodHint; label: string; text: string }> = [
+  { hint: "app_or_card", label: GUIDE_ANSWER_APP, text: GUIDE_HINT_APP },
+  { hint: "check_ach_wire", label: GUIDE_ANSWER_BANK, text: GUIDE_HINT_BANK },
+  { hint: "not_sure", label: GUIDE_ANSWER_NOT_SURE, text: GUIDE_HINT_NOT_SURE },
+];
 
 export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconciliationPanelProps) {
   const [summary, setSummary] = useState<IncomeReconciliationSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
-  const [decision, setDecision] = useState<ReconciliationDecisionType>("same_payments");
+  const [decision, setDecision] = useState<ReconciliationDecisionType | null>(guidedReconciliationV1Enabled() ? null : "same_payments");
   const [fee, setFee] = useState("");
   const [note, setNote] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [paymentHint, setPaymentHint] = useState<PaymentMethodHint | null>(null);
+  const [refundsOn, setRefundsOn] = useState(false);
+  const [refundsAmount, setRefundsAmount] = useState("");
+  const [personalOn, setPersonalOn] = useState(false);
+  const [personalAmount, setPersonalAmount] = useState("");
+  const [overlap, setOverlap] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmLegacy, setConfirmLegacy] = useState<SavedDecisionView | null>(null);
+  const [correctedFormId, setCorrectedFormId] = useState<string | null>(null);
+  const [changeNoticeDismissedAt, setChangeNoticeDismissedAt] = useState<Record<string, string>>({});
   const requestId = useRef(0);
+  const confirmTitleRef = useRef<HTMLHeadingElement | null>(null);
+  const features = summary?.features ?? {
+    kNotBusinessIncome: kNotBusinessIncomeEnabled(),
+    legacyNecReopen: false,
+    legacyDecisionReconfirm: false,
+    guidedV1: guidedReconciliationV1Enabled(),
+  };
+  const decisionChoices = RECONCILIATION_DECISION_TYPES.filter(type => {
+    if (type === "corrected_form_replaces") return features.guidedV1;
+    return !reconciliationDecisionNeedsKSwitch(type) || features.kNotBusinessIncome;
+  });
 
   const load = useCallback(async () => {
     const current = ++requestId.current;
@@ -57,7 +110,11 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
     }
   }, [taxYear]);
 
-  const resetForm = useCallback(() => { setEditingId(null); setSelected([]); setFee(""); setNote(""); setDecision("same_payments"); setFormError(null); }, []);
+  const resetForm = useCallback(() => {
+    setEditingId(null); setSelected([]); setFee(""); setNote(""); setDecision(guidedReconciliationV1Enabled() ? null : "same_payments"); setFormError(null);
+    setPaymentHint(null); setRefundsOn(false); setRefundsAmount(""); setPersonalOn(false); setPersonalAmount("");
+    setOverlap(""); setConfirmOpen(false); setConfirmLegacy(null); setCorrectedFormId(null);
+  }, []);
 
   useEffect(() => {
     resetForm();
@@ -66,52 +123,93 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
     return () => { generation.current += 1; };
   }, [load, resetForm]);
 
+  useEffect(() => {
+    if (confirmOpen) confirmTitleRef.current?.focus();
+  }, [confirmOpen]);
+
   /* derived state */
   const candidates = summary?.candidates ?? [];
   const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate] as const));
   const conflictKeys = new Set((summary?.conflicts ?? []).flatMap(conflict => conflict.sources.map(sourceKey)));
   const claimedBy = new Map(candidates.flatMap(candidate => candidate.decisionId ? [[sourceKey(candidate), candidate.decisionId] as const] : []));
-  const feeValue = decision === "k_includes_fees" && fee.trim() !== "" ? Number(fee) : 0;
+  const selectedCandidates = selected.flatMap(key => { const candidate = byKey.get(key); return candidate ? [candidate] : []; });
+  const necFormCount = (items: ReadonlyArray<{ kind: string; formType?: string }>) => items.filter(item => item.kind === "form_1099" && item.formType === "1099-NEC").length;
+  const blockSamePayments = features.guidedV1 && necFormCount(selectedCandidates) >= 2 && !samePaymentsAllowed(selectedCandidates);
+  const activeDecision: ReconciliationDecisionType | null = decision === "same_payments" && blockSamePayments ? null : decision;
+  const hiddenDecision = activeDecision === "corrected_form_replaces" ? !features.guidedV1
+    : activeDecision === "k_not_business_income" || activeDecision === "partial_overlap" ? !features.kNotBusinessIncome
+    : false;
+  const feeApplies = activeDecision === "k_includes_fees" || (activeDecision === "k_not_business_income" && features.kNotBusinessIncome);
+  const feeValue = feeApplies && fee.trim() !== "" ? Number(fee) : 0;
+  const positive = (raw: string) => { const amount = Number(raw); return Number.isFinite(amount) && amount > 0 ? amount : null; };
+  const notBusinessParts: NotBusinessPart[] = activeDecision === "k_not_business_income" ? [
+    ...(refundsOn && positive(refundsAmount) !== null ? [{ reason: "refunds_credits" as const, amount: positive(refundsAmount)! }] : []),
+    ...(personalOn && positive(personalAmount) !== null ? [{ reason: "personal" as const, amount: positive(personalAmount)! }] : []),
+  ] : [];
+  const reasonAmountError = activeDecision === "k_not_business_income" && (refundsOn || personalOn)
+    && ((refundsOn && positive(refundsAmount) === null) || (personalOn && positive(personalAmount) === null))
+    ? ERR_REASON_AMOUNT : null;
+  const overlapValue = overlap.trim() === "" ? 0 : Number(overlap);
   const draft = {
-    id: editingId ?? "pending", taxYear, decision,
+    id: editingId ?? "pending", taxYear, decision: activeDecision ?? "separate_income",
     platformFeeAmount: Number.isFinite(feeValue) && feeValue >= 0 ? feeValue : 0,
-    sources: selected.flatMap(key => { const c = byKey.get(key); return c ? [{ kind: c.kind, id: c.id, amount: c.amount }] : []; }),
+    notBusinessParts,
+    sources: selectedCandidates.map(candidate => ({ kind: candidate.kind, id: candidate.id, amount: candidate.amount })),
+    ...(activeDecision === "corrected_form_replaces" && correctedFormId ? { correctedFormId } : {}),
+    ...(activeDecision === "partial_overlap" ? { overlapAmount: Number.isFinite(overlapValue) ? overlapValue : 0 } : {}),
   };
-  const preview = draft.sources.length ? validateReconciliationDecision(draft, byKey, claimedBy) : null;
+  const enginePreview = activeDecision && draft.sources.length && !reasonAmountError
+    ? validateReconciliationDecision(draft, byKey, claimedBy) : null;
+  const preview = reasonAmountError ? { ok: false as const, reason: reasonAmountError } : enginePreview;
   const projected = (() => {
     if (!summary || !preview?.ok) return null;
     let baseCents = toCents(summary.reconciledAmount) + toCents(summary.unclaimedAmount);
-    const editing = editingId ? summary.decisions.find(d => d.id === editingId) : undefined;
+    const editing = editingId ? summary.decisions.find(item => item.id === editingId) : undefined;
     if (editing?.applied) {
-      // Its sources return to the pool and its counted amount leaves it before the new decision applies.
-      baseCents += candidates.filter(c => c.decisionId === editing.id).reduce((sum, c) => sum + toCents(c.amount), 0) - toCents(editing.countedAmount ?? 0);
+      baseCents += candidates.filter(candidate => candidate.decisionId === editing.id).reduce((sum, candidate) => sum + toCents(candidate.amount), 0) - toCents(editing.countedAmount ?? 0);
     }
     const selectedCents = draft.sources.reduce((sum, source) => sum + toCents(source.amount), 0);
     return (baseCents - selectedCents + preview.countedCents) / 100;
   })();
-  const appliedCount = summary?.decisions.filter(d => d.applied).length ?? 0;
+  const appliedCount = summary?.decisions.filter(item => item.applied).length ?? 0;
   const busy = saving || removingId !== null;
+  const selectedForms = selectedCandidates.filter(candidate => candidate.kind === "form_1099");
+  const selectedK = selectedForms.find(candidate => candidate.formType === "1099-K");
 
   /* handlers */
-  const toggle = (key: string) => setSelected(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  const toggle = (key: string) => {
+    const next = selected.includes(key) ? selected.filter(item => item !== key) : [...selected, key];
+    setSelected(next);
+    const nextCandidates = next.flatMap(item => { const candidate = byKey.get(item); return candidate ? [candidate] : []; });
+    if (features.guidedV1 && necFormCount(nextCandidates) >= 2 && decision === "same_payments" && !samePaymentsAllowed(nextCandidates)) setDecision(null);
+  };
+  const applySavedParts = (saved: SavedDecisionView) => {
+    const refunds = saved.notBusinessParts.find(part => part.reason === "refunds_credits");
+    const personal = saved.notBusinessParts.find(part => part.reason === "personal");
+    setRefundsOn(Boolean(refunds)); setRefundsAmount(refunds ? String(refunds.amount) : "");
+    setPersonalOn(Boolean(personal)); setPersonalAmount(personal ? String(personal.amount) : "");
+    setPaymentHint(saved.paymentMethodHint ?? null);
+  };
   const startEdit = (saved: SavedDecisionView) => {
     setEditingId(saved.id);
-    setDecision(saved.decision === "unknown" ? "same_payments" : saved.decision);
+    setDecision(saved.decision === "unknown" ? null : saved.decision);
     setFee(saved.platformFeeAmount ? String(saved.platformFeeAmount) : "");
     setNote(saved.note);
     setSelected(saved.sources.map(sourceKey).filter(key => byKey.has(key)));
+    applySavedParts(saved);
+    setCorrectedFormId(saved.correctedFormId ?? null);
+    setOverlap(typeof saved.overlapAmount === "number" ? String(saved.overlapAmount) : "");
+    setConfirmOpen(false); setConfirmLegacy(null);
     setFormError(null);
   };
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!preview) { setFormError("Select the records this decision covers."); return; }
-    if (!preview.ok) { setFormError(preview.reason); return; }
+  const postBody = (choice: ReconciliationDecisionType, sources: Array<{ kind: IncomeSourceKind; id: string; amount: number }>, extra: Record<string, unknown>) => JSON.stringify({
+    ...(editingId && choice === activeDecision ? { id: editingId } : {}),
+    taxYear, decision: choice, sources, explicitChoice: true, ...extra,
+  });
+  const sendChoice = async (choice: ReconciliationDecisionType, sources: Array<{ kind: IncomeSourceKind; id: string; amount: number }>, extra: Record<string, unknown>, method: "POST" | "PATCH") => {
     setSaving(true); setFormError(null);
     try {
-      const res = await makeAuthenticatedRequest("/api/income/reconciliation", {
-        method: editingId ? "PATCH" : "POST",
-        body: JSON.stringify({ ...(editingId ? { id: editingId } : {}), taxYear, decision, sources: draft.sources, platformFeeAmount: draft.platformFeeAmount, note: note.trim() }),
-      });
+      const res = await makeAuthenticatedRequest("/api/income/reconciliation", { method, body: postBody(choice, sources, extra) });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(typeof body.error === "string" ? body.error : "Could not save this decision. Try again.");
@@ -124,6 +222,27 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
     } finally {
       setSaving(false);
     }
+  };
+  const currentExtra = (reported?: number) => ({
+    platformFeeAmount: draft.platformFeeAmount, note: note.trim(),
+    ...(paymentHint ? { paymentMethodHint: paymentHint } : {}),
+    ...(activeDecision === "k_not_business_income" ? { notBusinessParts } : {}),
+    ...(activeDecision === "corrected_form_replaces" && correctedFormId ? { correctedFormId } : {}),
+    ...(activeDecision === "partial_overlap" ? { overlapAmount: Number.isFinite(overlapValue) ? overlapValue : 0 } : {}),
+    ...(reported !== undefined ? { confirmedFormsTotal: reported } : {}),
+  });
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeDecision) { setFormError(features.guidedV1 ? NO_CHOICE_YET : "Select the records this decision covers."); return; }
+    if (reasonAmountError) { setFormError(reasonAmountError); return; }
+    if (!preview) { setFormError("Select the records this decision covers."); return; }
+    if (!preview.ok) { setFormError(hiddenDecision ? "Select the records this decision covers." : preview.reason); return; }
+    if (features.guidedV1 && activeDecision === "same_payments" && selectedForms.length >= 2) {
+      setConfirmLegacy(null);
+      setConfirmOpen(true);
+      return;
+    }
+    await sendChoice(activeDecision, draft.sources, currentExtra(), editingId ? "PATCH" : "POST");
   };
   const remove = async (id: string) => {
     setRemovingId(id); setFormError(null);
@@ -139,19 +258,73 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
       setRemovingId(null);
     }
   };
+  const reconfirmYes = (saved: SavedDecisionView) => {
+    const forms = saved.sources.filter(source => source.kind === "form_1099");
+    if (features.guidedV1 && forms.length >= 2) {
+      setConfirmLegacy(saved);
+      setConfirmOpen(true);
+      return;
+    }
+    void sendChoice("same_payments", saved.sources.map(source => ({ kind: source.kind, id: source.id, amount: source.amount })), {
+      id: saved.id, platformFeeAmount: saved.platformFeeAmount, note: saved.note,
+    }, "PATCH");
+  };
+  const confirmBack = () => {
+    setConfirmOpen(false);
+    setConfirmLegacy(null);
+    setDecision(null);
+  };
+  const confirmYes = () => {
+    const legacy = confirmLegacy;
+    const forms = (legacy ? legacy.sources : selectedForms).filter(source => source.kind === "form_1099");
+    const reported = forms.reduce((total, form) => total + (form.amount ?? 0), 0);
+    setConfirmOpen(false);
+    setConfirmLegacy(null);
+    if (legacy) {
+      void sendChoice("same_payments", legacy.sources.map(source => ({ kind: source.kind, id: source.id, amount: source.amount })), {
+        id: legacy.id, platformFeeAmount: legacy.platformFeeAmount, note: legacy.note, confirmedFormsTotal: reported,
+      }, "PATCH");
+      return;
+    }
+    if (!activeDecision) return;
+    void sendChoice(activeDecision, draft.sources, currentExtra(reported), editingId ? "PATCH" : "POST");
+  };
 
-  const decisionTitle = (saved: SavedDecisionView) => saved.decision === "unknown" ? "Unrecognized decision" : DECISION_LABELS[saved.decision];
-  const sourceLine = (sources: SavedDecisionView["sources"]) => sources.map(s => `${s.label || SOURCE_KIND_LABELS[s.kind] || String(s.kind)} ${fmt(s.amount)}`).join(" · ");
+  const decisionTitle = (saved: SavedDecisionView) => {
+    if (saved.decision === "unknown") return "Unrecognized decision";
+    if ((saved.decision === "k_not_business_income" || saved.decision === "partial_overlap") && !features.kNotBusinessIncome) return "Unrecognized decision";
+    if (saved.decision === "corrected_form_replaces" && !features.guidedV1) return "Unrecognized decision";
+    return DECISION_LABELS[saved.decision];
+  };
+  const sourceLine = (sources: Array<{ kind?: IncomeSourceKind; label?: string; amount?: number }>) => sources.map(source => `${source.label || (source.kind ? SOURCE_KIND_LABELS[source.kind] : "") || "Record"} ${fmt(source.amount ?? 0)}`).join(" · ");
   const optionLabel = (type: ReconciliationDecisionType) => type === "same_payments" ? "These are the same payments"
     : type === "separate_income" ? "This is separate income"
+    : type === "k_not_business_income" ? DECISION_LABEL_NOT_BUSINESS
+    : type === "corrected_form_replaces" ? DECISION_LABEL_CORRECTED
+    : type === "partial_overlap" ? DECISION_LABEL_PARTIAL
     : `1099-K includes fees${draft.platformFeeAmount > 0 ? ` of ${fmt(draft.platformFeeAmount)}` : ""}`;
+  const partAmount = (reason: NotBusinessPart["reason"]) => notBusinessParts.find(part => part.reason === reason)?.amount ?? 0;
+  const businessPart = selectedK ? selectedK.amount - partAmount("refunds_credits") - partAmount("personal") - (Number.isFinite(feeValue) ? feeValue : 0) : null;
+  const businessEvidence = (kind: IncomeSourceCandidate["kind"]) => selectedCandidates.filter(candidate => candidate.kind === kind).reduce((sum, candidate) => sum + candidate.amount, 0);
+  const businessMatches = businessPart !== null && (
+    (businessPart === 0 && selectedCandidates.every(candidate => candidate.kind === "form_1099"))
+    || (businessPart > 0 && selectedCandidates.some(candidate => candidate.kind !== "form_1099")
+      && ["gross_receipt", "transaction"].every(kind => {
+        const group = selectedCandidates.filter(candidate => candidate.kind === kind);
+        return group.length === 0 || Math.round(businessEvidence(kind as IncomeSourceCandidate["kind"]) * 100) === Math.round(businessPart * 100);
+      }))
+  );
+  const confirmForms = (confirmLegacy ? confirmLegacy.sources : selectedForms).filter(source => source.kind === "form_1099");
+  const confirmReported = confirmForms.reduce((total, form) => total + (form.amount ?? 0), 0);
+  const confirmCounted = confirmLegacy ? (confirmLegacy.countedAmount ?? confirmReported) : (preview?.ok ? preview.countedCents / 100 : 0);
 
   return (
     <div className="space-y-3">
       <section aria-label="How reconciliation works" className="rounded-lg border border-border bg-card p-3 text-xs leading-relaxed text-muted-foreground">
         <p className="text-sm font-semibold text-foreground">Count each payment once</p>
         <p className="mt-1">A 1099, a direct income entry and a bank deposit can all describe one payment. Choose the records that belong together and say how they relate. {summary?.policy ?? "WriteOff never merges, edits or deletes income records automatically."}</p>
-        <p className="mt-1">All business income is taxable whether or not a 1099 arrives. For 2025 and later, a platform sends a 1099-K only above $20,000 and 200 transactions, and it reports gross amounts before fees.</p>
+        <p className="mt-1">{features.guidedV1 ? PANEL_FORMS_NOTE : BASE_FORMS_NOTE}</p>
+        {features.guidedV1 ? <p className="mt-1">{NO_FORM_NO_INCOME}</p> : null}
       </section>
 
       {loading ? (
@@ -163,6 +336,13 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
         </div>
       ) : (
         <>
+          {(summary.notices ?? []).filter(notice => notice !== LEGACY_NEC_WARNING).length > 0 && (
+            <div role="status" className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm">
+              {summary.notices.filter(notice => notice !== LEGACY_NEC_WARNING).map(notice => (
+                <p key={notice} className="text-xs leading-relaxed">{notice}</p>
+              ))}
+            </div>
+          )}
           {summary.unsupported ? (
             <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
               <p className="font-medium text-foreground">A saved record needs review before {taxYear} can be reconciled</p>
@@ -172,25 +352,50 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
             <div role="alert" className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm">
               <p className="font-medium text-foreground">Tax totals for {taxYear} are on hold until these records are reconciled</p>
               <ul className="mt-2 space-y-2">
-                {summary.conflicts.map((conflict, index) => (
+                {summary.conflicts.map((conflict, index) => {
+                  const notice = summary.decisions.find(saved => saved.id === conflict.decisionId)?.changeNotice;
+                  const dismissed = conflict.decisionId ? changeNoticeDismissedAt[conflict.decisionId] ?? readChangeNoticeDismissedAt(conflict.decisionId) : null;
+                  return (
                   <li key={`${conflict.reason}-${conflict.decisionId ?? index}`} className="text-xs leading-relaxed">
                     <p>{conflict.message}</p>
                     {conflict.sources.length > 0 && <p className="mt-0.5 text-muted-foreground">{sourceLine(conflict.sources)}</p>}
+                    {notice && !dismissed && (
+                      <div className="mt-2 rounded-md border border-warning/40 bg-background p-2">
+                        <p>{notice}</p>
+                        <Button type="button" variant="outline" className="mt-2 min-h-11" onClick={() => {
+                          if (!conflict.decisionId) return;
+                          const at = writeChangeNoticeDismissedAt(conflict.decisionId);
+                          setChangeNoticeDismissedAt(current => ({ ...current, [conflict.decisionId!]: at }));
+                        }}>{DISMISS_NOTICE}</Button>
+                      </div>
+                    )}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
+              {summary.grossReceipts !== null && (
+                <p className="mt-2 text-sm font-semibold tabular-nums">Gross receipts for {taxYear} (Schedule C line 1) {fmt(summary.grossReceipts)}</p>
+              )}
             </div>
           ) : (
             <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
               <p className="text-xs text-muted-foreground">Gross receipts for {taxYear} (Schedule C line 1)</p>
               <p className="text-lg font-semibold tabular-nums">{summary.grossReceipts === null ? "—" : fmt(summary.grossReceipts)}</p>
+              {features.kNotBusinessIncome && summary.returnsAndAllowances !== null && summary.returnsAndAllowances > 0 && (
+                <p className="text-xs text-muted-foreground">{RETURNS_AND_ALLOWANCES} (Schedule C line 2) {fmt(summary.returnsAndAllowances)}. {NET_RECEIPTS} (Schedule C line 3) {summary.netReceipts === null ? "—" : fmt(summary.netReceipts)}.</p>
+              )}
               <p className="text-xs text-muted-foreground">
-                Each payment counted once across {summary.candidates.length} record{summary.candidates.length === 1 ? "" : "s"}{appliedCount ? ` and ${appliedCount} saved decision${appliedCount === 1 ? "" : "s"}` : ""}.
+                {features.guidedV1
+                  ? fillIncomeCopy(PANEL_SUMMARY_COUNTED, { n: summary.candidates.length, m: appliedCount })
+                  : `Each payment counted once across ${summary.candidates.length} record${summary.candidates.length === 1 ? "" : "s"}${appliedCount ? ` and ${appliedCount} saved decision${appliedCount === 1 ? "" : "s"}` : ""}.`}
               </p>
               {summary.feeExpenseCandidates.map(candidate => (
                 <p key={candidate.decisionId} className="mt-1 text-xs leading-relaxed text-muted-foreground">
                   Platform fee of {fmt(candidate.amount)} recorded with {candidate.label} is an expense candidate for your review. It is not deducted until you add and confirm it as an expense.
                 </p>
+              ))}
+              {features.kNotBusinessIncome && summary.outsideScheduleC.map(item => (
+                <p key={item.decisionId} className="mt-1 text-xs leading-relaxed text-muted-foreground">{fillIncomeCopy(OUTSIDE_SC_AMOUNT, { amount: fmt(item.amount) })}</p>
               ))}
             </div>
           )}
@@ -218,8 +423,14 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
                                   <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-border" checked={checked} disabled={disabled}
                                     onChange={() => toggle(key)} aria-label={`Select ${candidate.label} ${fmt(candidate.amount)}`} />
                                   <span className="min-w-0 flex-1">
-                                    <span className="block truncate font-medium text-foreground">{candidate.label}</span>
+                                    {features.guidedV1 && candidate.kind === "form_1099" ? (
+                                      <>
+                                        <span className="block break-words font-medium text-foreground">{candidate.payerName || "Unknown payer"}</span>
+                                        <span className="block text-foreground">{candidate.formType || "1099"}</span>
+                                      </>
+                                    ) : <span className="block truncate font-medium text-foreground">{candidate.label}</span>}
                                     <span className="block tabular-nums text-muted-foreground">{fmt(candidate.amount)}{candidate.date ? ` · ${candidate.date}` : ""}</span>
+                                    {candidate.badge ? <span className="block leading-relaxed text-muted-foreground">{candidate.badge}</span> : null}
                                     {candidate.linkedImport ? <Badge variant="secondary" className="mt-1">Linked import · counted once</Badge>
                                       : claimed ? <Badge variant="success" className="mt-1">Reconciled</Badge>
                                       : conflictKeys.has(key) ? <Badge variant="warning" className="mt-1">Needs a decision</Badge> : null}
@@ -235,29 +446,133 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
                 })}
               </section>
 
+              {features.guidedV1 && selectedForms.length === 2 && (
+                <section aria-label={COMPARE_TITLE} className="rounded-lg border border-border bg-card p-3 text-xs">
+                  <p className="font-medium text-foreground">{COMPARE_TITLE}</p>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {selectedForms.map(form => (
+                      <div key={sourceKey(form)} className="space-y-1 rounded-md border border-border p-2">
+                        <p><span className="text-muted-foreground">{COMPARE_ROW_FORM}</span> <span className="text-foreground">{form.formType || "1099"}</span></p>
+                        <p><span className="text-muted-foreground">{COMPARE_ROW_PAYER}</span> <span className="break-words text-foreground">{form.payerName || "Unknown payer"}</span></p>
+                        <p><span className="text-muted-foreground">{COMPARE_ROW_AMOUNT}</span> <span className="tabular-nums text-foreground">{fmt(form.amount)}</span></p>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-muted-foreground">
+                    {toCents(selectedForms[0].amount) === toCents(selectedForms[1].amount)
+                      ? COMPARE_SAME_AMOUNT
+                      : fillIncomeCopy(COMPARE_DIFF, { diff: fmt(Math.abs(selectedForms[0].amount - selectedForms[1].amount)) })}
+                  </p>
+                </section>
+              )}
+              {features.guidedV1 && selectedForms.length >= 3 && (
+                <section aria-label={SELECTED_1099_FORMS} className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {selectedForms.map(form => (
+                    <div key={sourceKey(form)} className="rounded-lg border border-border bg-card p-2 text-xs">
+                      <p className="text-foreground">{form.formType || "1099"}</p>
+                      <p className="break-words text-foreground">{form.payerName || "Unknown payer"}</p>
+                      <p className="tabular-nums text-foreground">{fmt(form.amount)}</p>
+                    </div>
+                  ))}
+                </section>
+              )}
+
               <form onSubmit={submit} aria-label={editingId ? "Edit reconciliation decision" : "Record a reconciliation decision"} className="space-y-3 rounded-lg border border-border bg-card p-3">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-semibold">{editingId ? "Edit decision" : "Record a decision"}</p>
                   <p className="text-xs text-muted-foreground">{selected.length} selected</p>
                 </div>
+                {features.guidedV1 && selectedForms.length > 0 && (
+                  <fieldset className="space-y-1.5">
+                    <legend className="text-xs text-muted-foreground">{GUIDE_QUESTION}</legend>
+                    <div className="flex flex-wrap gap-2">
+                      {GUIDE_ANSWERS.map(answer => (
+                        <button key={answer.hint} type="button" disabled={busy} aria-pressed={paymentHint === answer.hint}
+                          onClick={() => setPaymentHint(answer.hint)}
+                          className={`min-h-11 rounded-full border px-3 text-xs ${paymentHint === answer.hint ? "border-primary bg-primary/5" : "border-border"}`}>
+                          {answer.label}
+                        </button>
+                      ))}
+                    </div>
+                    {paymentHint && <p className="rounded-md bg-muted/50 p-2 text-xs leading-relaxed text-muted-foreground">{GUIDE_ANSWERS.find(answer => answer.hint === paymentHint)?.text}</p>}
+                  </fieldset>
+                )}
                 <fieldset className="space-y-1.5">
                   <legend className="text-xs text-muted-foreground">How do the selected records relate?</legend>
-                  {RECONCILIATION_DECISION_TYPES.map(type => (
-                    <label key={type} className={`flex min-h-11 cursor-pointer items-start gap-2 rounded-md border px-2 py-1.5 text-xs ${decision === type ? "border-primary bg-primary/5" : "border-border"}`}>
-                      <input type="radio" name="reconciliation-decision" value={type} checked={decision === type} onChange={() => setDecision(type)} className="mt-0.5 h-4 w-4" disabled={busy} />
-                      <span>
-                        <span className="block font-medium text-foreground">{optionLabel(type)}</span>
-                        <span className="block leading-relaxed text-muted-foreground">{DECISION_HELP[type]}</span>
-                      </span>
-                    </label>
-                  ))}
+                  {decisionChoices.map(type => {
+                    const disallowed = type === "same_payments" && blockSamePayments;
+                    return (
+                      <label key={type} className={`flex min-h-11 items-start gap-2 rounded-md border px-2 py-1.5 text-xs ${disallowed ? "cursor-not-allowed opacity-60" : "cursor-pointer"} ${activeDecision === type ? "border-primary bg-primary/5" : "border-border"}`}>
+                        <input type="radio" name="reconciliation-decision" value={type} checked={activeDecision === type} onChange={() => setDecision(type)} className="mt-0.5 h-4 w-4" disabled={busy || disallowed} />
+                        <span>
+                          <span className="block font-medium text-foreground">{optionLabel(type)}</span>
+                          <span className="block leading-relaxed text-muted-foreground">{DECISION_HELP[type]}</span>
+                          {disallowed ? <span className="block leading-relaxed text-muted-foreground">{SAME_DISABLED_NEC}</span> : null}
+                        </span>
+                      </label>
+                    );
+                  })}
                 </fieldset>
-                {decision === "k_includes_fees" && (
+                {activeDecision === "k_not_business_income" && features.kNotBusinessIncome && (
+                  <div className="space-y-2">
+                    <label className="flex min-h-11 items-start gap-2 text-xs">
+                      <input type="checkbox" className="mt-0.5 h-4 w-4" checked={refundsOn} disabled={busy} onChange={() => setRefundsOn(value => !value)} aria-label={REASON_REFUNDS} />
+                      <span><span className="block font-medium text-foreground">{REASON_REFUNDS}</span><span className="block text-muted-foreground">{REASON_REFUNDS_HELP}</span></span>
+                    </label>
+                    {refundsOn && (
+                      <div className="space-y-1 pl-6">
+                        <Label htmlFor="reconciliation-refunds" className="text-xs text-muted-foreground">{REASON_REFUNDS} ($)</Label>
+                        <Input id="reconciliation-refunds" type="number" min="0" step="0.01" inputMode="decimal" value={refundsAmount} onChange={event => setRefundsAmount(event.target.value)}
+                          placeholder="0.00" className="min-h-11 bg-background text-base" disabled={busy} />
+                      </div>
+                    )}
+                    <label className="flex min-h-11 items-start gap-2 text-xs">
+                      <input type="checkbox" className="mt-0.5 h-4 w-4" checked={personalOn} disabled={busy} onChange={() => setPersonalOn(value => !value)} aria-label={REASON_PERSONAL} />
+                      <span><span className="block font-medium text-foreground">{REASON_PERSONAL}</span><span className="block text-muted-foreground">{REASON_PERSONAL_HELP}</span></span>
+                    </label>
+                    {personalOn && (
+                      <div className="space-y-1 pl-6">
+                        <Label htmlFor="reconciliation-personal" className="text-xs text-muted-foreground">{REASON_PERSONAL} ($)</Label>
+                        <Input id="reconciliation-personal" type="number" min="0" step="0.01" inputMode="decimal" value={personalAmount} onChange={event => setPersonalAmount(event.target.value)}
+                          placeholder="0.00" className="min-h-11 bg-background text-base" disabled={busy} />
+                      </div>
+                    )}
+                    <p className="text-xs leading-relaxed text-muted-foreground">{REASON_ERROR}</p>
+                  </div>
+                )}
+                {activeDecision === "corrected_form_replaces" && features.guidedV1 && selectedForms.length > 0 && (
+                  <fieldset className="space-y-1.5">
+                    <legend className="text-xs text-muted-foreground">{CORRECTED_PICK_QUESTION}</legend>
+                    {selectedForms.map(form => (
+                      <label key={sourceKey(form)} className="flex min-h-11 items-start gap-2 rounded-md border border-border px-2 py-1.5 text-xs">
+                        <input type="radio" name="corrected-form" value={form.id} checked={correctedFormId === form.id} disabled={busy}
+                          onChange={() => setCorrectedFormId(form.id)} className="mt-0.5 h-4 w-4" />
+                        <span className="leading-relaxed text-foreground">
+                          {form.payerName || "Unknown payer"} · {fmt(form.amount)}{form.date ? ` · ${form.date}` : ""}
+                        </span>
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
+                {activeDecision === "partial_overlap" && features.kNotBusinessIncome && (
+                  <div className="space-y-1">
+                    <Label htmlFor="reconciliation-overlap" className="text-xs text-muted-foreground">{PARTIAL_OVERLAP_AMOUNT}</Label>
+                    <Input id="reconciliation-overlap" type="number" min="0" step="0.01" inputMode="decimal" value={overlap} onChange={event => setOverlap(event.target.value)}
+                      placeholder="0.00" className="min-h-11 bg-background text-base" disabled={busy} />
+                  </div>
+                )}
+                {feeApplies && (
                   <div className="space-y-1">
                     <Label htmlFor="reconciliation-fee" className="text-xs text-muted-foreground">Platform fee amount ($)</Label>
                     <Input id="reconciliation-fee" type="number" min="0" step="0.01" inputMode="decimal" value={fee} onChange={e => setFee(e.target.value)}
                       placeholder="0.00" className="min-h-11 bg-background text-base" disabled={busy} />
                   </div>
+                )}
+                {activeDecision === "k_not_business_income" && features.kNotBusinessIncome && selectedK && businessPart !== null && (
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {fillIncomeCopy(LIVE_SUM_LINE, { gross: fmt(selectedK.amount), refunds: fmt(partAmount("refunds_credits")), personal: fmt(partAmount("personal")), fee: fmt(Number.isFinite(feeValue) ? feeValue : 0), business: fmt(businessPart) })}
+                    {" "}{businessMatches ? LIVE_SUM_MATCH : LIVE_SUM_DIFFER}
+                  </p>
                 )}
                 <div className="space-y-1">
                   <Label htmlFor="reconciliation-note" className="text-xs text-muted-foreground">Note (optional)</Label>
@@ -265,14 +580,25 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
                     placeholder="e.g. Platform payouts, January to December" className="min-h-11 bg-background text-base" disabled={busy} />
                 </div>
                 <p aria-live="polite" className="text-xs leading-relaxed text-muted-foreground">
-                  {preview === null ? "Select the records this decision covers."
-                    : preview.ok ? `Counts ${fmt(preview.countedCents / 100)} once.${projected === null ? "" : ` Gross receipts for ${taxYear} would be ${fmt(projected)} if no other conflicts remain.`}`
-                    : preview.reason}
+                  {draft.sources.length === 0 ? "Select the records this decision covers."
+                    : !activeDecision ? (features.guidedV1 ? NO_CHOICE_YET : "Select the records this decision covers.")
+                    : preview && preview.ok && activeDecision === "corrected_form_replaces" && features.guidedV1
+                      ? fillIncomeCopy(CORRECTED_PREVIEW, {
+                        corrected: fmt(selectedForms.find(form => form.id === correctedFormId)?.amount ?? 0),
+                        original: fmt(selectedForms.find(form => form.id !== correctedFormId)?.amount ?? 0),
+                      })
+                    : preview && preview.ok && activeDecision === "partial_overlap" && features.kNotBusinessIncome
+                      ? fillIncomeCopy(PARTIAL_OVERLAP_PREVIEW, { overlap: fmt(toCents(Number.isFinite(overlapValue) ? overlapValue : 0) / 100), total: fmt(preview.countedCents / 100) })
+                    : preview && preview.ok && activeDecision === "separate_income" && draft.sources.length >= 2 && features.guidedV1
+                      ? fillIncomeCopy(SEPARATE_MULTI_PREVIEW, { n: draft.sources.length, total: fmt(preview.countedCents / 100) })
+                    : preview && preview.ok ? `Counts ${fmt(preview.countedCents / 100)} once.${projected === null ? "" : ` Gross receipts for ${taxYear} would be ${fmt(projected)} if no other conflicts remain.`}`
+                    : preview && !preview.ok ? (hiddenDecision ? "Select the records this decision covers." : preview.reason)
+                    : features.guidedV1 ? NO_CHOICE_YET : "Select the records this decision covers."}
                 </p>
                 {formError && <div role="alert" className="rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">{formError}</div>}
                 <div className="flex gap-2">
                   {editingId && <Button type="button" variant="outline" onClick={resetForm} disabled={busy} className="min-h-11 flex-1">Cancel</Button>}
-                  <Button type="submit" disabled={busy || !preview?.ok} className="min-h-11 flex-1 gap-2">
+                  <Button type="submit" disabled={busy || !activeDecision || !preview?.ok} className="min-h-11 flex-1 gap-2">
                     {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
                     {editingId ? "Save changes" : "Save decision"}
                   </Button>
@@ -287,40 +613,86 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
               <p className="mt-1 text-xs text-muted-foreground">No decisions recorded for {taxYear}. Records are never linked without your confirmation.</p>
             ) : (
               <ul className="mt-2 space-y-2">
-                {summary.decisions.map(saved => (
-                  <li key={saved.id} className="rounded-md border border-border p-2 text-xs">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-medium text-foreground">{decisionTitle(saved)}</span>
-                          {saved.applied ? <Badge variant="success">Applied</Badge> : <Badge variant="warning">Needs review</Badge>}
+                {summary.decisions.map(saved => {
+                  const refunds = saved.notBusinessParts.find(part => part.reason === "refunds_credits")?.amount ?? 0;
+                  const personal = saved.notBusinessParts.find(part => part.reason === "personal")?.amount ?? 0;
+                  return (
+                    <li key={saved.id} className="rounded-md border border-border p-2 text-xs">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-medium text-foreground">{decisionTitle(saved)}</span>
+                            {saved.needsReconfirm ? <Badge variant="warning">{LEGACY_RECONFIRM_TITLE}</Badge>
+                              : saved.applied ? <Badge variant="success">Applied</Badge> : <Badge variant="warning">Needs review</Badge>}
+                          </div>
+                          <p className="mt-0.5 leading-relaxed text-muted-foreground">{sourceLine(saved.sources)}</p>
+                          {/* Server sets this only while legacyNecReopen is on. */}
+                          {saved.legacyNecWarning && <p className="mt-1 leading-relaxed text-foreground">{saved.legacyNecWarning}</p>}
+                          {features.guidedV1 && saved.decision === "corrected_form_replaces" && saved.sources.filter(source => source.kind === "form_1099" && source.id !== saved.correctedFormId).map(source => (
+                            <p key={source.id} className="mt-0.5 leading-relaxed text-muted-foreground">{CORRECTED_ORIGINAL_BADGE}</p>
+                          ))}
+                          {features.kNotBusinessIncome && saved.decision === "k_not_business_income" ? (
+                            <p className="mt-0.5 text-muted-foreground">
+                              {saved.countedAmount !== null ? fillIncomeCopy(LINE_1_COUNTED, { amount: fmt(saved.countedAmount) }) : "Counted amount unavailable"}
+                              {refunds > 0 ? ` · ${fillIncomeCopy(LINE_2_AMOUNT, { amount: fmt(refunds) })}` : ""}
+                              {personal > 0 ? ` · ${fillIncomeCopy(OUTSIDE_SC_AMOUNT, { amount: fmt(personal) })}` : ""}
+                            </p>
+                          ) : (
+                            <p className="mt-0.5 text-muted-foreground">
+                              {saved.countedAmount !== null ? `Counted ${fmt(saved.countedAmount)} once` : "Counted amount unavailable"}
+                              {saved.platformFeeAmount ? ` · ${fmt(saved.platformFeeAmount)} fee flagged for review` : ""}
+                              {saved.decidedAt ? ` · ${saved.decidedAt.slice(0, 10)}` : ""}
+                            </p>
+                          )}
+                          {saved.needsReconfirm && (
+                            <div className="mt-2 space-y-2 rounded-md border border-warning/40 bg-warning/5 p-2">
+                              <p className="font-medium text-foreground">{LEGACY_RECONFIRM_TITLE}</p>
+                              <p className="leading-relaxed text-muted-foreground">{LEGACY_RECONFIRM_BODY}</p>
+                              <div className="flex flex-wrap gap-2">
+                                <Button type="button" variant="outline" className="min-h-11" disabled={busy} onClick={() => reconfirmYes(saved)}>{LEGACY_RECONFIRM_YES}</Button>
+                                <Button type="button" variant="outline" className="min-h-11" disabled={busy} onClick={() => { startEdit(saved); setDecision(null); }}>{LEGACY_RECONFIRM_CHANGE}</Button>
+                              </div>
+                            </div>
+                          )}
+                          {saved.note && <p className="mt-0.5 italic text-muted-foreground">{saved.note}</p>}
                         </div>
-                        <p className="mt-0.5 leading-relaxed text-muted-foreground">{sourceLine(saved.sources)}</p>
-                        <p className="mt-0.5 text-muted-foreground">
-                          {saved.countedAmount !== null ? `Counted ${fmt(saved.countedAmount)} once` : "Counted amount unavailable"}
-                          {saved.platformFeeAmount ? ` · ${fmt(saved.platformFeeAmount)} fee flagged for review` : ""}
-                          {saved.decidedAt ? ` · ${saved.decidedAt.slice(0, 10)}` : ""}
-                        </p>
-                        {saved.note && <p className="mt-0.5 italic text-muted-foreground">{saved.note}</p>}
-                      </div>
-                      <div className="flex shrink-0 gap-1">
-                        {!summary.unsupported && (
-                          <Button variant="ghost" size="icon" onClick={() => startEdit(saved)} disabled={busy} aria-label={`Edit decision: ${decisionTitle(saved)}`} className="min-h-11 min-w-11">
-                            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                        <div className="flex shrink-0 gap-1">
+                          {!summary.unsupported && (
+                            <Button variant="ghost" size="icon" onClick={() => startEdit(saved)} disabled={busy} aria-label={`Edit decision: ${decisionTitle(saved)}`} className="min-h-11 min-w-11">
+                              <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="icon" onClick={() => remove(saved.id)} disabled={busy} aria-label={`Remove decision: ${decisionTitle(saved)}`}
+                            className="min-h-11 min-w-11 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                            {removingId === saved.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />}
                           </Button>
-                        )}
-                        <Button variant="ghost" size="icon" onClick={() => remove(saved.id)} disabled={busy} aria-label={`Remove decision: ${decisionTitle(saved)}`}
-                          className="min-h-11 min-w-11 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
-                          {removingId === saved.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />}
-                        </Button>
+                        </div>
                       </div>
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
         </>
+      )}
+      {confirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="confirm-same-title"
+            className="w-full max-w-md rounded-t-xl border border-border bg-card p-4 sm:rounded-xl"
+            onKeyDown={event => {
+              if (event.key === "Enter") event.preventDefault();
+              if (event.key === "Escape") { event.preventDefault(); confirmBack(); }
+            }}>
+            <h2 id="confirm-same-title" ref={confirmTitleRef} tabIndex={-1} className="text-base font-semibold text-foreground">{CONFIRM_SAME_TITLE}</h2>
+            <p className="mt-2 text-lg font-semibold tabular-nums text-foreground">{fillIncomeCopy(CONFIRM_SAME_BODY, { reported: fmt(confirmReported), counted: fmt(confirmCounted) })}</p>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{CONFIRM_SAME_DETAIL}</p>
+            <div className="mt-4 flex gap-2">
+              <Button type="button" variant="outline" className="min-h-11 flex-1" onClick={confirmBack}>{CONFIRM_SAME_BACK}</Button>
+              <Button type="button" variant="outline" className="min-h-11 flex-1" onClick={confirmYes}>{fillIncomeCopy(CONFIRM_SAME_YES, { counted: fmt(confirmCounted) })}</Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

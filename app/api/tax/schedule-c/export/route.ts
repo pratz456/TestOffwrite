@@ -46,7 +46,8 @@ export async function POST(request: NextRequest) {
     });
     // Identifiers are decrypted only to derive the masked (last 4) display values printed below.
     const org = orgSnap.empty ? {} : await readOrganizerDocument(orgSnap.docs[0]);
-    const bytes = await generateScheduleCPlanningPDF({ taxYear: year, grossReceipts: receipts.grossReceipts, lineItems: aggregate.lineItemsArray,
+    const bytes = await generateScheduleCPlanningPDF({
+      taxYear: year, grossReceipts: receipts.grossReceipts, returnsAndAllowances: receipts.returnsAndAllowances, netReceipts: receipts.netReceipts, lineItems: aggregate.lineItemsArray,
       name: profile.data?.name, ssn: maskOrganizerIdentifier('ssn', org.taxpayerSSN),
       profession: Array.isArray(profile.data?.profession) ? profile.data.profession.join(', ') : profile.data?.profession,
       naicsCode: profile.data?.naics_code, ein: maskOrganizerIdentifier('ein', profile.data?.ein), includeAppendix: body.includeAppendix !== false });
