@@ -85,11 +85,43 @@ async function seedConsentText(): Promise<void> {
   });
 }
 
-async function saveValid(overrides: Partial<SaveDisclosureConsentInput> = {}) {
-  const saved = await saveDisclosureConsent(saveInput(overrides));
+async function saveValid(overrides: Partial<SaveDisclosureConsentInput> = {}, now: Date = new Date(SIGNED_AT)) {
+  const saved = await saveDisclosureConsent(saveInput(overrides), now);
   expect(saved.ok).toBe(true);
   if (!saved.ok) throw new Error('expected a stored disclosure consent');
   return saved;
+}
+
+function watchWrites(collectionName: string): { methods: string[]; restore: () => void } {
+  const originalCollection = db.collection.bind(db);
+  const methods: string[] = [];
+  const wrapped = (name: string) => {
+    const collection = originalCollection(name);
+    if (name !== collectionName) return collection;
+    const originalDoc = collection.doc.bind(collection);
+    collection.doc = (id?: string) => {
+      const document = originalDoc(id);
+      const originalCreate = document.create.bind(document);
+      const originalSet = document.set.bind(document);
+      document.create = async (data: Record<string, unknown>) => {
+        methods.push('create');
+        return originalCreate(data);
+      };
+      document.set = async (data: Record<string, unknown>, setOptions?: { merge?: boolean }) => {
+        methods.push('set');
+        return originalSet(data, setOptions);
+      };
+      return document;
+    };
+    return collection;
+  };
+  db.collection = wrapped as typeof db.collection;
+  return {
+    methods,
+    restore() {
+      db.collection = originalCollection as typeof db.collection;
+    },
+  };
 }
 
 function copyStored(id: string): Record<string, unknown> {
@@ -171,7 +203,7 @@ describe('disclosure consent hand off gate', () => {
       uid: 'user-1',
       firmLegalName: PARTNER,
       preparerName: 'Second Draft Preparer',
-    });
+    }, NOW);
     expect(noted).toEqual({ ok: true });
     const afterReassignment = consentBytes(saved.id);
     expect(afterReassignment.equals(before)).toBe(true);
@@ -368,14 +400,153 @@ describe('disclosure consent hand off gate', () => {
     ]);
   });
 
-  it('sends only the named fields when the signed scope is narrower than the whole return', async () => {
+  it('refuses a send that includes a field the consent does not name', async () => {
     const saved = await saveValid({ scope: { kind: 'fields', fields: ['wages', 'agi'] } });
     const stub = createPartnerSendStub();
     const result = await sendFilingHandOff(handOff(saved.id), stub, NOW);
+    expect(result).toMatchObject({ sent: false, code: 'field_not_named' });
+    expect(stub.deliveries).toEqual([]);
+  });
+
+  it('delivers nothing to the recipient when the send includes an unnamed field', async () => {
+    const saved = await saveValid({ scope: { kind: 'fields', fields: ['wages', 'agi'] } });
+    const stub = createPartnerSendStub();
+    const result = await sendFilingHandOff(handOff(saved.id, {
+      returns: [federal(2026, { wages: 100, agi: 80, accountNumber: '0000' })],
+    }), stub, NOW);
+    expect(result).toMatchObject({ sent: false, code: 'field_not_named' });
+    expect(stub.deliveries).toEqual([]);
+    expect(stub.deliveries.some(delivery => delivery.recipientLegalName === PARTNER)).toBe(false);
+  });
+
+  it('sends the return when every field in the payload is named on the consent', async () => {
+    const saved = await saveValid({ scope: { kind: 'fields', fields: ['wages', 'agi'] } });
+    const stub = createPartnerSendStub();
+    const result = await sendFilingHandOff(handOff(saved.id, {
+      returns: [federal(2026, { wages: 100, agi: 80 })],
+    }), stub, NOW);
     expect(result).toEqual({ sent: true });
-    expect(stub.deliveries).toHaveLength(1);
-    expect(stub.deliveries[0].payload.returns[0].fields).toEqual({ wages: 100, agi: 80 });
-    expect(Object.prototype.hasOwnProperty.call(stub.deliveries[0].payload.returns[0].fields, 'refund')).toBe(false);
+    expect(stub.deliveries).toEqual([{
+      recipientLegalName: PARTNER,
+      payload: { returns: [{ code: 'federal', taxYear: 2026, fields: { wages: 100, agi: 80 } }] },
+    }]);
+  });
+
+  it('ignores a caller supplied signing time and stores the server clock', async () => {
+    const clock = new Date('2026-06-01T15:00:00.000Z');
+    const saved = await saveDisclosureConsent(saveInput({ signedAt: '2020-01-01T00:00:00.000Z' }), clock);
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) throw new Error('expected a stored disclosure consent');
+    expect(saved.record.signedAt).toBe('2026-06-01T15:00:00.000Z');
+    expect(saved.record.expiresAt).toBe('2027-06-01T15:00:00.000Z');
+    expect(saved.record.signedAt).not.toBe('2020-01-01T00:00:00.000Z');
+  });
+
+  it('creates the consent document once and refuses a second create', async () => {
+    const watched = watchWrites(FILING_DISCLOSURE_CONSENT_COLLECTION);
+    try {
+      const saved = await saveValid();
+      expect(watched.methods).toEqual(['create']);
+      const before = consentBytes(saved.id);
+      watched.restore();
+      await expect(db.collection(FILING_DISCLOSURE_CONSENT_COLLECTION).doc(saved.id).create({ overwritten: true })).rejects.toThrow(/Document exists/);
+      expect(consentBytes(saved.id).equals(before)).toBe(true);
+    } finally {
+      watched.restore();
+    }
+  });
+
+  it('creates the consent text document once and leaves it unchanged on a later save', async () => {
+    await db.collection(FILING_CONSENT_TEXT_COLLECTION).doc(CURRENT_CONSENT_TEXT_VERSION).delete();
+    const watched = watchWrites(FILING_CONSENT_TEXT_COLLECTION);
+    try {
+      const saved = await saveValid();
+      expect(saved.record.consentTextVersion).toBe(CURRENT_CONSENT_TEXT_VERSION);
+      expect(watched.methods).toEqual(['create']);
+      const textPath = `${FILING_CONSENT_TEXT_COLLECTION}/${CURRENT_CONSENT_TEXT_VERSION}`;
+      const stored = db.records.get(textPath);
+      if (stored === undefined) throw new Error('missing consent text');
+      const before = Buffer.from(JSON.stringify(stored), 'utf8');
+      const again = await saveDisclosureConsent(saveInput(), new Date(SIGNED_AT));
+      expect(again.ok).toBe(true);
+      expect(watched.methods).toEqual(['create']);
+      const after = db.records.get(textPath);
+      if (after === undefined) throw new Error('missing consent text');
+      expect(Buffer.from(JSON.stringify(after), 'utf8').equals(before)).toBe(true);
+      watched.restore();
+      await expect(db.collection(FILING_CONSENT_TEXT_COLLECTION).doc(CURRENT_CONSENT_TEXT_VERSION).create({ text: 'other' })).rejects.toThrow(/Document exists/);
+      const still = db.records.get(textPath);
+      if (still === undefined) throw new Error('missing consent text');
+      expect(Buffer.from(JSON.stringify(still), 'utf8').equals(before)).toBe(true);
+    } finally {
+      watched.restore();
+    }
+  });
+
+  it('refuses a second withdrawal and keeps the first withdrawal time', async () => {
+    const saved = await saveValid();
+    const first = await withdrawDisclosureConsent(saved.id, 'user-1', new Date('2026-03-01T00:00:00.000Z'));
+    expect(first).toEqual({ ok: true });
+    const second = await withdrawDisclosureConsent(saved.id, 'user-1', new Date('2026-04-01T00:00:00.000Z'));
+    expect(second).toMatchObject({ ok: false, code: 'withdrawn' });
+    expect(copyStored(saved.id).withdrawnAt).toBe('2026-03-01T00:00:00.000Z');
+  });
+
+  it('refuses an in firm reassignment to a different firm, a subcontractor, or a reviewer', async () => {
+    const saved = await saveValid();
+    const before = consentBytes(saved.id);
+    for (const firmLegalName of ['Other Draft Firm LLC', 'North Review Subcontractor LLC', 'Draft Return Reviewer LLC']) {
+      const noted = await noteInFirmPreparerReassignment({
+        consentRecordId: saved.id,
+        uid: 'user-1',
+        firmLegalName,
+        preparerName: 'Second Draft Preparer',
+      }, NOW);
+      expect(noted).toMatchObject({ ok: false, code: 'recipient_not_on_list' });
+      expect(consentBytes(saved.id).equals(before)).toBe(true);
+    }
+  });
+
+  it('refuses an in firm reassignment when the named firm is not a configured legal name', async () => {
+    const saved = await saveValid();
+    const id = await plant({ ...copyStored(saved.id), recipients: ['North Review Subcontractor LLC'] }, 'planted-subcontractor-firm');
+    const before = consentBytes(id);
+    const noted = await noteInFirmPreparerReassignment({
+      consentRecordId: id,
+      uid: 'user-1',
+      firmLegalName: 'North Review Subcontractor LLC',
+      preparerName: 'Second Draft Preparer',
+    }, NOW);
+    expect(noted).toMatchObject({ ok: false, code: 'recipient_not_legal_name' });
+    expect(consentBytes(id).equals(before)).toBe(true);
+  });
+
+  it('refuses an in firm reassignment when the consent is withdrawn', async () => {
+    const saved = await saveValid();
+    const withdrawn = await withdrawDisclosureConsent(saved.id, 'user-1', new Date('2026-03-01T00:00:00.000Z'));
+    expect(withdrawn).toEqual({ ok: true });
+    const before = consentBytes(saved.id);
+    const noted = await noteInFirmPreparerReassignment({
+      consentRecordId: saved.id,
+      uid: 'user-1',
+      firmLegalName: PARTNER,
+      preparerName: 'Second Draft Preparer',
+    }, NOW);
+    expect(noted).toMatchObject({ ok: false, code: 'withdrawn' });
+    expect(consentBytes(saved.id).equals(before)).toBe(true);
+  });
+
+  it('refuses an in firm reassignment when the consent is expired', async () => {
+    const saved = await saveValid();
+    const before = consentBytes(saved.id);
+    const noted = await noteInFirmPreparerReassignment({
+      consentRecordId: saved.id,
+      uid: 'user-1',
+      firmLegalName: PARTNER,
+      preparerName: 'Second Draft Preparer',
+    }, new Date('2027-01-16T20:00:00.000Z'));
+    expect(noted).toMatchObject({ ok: false, code: 'expired' });
+    expect(consentBytes(saved.id).equals(before)).toBe(true);
   });
 
   it('rejects a record that covers both a use and a disclosure and writes nothing', async () => {

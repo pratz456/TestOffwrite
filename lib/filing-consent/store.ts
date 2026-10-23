@@ -2,11 +2,10 @@ import { adminDb } from '@/lib/firebase/admin';
 import {
   CURRENT_CONSENT_TEXT_VERSION,
   DISCLOSING_PREPARER_LEGAL_NAME,
-  DRAFT_DISCLOSURE_CONSENT_TEXT,
   FILING_CONSENT_TEXT_COLLECTION,
   FILING_DISCLOSURE_CONSENT_COLLECTION,
 } from './config';
-import { DEFAULT_CONSENT_DURATION, expiresAtFor, isDurationStated, type DurationStated } from './duration';
+import { DEFAULT_CONSENT_DURATION, expiresAtFor, isDurationStated, isPastExpiry, type DurationStated } from './duration';
 import {
   coversUseAsWell,
   disclosingPreparerMatchesConfig,
@@ -20,7 +19,7 @@ import {
   type DisclosureScope,
 } from './record';
 import { isAcceptedSignatureMethod, isSignatureMethod } from './signature';
-import { consentTextSha256 } from './text';
+import { consentTextSha256, draftDisclosureConsentText } from './text';
 
 export interface SaveDisclosureConsentInput {
   uid: string;
@@ -33,7 +32,11 @@ export interface SaveDisclosureConsentInput {
   signatureMethod: string;
   signatureValue: string;
   userTypedNotPrefilled: boolean;
-  signedAt: string;
+  /**
+   * Ignored. signedAt is the server clock passed to saveDisclosureConsent,
+   * never this caller supplied value.
+   */
+  signedAt?: string;
   /** Omitted when the person does not choose a period. Save then uses one year. */
   duration?: DurationStated;
   kind: string;
@@ -45,18 +48,13 @@ export type SaveDisclosureConsentResult =
   | { ok: true; id: string; record: DisclosureConsentRecord }
   | ConsentRefusal;
 
-function canonicalSignedAt(value: string): string | null {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString();
-}
-
 /**
  * Writes one disclosure consent. A record that also covers a use is rejected
- * and nothing is written. The disclosing preparer name and the consent text
- * hash come from server config, not from the caller.
+ * and nothing is written. The disclosing preparer name, the signing time, and
+ * the consent text hash come from the server, not from the caller.
+ * `now` is the server clock. Tests inject it. It defaults to the real clock.
  */
-export async function saveDisclosureConsent(input: SaveDisclosureConsentInput): Promise<SaveDisclosureConsentResult> {
+export async function saveDisclosureConsent(input: SaveDisclosureConsentInput, now: Date = new Date()): Promise<SaveDisclosureConsentResult> {
   if (coversUseAsWell(input)) {
     return refusal('combined_use_and_disclosure', 'A disclosure consent and a use consent must be separate records.');
   }
@@ -77,8 +75,12 @@ export async function saveDisclosureConsent(input: SaveDisclosureConsentInput): 
   if (!isDurationStated(duration)) {
     return refusal('missing_field', 'The stated duration is missing or empty.', 'durationStated');
   }
-  const signedAt = canonicalSignedAt(input.signedAt);
-  if (!signedAt) return refusal('missing_field', 'The time signed is missing or empty.', 'signedAt');
+  if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
+    return refusal('missing_field', 'The server signing time is missing or empty.', 'signedAt');
+  }
+  const signedAt = now.toISOString();
+  const codeText = draftDisclosureConsentText(CURRENT_CONSENT_TEXT_VERSION);
+  if (!codeText) return refusal('consent_text_mismatch', 'The current consent text for this version is missing.');
   const expiresAt = expiresAtFor(signedAt, duration);
   if (!expiresAt) return refusal('missing_field', 'The expiry time could not be set from the stated duration.', 'expiresAt');
 
@@ -98,7 +100,7 @@ export async function saveDisclosureConsent(input: SaveDisclosureConsentInput): 
     expiresAt,
     durationStated: { unit: duration.unit, count: duration.count },
     consentTextVersion: CURRENT_CONSENT_TEXT_VERSION,
-    consentTextSha256: consentTextSha256(DRAFT_DISCLOSURE_CONSENT_TEXT),
+    consentTextSha256: consentTextSha256(codeText),
     kind: 'disclosure',
     withdrawnAt: null,
   };
@@ -119,17 +121,17 @@ export async function saveDisclosureConsent(input: SaveDisclosureConsentInput): 
   const textRef = adminDb.collection(FILING_CONSENT_TEXT_COLLECTION).doc(CURRENT_CONSENT_TEXT_VERSION);
   const existingText = await textRef.get();
   if (!existingText.exists) {
-    await textRef.set({ version: CURRENT_CONSENT_TEXT_VERSION, text: DRAFT_DISCLOSURE_CONSENT_TEXT });
+    await textRef.create({ version: CURRENT_CONSENT_TEXT_VERSION, text: codeText });
   } else {
     const stored = existingText.data();
     const storedText = stored && typeof stored.text === 'string' ? stored.text : '';
-    if (storedText !== DRAFT_DISCLOSURE_CONSENT_TEXT) {
+    if (storedText !== codeText) {
       return refusal('consent_text_mismatch', 'The stored consent text for this version no longer matches the text that was signed.');
     }
   }
 
   const ref = adminDb.collection(FILING_DISCLOSURE_CONSENT_COLLECTION).doc();
-  await ref.set(record);
+  await ref.create(record);
   return { ok: true, id: ref.id, record };
 }
 
@@ -145,7 +147,7 @@ export interface InFirmPreparerReassignment {
  * The consent names that firm, not the individual, so this reads the record
  * and does not write it. A different firm is not an in firm reassignment.
  */
-export async function noteInFirmPreparerReassignment(input: InFirmPreparerReassignment): Promise<{ ok: true } | ConsentRefusal> {
+export async function noteInFirmPreparerReassignment(input: InFirmPreparerReassignment, now: Date = new Date()): Promise<{ ok: true } | ConsentRefusal> {
   const preparerName = input.preparerName.trim();
   if (!preparerName) return refusal('missing_field', 'The preparer name is missing or empty.', 'preparerName');
   const snap = await adminDb.collection(FILING_DISCLOSURE_CONSENT_COLLECTION).doc(input.consentRecordId).get();
@@ -159,6 +161,12 @@ export async function noteInFirmPreparerReassignment(input: InFirmPreparerReassi
   if (recipientNotOnLegalNameList([input.firmLegalName])) {
     return refusal('recipient_not_legal_name', 'The firm must be a legal name from the partner list.');
   }
+  if (data.withdrawnAt != null) {
+    return refusal('withdrawn', 'The consent is withdrawn. An in firm preparer change is refused.');
+  }
+  if (!(now instanceof Date) || Number.isNaN(now.getTime()) || typeof data.expiresAt !== 'string' || isPastExpiry(data.expiresAt, now)) {
+    return refusal('expired', 'The consent is past its expiry. An in firm preparer change is refused.');
+  }
   return { ok: true };
 }
 
@@ -168,6 +176,7 @@ export async function withdrawDisclosureConsent(recordId: string, uid: string, n
   if (!snap.exists) return refusal('no_record', 'No disclosure consent record is stored.');
   const data = snap.data();
   if (!data || data.uid !== uid) return refusal('uid_mismatch', 'The consent record belongs to a different account.');
+  if (data.withdrawnAt != null) return refusal('withdrawn', 'The consent is already withdrawn.');
   await ref.update({ withdrawnAt: now.toISOString() });
   return { ok: true };
 }

@@ -18,7 +18,7 @@ import {
   type DisclosureScope,
 } from './record';
 import { isAcceptedSignatureMethod, isSignatureMethod } from './signature';
-import { consentTextSha256 } from './text';
+import { consentTextSha256, draftDisclosureConsentText } from './text';
 
 export interface HandOffReturn {
   code: string;
@@ -81,19 +81,6 @@ export type SendResult =
   | { sent: true }
   | { sent: false; code: string; message: string; field?: string };
 
-function scopedReturns(returns: HandOffReturn[], scope: DisclosureScope): HandOffReturn[] {
-  if (scope.kind === 'whole_return') {
-    return returns.map(item => ({ code: item.code, taxYear: item.taxYear, fields: { ...item.fields } }));
-  }
-  return returns.map(item => {
-    const fields: Record<string, unknown> = {};
-    for (const name of scope.fields) {
-      if (Object.prototype.hasOwnProperty.call(item.fields, name)) fields[name] = item.fields[name];
-    }
-    return { code: item.code, taxYear: item.taxYear, fields };
-  });
-}
-
 /**
  * Re reads the stored consent and decides whether this send may leave.
  * Call this immediately before every send, including a retry or a queued job.
@@ -141,6 +128,11 @@ export async function evaluateFilingHandOff(request: HandOffRequest, now: Date =
     return refusal('text_version_not_current', 'The consent text version is not the current version. The person has to sign again.');
   }
 
+  const codeText = draftDisclosureConsentText(String(data.consentTextVersion));
+  if (codeText === null || consentTextSha256(codeText) !== data.consentTextSha256) {
+    return refusal('consent_text_mismatch', 'The consent text for this version no longer matches the text that was signed.');
+  }
+
   const textSnap = await adminDb.collection(FILING_CONSENT_TEXT_COLLECTION).doc(String(data.consentTextVersion)).get();
   const storedTextData = textSnap.exists ? textSnap.data() : undefined;
   const storedText = storedTextData && typeof storedTextData.text === 'string' ? storedTextData.text : '';
@@ -183,7 +175,20 @@ export async function evaluateFilingHandOff(request: HandOffRequest, now: Date =
     return refusal('return_not_covered', 'The send includes a return that is not named in the consent.');
   }
 
-  return { ok: true, payload: { returns: scopedReturns(request.returns, data.scope as DisclosureScope) } };
+  const scope = data.scope as DisclosureScope;
+  if (scope.kind === 'fields') {
+    const named = new Set(scope.fields);
+    for (const item of request.returns) {
+      for (const field of Object.keys(item.fields)) {
+        if (!named.has(field)) return refusal('field_not_named', 'The send includes a field the consent does not name.');
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    payload: { returns: request.returns.map(item => ({ code: item.code, taxYear: item.taxYear, fields: { ...item.fields } })) },
+  };
 }
 
 /**
