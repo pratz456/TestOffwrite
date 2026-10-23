@@ -39,14 +39,28 @@ describe('platform input smoke regressions', () => {
   });
   it('manual income writes the normalized amount with the verified owner and does not start AI', async () => {
     expect((await manual(request({ ...manualBase, amount: '125.25', userId: 'attacker-owner' }))).status).toBe(201);
-    expect(state.write).toHaveBeenCalledWith(expect.objectContaining({ amount: -125.25, userId: 'smoke-owner', type: 'income' }));
+    expect(state.write).toHaveBeenCalledWith(expect.objectContaining({ amount: -125.25, userId: 'smoke-owner', type: 'income', category: 'income' }));
     expect(state.analyze).not.toHaveBeenCalled();
   });
   it('manual expenses persist review choices and provenance without starting post-response model work', async () => {
-    expect((await manual(request({ ...manualBase, type: 'expense', is_deductible: true, iso_currency_code: 'USD' }))).status).toBe(201);
-    expect(state.write).toHaveBeenCalledWith(expect.objectContaining({ amount: 125.25, userId: 'smoke-owner', type: 'expense',
+    expect((await manual(request({ ...manualBase, type: 'expense', category: 'SERVICE_ADVERTISING', is_deductible: true, iso_currency_code: 'USD' }))).status).toBe(201);
+    expect(state.write).toHaveBeenCalledWith(expect.objectContaining({ amount: 125.25, userId: 'smoke-owner', type: 'expense', category: 'SERVICE_ADVERTISING',
       source: 'manual', is_deductible: true, analyzed: false, analysis_status: 'pending' }));
     expect(state.analyze).not.toHaveBeenCalled();
+  });
+  it('manual expenses reject a missing category before writing', async () => {
+    const response = await manual(request({ ...manualBase, type: 'expense', is_deductible: true }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Pick a category' });
+    expect(state.write).not.toHaveBeenCalled();
+  });
+  it('manual expenses reject other with no description before writing', async () => {
+    const response = await manual(request({ ...manualBase, type: 'expense', category: 'other', notes: '   ' }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Add a description' });
+    expect(state.write).not.toHaveBeenCalled();
+    expect((await manual(request({ ...manualBase, type: 'expense', category: 'other', notes: 'Printer paper for client work' }))).status).toBe(201);
+    expect(state.write).toHaveBeenCalledWith(expect.objectContaining({ category: 'other', notes: 'Printer paper for client work', type: 'expense' }));
   });
   it('persists explicitly declared USD for new manual records and rejects another currency', async () => {
     expect((await manual(request({ ...manualBase, iso_currency_code: 'USD' }))).status).toBe(201);

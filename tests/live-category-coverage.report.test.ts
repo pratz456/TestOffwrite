@@ -37,7 +37,10 @@ describe('live category coverage', () => {
     const sync = source('lib/plaid/sync-helper.ts');
     expect(analysis).toContain('z.enum(EXPENSE_CATEGORIES)');
     expect(analysis).toContain('enum: [...EXPENSE_CATEGORIES, null]');
-    expect(manual).toContain("category || (txType === 'income' ? 'income' : 'other')");
+    expect(manual).toContain("txType === 'expense' && !trimmedCategory");
+    expect(manual).toContain("trimmedCategory.toLowerCase() === 'other' && !notes?.trim()");
+    expect(manual).toContain("txType === 'income' ? trimmedCategory || 'income' : trimmedCategory");
+    expect(manual).not.toContain("? 'income' : 'other'");
     expect(sync).toContain("|| 'Other'");
     expect(review).toContain("recordedCategory = 'INCOME'");
     expect(review).toContain("recordedCategory = 'TRANSFER'");

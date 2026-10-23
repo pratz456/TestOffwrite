@@ -82,9 +82,12 @@ export interface AuditSupportPacket {
   packetInfo: { title: string; taxYear: number; generatedAt: string; version: string; purpose: string; receiptBinariesIncluded: false; owner: string };
   coverNote: string[];
   deductions: AuditEvidenceRecord[];
+  /** Confirmed rows withheld from Schedule C. Listed on their own, never inside the confirmed totals. */
+  needsMoreInformation: AuditEvidenceRecord[];
   mileageLog: { trips: MileageLogEntry[]; undatedTrips: number; notes: string[] };
   summary: {
     deductionCount: number; recordedAmount: number;
+    needsMoreInformation: { count: number; amount: number };
     byStatus: Record<SubstantiationStatus, { count: number; amount: number }>;
     byCategory: Array<{ category: SubstantiationCategory; label: string; count: number; amount: number; complete: number; needsRecords: number }>;
     missingItems: Array<{ item: string; count: number }>;
@@ -352,8 +355,11 @@ export function assembleAuditSupportPacket(uid: string, year: number, inputs: Au
     const key = text(receipt.transactionId, 600); if (!key) continue;
     receiptsByTransaction.set(key, [...(receiptsByTransaction.get(key) ?? []), receipt]);
   }
-  const deductions = confirmed.map(record => buildEvidenceRecord(record, { uid, tripsByDate, yearTripCount: trips.length, receiptsByTransaction }))
+  const evidence = confirmed.map(record => buildEvidenceRecord(record, { uid, tripsByDate, yearTripCount: trips.length, receiptsByTransaction }))
     .sort((a, b) => a.date.localeCompare(b.date) || a.reference.localeCompare(b.reference));
+  const withheld = (record: AuditEvidenceRecord) => record.substantiation.advisories.includes(AUDIT_NEEDS_MORE_INFORMATION);
+  const needsMoreInformation = evidence.filter(withheld);
+  const deductions = evidence.filter(record => !withheld(record));
   const byStatus: AuditSupportPacket['summary']['byStatus'] = { complete: { count: 0, amount: 0 }, needs_records: { count: 0, amount: 0 } };
   const categories = new Map<SubstantiationCategory, AuditSupportPacket['summary']['byCategory'][number]>();
   const missingItems = new Map<string, number>();
@@ -380,13 +386,15 @@ export function assembleAuditSupportPacket(uid: string, year: number, inputs: Au
     coverNote: [
       `This packet lists the deductions you confirmed in WriteOff for tax year ${year}, the records on file for each one, and the substantiation elements the IRS asks for that are still missing.`,
       'It is a records packet, not audit representation, legal or tax advice, or a guarantee that any deduction will be allowed. Only a credentialed practitioner (attorney, CPA or enrolled agent) can represent you before the IRS. Review this packet with your preparer.',
-      'Only confirmed deductions are included. Pending, bank-removed, review-required and superseded duplicate bank records and unconfirmed AI suggestions are excluded; AI analysis is never treated as evidence.',
+      'Only confirmed deductions are included in the totals. Rows withheld from Schedule C are listed under Needs more information, with their own count and amount, and are not added to those totals. Pending, bank-removed, review-required and superseded duplicate bank records and unconfirmed AI suggestions are excluded; AI analysis is never treated as evidence.',
       'Receipts are referenced by private, sign-in-only links and filenames. Receipt images and PDFs are not attached. Amounts are recorded amounts, not calculated deductions.',
     ],
     deductions,
+    needsMoreInformation,
     mileageLog: { trips, undatedTrips: undated, notes: mileageNotes },
     summary: {
       deductionCount: deductions.length, recordedAmount: round2(deductions.reduce((sum, record) => sum + record.amount, 0)),
+      needsMoreInformation: { count: needsMoreInformation.length, amount: round2(needsMoreInformation.reduce((sum, record) => sum + record.amount, 0)) },
       byStatus, byCategory: [...categories.values()].sort((a, b) => b.amount - a.amount || a.label.localeCompare(b.label)),
       missingItems: [...missingItems].map(([item, count]) => ({ item, count })).sort((a, b) => b.count - a.count || a.item.localeCompare(b.item)),
       excluded,
@@ -424,14 +432,20 @@ export const AUDIT_SUPPORT_CSV_HEADERS = [
   'Reviewed At', 'Review Source', 'Business-use %',
 ];
 /** Deductions and mileage trips in one owner CSV; the hashed reference is the only identifier. */
-export function auditSupportPacketCSV(packet: AuditSupportPacket): string {
-  const rows = packet.deductions.map(record => ['Confirmed deduction', record.reference, record.date, record.merchant, record.amount, record.category, record.scheduleCLine ?? '',
+function auditEvidenceCsvRow(recordType: string, record: AuditEvidenceRecord): unknown[] {
+  return [recordType, record.reference, record.date, record.merchant, record.amount, record.category, record.scheduleCLine ?? '',
     record.substantiation.label, record.substantiation.status === 'complete' ? 'Complete' : 'Needs records', record.substantiation.missing.join('; '), record.substantiation.advisories.join(' '),
     record.businessPurpose.text ?? '', record.businessPurpose.source ?? '', record.attendees.length ? record.attendees.join('; ') : record.clientProject ?? '',
     record.travel.destination ?? '', record.travel.datesRecorded ? 'Yes' : 'No',
     record.mileage ? [record.mileage.startLocation, record.mileage.endLocation].filter(Boolean).join(' -> ') + (record.mileage.miles ? ` (${record.mileage.miles} miles)` : '') : record.linkedTrips ? `${record.linkedTrips} logged trip(s) on this date` : '',
     record.receipts.map(receipt => receipt.filename ?? '').filter(Boolean).join('; '), record.receipts.map(receipt => receipt.path).filter(Boolean).join('; '), record.receiptDeclaredOutsideApp ? 'Yes' : 'No',
-    record.review.reviewedAt ?? '', record.review.label, record.businessUsePercent ?? '']);
+    record.review.reviewedAt ?? '', record.review.label, record.businessUsePercent ?? ''];
+}
+export function auditSupportPacketCSV(packet: AuditSupportPacket): string {
+  const rows = [
+    ...packet.deductions.map(record => auditEvidenceCsvRow('Confirmed deduction', record)),
+    ...(packet.needsMoreInformation ?? []).map(record => auditEvidenceCsvRow('Needs more information', record)),
+  ];
   for (const trip of packet.mileageLog.trips) {
     rows.push(['Mileage trip', trip.reference, trip.date, `${trip.startLocation} -> ${trip.endLocation}${trip.roundTrip ? ' (round trip)' : ''}`, trip.standardMileageAmount ?? '', 'Mileage log', '9',
       SUBSTANTIATION_RULES.vehicle.label, trip.substantiation.status === 'complete' ? 'Complete' : 'Needs records', trip.substantiation.missing.join('; '),
@@ -472,6 +486,15 @@ export async function generateAuditSupportPDF(packet: AuditSupportPacket): Promi
       record.substantiation.status === 'complete' ? 'Complete' : `Needs records: ${record.substantiation.missing.join('; ')}`, recordsOnFile(record)])
       : [['', 'No confirmed deductions in this year', money(0), '', '', '']],
     [56, 132, 62, 76, 116, 86]);
+  const withheld = packet.needsMoreInformation ?? [];
+  const withheldAmount = packet.summary.needsMoreInformation?.amount ?? round2(withheld.reduce((sum, record) => sum + record.amount, 0));
+  pdf.section('Needs more information');
+  pdf.paragraph(`${withheld.length} confirmed record${withheld.length === 1 ? '' : 's'} withheld from Schedule C. Recorded amount ${money(withheldAmount)}. These rows are not included in the confirmed deduction count, the recorded amount, the status totals, the category totals, or the All confirmed deductions row.`);
+  if (withheld.length) {
+    pdf.table(['Date', 'Merchant / reference', 'Amount', 'Category', 'Schedule C line', 'Note'],
+      withheld.map(record => [record.date, `${record.merchant}\n${record.reference}`, money(record.amount), record.categoryLabel, record.scheduleCLine ?? '', AUDIT_NEEDS_MORE_INFORMATION]),
+      [56, 150, 70, 90, 80, 82]);
+  }
   pdf.section('Mileage log');
   pdf.paragraph(`${packet.summary.mileage.tripCount} trips, ${packet.summary.mileage.ratedMiles} rated miles, standard mileage amount ${money(packet.summary.mileage.standardMileageAmount)}${packet.summary.mileage.unratedTrips ? `, ${packet.summary.mileage.unratedTrips} trip(s) without a published rate` : ''}. Trips needing records: ${packet.summary.mileage.tripsNeedingRecords}.`);
   pdf.table(['Date', 'Trip', 'Miles', 'Rate', 'Amount', 'Purpose / missing records'],

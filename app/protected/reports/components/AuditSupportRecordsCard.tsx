@@ -11,7 +11,7 @@ import { useSubscription } from '@/lib/hooks/use-subscription';
 import { protectedScreenUrl } from '@/lib/navigation/protected-screens';
 import type { AuditSupportPacket } from '@/lib/reports/audit-support-packet';
 
-export type AuditSupportSummary = Pick<AuditSupportPacket, 'summary'> & { deductions: Array<Pick<AuditSupportPacket['deductions'][number], 'transactionId' | 'date' | 'merchant' | 'amount' | 'substantiation'>> };
+export type AuditSupportSummary = Pick<AuditSupportPacket, 'summary' | 'needsMoreInformation'> & { deductions: Array<Pick<AuditSupportPacket['deductions'][number], 'transactionId' | 'date' | 'merchant' | 'amount' | 'substantiation'>> };
 type PacketFormat = 'json' | 'csv' | 'pdf';
 const money = (value: number) => `${value < 0 ? '-' : ''}$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const MAX_LISTED = 5;
@@ -95,6 +95,24 @@ export function AuditSupportRecordsSummary({ year, packet, loading, error, canDo
               <div className="text-[10px] text-muted-foreground tabular-nums">{summary.mileage.tripCount ? `${summary.mileage.ratedMiles} rated miles` : 'no trips this year'}{summary.mileage.tripsNeedingRecords ? ` · ${summary.mileage.tripsNeedingRecords} need details` : ''}</div>
             </div>
           </div>
+          {summary.needsMoreInformation.count > 0 && (
+            <div className="mt-4">
+              <div className="text-xs font-medium text-foreground mb-2">Needs more information <span className="text-muted-foreground font-normal">· {summary.needsMoreInformation.count} · {money(summary.needsMoreInformation.amount)} recorded · not in the confirmed totals</span></div>
+              <ul className="divide-y divide-border/60 rounded-lg border border-border/60">
+                {packet.needsMoreInformation.map(record => (
+                  <li key={record.transactionId} className="flex items-center justify-between gap-3 p-2.5 text-sm">
+                    <div className="min-w-0">
+                      <div className="font-medium text-foreground truncate">{record.merchant} <span className="text-muted-foreground font-normal tabular-nums">· {record.date} · {money(record.amount)}</span></div>
+                      <div className="text-xs text-muted-foreground truncate">Withheld from Schedule C</div>
+                    </div>
+                    <button type="button" onClick={() => onOpenTransaction(record.transactionId)} className="inline-flex items-center gap-1 text-xs text-primary hover:underline shrink-0 min-h-[36px]" aria-label={`Review ${record.merchant}`}>
+                      Review<ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {summary.excluded.notConfirmed > 0 && (
             <p className="text-xs text-muted-foreground mt-3">
               {summary.excluded.notConfirmed} deductible record{summary.excluded.notConfirmed === 1 ? ' has' : 's have'} not been confirmed through the review flow and {summary.excluded.notConfirmed === 1 ? 'is' : 'are'} not included.

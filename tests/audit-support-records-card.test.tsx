@@ -8,11 +8,12 @@ vi.mock('@/lib/hooks/use-subscription', () => ({ useSubscription: () => ({ canAc
 import { AuditSupportRecordsSummary, type AuditSupportSummary } from '@/app/protected/reports/components/AuditSupportRecordsCard';
 
 const packet: AuditSupportSummary = {
+  needsMoreInformation: [],
   deductions: [
     { transactionId: 'tx-lodging', date: '2026-03-10', merchant: 'SYNTHETIC-HOTEL', amount: 180, substantiation: { category: 'lodging', label: 'Lodging while traveling', strict: true, status: 'needs_records', missing: ['receipt (required for lodging at any amount)', 'travel dates (departure and return)'], advisories: [] } },
     { transactionId: 'tx-software', date: '2026-03-11', merchant: 'SYNTHETIC-SOFTWARE', amount: 30, substantiation: { category: 'general', label: 'Ordinary business expense', strict: false, status: 'complete', missing: [], advisories: [] } },
   ],
-  summary: { deductionCount: 2, recordedAmount: 210, byStatus: { complete: { count: 1, amount: 30 }, needs_records: { count: 1, amount: 180 } },
+  summary: { deductionCount: 2, recordedAmount: 210, needsMoreInformation: { count: 0, amount: 0 }, byStatus: { complete: { count: 1, amount: 30 }, needs_records: { count: 1, amount: 180 } },
     byCategory: [], missingItems: [{ item: 'receipt (required for lodging at any amount)', count: 1 }, { item: 'travel dates (departure and return)', count: 1 }],
     excluded: { notConfirmed: 2, reviewRequired: 0, pending: 0, bankRemoved: 0, superseded: 0 },
     mileage: { tripCount: 3, ratedMiles: 120, unratedMiles: 0, unratedTrips: 0, standardMileageAmount: 87, ratesApplied: [0.725], tripsNeedingRecords: 1 } },
@@ -26,6 +27,7 @@ describe('audit support records card', () => {
     const html = render();
     for (const text of ['Audit support records', 'Complete', 'Need records', 'SYNTHETIC-HOTEL', 'Missing: receipt (required for lodging at any amount); travel dates (departure and return)', 'Add records for SYNTHETIC-HOTEL',
       '2 deductible records have not been confirmed through the review flow', '3', '120 rated miles', '1 need details', 'not audit representation or a guarantee', 'PDF · Premium']) expect(html).toContain(text);
+    expect(html).not.toContain('Needs more information');
     expect(html).not.toContain('Add records for SYNTHETIC-SOFTWARE');
     expect(html).not.toMatch(/audit defense|audit protection|guaranteed|maximize/i);
     expect(html.match(/>1</g)?.length).toBeGreaterThanOrEqual(2);
@@ -40,5 +42,14 @@ describe('audit support records card', () => {
     const html = render({ canDownloadPdf: true, packet: { ...packet, deductions: [packet.deductions[1]], summary: { ...packet.summary, deductionCount: 1, byStatus: { complete: { count: 1, amount: 30 }, needs_records: { count: 0, amount: 0 } }, missingItems: [], excluded: { notConfirmed: 0, reviewRequired: 0, pending: 0, bankRemoved: 0, superseded: 0 } } } });
     expect(html).not.toContain('Premium'); expect(html).toContain('Every confirmed deduction has the records its category requires on file.');
     expect(html).not.toContain('Items that still need records');
+  });
+  it('lists a withheld energy row only in Needs more information', () => {
+    const html = render({ packet: { ...packet, needsMoreInformation: [{ transactionId: 'tx-energy', date: '2026-06-15', merchant: 'AIGA', amount: 120, substantiation: packet.deductions[1].substantiation }], summary: { ...packet.summary, deductionCount: 1, recordedAmount: 80, needsMoreInformation: { count: 1, amount: 120 } } } });
+    expect(html).toContain('Needs more information');
+    expect(html).toContain('AIGA');
+    expect(html).toContain('$120.00');
+    expect(html).toContain('not in the confirmed totals');
+    expect(html).toContain('Review AIGA');
+    expect(html).not.toContain('Add records for AIGA');
   });
 });
