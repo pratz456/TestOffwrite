@@ -15,7 +15,7 @@ import {
   PLANNER_DISMISS, PLANNER_DISMISSED, PLANNER_EMPTY, PLANNER_ERROR_LOAD, PLANNER_ERROR_SAVE, PLANNER_FILING_STATUS_LABEL,
   PLANNER_FILING_STATUS_PROFILE, PLANNER_FOOTER, PLANNER_LINE_24_HELPER, PLANNER_LINE_24_LABEL, PLANNER_NOT_NOW, PLANNER_NOT_SURE,
   PAYMENT_TAX_YEAR_PICKER_LABEL, PAYMENT_TYPE_PRIOR_YEAR_OVERPAYMENT_LABEL, PLANNER_APPLIED_AMOUNT_LABEL,
-  PLANNER_APPLIED_FILED_LABEL, PLANNER_APPLIED_PENDING, PLANNER_PAYMENT_AMOUNT, PLANNER_PAYMENT_DATE,
+  APPLIED_OVERPAYMENT_CREDIT_NOTE, PLANNER_APPLIED_FILED_LABEL, PLANNER_APPLIED_PENDING, PLANNER_PAYMENT_AMOUNT, PLANNER_PAYMENT_DATE,
   PLANNER_PAYMENTS_HELPER, PLANNER_PAYMENTS_LABEL,
   PLANNER_PRIOR_TAX_COMPUTED, PLANNER_PROJECTED_INCOME_LABEL, PLANNER_RESIDENCY_LABEL, PLANNER_SEE_FULL_PLAN,
   PLANNER_SHOW_PLAN, PLANNER_START, PLANNER_TWELVE_MONTH_HELPER, PLANNER_TWELVE_MONTH_LABEL,
@@ -252,6 +252,7 @@ export function EstimatedPaymentPlannerCard({ profile, onNavigate, transport, ta
             const pending = applied && payment.amount.trim() !== '' && payment.priorReturnFiled !== 'yes';
             return <div key={payment.clientId} className="grid gap-2 sm:grid-cols-2">
             {applied && <p className="text-sm font-medium text-slate-800 sm:col-span-2">{PAYMENT_TYPE_PRIOR_YEAR_OVERPAYMENT_LABEL}</p>}
+            {applied && <p className="text-sm text-slate-600 sm:col-span-2">{APPLIED_OVERPAYMENT_CREDIT_NOTE}</p>}
             <label className="block text-xs text-slate-600">{PLANNER_PAYMENT_DATE}
               <input type="date" value={dateValue} min={applied ? lockedDate : `${taxYear}-01-01`} max={applied ? lockedDate : paymentDateMax(taxYear, asOf)} disabled={applied} readOnly={applied} onChange={event => { if (applied) return; setPayments(rows => rows.map(row => row.clientId !== payment.clientId ? row : { ...row, date: event.target.value, designatedTaxYear: defaultDesignatedTaxYear(event.target.value, taxYear, row.designatedTaxYear) ?? undefined })); }} className="mt-1 w-full min-w-0 rounded-lg border border-slate-200 px-3 py-2 text-base disabled:bg-slate-50" />
             </label>

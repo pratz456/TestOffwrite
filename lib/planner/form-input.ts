@@ -1,4 +1,4 @@
-import { assignInstallmentPeriod, getInstallmentDueDates, isIsoDate } from '@/lib/tax-provider/quarterly-planner';
+import { appliedOverpaymentCreditDate, assignInstallmentPeriod, isIsoDate } from '@/lib/tax-provider/quarterly-planner';
 import { flooredPriorYearTax } from '@/lib/planner/zero-target';
 import { PAYMENT_DATE_OUT_OF_RANGE_ERROR, PLANNER_ERROR_NEGATIVE, PLANNER_ERROR_NOT_A_NUMBER, plannerFill } from '@/lib/planner/planner-copy';
 import type { YesNoBlank } from '@/lib/planner/zero-target';
@@ -43,9 +43,9 @@ export interface ParsedPlannerForm {
   priorYearTax: number;
 }
 
-/** Installment 1's due date. The applied-credit type is fixed to this date. */
+/** First installment due date after weekend and holiday shifting. An applied overpayment is credited on this date. */
 export function appliedCreditDate(taxYear: number): string {
-  return getInstallmentDueDates(taxYear)[0].dueDate;
+  return appliedOverpaymentCreditDate(taxYear);
 }
 
 function parseDollar(raw: string, allowNegative: boolean): { ok: true; value: number } | { ok: false; reason: 'empty' | 'nan' | 'negative' } {

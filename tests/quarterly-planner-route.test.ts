@@ -96,7 +96,7 @@ describe('quarterly summary returns planner figures from reviewed facts', () => 
     expect(result.planner.underpaymentInterestIllustration.label).toContain('illustration'); expect(result.planner.underpaymentInterestIllustration.total).toBeGreaterThan(0);
     expect(result.planner.annualizedIncomeMethod.available).toBe(false);
     expect(result.planner.assumptions.join(' ')).toContain('Credited on the payment date you entered.'); expect(result.planner.assumptions.join(' ')).toContain('basis selected: 100% of prior-year tax');
-    expect(result.planner.assumptions.join(' ')).not.toContain('An amount applied from last year\'s return is credited on the first installment due date.');
+    expect(result.planner.assumptions.join(' ')).not.toContain('Overpayment from last year\'s return applied to this year.');
     expect(result.planner.sources.publication505).toBe('https://www.irs.gov/publications/p505');
     expect(result.quarters[0].recommended).not.toBe(Math.round(expected.form1040.totalTax / 4 * 100) / 100);
   });
@@ -115,10 +115,12 @@ describe('quarterly summary returns planner figures from reviewed facts', () => 
     state.payments = [{ quarter: 4, paidAmount: 400, record: { paidAmount: 400, paidDate: '2026-12-20', paymentType: 'prior_year_overpayment' } }];
     const result = await (await quarterly(req())).json();
     const assumptions = result.planner.assumptions.join(' ');
-    expect(assumptions).toContain('An amount applied from last year\'s return is credited on the first installment due date.');
+    expect(assumptions).toContain('Overpayment from last year\'s return applied to this year. Credited on the first payment due date (usually April 15), not the date you filed.');
     expect(assumptions).not.toContain('Credited on the payment date you entered.');
     expect(result.quarters[0].paymentsMatchedTotal).toBe(400);
     expect(result.quarters[3].paymentsMatchedTotal).toBe(0);
+    const matched = result.planner.installments[0].paymentsMatched as { paidDate: string; matchedQuarter: number }[];
+    expect(matched[0]).toMatchObject({ paidDate: '2026-04-15', matchedQuarter: 1 });
   });
   it('matches recorded payments by their saved payment date and reports unpublished 2027 rates as unavailable', async () => {
     state.payments = [{ quarter: 1, paidAmount: 2500, record: { paidDate: '2026-06-10' } }];

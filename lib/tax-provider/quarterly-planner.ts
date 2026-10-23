@@ -127,6 +127,28 @@ export function getInstallmentDueDates(taxYear: number): InstallmentDueDate[] {
   }));
 }
 
+/**
+ * Form 2210 instructions and Rev. Rul. 99-40: an overpayment applied to this year's
+ * estimated tax is credited on the first installment due date after the weekend and
+ * holiday shift. It is not credited on the return filing date or on a date saved with the record.
+ */
+export function appliedOverpaymentCreditDate(taxYear: number): IsoDate {
+  return getInstallmentDueDates(taxYear)[0].dueDate;
+}
+
+/** Payments the regular method counts. Applied overpayments use the first installment due date. */
+export function paymentsForInstallmentMatching(payments: RecordedEstimatedPayment[], taxYear: number): RecordedEstimatedPayment[] {
+  const installmentOneDate = appliedOverpaymentCreditDate(taxYear);
+  return payments.flatMap(payment => {
+    if (payment.paymentType === 'prior_year_overpayment') {
+      if (payment.priorReturnFiled !== true) return [];
+      return [{ ...payment, paidDate: installmentOneDate, designatedTaxYear: taxYear }];
+    }
+    if (payment.designatedTaxYear != null && payment.designatedTaxYear !== taxYear) return [];
+    return [payment];
+  });
+}
+
 /** Return due date used as the end of the Form 2210 penalty period ("or April 15, whichever is earlier"). */
 export const penaltyPeriodEnd = (taxYear: number): IsoDate => `${taxYear + 1}-04-15`;
 
@@ -648,15 +670,7 @@ export function buildQuarterlyPlan(input: QuarterlyPlanInput): QuarterlyPlan {
   if (!isIsoDate(input.asOf)) throw new RangeError('Provide the planning date as YYYY-MM-DD.');
   const required = calculateRequiredAnnualPayment(input);
   const withholding = allocateWithholding(input.withholdingSchedule ?? { kind: 'even', total: input.withholding }, input.taxYear);
-  const installmentOneDate = getInstallmentDueDates(input.taxYear)[0].dueDate;
-  const countablePayments = input.payments.flatMap(payment => {
-    if (payment.paymentType === 'prior_year_overpayment') {
-      if (payment.priorReturnFiled !== true) return [];
-      return [{ ...payment, paidDate: installmentOneDate, designatedTaxYear: input.taxYear }];
-    }
-    if (payment.designatedTaxYear != null && payment.designatedTaxYear !== input.taxYear) return [];
-    return [payment];
-  });
+  const countablePayments = paymentsForInstallmentMatching(input.payments, input.taxYear);
   const payments = matchPaymentsToPeriods(countablePayments, input.taxYear);
   const installments = computeInstallments({
     taxYear: input.taxYear, requiredAnnualPayment: required.requiredAnnualPayment, estimatedPaymentsRequired: required.estimatedPaymentsRequired,

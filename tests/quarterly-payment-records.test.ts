@@ -46,7 +46,7 @@ vi.mock('@/lib/firebase/admin', () => {
 });
 import { GET, POST, PUT } from '../app/api/tax/quarterly-payments/route';
 import { getRecordedQuarterlyPayments, totalRecordedPayments } from '../lib/firebase/quarterly-payments-server';
-import { buildQuarterlyPlan } from '../lib/tax-provider/quarterly-planner';
+import { appliedOverpaymentCreditDate, buildQuarterlyPlan, matchPaymentsToPeriods, paymentsForInstallmentMatching } from '../lib/tax-provider/quarterly-planner';
 
 const key = 'user_profiles/owner-a/quarterly_payments/Q1_2026';
 function request(method: string, body?: unknown, year = '2026') {
@@ -308,7 +308,7 @@ describe('recorded quarterly payments', () => {
     });
   });
 
-  it('adds $500 beside a legacy $2,125 record and keeps $2,625', async () => {
+  it('add 2125 then 500 equals 2625 for a legacy record', async () => {
     state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 2125, paidDate: '2026-04-01', estimatedAmount: 0 });
     const added = await POST(request('POST', {
       paymentId: idA, quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15',
@@ -326,18 +326,61 @@ describe('recorded quarterly payments', () => {
     expect(listed.summary.totalPaid).toBe(2625);
   });
 
-  it('adds a payment beside a planner card record that has no legacy quarter document', async () => {
-    state.docs.set(pathFor(idA), { quarter: 1, year: 2026, paidAmount: 100, paidDate: '2026-04-02', version: 1 });
+  it('add 2125 then 500 equals 2625 for a planner card record', async () => {
+    state.docs.set(pathFor(idA), { quarter: 1, year: 2026, paidAmount: 2125, paidDate: '2026-04-01', version: 1 });
     expect(state.docs.has(key)).toBe(false);
     const added = await POST(request('POST', {
-      paymentId: idB, quarter: 1, year: 2026, paidAmount: 40, paidDate: '2026-04-15',
+      paymentId: idB, quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15',
     }));
     expect(added.status).toBe(200);
-    expect(state.docs.get(pathFor(idA))).toMatchObject({ paidAmount: 100, paidDate: '2026-04-02' });
+    expect(state.docs.get(pathFor(idA))).toMatchObject({ paidAmount: 2125, paidDate: '2026-04-01' });
     expect(state.docs.get(pathFor(idA))?.supersededBy).toBeUndefined();
-    expect(await counted()).toBe(140);
+    expect(await counted()).toBe(2625);
     const listed = await (await GET(request('GET'))).json();
-    expect(listed.payments[0]).toMatchObject({ paidAmount: 140, status: 'recorded', editRecordId: idB, editAmount: 40 });
+    expect(listed.payments[0]).toMatchObject({ paidAmount: 2625, status: 'recorded', editRecordId: idB, editAmount: 500, editPaidDate: '2026-04-15' });
+    expect(listed.summary.totalPaid).toBe(2625);
+  });
+
+  it('overpayment March counts in Q1 on the Q1 due date', async () => {
+    const filedOn = '2027-03-12';
+    const due = '2027-04-15';
+    expect(appliedOverpaymentCreditDate(2027)).toBe(due);
+    const saved = await POST(request('POST', {
+      paymentId: idA, quarter: 4, year: 2027, paidAmount: 640, paidDate: filedOn,
+      paymentType: 'prior_year_overpayment', priorReturnFiled: true,
+    }, '2027'));
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ paidAmount: 640, paidDate: due, quarter: 1, year: 2027 });
+    const counted = paymentsForInstallmentMatching([{
+      amount: 640, paidDate: filedOn, recordedQuarter: 4, paymentType: 'prior_year_overpayment', priorReturnFiled: true,
+    }], 2027);
+    expect(counted).toHaveLength(1);
+    expect(counted[0]?.paidDate).toBe(due);
+    const matched = matchPaymentsToPeriods(counted, 2027);
+    expect(matched).toHaveLength(1);
+    expect(matched[0]).toMatchObject({ matchedQuarter: 1, paidDate: due, effectiveDate: due, amount: 640 });
+    expect(matched.filter(payment => payment.matchedQuarter === 1)).toHaveLength(1);
+  });
+
+  it('overpayment October counts in Q1 on the Q1 due date', async () => {
+    const filedOn = '2028-10-15';
+    const due = '2028-04-18';
+    expect(appliedOverpaymentCreditDate(2028)).toBe(due);
+    const saved = await POST(request('POST', {
+      paymentId: idA, quarter: 4, year: 2028, paidAmount: 640, paidDate: filedOn,
+      paymentType: 'prior_year_overpayment', priorReturnFiled: true,
+    }, '2028'));
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ paidAmount: 640, paidDate: due, quarter: 1, year: 2028 });
+    const counted = paymentsForInstallmentMatching([{
+      amount: 640, paidDate: filedOn, recordedQuarter: 4, paymentType: 'prior_year_overpayment', priorReturnFiled: true,
+    }], 2028);
+    expect(counted).toHaveLength(1);
+    expect(counted[0]?.paidDate).toBe(due);
+    const matched = matchPaymentsToPeriods(counted, 2028);
+    expect(matched).toHaveLength(1);
+    expect(matched[0]).toMatchObject({ matchedQuarter: 1, paidDate: due, effectiveDate: due, amount: 640 });
+    expect(matched.filter(payment => payment.matchedQuarter !== 1)).toHaveLength(0);
   });
 
   it('edits a planner card payment by its saved id', async () => {
@@ -376,7 +419,7 @@ describe('recorded quarterly payments', () => {
     expect(await counted()).toBe(150);
   });
 
-  it('rejects a stale edit after a newer edit already saved $1,800', async () => {
+  it('stale retry rejected', async () => {
     state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 2125, paidDate: '2026-04-01', version: 0 });
     expect((await POST(request('POST', {
       recordId: 'Q1_2026', paymentId: idA, baseVersion: 0, quarter: 1, year: 2026, paidAmount: 900, paidDate: '2026-04-10',

@@ -23,6 +23,7 @@ import {
 } from '@/lib/tax-provider/quarterly-planner';
 import { QUARTERLY_REVIEW_MESSAGE, QuarterlyReviewRequiredError } from '@/lib/tax-provider/regular-estimated-payments';
 import { localIsoDate } from '@/lib/planner/format-due-date';
+import { APPLIED_OVERPAYMENT_CREDIT_NOTE } from '@/lib/planner/planner-copy';
 import { INSTALLMENT_SHARE } from '@/lib/tax-rules/estimated-tax-safe-harbor';
 
 const REVIEW_QUARTER = { recommended: null, status: 'review_required' } as const;
@@ -77,7 +78,7 @@ export async function GET(request: NextRequest) {
           assumptions: [
             ...resolution.facts.assumptions,
             ...(recorded.some(payment => payment.paymentType !== 'prior_year_overpayment') ? ['Credited on the payment date you entered.'] : []),
-            ...(recorded.some(payment => payment.paymentType === 'prior_year_overpayment') ? ['An amount applied from last year\'s return is credited on the first installment due date.'] : []),
+            ...(recorded.some(payment => payment.paymentType === 'prior_year_overpayment') ? [APPLIED_OVERPAYMENT_CREDIT_NOTE] : []),
           ],
         });
       } catch (plannerError) {

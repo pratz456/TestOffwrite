@@ -44,6 +44,7 @@ export const PAYMENT_TYPE_PRIOR_YEAR_OVERPAYMENT_LABEL = 'Applied from last year
 export const PLANNER_APPLIED_AMOUNT_LABEL = 'the amount on line 36 of your {priorYear} Form 1040';
 export const PLANNER_APPLIED_FILED_LABEL = 'Have you filed your {priorYear} return?';
 export const PLANNER_APPLIED_PENDING = 'Pending until you file';
+export const APPLIED_OVERPAYMENT_CREDIT_NOTE = 'Overpayment from last year\'s return applied to this year. Credited on the first payment due date (usually April 15), not the date you filed.';
 
 export const PLANNER_PROJECTED_INCOME_LABEL = 'Expected business income this year, after expenses';
 

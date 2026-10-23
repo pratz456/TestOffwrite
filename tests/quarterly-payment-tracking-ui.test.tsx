@@ -14,6 +14,7 @@ vi.mock('react', async importOriginal => {
 });
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: h.request }));
 import { QuarterlyPaymentTrackingScreen } from '@/components/quarterly-payment-tracking-screen';
+import { APPLIED_OVERPAYMENT_CREDIT_NOTE } from '@/lib/planner/planner-copy';
 
 const walk = (n: any): any[] => Array.isArray(n) ? n.flatMap(walk) : n && typeof n === 'object' ? [n, ...walk(n.props?.children)] : [];
 const text = (n: any): string => Array.isArray(n) ? n.map(text).join('') : n && typeof n === 'object' ? text(n.props?.children) : typeof n === 'string' || typeof n === 'number' ? String(n) : '';
@@ -167,6 +168,18 @@ describe('quarterly payment tracking edits', () => {
       recordId: 'planner-card-payment-1', baseVersion: 2, designatedTaxYear: year,
       quarter: 1, year, paidAmount: 80, paidDate: `${year}-04-21`,
     });
+  });
+
+  it('shows the applied overpayment sentence on that record', async () => {
+    const row = { ...payment(1, true), paymentType: 'prior_year_overpayment' as const };
+    h.request.mockImplementation(async () => Response.json({
+      payments: [row, payment(2, false), payment(3, false), payment(4, false)],
+      summary: { totalEstimated: 0, totalPaid: 2125, totalRemaining: 0, totalPenalty: null },
+    }));
+    render();
+    await flush();
+    expect(text(render())).toContain(APPLIED_OVERPAYMENT_CREDIT_NOTE);
+    expect(APPLIED_OVERPAYMENT_CREDIT_NOTE).toBe('Overpayment from last year\'s return applied to this year. Credited on the first payment due date (usually April 15), not the date you filed.');
   });
 });
 

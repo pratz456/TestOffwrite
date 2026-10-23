@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { APPLIED_OVERPAYMENT_CREDIT_NOTE } from "@/lib/planner/planner-copy";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +43,7 @@ interface Payment {
   paymentMethod: string | null;
   status: "recorded" | "no_record";
   notes: string;
+  paymentType?: "estimated" | "prior_year_overpayment" | null;
   designatedTaxYear?: number | null;
   editRecordId?: string | null;
   editAmount?: number | null;
@@ -396,6 +398,9 @@ export function QuarterlyPaymentTrackingScreen({
                           <span>Confirmation: {payment.confirmationNumber}</span>
                         )}
                       </div>
+                    )}
+                    {payment.paymentType === "prior_year_overpayment" && (
+                      <p className="text-sm text-muted-foreground">{APPLIED_OVERPAYMENT_CREDIT_NOTE}</p>
                     )}
 
                     {(

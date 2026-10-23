@@ -7,6 +7,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { setPaymentEditHoldForTests } from '../lib/tax/payment-edit-hold';
 
 const enabled = process.env.WRITEOFF_RULES_EMULATOR_TESTS === '1';
 const projectId = process.env.WRITEOFF_RULES_PROJECT_ID || 'demo-writeoff-security';
@@ -55,6 +56,7 @@ async function clearPayments() {
 
 (enabled ? describe : describe.skip)('concurrent legacy payment edits on the Firestore emulator', () => {
   beforeAll(async () => {
+    setPaymentEditHoldForTests(() => new Promise(resolve => setTimeout(resolve, 750)));
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     let created = await authRequest('/accounts:signUp?key=demo-key', { email, password, returnSecureToken: true });
@@ -76,6 +78,7 @@ async function clearPayments() {
   });
 
   afterAll(async () => {
+    setPaymentEditHoldForTests(null);
     if (uid) await clearPayments();
     vi.restoreAllMocks();
   });

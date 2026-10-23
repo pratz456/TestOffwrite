@@ -3,7 +3,8 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb, FieldValue } from '@/lib/firebase/admin';
 import { getRecordedQuarterlyPayments } from '@/lib/firebase/quarterly-payments-server';
 import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
-import { assignInstallmentPeriod, getInstallmentDueDates } from '@/lib/tax-provider/quarterly-planner';
+import { holdPaymentEditForTests } from '@/lib/tax/payment-edit-hold';
+import { appliedOverpaymentCreditDate, assignInstallmentPeriod } from '@/lib/tax-provider/quarterly-planner';
 import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 
 const QUARTER_DEADLINES: { quarter: number; month: number; day: number; nextYear?: boolean }[] = [
@@ -266,7 +267,7 @@ export async function POST(request: NextRequest) {
       const current = existing.exists ? existing.data()! : createDefaultPayment(q, y);
       return NextResponse.json({ ...current, penalty: null });
     }
-    const effectiveDateFor = (taxYear: number) => applied ? getInstallmentDueDates(taxYear)[0].dueDate : paidDate;
+    const effectiveDateFor = (taxYear: number) => applied ? appliedOverpaymentCreditDate(taxYear) : paidDate;
     const hasPaymentId = present(rawPaymentId);
     const paymentId = hasPaymentId ? clientPaymentId(rawPaymentId) : null;
     if (hasPaymentId && !paymentId) {
@@ -347,10 +348,7 @@ export async function POST(request: NextRequest) {
           if (clientRef && attempt > 1 && liveId && liveId !== paymentId) {
             return { missing: false, conflict: true, record: null };
           }
-          // Hold the read open only for the emulator race test, so both edits observe the same record.
-          if (legacyRef && attempt === 1 && process.env.WRITEOFF_RULES_EMULATOR_TESTS === '1') {
-            await new Promise(resolve => setTimeout(resolve, 750));
-          }
+          if (legacyRef && attempt === 1) await holdPaymentEditForTests();
           const liveVersion = liveExists ? storedVersion(liveData) : storedVersion(anchor.data());
           const alreadyLive = snapshot.exists && sameSavedPayment(snapshot.data()) && (!liveId || liveId === paymentId);
           if (alreadyLive) return { missing: false, conflict: false, record: snapshot.data()! };
