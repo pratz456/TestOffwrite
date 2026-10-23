@@ -133,7 +133,8 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
   const conflictKeys = new Set((summary?.conflicts ?? []).flatMap(conflict => conflict.sources.map(sourceKey)));
   const claimedBy = new Map(candidates.flatMap(candidate => candidate.decisionId ? [[sourceKey(candidate), candidate.decisionId] as const] : []));
   const selectedCandidates = selected.flatMap(key => { const candidate = byKey.get(key); return candidate ? [candidate] : []; });
-  const blockSamePayments = features.guidedV1 && selectedCandidates.length > 0 && !samePaymentsAllowed(selectedCandidates);
+  const necFormCount = (items: ReadonlyArray<{ kind: string; formType?: string }>) => items.filter(item => item.kind === "form_1099" && item.formType === "1099-NEC").length;
+  const blockSamePayments = features.guidedV1 && necFormCount(selectedCandidates) >= 2 && !samePaymentsAllowed(selectedCandidates);
   const activeDecision: ReconciliationDecisionType | null = decision === "same_payments" && blockSamePayments ? null : decision;
   const hiddenDecision = activeDecision === "corrected_form_replaces" ? !features.guidedV1
     : activeDecision === "k_not_business_income" || activeDecision === "partial_overlap" ? !features.kNotBusinessIncome
@@ -180,7 +181,7 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
     const next = selected.includes(key) ? selected.filter(item => item !== key) : [...selected, key];
     setSelected(next);
     const nextCandidates = next.flatMap(item => { const candidate = byKey.get(item); return candidate ? [candidate] : []; });
-    if (features.guidedV1 && decision === "same_payments" && nextCandidates.length > 0 && !samePaymentsAllowed(nextCandidates)) setDecision(null);
+    if (features.guidedV1 && necFormCount(nextCandidates) >= 2 && decision === "same_payments" && !samePaymentsAllowed(nextCandidates)) setDecision(null);
   };
   const applySavedParts = (saved: SavedDecisionView) => {
     const refunds = saved.notBusinessParts.find(part => part.reason === "refunds_credits");

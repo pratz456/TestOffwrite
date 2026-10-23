@@ -532,6 +532,11 @@ describe('explicit choice and save rules', () => {
       expect(shown.status).toBe(400);
       expect(shown.body.error).toContain(DECISION_LABEL_CORRECTED);
       expect(String(shown.body.error)).not.toContain('corrected_form_replaces');
+      expect(String(shown.body.error)).not.toContain('same_payments');
+      expect(String(shown.body.error)).not.toContain('separate_income');
+      expect(String(shown.body.error)).not.toContain('k_includes_fees');
+      expect(String(shown.body.error)).not.toContain('k_not_business_income');
+      expect(String(shown.body.error)).not.toContain('partial_overlap');
       expect(state.writes).toEqual([]);
     } finally {
       delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
@@ -748,6 +753,7 @@ describe('guided copy stays off the reconciliation route', () => {
       delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
       state.docs.clear();
       state.writes.length = 0;
+      state.seq = 0;
       state.transactions = {};
       seed('income_1099', 'k1', { userId: 'owner-a', taxYear: 2026, amount: 8000, formType: '1099-K', payerName: 'Synthetic platform' });
       seed('income_1099', 'n1', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Client A' });
@@ -760,8 +766,8 @@ describe('guided copy stays off the reconciliation route', () => {
 
       const twoNec = await json(await POST(request('POST', { body: { taxYear: 2026, decision: 'same_payments', sources: [ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)] } })));
       expect(twoNec.status, String(value)).toBe(201);
-      expect(twoNec.body, String(value)).toMatchObject({ success: true, countedAmount: 12000 });
-      expect(twoNec.body).not.toHaveProperty('error');
+      expect(twoNec.body, String(value)).toEqual({ success: true, id: 'income_reconciliations-1', countedAmount: 12000 });
+      expect(state.writes, String(value)).toEqual(['add income_reconciliations/income_reconciliations-1']);
       assertNoGated(twoNec.body, `two nec ${String(value)}`);
 
       const separate = await json(await POST(request('POST', { body: {

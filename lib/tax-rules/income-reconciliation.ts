@@ -188,12 +188,11 @@ const okCheck = (
  */
 export interface ReconciliationValidateOptions {
   /**
-   * While the guided reconciliation switch is on, a new save rejects a same-payments
-   * decision made of two or more 1099-NECs. A stored decision for the current year
-   * is rejected only when that switch and the legacy NEC reopen switch are both on.
-   * Pass false to keep counting a decision that was saved before that rule, including
-   * a prior year that may already be filed. While the guided switch is off, this
-   * rejection is not returned and the save follows the base same-payments check.
+   * Reject a same-payments decision made of two or more 1099-NECs.
+   * Omitted: follow the guided reconciliation switch.
+   * Pass false to keep a decision saved before that rule, including a prior year
+   * that may already be filed. A stored current-year decision is rejected only
+   * when the guided switch and the legacy NEC reopen switch are both on.
    */
   rejectNecOnlySamePayments?: boolean;
 }
@@ -268,7 +267,7 @@ export function validateReconciliationDecision(
     // Two 1099s can report one payment stream. Duplicate receipts or deposits of one kind are
     // summed by the base rule, so they cannot be declared duplicates here.
     if (kinds.size < 2 && forms.length !== resolved.length) return { ok: false, reason: 'Select records of at least two kinds (a 1099, direct income or bank income) that describe the same payments.' };
-    if (guidedReconciliationV1Enabled() && !samePaymentsAllowed(resolved) && options.rejectNecOnlySamePayments !== false) {
+    if (!samePaymentsAllowed(resolved) && (options.rejectNecOnlySamePayments ?? guidedReconciliationV1Enabled())) {
       return { ok: false, reason: ERR_SAME_NEEDS_K };
     }
     if (feeCents) return { ok: false, reason: 'Record platform fees with the “1099-K includes fees” decision.' };
@@ -448,7 +447,7 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
     const filedYear = reconciliationYearMayAlreadyBeFiled(decision.taxYear);
     const protectFiledLegacy = legacyNecSamePayments(decision, byKey) && filedYear;
     const check = validateReconciliationDecision(decision, byKey, claimedBy, {
-      rejectNecOnlySamePayments: reopenNecOnly && !protectFiledLegacy,
+      rejectNecOnlySamePayments: guidedReconciliationV1Enabled() && reopenNecOnly && !protectFiledLegacy,
     });
     if (!check.ok) {
       const reopenedNow = reopenNecOnly && necOnly && !filedYear && check.reason === ERR_SAME_NEEDS_K;

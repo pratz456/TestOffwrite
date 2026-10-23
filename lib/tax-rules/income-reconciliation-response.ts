@@ -222,12 +222,13 @@ export function prepareReconciliationDecision(
     if (!(error instanceof IncomeReconciliationRequiredError)) throw error;
     return { ok: false, status: 422, reason: error.message };
   }
+  const keepLegacySamePayments = options.keepLegacySamePayments === true;
   const others = records.decisions.filter(record => record.id !== request.id);
   const { claimedBy } = resolveIncomeSources(taxYear, candidates, others);
   const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate] as const));
   const check = validateReconciliationDecision({
     ...request, taxYear, notBusinessParts: request.notBusinessParts ?? [],
-  }, byKey, claimedBy, { rejectNecOnlySamePayments: !options.keepLegacySamePayments });
+  }, byKey, claimedBy, { rejectNecOnlySamePayments: guidedReconciliationV1Enabled() && !keepLegacySamePayments });
   if (!check.ok) return { ok: false, status: 400, reason: check.reason };
   const notBusinessParts = request.decision === 'k_not_business_income'
     ? request.notBusinessParts.map(part => ({ reason: part.reason, amount: toCents(part.amount) / 100 }))

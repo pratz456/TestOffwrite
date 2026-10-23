@@ -22,8 +22,8 @@ import {
 } from '@/lib/firebase/income-reconciliations-server';
 import { ExportDataUnavailableError } from '@/lib/reports/export-records';
 import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
-import { formsConfirmationError, INCOME_SOURCE_KINDS, NOT_BUSINESS_REASONS, PAYMENT_METHOD_HINTS, RECONCILIATION_DECISION_TYPES } from '@/lib/tax-rules/income-reconciliation';
-import { DECISION_LABEL_CORRECTED, INVALID_DECISION_BODY, STALE_APP_REFRESH } from '@/lib/tax-rules/income-reconciliation-copy';
+import { DECISION_LABELS, formsConfirmationError, INCOME_SOURCE_KINDS, NOT_BUSINESS_REASONS, PAYMENT_METHOD_HINTS, RECONCILIATION_DECISION_TYPES } from '@/lib/tax-rules/income-reconciliation';
+import { INVALID_DECISION_BODY, STALE_APP_REFRESH } from '@/lib/tax-rules/income-reconciliation-copy';
 import { isLegacySamePaymentsResave, prepareReconciliationDecision, summarizeIncomeReconciliation } from '@/lib/tax-rules/income-reconciliation-response';
 import { guidedReconciliationV1Enabled, kNotBusinessIncomeEnabled, reconciliationDecisionNeedsKSwitch } from '@/lib/tax-rules/reconciliation-feature';
 
@@ -57,9 +57,9 @@ const updateInput = decisionInput.extend({ id: z.string().trim().min(1).max(200)
 const englishOr = (items: string[]) => items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
 const invalidBody = () => {
   if (!guidedReconciliationV1Enabled()) return INVALID_DECISION_BODY;
-  const types = ['same_payments', 'separate_income', 'k_includes_fees'];
-  if (kNotBusinessIncomeEnabled()) types.push('k_not_business_income', 'partial_overlap');
-  types.push(DECISION_LABEL_CORRECTED);
+  const types = [DECISION_LABELS.same_payments, DECISION_LABELS.separate_income, DECISION_LABELS.k_includes_fees];
+  if (kNotBusinessIncomeEnabled()) types.push(DECISION_LABELS.k_not_business_income, DECISION_LABELS.partial_overlap);
+  types.push(DECISION_LABELS.corrected_form_replaces);
   return `Provide the tax year, a decision type (${englishOr(types)}) and the records it covers with their current amounts.`;
 };
 

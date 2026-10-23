@@ -541,6 +541,30 @@ describe('reconciliation choice and guide question', () => {
     expect(content).toContain('Outside Schedule C, needs review $900.00');
   });
 
+  it('keeps same payments selected for one 1099-NEC and hides the two-form message', async () => {
+    const sameRadio = (tree: Element) => walk(tree).find(node => node.props?.type === 'radio' && node.props?.value === 'same_payments')!;
+    for (const guidedValue of [undefined, 'true', '0', '1'] as const) {
+      if (guidedValue === undefined) delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
+      else process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = guidedValue;
+      harness.slots = [];
+      records.receipts = [];
+      records.transactions = [];
+      records.decisions = [];
+      records.forms = [form('n1', 12000, '1099-NEC', 'Client A')];
+      render(panel); await flush();
+      const open = render(panel);
+      if (guidedValue === '1') radio(open, 'same_payments');
+      else expect(sameRadio(open).props.checked, String(guidedValue)).toBe(true);
+      check(render(panel), '1099-NEC · Client A $12,000.00');
+      const after = render(panel);
+      expect(text(after), String(guidedValue)).not.toContain(SAME_DISABLED_NEC);
+      expect(text(after), String(guidedValue)).not.toContain('Not available for two 1099-NECs');
+      expect(sameRadio(after).props.disabled, String(guidedValue)).toBe(false);
+      expect(sameRadio(after).props.checked, String(guidedValue)).toBe(true);
+    }
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
+  });
+
   it('disables same payments for two 1099-NEC forms and counts both on one separate-income save', async () => {
     process.env.legacyNecReopen = '1';
     records.receipts = [];
@@ -1155,7 +1179,9 @@ describe('reconciliation copy with every switch off', () => {
     check(tree, '1099-NEC · Client A $12,000.00');
     const second = walk(render(panel)).filter(item => item.props?.['aria-label'] === 'Select 1099-NEC · Client B $12,000.00');
     second[second.length - 1].props.onChange({ target: { checked: true } });
-    clickDecision(render(panel), 'same_payments');
+    const stillSelected = render(panel);
+    expect(walk(stillSelected).find(item => item.props?.type === 'radio' && item.props?.value === 'same_payments')!.props.checked, String(guidedValue)).toBe(true);
+    clickDecision(stillSelected, 'same_payments');
     tree = render(panel);
     keep(tree);
     expect(text(tree), String(guidedValue)).not.toContain(SAME_DISABLED_NEC);
