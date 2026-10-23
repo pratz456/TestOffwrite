@@ -38,7 +38,15 @@ describe('bounded assistant transaction reader', () => {
   });
   it('returns an invalid charge date as undated instead of dropping it', async () => {
     h.results.set('userId', [doc('one', { userId: 'owner', date: '2026-02-30', created_at: '2026-06-15T12:00:00Z' })]);
-    await expect(readAssistantTransactions('owner')).resolves.toEqual([
+    let rows: unknown;
+    let thrown: unknown;
+    try {
+      rows = await readAssistantTransactions('owner');
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown, 'invalid charge date is returned').toBeUndefined();
+    expect(rows).toEqual([
       expect.objectContaining({ date: '', needsMoreInformation: true, deductionStatus: 'Needs more information' }),
     ]);
   });

@@ -34,7 +34,13 @@ const fake = vi.hoisted(() => {
 });
 
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: fake.adminDb }));
+vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'owner' } }) }));
 
+import { NextRequest } from 'next/server';
+import { POST } from '@/app/api/transactions/[id]/review/route';
+import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { summarizeDashboardRecords } from '@/lib/dashboard/record-summary';
+import { selectExportYear } from '@/lib/reports/transaction-export';
 import { reviewTransaction, TransactionReviewError } from '@/lib/transactions/review';
 
 const uid = 'owner';
@@ -81,5 +87,36 @@ describe('undated vehicle confirmation', () => {
     expect(fake.docs.get(transactionPath)).toMatchObject({
       is_deductible: null, deductionStatus: 'Needs more information', category: 'VEHICLE_REVIEW_REQUIRED', review_status: 'confirmed',
     });
+  });
+
+  it('POST confirm of an undated vehicle charge stays out of every total', async () => {
+    seed(undefined);
+    const response = await POST(new NextRequest('http://localhost/api/transactions/fuel/review', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        action: 'correct', accountId, category: 'vehicle_expense', transactionKind: 'expense', isDeductible: true,
+        reason: 'Fuel for a client visit',
+      }),
+    }), { params: Promise.resolve({ id: 'fuel' }) });
+    expect(response.status).not.toBe(422);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.transaction).toMatchObject({ is_deductible: null, deductionStatus: 'Needs more information', category: 'VEHICLE_REVIEW_REQUIRED' });
+    const saved = { id: 'fuel', ...fake.docs.get(transactionPath) };
+    expect(saved.date).toBeUndefined();
+    for (const year of ['2024', '2025', '2026']) {
+      const totals = aggregateScheduleC([saved], year, CATEGORY_MAP, { mode: 'confirmed-only' });
+      expect(totals.totalDeductible).toBe(0);
+      expect(totals.totalExpenses).toBe(0);
+      expect(totals.needsMoreInformation).toBe(1);
+    }
+    for (const year of [2024, 2025, 2026]) {
+      expect(() => selectExportYear([saved], year)).toThrow(/missing or invalid dates/);
+    }
+    const dashboard = summarizeDashboardRecords([saved]);
+    expect(dashboard.needsMoreInformationCount).toBe(1);
+    expect(dashboard.deductibleCount).toBe(0);
+    expect(dashboard.categoryMagnitude).toBe(0);
   });
 });

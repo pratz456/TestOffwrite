@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
-import { chargeYear, safeTaxYear } from '@/lib/schedule-c/taxDate';
+import * as taxDate from '@/lib/schedule-c/taxDate';
+
+const { safeTaxYear } = taxDate;
+
+function chargeYear(record: { date?: unknown; datetime?: unknown } | null | undefined) {
+  expect(typeof taxDate.chargeYear).toBe('function');
+  return taxDate.chargeYear(record);
+}
 import { summarizeRecordedCashFlow } from '@/lib/dashboard/cash-flow-summary';
 import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
 import { buildMonthlySavings } from '@/lib/tax/savings-summary';

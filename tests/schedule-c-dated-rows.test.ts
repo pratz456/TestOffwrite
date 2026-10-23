@@ -1,11 +1,34 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
-import { chargeDay, chargeYear, safeTaxYear } from '@/lib/schedule-c/taxDate';
+import * as taxDate from '@/lib/schedule-c/taxDate';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { convertTransactionsToCSV, exportDate, selectExportYear } from '@/lib/reports/transaction-export';
-import { normalizeDoc } from '@/lib/firebase/transactions-server';
-import { taxYearOf, vehicleMethodForCharge } from '@/lib/transactions/review';
+import * as transactionServer from '@/lib/firebase/transactions-server';
+import * as reviewApi from '@/lib/transactions/review';
+
+const { safeTaxYear } = taxDate;
+
+function chargeDay(record: { date?: unknown; datetime?: unknown } | null | undefined) {
+  expect(typeof taxDate.chargeDay).toBe('function');
+  return taxDate.chargeDay(record);
+}
+function chargeYear(record: { date?: unknown; datetime?: unknown } | null | undefined) {
+  expect(typeof taxDate.chargeYear).toBe('function');
+  return taxDate.chargeYear(record);
+}
+function normalizeDoc(doc: { id: string; data(): Record<string, any> }) {
+  expect(typeof transactionServer.normalizeDoc).toBe('function');
+  return transactionServer.normalizeDoc(doc);
+}
+function taxYearOf(record: { date?: unknown; datetime?: unknown; created_at?: unknown; updated_at?: unknown } | null | undefined) {
+  expect(typeof reviewApi.taxYearOf).toBe('function');
+  return reviewApi.taxYearOf(record as never);
+}
+function vehicleMethodForCharge(record: { date?: unknown; datetime?: unknown; created_at?: unknown } | null | undefined, saved: unknown) {
+  expect(typeof reviewApi.vehicleMethodForCharge).toBe('function');
+  return reviewApi.vehicleMethodForCharge(record as never, saved);
+}
 import { buildMonthlySavings } from '@/lib/tax/savings-summary';
 import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
 
@@ -153,14 +176,25 @@ describe('offset timestamps keep the date written in the string', () => {
 describe('a space and a time, a trailing Z, or an English month keeps the written day', () => {
   it.each([
     '2025-01-05 10:00:00',
+    '2025-01-05 10:00',
     '2025-01-05Z',
     'Jan 5, 2025',
     'January 5, 2025',
     'jan 5 2025',
     'JANUARY 5, 2025',
-  ])('counts %s on 2025-01-05 in the 2025 total', (date) => {
+    '5 January 2025',
+    'Sun Jan 05 2025',
+    'Sept 5, 2025',
+    'Sept. 5, 2025',
+    'Jan 5, 2025 10:00 AM',
+    'January 5 2025 10:00',
+    ' 2025-01-05',
+    '2025-01-05 ',
+    '2025/01/05',
+  ])('counts %s on the written day in the 2025 total', (date) => {
     const row = confirmed({ id: 'written-day', date, amount: 55 });
-    expect(chargeDay(row)).toBe('2025-01-05');
+    const written = date.includes('Sept') ? '2025-09-05' : '2025-01-05';
+    expect(chargeDay(row)).toBe(written);
     expect(chargeYear(row)).toBe(2025);
     const year2025 = aggregateScheduleC([row], '2025', CATEGORY_MAP, { mode: 'confirmed-only' });
     const year2024 = aggregateScheduleC([row], '2024', CATEGORY_MAP, { mode: 'confirmed-only' });
