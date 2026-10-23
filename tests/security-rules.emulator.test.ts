@@ -263,6 +263,21 @@ async function seed(path: string, values: Record<string, string | number | boole
     await expect(uploadBytes(ref(aliceStorage, `receipts/${owner}/tx/empty.png`), new Uint8Array(), { contentType: 'image/png' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
     await expect(uploadBytes(ref(aliceStorage, `receipts/${owner}/tx/large.png`), new Uint8Array(10 * 1024 * 1024 + 1), { contentType: 'image/png' })).rejects.toMatchObject({ code: 'storage/unauthorized' });
   });
+  it('lets only the owner read vehicle records and mileage trips, and blocks client writes', async () => {
+    await seed('user_profiles/alice_uid/vehicles/legacy-vehicle-1', { name: 'Vehicle 1', method: 'unset', legacyMigration: true });
+    await seed('user_profiles/alice_uid/mileage_trips/trip-1', { userId: owner, startLocation: 'Home', endLocation: 'Office', miles: 12 });
+    await seed('user_profiles/bob/vehicles/bob-car', { name: 'Vehicle 1', method: 'unset' });
+    expect((await getDoc(doc(alice, 'user_profiles/alice_uid/vehicles/legacy-vehicle-1'))).data()?.name).toBe('Vehicle 1');
+    expect((await getDocs(collection(alice, 'user_profiles/alice_uid/vehicles'))).size).toBe(1);
+    expect((await getDoc(doc(alice, 'user_profiles/alice_uid/mileage_trips/trip-1'))).data()?.startLocation).toBe('Home');
+    await expect(getDoc(doc(bob, 'user_profiles/alice_uid/vehicles/legacy-vehicle-1'))).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(getDoc(doc(alice, 'user_profiles/bob/vehicles/bob-car'))).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(getDoc(doc(anonymous, 'user_profiles/alice_uid/mileage_trips/trip-1'))).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(setDoc(doc(alice, 'user_profiles/alice_uid/vehicles/forged'), { name: 'Forged', method: 'standard_mileage' })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(updateDoc(doc(alice, 'user_profiles/alice_uid/vehicles/legacy-vehicle-1'), { method: 'standard_mileage' })).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(deleteDoc(doc(alice, 'user_profiles/alice_uid/mileage_trips/trip-1'))).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(setDoc(doc(bob, 'user_profiles/alice_uid/mileage_trips/foreign'), { userId: 'bob', miles: 1 })).rejects.toMatchObject({ code: 'permission-denied' });
+  });
   it('rejects direct receipt replacements regardless of content type', async () => {
     const receipt = ref(aliceStorage, `receipts/${owner}/tx/replacement.png`);
     await expect(uploadBytes(receipt, png, { contentType: 'image/png' })).rejects.toMatchObject({ code: 'storage/unauthorized' });

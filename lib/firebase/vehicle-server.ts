@@ -1,0 +1,143 @@
+import { enqueueProfileAnalysisRefresh } from '@/lib/ai/profile-analysis-refresh';
+import { MILEAGE_VEHICLE_COPY, mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
+import {
+  blankVehicle,
+  planLegacyVehicle,
+  saveVehicle,
+  vehicleAnalysisStamp,
+  vehicleFromDocument,
+  vehicleToDocument,
+  type LegacyVehicleProfile,
+  type VehiclePatch,
+  type VehicleRecord,
+  type YesNo,
+} from '@/lib/mileage/vehicles';
+import { adminDb } from './admin';
+
+async function queueVehicleAnalysis(userId: string): Promise<void> {
+  try {
+    await enqueueProfileAnalysisRefresh(userId);
+  } catch (error) {
+    console.error('vehicle analysis refresh failed', error);
+  }
+}
+
+function fiveAtOnceFrom(data: Record<string, unknown> | undefined): YesNo | null {
+  const value = data?.vehiclesFiveAtOnce;
+  return value === 'yes' || value === 'no' ? value : null;
+}
+
+function profileFrom(data: Record<string, unknown> | undefined): LegacyVehicleProfile {
+  const nested = data?.business_vehicle;
+  return {
+    vehicle_deduction_method: typeof data?.vehicle_deduction_method === 'string' ? data.vehicle_deduction_method : null,
+    vehicle_business_use_percentage: typeof data?.vehicle_business_use_percentage === 'number' ? data.vehicle_business_use_percentage : null,
+    business_vehicle: nested && typeof nested === 'object' ? nested as LegacyVehicleProfile['business_vehicle'] : null,
+  };
+}
+
+/** Owner vehicle list only. A failed read leaves the caller on the profile fallback. */
+export async function readUserVehicleRecords(userId: string): Promise<VehicleRecord[] | undefined> {
+  try {
+    const snap = await adminDb.doc(`user_profiles/${userId}`).collection('vehicles').get();
+    const docs = (snap as { docs?: Array<{ id: string; data: () => Record<string, unknown> }> }).docs;
+    return Array.isArray(docs) ? docs.map(doc => vehicleFromDocument(doc.id, doc.data())) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Builds vehicle 1 from old profile fields for this read. Stored data is left unchanged. */
+export async function ensureUserVehicles(userId: string): Promise<{ data: VehicleRecord[]; fiveAtOnce: YesNo | null; error: { message: string } | null }> {
+  try {
+    const profileRef = adminDb.collection('user_profiles').doc(userId);
+    const vehiclesRef = profileRef.collection('vehicles');
+    const read = await adminDb.runTransaction(async tx => {
+      const profileSnap = await tx.get(profileRef);
+      const vehicleSnap = await tx.get(vehiclesRef);
+      const existing = vehicleSnap.docs.map(doc => vehicleFromDocument(doc.id, doc.data()));
+      return {
+        vehicles: planLegacyVehicle(profileFrom(profileSnap.data()), existing).vehicles,
+        fiveAtOnce: fiveAtOnceFrom(profileSnap.data()),
+      };
+    });
+    return { data: read.vehicles, fiveAtOnce: read.fiveAtOnce, error: null };
+  } catch (error) {
+    console.error('vehicle read failed', error);
+    return { data: [], fiveAtOnce: null, error: { message: MILEAGE_VEHICLE_COPY.loadFailed } };
+  }
+}
+
+export async function addUserVehicle(userId: string): Promise<{ data: VehicleRecord | null; error: { message: string; status: number } | null }> {
+  if (!mileageVehicleCopyEnabled()) return { data: null, error: { message: MILEAGE_VEHICLE_COPY.addFailed, status: 403 } };
+  try {
+    const profileRef = adminDb.collection('user_profiles').doc(userId);
+    const vehiclesRef = profileRef.collection('vehicles');
+    const created = await adminDb.runTransaction(async tx => {
+      const profileSnap = await tx.get(profileRef);
+      const vehicleSnap = await tx.get(vehiclesRef);
+      const existing = vehicleSnap.docs.map(doc => vehicleFromDocument(doc.id, doc.data()));
+      const plan = planLegacyVehicle(profileFrom(profileSnap.data()), existing);
+      if (plan.inserted) tx.set(vehiclesRef.doc(plan.inserted.id), vehicleToDocument(plan.inserted));
+      const id = vehiclesRef.doc().id;
+      const vehicle = blankVehicle(id, plan.vehicles.length);
+      tx.set(vehiclesRef.doc(id), vehicleToDocument(vehicle));
+      tx.set(profileRef, { vehicles: vehicleAnalysisStamp([...plan.vehicles, vehicle]) }, { merge: true });
+      return vehicle;
+    });
+    await queueVehicleAnalysis(userId);
+    return { data: created, error: null };
+  } catch (error) {
+    console.error('vehicle add failed', error);
+    return { data: null, error: { message: MILEAGE_VEHICLE_COPY.addFailed, status: 500 } };
+  }
+}
+
+export async function saveUserVehicle(
+  userId: string,
+  vehicleId: string,
+  patch: VehiclePatch,
+): Promise<{ data: VehicleRecord | null; fiveAtOnce: YesNo | null; question: string | null; error: { message: string; status: number } | null }> {
+  if (!mileageVehicleCopyEnabled()) return { data: null, fiveAtOnce: null, question: null, error: { message: MILEAGE_VEHICLE_COPY.saveFailed, status: 403 } };
+  try {
+    const profileRef = adminDb.collection('user_profiles').doc(userId);
+    const vehiclesRef = profileRef.collection('vehicles');
+    let saved: VehicleRecord | null = null;
+    let reason: string | null = null;
+    let fiveAtOnce: YesNo | null = null;
+    let question: string | null = null;
+    await adminDb.runTransaction(async tx => {
+      saved = null;
+      reason = null;
+      fiveAtOnce = null;
+      question = null;
+      const profileSnap = await tx.get(profileRef);
+      const vehicleSnap = await tx.get(vehiclesRef);
+      const existing = vehicleSnap.docs.map(doc => vehicleFromDocument(doc.id, doc.data()));
+      const plan = planLegacyVehicle(profileFrom(profileSnap.data()), existing);
+      if (plan.inserted) tx.set(vehiclesRef.doc(plan.inserted.id), vehicleToDocument(plan.inserted));
+      const stored = fiveAtOnceFrom(profileSnap.data());
+      const result = saveVehicle(plan.vehicles, vehicleId, patch, stored);
+      if (!result.ok) {
+        reason = result.reason;
+        return;
+      }
+      const vehicle = result.vehicles.find(item => item.id === vehicleId) ?? null;
+      if (!vehicle) {
+        reason = MILEAGE_VEHICLE_COPY.vehicleMissing;
+        return;
+      }
+      fiveAtOnce = patch.fiveAtOnce !== undefined ? patch.fiveAtOnce ?? null : stored;
+      question = result.question;
+      tx.set(vehiclesRef.doc(vehicleId), vehicleToDocument(vehicle));
+      tx.set(profileRef, { vehicles: vehicleAnalysisStamp(result.vehicles), vehiclesFiveAtOnce: fiveAtOnce }, { merge: true });
+      saved = vehicle;
+    });
+    if (reason || !saved) return { data: null, fiveAtOnce: null, question: null, error: { message: reason ?? MILEAGE_VEHICLE_COPY.saveFailed, status: reason ? 400 : 500 } };
+    await queueVehicleAnalysis(userId);
+    return { data: saved, fiveAtOnce, question, error: null };
+  } catch (error) {
+    console.error('vehicle save failed', error);
+    return { data: null, fiveAtOnce: null, question: null, error: { message: MILEAGE_VEHICLE_COPY.saveFailed, status: 500 } };
+  }
+}

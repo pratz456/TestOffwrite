@@ -3,6 +3,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb, FieldValue } from '@/lib/firebase/admin';
 import { migrateLegacyPlaidConnection } from '@/lib/plaid/connections';
 import { EDITABLE_PROFILE_FIELDS, publicProfile } from '@/lib/firebase/profile-fields';
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { parseConsentRecord, storedDocumentImportSignature } from '@/lib/onboarding/consents';
 import { encryptSensitive } from '@/lib/security/utils';
 import { isLocalAccountPreview } from '@/lib/firebase/local-account-preview';
@@ -82,7 +83,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'A profile object is required' }, { status: 400 });
   }
   const body: Record<string, any> = { ...parsedBody };
-  if (Object.keys(body).some(key => !EDITABLE_PROFILE_FIELDS.has(key))) {
+  const editableFields = new Set(EDITABLE_PROFILE_FIELDS);
+  if (!mileageVehicleCopyEnabled()) editableFields.delete('vehicles');
+  if (Object.keys(body).some(key => !editableFields.has(key))) {
     return NextResponse.json({ error: 'Profile contains fields that cannot be edited' }, { status: 400 });
   }
   if (JSON.stringify(body).length > 32_768) return NextResponse.json({ error: 'Profile is too large' }, { status: 413 });

@@ -1,0 +1,848 @@
+import { MILEAGE_VEHICLE_COPY, mileageVehicleCopyEnabled } from './vehicle-copy';
+
+export const LEGACY_VEHICLE_ID = 'legacy-vehicle-1';
+export const SIMULTANEOUS_STANDARD_MILEAGE_LIMIT = 5;
+
+export type DeductionMethod = 'standard_mileage' | 'actual_expense' | 'unset';
+export type CommittedMethod = Exclude<DeductionMethod, 'unset'>;
+export type VehicleOwnership = 'owned' | 'leased' | 'not_answered';
+export type YesNo = 'yes' | 'no';
+export type TripType = 'business' | 'commute' | 'personal';
+export type HomeDestination = 'regular_work' | 'temporary_work' | 'second_work';
+export type DepreciationMethod = 'macrs' | 'straight_line';
+
+export interface PartIVAnswers {
+  offDutyPersonalUse: YesNo | null;
+  otherVehicleForPersonalUse: YesNo | null;
+  hasEvidence: YesNo | null;
+  evidenceWritten: YesNo | null;
+}
+
+export interface OdometerReadings {
+  start: number | null;
+  end: number | null;
+  startDate: string | null;
+  endDate: string | null;
+}
+
+export interface VehicleReviewItem {
+  id: 'legacy_method_disagreement' | 'mid_year_method_change';
+  message: string;
+  taxYear?: number;
+}
+
+export interface VehicleRecord {
+  id: string;
+  name: string;
+  method: DeductionMethod;
+  /** One method for each tax year. Empty until a year is saved. A migrated car keeps `method` until then. */
+  methodByYear: Record<string, DeductionMethod>;
+  ownership: VehicleOwnership;
+  datePlacedInService: string;
+  dateDisposed: string;
+  /** Date a personal car was converted to business use. Empty until that date is saved. */
+  dateConvertedToBusiness: string;
+  odometerByYear: Record<string, OdometerReadings>;
+  partIVByYear: Record<string, PartIVAnswers>;
+  legacyBusinessUsePercentage: number | null;
+  legacyMigration: boolean;
+  reviewItems: VehicleReviewItem[];
+  firstBusinessMethod: CommittedMethod | null;
+  depreciationMethod: DepreciationMethod | null;
+  standardMileageSelected: boolean;
+  leasedStandardLock: boolean;
+}
+
+export interface LegacyVehicleProfile {
+  vehicle_deduction_method?: string | null;
+  vehicle_business_use_percentage?: number | null;
+  business_vehicle?: {
+    make?: string | null;
+    model?: string | null;
+    year?: number | string | null;
+    business_use_percentage?: number | null;
+    deduction_method?: string | null;
+  } | null;
+}
+
+export interface MileageTripFields {
+  id: string;
+  date: string;
+  startLocation: string;
+  endLocation: string;
+  miles: number;
+  businessPurpose: string;
+  roundTrip: boolean;
+  vehicleId: string | null;
+  tripType: TripType | null;
+  homeDestination: HomeDestination | null;
+  /** Set when stored miles are not a finite number, so the trip is left out of mileage totals. */
+  needsReview?: boolean;
+  reviewReason?: string;
+}
+
+export const UNREADABLE_TRIP_MILES = 'Miles on this trip could not be read.';
+
+export interface VehiclePatch {
+  name?: string;
+  method?: DeductionMethod;
+  ownership?: VehicleOwnership;
+  datePlacedInService?: string;
+  dateDisposed?: string;
+  dateConvertedToBusiness?: string;
+  /** When set after the year's start, the method is not stored. The year keeps one method. */
+  methodEffectiveDate?: string;
+  taxYear?: number;
+  odometerStart?: number | null;
+  odometerEnd?: number | null;
+  partIV?: Partial<PartIVAnswers>;
+  /** Per user, not per car. Yes blocks the standard rate when five business cars overlap. */
+  fiveAtOnce?: YesNo | null;
+}
+
+export type SaveVehicleResult = { ok: true; vehicles: VehicleRecord[]; question: string | null } | { ok: false; reason: string };
+
+const METHODS = new Set<DeductionMethod>(['standard_mileage', 'actual_expense', 'unset']);
+const OWNERSHIP = new Set<VehicleOwnership>(['owned', 'leased', 'not_answered']);
+const PART_IV_KEYS = ['offDutyPersonalUse', 'otherVehicleForPersonalUse', 'hasEvidence', 'evidenceWritten'] as const;
+
+export function emptyPartIV(): PartIVAnswers {
+  return { offDutyPersonalUse: null, otherVehicleForPersonalUse: null, hasEvidence: null, evidenceWritten: null };
+}
+
+export function blankVehicle(id: string, existingCount: number): VehicleRecord {
+  return {
+    id,
+    name: MILEAGE_VEHICLE_COPY.vehicleNumber(existingCount + 1),
+    method: 'unset',
+    methodByYear: {},
+    ownership: 'not_answered',
+    datePlacedInService: '',
+    dateDisposed: '',
+    dateConvertedToBusiness: '',
+    odometerByYear: {},
+    partIVByYear: {},
+    legacyBusinessUsePercentage: null,
+    legacyMigration: false,
+    reviewItems: [],
+    firstBusinessMethod: null,
+    depreciationMethod: null,
+    standardMileageSelected: false,
+    leasedStandardLock: false,
+  };
+}
+
+export function odometerReadingDates(vehicle: Pick<VehicleRecord, 'datePlacedInService' | 'dateDisposed'>, taxYear: number): { startDate: string; endDate: string } {
+  const jan1 = `${taxYear}-01-01`;
+  const dec31 = `${taxYear}-12-31`;
+  const placed = vehicle.datePlacedInService;
+  const disposed = vehicle.dateDisposed;
+  return {
+    startDate: placed && placed > jan1 ? placed : jan1,
+    endDate: disposed && disposed < dec31 ? disposed : dec31,
+  };
+}
+
+export function methodForYear(vehicle: VehicleRecord, taxYear: number): DeductionMethod {
+  const key = String(taxYear);
+  if (Object.prototype.hasOwnProperty.call(vehicle.methodByYear, key)) return vehicle.methodByYear[key];
+  return Object.keys(vehicle.methodByYear).length === 0 ? vehicle.method : 'unset';
+}
+
+export function odometerForYear(vehicle: VehicleRecord, taxYear: number): OdometerReadings {
+  const stored = vehicle.odometerByYear[String(taxYear)] ?? { start: null, end: null, startDate: null, endDate: null };
+  const dates = odometerReadingDates(vehicle, taxYear);
+  return {
+    start: stored.start,
+    end: stored.end,
+    startDate: stored.start === null ? null : stored.startDate ?? dates.startDate,
+    endDate: stored.end === null ? null : stored.endDate ?? dates.endDate,
+  };
+}
+
+export function partIVForYear(vehicle: VehicleRecord, taxYear: number): PartIVAnswers {
+  return vehicle.partIVByYear[String(taxYear)] ?? emptyPartIV();
+}
+
+export function vehicleNeedsReview(vehicle: VehicleRecord, taxYear: number): boolean {
+  const readings = odometerForYear(vehicle, taxYear);
+  return methodForYear(vehicle, taxYear) === 'unset' || readings.start === null || readings.end === null;
+}
+
+function committedMethod(value: unknown): CommittedMethod | null {
+  return value === 'standard_mileage' || value === 'actual_expense' ? value : null;
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : value === undefined || value === null ? '' : String(value).trim();
+}
+
+export function legacyVehicleFieldsPresent(profile: LegacyVehicleProfile): boolean {
+  if (committedMethod(profile.vehicle_deduction_method)) return true;
+  if (finiteNumber(profile.vehicle_business_use_percentage) !== null) return true;
+  const nested = profile.business_vehicle;
+  if (!nested) return false;
+  if (text(nested.make) || text(nested.model) || text(nested.year)) return true;
+  if (committedMethod(nested.deduction_method)) return true;
+  return finiteNumber(nested.business_use_percentage) !== null;
+}
+
+export function planLegacyVehicle(profile: LegacyVehicleProfile, existing: readonly VehicleRecord[]): { vehicles: VehicleRecord[]; inserted: VehicleRecord | null } {
+  if (existing.some(vehicle => vehicle.legacyMigration)) return { vehicles: [...existing], inserted: null };
+  if (!legacyVehicleFieldsPresent(profile)) return { vehicles: [...existing], inserted: null };
+  const top = committedMethod(profile.vehicle_deduction_method);
+  const nested = committedMethod(profile.business_vehicle?.deduction_method);
+  const disagree = Boolean(top && nested && top !== nested);
+  const method: DeductionMethod = disagree ? 'unset' : top || nested || 'unset';
+  const percentage = finiteNumber(profile.vehicle_business_use_percentage) ?? finiteNumber(profile.business_vehicle?.business_use_percentage);
+  const name = [text(profile.business_vehicle?.make), text(profile.business_vehicle?.model), text(profile.business_vehicle?.year)].filter(Boolean).join(' ');
+  const vehicle = blankVehicle(LEGACY_VEHICLE_ID, 0);
+  vehicle.name = name || MILEAGE_VEHICLE_COPY.vehicleFallbackName;
+  vehicle.legacyMigration = true;
+  vehicle.legacyBusinessUsePercentage = percentage;
+  vehicle.method = method;
+  if (method === 'standard_mileage') {
+    vehicle.firstBusinessMethod = 'standard_mileage';
+    vehicle.standardMileageSelected = true;
+  } else if (method === 'actual_expense') {
+    vehicle.firstBusinessMethod = 'actual_expense';
+    vehicle.depreciationMethod = 'macrs';
+  }
+  if (disagree) {
+    vehicle.reviewItems = [{ id: 'legacy_method_disagreement', message: MILEAGE_VEHICLE_COPY.methodDisagree }];
+  }
+  return { vehicles: [...existing, vehicle], inserted: vehicle };
+}
+
+export interface VehicleMigrationStore {
+  readProfile(): LegacyVehicleProfile;
+  readVehicles(): VehicleRecord[];
+  writeVehicle(vehicle: VehicleRecord): void;
+}
+
+/** Lazy, idempotent derivation. Reads legacy fields and writes only a new vehicle record. */
+export function migrateLegacyVehicles(store: VehicleMigrationStore): VehicleRecord[] {
+  const profile = store.readProfile();
+  const original = JSON.stringify(profile);
+  const plan = planLegacyVehicle(profile, store.readVehicles());
+  if (JSON.stringify(profile) !== original) throw new Error('Legacy vehicle migration changed profile fields');
+  if (plan.inserted) store.writeVehicle(plan.inserted);
+  return plan.vehicles;
+}
+
+function validDate(value: string): boolean {
+  if (value === '') return true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  return new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+}
+
+function reading(value: number | null): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return MILEAGE_VEHICLE_COPY.invalidOdometer;
+  return null;
+}
+
+function validatePatch(patch: VehiclePatch): string | null {
+  if (patch.name !== undefined && (patch.name.trim().length < 1 || patch.name.trim().length > 80)) return MILEAGE_VEHICLE_COPY.enterName;
+  if (patch.method !== undefined && !METHODS.has(patch.method)) return MILEAGE_VEHICLE_COPY.invalidMethod;
+  if (patch.ownership !== undefined && !OWNERSHIP.has(patch.ownership)) return MILEAGE_VEHICLE_COPY.invalidOwnership;
+  if (patch.datePlacedInService !== undefined && !validDate(patch.datePlacedInService)) return MILEAGE_VEHICLE_COPY.invalidDate;
+  if (patch.dateDisposed !== undefined && !validDate(patch.dateDisposed)) return MILEAGE_VEHICLE_COPY.invalidDate;
+  if (patch.dateConvertedToBusiness !== undefined && !validDate(patch.dateConvertedToBusiness)) return MILEAGE_VEHICLE_COPY.invalidDate;
+  if (patch.methodEffectiveDate !== undefined && !validDate(patch.methodEffectiveDate)) return MILEAGE_VEHICLE_COPY.invalidMethodDate;
+  if (patch.odometerStart !== undefined) {
+    const reason = reading(patch.odometerStart);
+    if (reason) return reason;
+  }
+  if (patch.odometerEnd !== undefined) {
+    const reason = reading(patch.odometerEnd);
+    if (reason) return reason;
+  }
+  if (patch.fiveAtOnce !== undefined && patch.fiveAtOnce !== null && patch.fiveAtOnce !== 'yes' && patch.fiveAtOnce !== 'no') {
+    return MILEAGE_VEHICLE_COPY.invalidAnswer;
+  }
+  if (patch.partIV) {
+    for (const key of PART_IV_KEYS) {
+      if (patch.partIV[key] !== undefined && patch.partIV[key] !== null && patch.partIV[key] !== 'yes' && patch.partIV[key] !== 'no') {
+        return MILEAGE_VEHICLE_COPY.invalidAnswer;
+      }
+    }
+  }
+  if ((patch.odometerStart !== undefined || patch.odometerEnd !== undefined || patch.partIV) && (patch.taxYear === undefined || !Number.isInteger(patch.taxYear) || patch.taxYear < 2000 || patch.taxYear > 2100)) {
+    return MILEAGE_VEHICLE_COPY.invalidOdometer;
+  }
+  return null;
+}
+
+function applyPatch(current: VehicleRecord, patch: VehiclePatch): VehicleRecord {
+  const next: VehicleRecord = {
+    ...current,
+    odometerByYear: { ...current.odometerByYear },
+    partIVByYear: { ...current.partIVByYear },
+    reviewItems: current.reviewItems.map(item => ({ ...item })),
+  };
+  if (patch.name !== undefined) next.name = patch.name.trim();
+  if (patch.ownership !== undefined) next.ownership = patch.ownership;
+  if (patch.datePlacedInService !== undefined) next.datePlacedInService = patch.datePlacedInService;
+  if (patch.dateDisposed !== undefined) next.dateDisposed = patch.dateDisposed;
+  if (patch.dateConvertedToBusiness !== undefined) next.dateConvertedToBusiness = patch.dateConvertedToBusiness;
+  const year = patch.taxYear === undefined ? null : String(patch.taxYear);
+  if (year && (patch.odometerStart !== undefined || patch.odometerEnd !== undefined)) {
+    const previous = next.odometerByYear[year] ?? { start: null, end: null, startDate: null, endDate: null };
+    next.odometerByYear[year] = stampReading(next, patch.taxYear!, {
+      start: patch.odometerStart !== undefined ? patch.odometerStart : previous.start,
+      end: patch.odometerEnd !== undefined ? patch.odometerEnd : previous.end,
+    });
+  }
+  if (patch.datePlacedInService !== undefined || patch.dateDisposed !== undefined) {
+    for (const [storedYear, readings] of Object.entries(next.odometerByYear)) {
+      next.odometerByYear[storedYear] = stampReading(next, Number(storedYear), readings);
+    }
+  }
+  if (year && patch.partIV) {
+    const previous = next.partIVByYear[year] ?? emptyPartIV();
+    const answers = { ...previous };
+    for (const key of PART_IV_KEYS) {
+      if (patch.partIV[key] !== undefined) answers[key] = patch.partIV[key] ?? null;
+    }
+    next.partIVByYear[year] = answers;
+  }
+  return next;
+}
+
+export function vehicleInBusinessUse(vehicle: VehicleRecord): boolean {
+  return vehicle.method !== 'unset' || vehicle.datePlacedInService !== '';
+}
+
+/** In service from datePlacedInService through dateDisposed. A missing start stays open, and overlaps, unless the car is disposed. */
+function serviceInterval(vehicle: Pick<VehicleRecord, 'datePlacedInService' | 'dateDisposed'>): { start: string | null; end: string | null } {
+  const start = vehicle.datePlacedInService || null;
+  const end = vehicle.dateDisposed || null;
+  if (!start && end) return { start: end, end };
+  return { start, end };
+}
+
+function servicePeriodsOverlap(
+  left: Pick<VehicleRecord, 'datePlacedInService' | 'dateDisposed'>,
+  right: Pick<VehicleRecord, 'datePlacedInService' | 'dateDisposed'>,
+): boolean {
+  const a = serviceInterval(left);
+  const b = serviceInterval(right);
+  if (a.end && b.start && a.end < b.start) return false;
+  if (b.end && a.start && b.end < a.start) return false;
+  return true;
+}
+
+/** Business cars whose service dates overlap this one, including this one when it is in business use. */
+function overlappingBusinessCars(vehicles: readonly VehicleRecord[], subject: VehicleRecord): VehicleRecord[] {
+  return vehicles.filter(vehicle => vehicleInBusinessUse(vehicle) && servicePeriodsOverlap(vehicle, subject));
+}
+
+/** Five or more business cars have overlapping service dates. Dates alone do not choose the method. */
+export function fiveBusinessCarsOverlap(vehicles: readonly VehicleRecord[]): boolean {
+  return vehicles.some(vehicle => overlappingBusinessCars(vehicles, vehicle).length >= SIMULTANEOUS_STANDARD_MILEAGE_LIMIT);
+}
+
+/**
+ * Shown while five business cars overlap and the user has not said whether they are used at the same time.
+ * An answer of no leaves the standard rate available. An answer of yes is what blocks it.
+ */
+export function fiveAtOnceQuestion(vehicles: readonly VehicleRecord[], answer: YesNo | null): string | null {
+  if (answer !== null || !fiveBusinessCarsOverlap(vehicles)) return null;
+  return MILEAGE_VEHICLE_COPY.fiveAtOnceQuestion;
+}
+
+function chosenFiveAtOnce(patch: VehiclePatch, stored: YesNo | null): YesNo | null {
+  return patch.fiveAtOnce !== undefined ? patch.fiveAtOnce ?? null : stored;
+}
+
+function methodRuleReason(current: VehicleRecord, next: VehicleRecord, fleet: readonly VehicleRecord[], fiveAtOnce: YesNo | null): string | null {
+  const startedOnActual = current.firstBusinessMethod === 'actual_expense' || current.depreciationMethod === 'macrs';
+  if (next.method === 'standard_mileage') {
+    // Pub 463 blocks the standard rate only when five or more cars are used for business at the same time.
+    if (fiveAtOnce === 'yes' && overlappingBusinessCars(fleet, next).length >= SIMULTANEOUS_STANDARD_MILEAGE_LIMIT) {
+      return MILEAGE_VEHICLE_COPY.fiveVehicles;
+    }
+    if (next.ownership === 'leased' && startedOnActual) return MILEAGE_VEHICLE_COPY.leaseWhole;
+    // Actual expenses in the first business year include MACRS, section 179, and bonus depreciation.
+    if (next.ownership !== 'leased' && startedOnActual) return MILEAGE_VEHICLE_COPY.macrsLock;
+  }
+  if (next.method === 'actual_expense' && (current.leasedStandardLock || (next.ownership === 'leased' && current.standardMileageSelected))) {
+    return MILEAGE_VEHICLE_COPY.leaseStay;
+  }
+  return null;
+}
+
+function withMethodHistory(current: VehicleRecord, next: VehicleRecord): VehicleRecord {
+  const result: VehicleRecord = { ...next };
+  if (result.method === 'standard_mileage') {
+    result.firstBusinessMethod = current.firstBusinessMethod ?? 'standard_mileage';
+    result.standardMileageSelected = true;
+    result.depreciationMethod = current.depreciationMethod;
+    if (result.ownership === 'leased') result.leasedStandardLock = true;
+  } else if (result.method === 'actual_expense') {
+    result.firstBusinessMethod = current.firstBusinessMethod ?? 'actual_expense';
+    result.standardMileageSelected = current.standardMileageSelected;
+    result.leasedStandardLock = current.leasedStandardLock;
+    if (current.standardMileageSelected || current.firstBusinessMethod === 'standard_mileage') result.depreciationMethod = 'straight_line';
+    else result.depreciationMethod = current.depreciationMethod ?? 'macrs';
+  }
+  if (result.ownership === 'leased' && result.standardMileageSelected) result.leasedStandardLock = true;
+  if (result.method !== 'unset') {
+    result.reviewItems = result.reviewItems.filter(item => item.id !== 'legacy_method_disagreement');
+  }
+  return result;
+}
+
+function stampReading(vehicle: Pick<VehicleRecord, 'datePlacedInService' | 'dateDisposed'>, taxYear: number, readings: Pick<OdometerReadings, 'start' | 'end'>): OdometerReadings {
+  const dates = odometerReadingDates(vehicle, taxYear);
+  return {
+    start: readings.start,
+    end: readings.end,
+    startDate: readings.start === null ? null : dates.startDate,
+    endDate: readings.end === null ? null : dates.endDate,
+  };
+}
+
+function replaceVehicle(vehicles: readonly VehicleRecord[], saved: VehicleRecord): VehicleRecord[] {
+  return vehicles.map(vehicle => vehicle.id === saved.id ? saved : vehicle);
+}
+
+export function saveVehicle(
+  vehicles: readonly VehicleRecord[],
+  vehicleId: string,
+  patch: VehiclePatch,
+  storedFiveAtOnce: YesNo | null = null,
+): SaveVehicleResult {
+  const current = vehicles.find(vehicle => vehicle.id === vehicleId);
+  if (!current) return { ok: false, reason: MILEAGE_VEHICLE_COPY.vehicleMissing };
+  const invalid = validatePatch(patch);
+  if (invalid) return { ok: false, reason: invalid };
+  const fiveAtOnce = chosenFiveAtOnce(patch, storedFiveAtOnce);
+  const savedFleet = (next: VehicleRecord[]): SaveVehicleResult => ({
+    ok: true,
+    vehicles: next,
+    question: fiveAtOnceQuestion(next, fiveAtOnce),
+  });
+  const patched = applyPatch(current, patch);
+  if (patch.method === undefined) {
+    const touchesRules = patch.ownership !== undefined || patch.datePlacedInService !== undefined;
+    if (touchesRules) {
+      const fleet = replaceVehicle(vehicles, patched);
+      const reason = methodRuleReason(current, patched, fleet, fiveAtOnce);
+      if (reason) return { ok: false, reason };
+    }
+    const saved = touchesRules ? withMethodHistory(current, patched) : patched;
+    return savedFleet(replaceVehicle(vehicles, saved));
+  }
+  const taxYear = patch.taxYear ?? null;
+  if (patch.methodEffectiveDate && taxYear === null) return { ok: false, reason: MILEAGE_VEHICLE_COPY.invalidMethodDate };
+  if (patch.methodEffectiveDate && taxYear !== null && !patch.methodEffectiveDate.startsWith(String(taxYear))) {
+    return { ok: false, reason: MILEAGE_VEHICLE_COPY.invalidMethodDate };
+  }
+  const candidate = { ...patched, method: patch.method, methodByYear: { ...patched.methodByYear } };
+  if (taxYear !== null) candidate.methodByYear[String(taxYear)] = patch.method;
+  const fleet = replaceVehicle(vehicles, candidate);
+  const reason = methodRuleReason(current, candidate, fleet, fiveAtOnce);
+  if (reason) return { ok: false, reason };
+  if (taxYear !== null && patch.methodEffectiveDate && patch.method !== methodForYear(patched, taxYear)) {
+    const bounds = odometerReadingDates(patched, taxYear);
+    if (patch.methodEffectiveDate < bounds.startDate || patch.methodEffectiveDate > bounds.endDate) {
+      return { ok: false, reason: MILEAGE_VEHICLE_COPY.invalidMethodDate };
+    }
+    if (patch.methodEffectiveDate > bounds.startDate) {
+      const reviewItems = patched.reviewItems.filter(item => !(item.id === 'mid_year_method_change' && item.taxYear === taxYear));
+      reviewItems.push({ id: 'mid_year_method_change', taxYear, message: MILEAGE_VEHICLE_COPY.midYearMethod });
+      return savedFleet(replaceVehicle(vehicles, { ...patched, reviewItems }));
+    }
+  }
+  const saved = withMethodHistory(current, candidate);
+  if (saved.method !== 'unset') {
+    saved.reviewItems = saved.reviewItems.filter(item => item.id !== 'mid_year_method_change' || item.taxYear !== taxYear);
+  }
+  return savedFleet(replaceVehicle(vehicles, saved));
+}
+
+export interface VehicleMethodFact {
+  status: 'known' | 'unset' | 'unknown' | 'none';
+  method: CommittedMethod | null;
+  businessUsePercent: number | null;
+  vehicleId: string | null;
+  needsInfo: boolean;
+}
+
+/**
+ * Base profile read (52f5788). The top-level method wins when both old fields are set.
+ * A disagreement does not become unset, and the vehicle list is not consulted.
+ * A percentage of 0 is not a vehicle on its own, matching Boolean(method || percent).
+ */
+export function legacyProfileVehicleFact(profile: LegacyVehicleProfile | null | undefined): VehicleMethodFact {
+  const top = profile?.vehicle_deduction_method;
+  const nested = profile?.business_vehicle?.deduction_method;
+  const method = top === 'standard_mileage' || top === 'actual_expense' ? top
+    : nested === 'standard_mileage' || nested === 'actual_expense' ? nested : null;
+  const rawPercent = profile?.vehicle_business_use_percentage ?? profile?.business_vehicle?.business_use_percentage ?? null;
+  const businessUsePercent = typeof rawPercent === 'number' && Number.isFinite(rawPercent) ? rawPercent : null;
+  const hasVehicle = Boolean(method || businessUsePercent);
+  if (!hasVehicle) return { status: 'none', method: null, businessUsePercent: null, vehicleId: null, needsInfo: false };
+  if (method) return { status: 'known', method, businessUsePercent, vehicleId: null, needsInfo: false };
+  return { status: 'unset', method: null, businessUsePercent, vehicleId: null, needsInfo: true };
+}
+
+/** Switch off matches the base profile read. Switch on uses the vehicle list. */
+export function vehicleMethodForRead(input: {
+  vehicles?: readonly VehicleRecord[] | null;
+  profile?: LegacyVehicleProfile | null;
+  taxYear: number;
+  vehicleId?: string | null;
+}): VehicleMethodFact {
+  if (!mileageVehicleCopyEnabled()) return legacyProfileVehicleFact(input.profile);
+  return vehicleMethodForTaxYear(input);
+}
+
+/** One reader for a tax year. Uses the vehicle list, then migrated vehicle 1. Several cars and no link is unknown. */
+export function vehicleMethodForTaxYear(input: {
+  vehicles?: readonly VehicleRecord[] | null;
+  profile?: LegacyVehicleProfile | null;
+  taxYear: number;
+  vehicleId?: string | null;
+}): VehicleMethodFact {
+  const provided = input.vehicles;
+  const list = provided && provided.length > 0
+    ? [...provided]
+    : input.profile && legacyVehicleFieldsPresent(input.profile)
+      ? planLegacyVehicle(input.profile, []).vehicles
+      : [];
+  if (list.length === 0) return { status: 'none', method: null, businessUsePercent: null, vehicleId: null, needsInfo: false };
+  const linked = input.vehicleId ? list.find(vehicle => vehicle.id === input.vehicleId) ?? null : null;
+  if (input.vehicleId && !linked) return { status: 'unknown', method: null, businessUsePercent: null, vehicleId: input.vehicleId, needsInfo: true };
+  if (!linked && list.length > 1) return { status: 'unknown', method: null, businessUsePercent: null, vehicleId: null, needsInfo: true };
+  const vehicle = linked ?? list[0];
+  const method = methodForYear(vehicle, input.taxYear);
+  const businessUsePercent = vehicle.legacyBusinessUsePercentage;
+  if (method === 'standard_mileage' || method === 'actual_expense') {
+    return { status: 'known', method, businessUsePercent, vehicleId: vehicle.id, needsInfo: false };
+  }
+  return { status: 'unset', method: null, businessUsePercent, vehicleId: vehicle.id, needsInfo: true };
+}
+
+/** Reference percentage never contributes to a deduction total. */
+export function legacyPercentageContribution(vehicle: VehicleRecord): number {
+  void vehicle;
+  return 0;
+}
+
+export function countedMiles(trip: Pick<MileageTripFields, 'miles' | 'roundTrip' | 'vehicleId' | 'tripType' | 'needsReview'>): number {
+  if (trip.needsReview) return 0;
+  if (!trip.vehicleId || trip.tripType !== 'business') return 0;
+  if (typeof trip.miles !== 'number' || !Number.isFinite(trip.miles) || trip.miles <= 0) return 0;
+  return trip.roundTrip ? trip.miles * 2 : trip.miles;
+}
+
+export function countedMilesTotal(trips: readonly Pick<MileageTripFields, 'miles' | 'roundTrip' | 'vehicleId' | 'tripType' | 'needsReview'>[]): number {
+  return trips.reduce((sum, trip) => trip.needsReview ? sum : sum + countedMiles(trip), 0);
+}
+
+export function mileageDeductionTotal(trips: readonly MileageTripFields[], vehicles: readonly VehicleRecord[], ratePerMile: number): number {
+  const fromPercentage = vehicles.reduce((sum, vehicle) => sum + legacyPercentageContribution(vehicle), 0);
+  return countedMilesTotal(trips) * ratePerMile + fromPercentage;
+}
+
+/** Trip type is never derived from the free text purpose. */
+export function tripTypeFromBusinessPurpose(businessPurpose: string | null | undefined): null {
+  void businessPurpose;
+  return null;
+}
+
+export function normalizeStoredTrip(raw: Omit<Partial<MileageTripFields>, 'miles'> & { miles?: unknown }): MileageTripFields {
+  const tripType = raw.tripType === 'business' || raw.tripType === 'commute' || raw.tripType === 'personal' ? raw.tripType : null;
+  const homeDestination = raw.homeDestination === 'regular_work' || raw.homeDestination === 'temporary_work' || raw.homeDestination === 'second_work' ? raw.homeDestination : null;
+  const milesReadable = typeof raw.miles === 'number' && Number.isFinite(raw.miles);
+  const trip: MileageTripFields = {
+    id: typeof raw.id === 'string' ? raw.id : '',
+    date: typeof raw.date === 'string' ? raw.date : '',
+    startLocation: typeof raw.startLocation === 'string' ? raw.startLocation : '',
+    endLocation: typeof raw.endLocation === 'string' ? raw.endLocation : '',
+    miles: milesReadable ? raw.miles as number : 0,
+    businessPurpose: typeof raw.businessPurpose === 'string' ? raw.businessPurpose : '',
+    roundTrip: raw.roundTrip === true,
+    vehicleId: typeof raw.vehicleId === 'string' && raw.vehicleId.trim() ? raw.vehicleId.trim() : null,
+    tripType,
+    homeDestination,
+  };
+  if (!milesReadable || raw.needsReview === true) {
+    trip.needsReview = true;
+    trip.reviewReason = typeof raw.reviewReason === 'string' && raw.reviewReason ? raw.reviewReason : UNREADABLE_TRIP_MILES;
+  }
+  return trip;
+}
+
+export function sortFinished(trips: readonly Pick<MileageTripFields, 'vehicleId' | 'tripType'>[]): boolean {
+  return trips.length > 0 && trips.every(trip => Boolean(trip.vehicleId) && (trip.tripType === 'business' || trip.tripType === 'commute' || trip.tripType === 'personal'));
+}
+
+export function newTripAllowed(
+  existing: readonly Pick<MileageTripFields, 'vehicleId' | 'tripType'>[],
+  next: Pick<MileageTripFields, 'vehicleId' | 'tripType'>,
+): { ok: true } | { ok: false; reason: string } {
+  if (!sortFinished(existing)) return { ok: true };
+  if (!next.vehicleId || !next.tripType) return { ok: false, reason: MILEAGE_VEHICLE_COPY.pickTripType };
+  return { ok: true };
+}
+
+export function tripCreateRecord(input: {
+  date: string;
+  startLocation: string;
+  endLocation: string;
+  miles: number;
+  businessPurpose: string;
+  roundTrip: boolean;
+  vehicleId?: string | null;
+  tripType?: TripType | null;
+  homeDestination?: HomeDestination | null;
+}, existing: readonly MileageTripFields[], id = 'new'): { ok: true; trip: MileageTripFields } | { ok: false; reason: string } {
+  const trip = normalizeStoredTrip({
+    id,
+    date: input.date,
+    startLocation: input.startLocation,
+    endLocation: input.endLocation,
+    miles: input.miles,
+    businessPurpose: input.businessPurpose,
+    roundTrip: input.roundTrip,
+    vehicleId: input.vehicleId ?? null,
+    tripType: input.tripType ?? tripTypeFromBusinessPurpose(input.businessPurpose),
+    homeDestination: input.homeDestination ?? null,
+  });
+  const gate = newTripAllowed(existing, trip);
+  if (!gate.ok) return gate;
+  return { ok: true, trip };
+}
+
+export function tripStartsAtHome(startLocation: string): boolean {
+  const value = startLocation.trim().toLowerCase();
+  return value === 'home' || value.startsWith('home ') || value.startsWith('home,');
+}
+
+/**
+ * settings/homeOffice. A home to the regular workplace goes to review only when the office
+ * is the principal place of business and both regular and exclusive use are yes.
+ */
+export type HomeOfficeTripFacts = {
+  qualifyingUse?: string | null;
+  regularUse?: string | null;
+  exclusiveUse?: string | null;
+} | null | undefined;
+
+export function homeOfficeIsPrincipalPlace(homeOffice: HomeOfficeTripFacts): boolean {
+  return homeOffice?.qualifyingUse === 'principal_place_of_business'
+    && homeOffice.regularUse === 'yes'
+    && homeOffice.exclusiveUse === 'yes';
+}
+
+export function applyHomeDestination(
+  trip: MileageTripFields,
+  choice: HomeDestination,
+  homeOffice?: HomeOfficeTripFacts,
+): MileageTripFields {
+  if (choice === 'temporary_work') return { ...trip, tripType: 'business', homeDestination: choice };
+  if (choice === 'regular_work' && homeOfficeIsPrincipalPlace(homeOffice)) return { ...trip, tripType: null, homeDestination: null };
+  return { ...trip, tripType: 'commute', homeDestination: choice };
+}
+
+export function groupNeedsHomePrompt(trips: readonly MileageTripFields[]): boolean {
+  return trips.some(trip => tripStartsAtHome(trip.startLocation));
+}
+
+export interface TripAssignment {
+  vehicleId: string | null;
+  tripType: TripType | null;
+  homeDestination?: HomeDestination | null;
+}
+
+export function assignTrips(
+  trips: readonly MileageTripFields[],
+  tripIds: readonly string[],
+  assignment: TripAssignment,
+  homeOffice?: HomeOfficeTripFacts,
+): MileageTripFields[] {
+  const ids = new Set(tripIds);
+  return trips.map(trip => {
+    if (!ids.has(trip.id)) return trip;
+    if (assignment.homeDestination) {
+      return { ...applyHomeDestination(trip, assignment.homeDestination, homeOffice), vehicleId: assignment.vehicleId };
+    }
+    return {
+      ...trip,
+      vehicleId: assignment.vehicleId,
+      tripType: assignment.tripType,
+      homeDestination: assignment.tripType === 'commute' ? trip.homeDestination : null,
+    };
+  });
+}
+
+export function sortProgress(trips: readonly Pick<MileageTripFields, 'vehicleId' | 'tripType'>[]): { done: number; total: number; unsorted: number } {
+  const total = trips.length;
+  const done = trips.filter(trip => Boolean(trip.vehicleId) && Boolean(trip.tripType)).length;
+  return { done, total, unsorted: total - done };
+}
+
+export interface TripGroupView {
+  key: string;
+  startLocation: string;
+  endLocation: string;
+  tripIds: string[];
+  tripCount: number;
+  miles: number;
+  dateStart: string;
+  dateEnd: string;
+}
+
+export function tripGroupKey(startLocation: string, endLocation: string): string {
+  const start = startLocation.trim();
+  const end = endLocation.trim();
+  return start < end ? `${start}\u0000${end}` : `${end}\u0000${start}`;
+}
+
+export function groupTrips(trips: readonly MileageTripFields[]): { repeated: TripGroupView[]; oneOff: TripGroupView[] } {
+  const buckets = new Map<string, MileageTripFields[]>();
+  for (const trip of trips) {
+    const key = tripGroupKey(trip.startLocation, trip.endLocation);
+    buckets.set(key, [...(buckets.get(key) ?? []), trip]);
+  }
+  const groups: TripGroupView[] = [];
+  for (const [key, members] of buckets) {
+    const directions = new Map<string, { start: string; end: string; count: number }>();
+    for (const trip of members) {
+      const start = trip.startLocation.trim();
+      const end = trip.endLocation.trim();
+      const direction = `${start}\u0000${end}`;
+      const current = directions.get(direction) ?? { start, end, count: 0 };
+      current.count += 1;
+      directions.set(direction, current);
+    }
+    const display = [...directions.values()].sort((a, b) => b.count - a.count || a.start.localeCompare(b.start) || a.end.localeCompare(b.end))[0];
+    const dates = members.map(trip => trip.date).filter(Boolean).sort();
+    groups.push({
+      key,
+      startLocation: display.start,
+      endLocation: display.end,
+      tripIds: members.map(trip => trip.id),
+      tripCount: members.length,
+      miles: members.reduce((sum, trip) => trip.needsReview ? sum : sum + (trip.roundTrip ? trip.miles * 2 : trip.miles), 0),
+      dateStart: dates[0] ?? '',
+      dateEnd: dates[dates.length - 1] ?? '',
+    });
+  }
+  const byCount = (a: TripGroupView, b: TripGroupView) => b.tripCount - a.tripCount || a.startLocation.localeCompare(b.startLocation) || a.endLocation.localeCompare(b.endLocation);
+  return {
+    repeated: groups.filter(group => group.tripCount > 1).sort(byCount),
+    oneOff: groups.filter(group => group.tripCount === 1).sort(byCount),
+  };
+}
+
+/** Profile field the analysis trigger compares. A vehicle collection write stores this on the profile document. */
+export function vehicleAnalysisStamp(vehicles: readonly VehicleRecord[]): Array<Record<string, unknown>> {
+  return [...vehicles]
+    .map(vehicle => ({ id: vehicle.id, ...vehicleToDocument(vehicle) }))
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+}
+
+export function vehicleToDocument(vehicle: VehicleRecord): Record<string, unknown> {
+  return {
+    name: vehicle.name,
+    method: vehicle.method,
+    methodByYear: vehicle.methodByYear,
+    ownership: vehicle.ownership,
+    datePlacedInService: vehicle.datePlacedInService,
+    dateDisposed: vehicle.dateDisposed,
+    dateConvertedToBusiness: vehicle.dateConvertedToBusiness,
+    odometerByYear: vehicle.odometerByYear,
+    partIVByYear: vehicle.partIVByYear,
+    legacyBusinessUsePercentage: vehicle.legacyBusinessUsePercentage,
+    legacyMigration: vehicle.legacyMigration,
+    reviewItems: vehicle.reviewItems,
+    firstBusinessMethod: vehicle.firstBusinessMethod,
+    depreciationMethod: vehicle.depreciationMethod,
+    standardMileageSelected: vehicle.standardMileageSelected,
+    leasedStandardLock: vehicle.leasedStandardLock,
+  };
+}
+
+function yesNo(value: unknown): YesNo | null {
+  return value === 'yes' || value === 'no' ? value : null;
+}
+
+export function vehicleFromDocument(id: string, data: Record<string, unknown> | undefined): VehicleRecord {
+  const base = blankVehicle(id, 0);
+  if (!data) return base;
+  const method = data.method === 'standard_mileage' || data.method === 'actual_expense' || data.method === 'unset' ? data.method : 'unset';
+  const methodByYear: VehicleRecord['methodByYear'] = {};
+  if (data.methodByYear && typeof data.methodByYear === 'object') {
+    for (const [year, value] of Object.entries(data.methodByYear as Record<string, unknown>)) {
+      if (value === 'standard_mileage' || value === 'actual_expense' || value === 'unset') methodByYear[year] = value;
+    }
+  }
+  const ownership = data.ownership === 'owned' || data.ownership === 'leased' || data.ownership === 'not_answered' ? data.ownership : 'not_answered';
+  const odometerByYear: VehicleRecord['odometerByYear'] = {};
+  if (data.odometerByYear && typeof data.odometerByYear === 'object') {
+    for (const [year, value] of Object.entries(data.odometerByYear as Record<string, unknown>)) {
+      const readings = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+      const start = finiteNumber(readings.start);
+      const end = finiteNumber(readings.end);
+      odometerByYear[year] = {
+        start,
+        end,
+        startDate: typeof readings.startDate === 'string' && validDate(readings.startDate) ? readings.startDate : null,
+        endDate: typeof readings.endDate === 'string' && validDate(readings.endDate) ? readings.endDate : null,
+      };
+    }
+  }
+  const partIVByYear: VehicleRecord['partIVByYear'] = {};
+  if (data.partIVByYear && typeof data.partIVByYear === 'object') {
+    for (const [year, value] of Object.entries(data.partIVByYear as Record<string, unknown>)) {
+      const answers = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+      partIVByYear[year] = {
+        offDutyPersonalUse: yesNo(answers.offDutyPersonalUse),
+        otherVehicleForPersonalUse: yesNo(answers.otherVehicleForPersonalUse),
+        hasEvidence: yesNo(answers.hasEvidence),
+        evidenceWritten: yesNo(answers.evidenceWritten),
+      };
+    }
+  }
+  const reviewItems: VehicleReviewItem[] = Array.isArray(data.reviewItems)
+    ? data.reviewItems.flatMap((item): VehicleReviewItem[] => {
+      if (!item || typeof item !== 'object') return [];
+      const record = item as Record<string, unknown>;
+      if (record.id === 'legacy_method_disagreement') {
+        return [{ id: 'legacy_method_disagreement' as const, message: typeof record.message === 'string' ? record.message : MILEAGE_VEHICLE_COPY.methodDisagree }];
+      }
+      if (record.id === 'mid_year_method_change' && Number.isInteger(record.taxYear)) {
+        return [{ id: 'mid_year_method_change' as const, taxYear: Number(record.taxYear), message: typeof record.message === 'string' ? record.message : MILEAGE_VEHICLE_COPY.midYearMethod }];
+      }
+      return [];
+    })
+    : [];
+  return {
+    ...base,
+    name: text(data.name) || base.name,
+    method,
+    methodByYear,
+    ownership,
+    datePlacedInService: validDate(text(data.datePlacedInService)) ? text(data.datePlacedInService) : '',
+    dateDisposed: validDate(text(data.dateDisposed)) ? text(data.dateDisposed) : '',
+    dateConvertedToBusiness: validDate(text(data.dateConvertedToBusiness)) ? text(data.dateConvertedToBusiness) : '',
+    odometerByYear,
+    partIVByYear,
+    legacyBusinessUsePercentage: finiteNumber(data.legacyBusinessUsePercentage),
+    legacyMigration: data.legacyMigration === true,
+    reviewItems,
+    firstBusinessMethod: committedMethod(data.firstBusinessMethod),
+    depreciationMethod: data.depreciationMethod === 'macrs' || data.depreciationMethod === 'straight_line' ? data.depreciationMethod : null,
+    standardMileageSelected: data.standardMileageSelected === true,
+    leasedStandardLock: data.leasedStandardLock === true,
+  };
+}

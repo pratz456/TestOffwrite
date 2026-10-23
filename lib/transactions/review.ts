@@ -1,9 +1,14 @@
 import { z } from 'zod';
 import { adminDb } from '@/lib/firebase/admin';
+import { finiteUsePercent, VEHICLE_ACTUAL_EXPENSE_CATEGORY, VEHICLE_LOAN_INTEREST_CATEGORY, VEHICLE_PROPERTY_TAX_CATEGORY } from '@/lib/ai/actual-expense-share';
 import { analysisInputHash } from '@/lib/ai/analysis-persistence';
-import { analysisProfileHash } from '@/lib/ai/profile-context';
+import { analysisProfileHash, vehicleContextHash } from '@/lib/ai/profile-context';
+import { hiredFareChoiceFromRecord, hiredFareStartedAtHome, hiredVehicleFare, HIRED_LOCAL_TRANSPORT_CATEGORY, profileHasHomeOffice, standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
+import { withHomeOfficeSources } from '@/lib/profile/home-office';
 import { invalidateTaxpayerContextCache } from '@/lib/ai/taxpayer-context-server';
 import { TRANSACTION_TAX_POLICY_VERSION } from '@/lib/ai/transaction-tax-policy';
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
+import { vehicleFromDocument, vehicleMethodForTaxYear, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
 import { transactionIdInput } from './client-updates';
 import { canConfirmAiSuggestion, recordedTransactionType, reviewCategory, reviewHydrationFields,
   type AiReviewSuggestion, type TransactionReviewRequest } from './ai-review-contract';
@@ -38,12 +43,50 @@ export function hydrateReviewTransaction(data: Record<string, any>, id: string) 
   };
 }
 
+function taxYearOf(data: Record<string, unknown>): number {
+  const date = typeof data.date === 'string' ? data.date : '';
+  return /^\d{4}-\d{2}-\d{2}/.test(date) ? Number(date.slice(0, 4)) : new Date().getFullYear();
+}
+
+async function loadVehicles(tx: FirebaseFirestore.Transaction, profileRef: FirebaseFirestore.DocumentReference): Promise<VehicleRecord[]> {
+  if (!mileageVehicleCopyEnabled()) return [];
+  const snap = await tx.get(profileRef.collection('vehicles'));
+  const docs = (snap as { docs?: Array<{ id: string; data: () => Record<string, unknown> }> }).docs;
+  if (!Array.isArray(docs)) return [];
+  return docs.map(doc => vehicleFromDocument(doc.id, doc.data()));
+}
+
+function chargeText(data: Record<string, unknown>): string {
+  return ['merchant_name', 'name', 'description', 'notes', 'note', 'business_purpose']
+    .map(key => typeof data[key] === 'string' ? data[key] as string : '').filter(Boolean).join(' ');
+}
+
+/**
+ * Recorded business-use share for a car cost. Interest and vehicle property tax use it under either method.
+ * Operating costs use it only for actual expenses. A hired fare is not a cost of the user's own car.
+ */
+function vehicleCostShare(data: Record<string, unknown>, profile: LegacyVehicleProfile | null, vehicles: VehicleRecord[]):
+  { kind: 'actual' | 'loan_interest' | 'property_tax'; share: number } | null {
+  if (!mileageVehicleCopyEnabled()) return null;
+  const merchantText = ['merchant_name', 'name', 'description'].map(key => typeof data[key] === 'string' ? data[key] as string : '').filter(Boolean).join(' ');
+  if (hiredVehicleFare(merchantText)) return null;
+  const vehicleId = typeof data.vehicleId === 'string' ? data.vehicleId : typeof data.vehicle_id === 'string' ? data.vehicle_id : null;
+  const fact = vehicleMethodForTaxYear({ vehicles, profile, taxYear: taxYearOf(data), vehicleId });
+  const share = finiteUsePercent(data.business_use_percentage) ?? finiteUsePercent(fact.businessUsePercent);
+  const separate = standardMileageSeparateCost(chargeText(data));
+  if (separate) return share === null ? null : { kind: separate, share };
+  if (fact.status !== 'known' || fact.method !== 'actual_expense' || share === null) return null;
+  return { kind: 'actual', share };
+}
+
 export async function reviewTransaction(uid: string, id: string, input: TransactionReviewRequest) {
   const accountRef = adminDb.doc(`user_profiles/${uid}/accounts/${input.accountId}`);
   const ref = accountRef.collection('transactions').doc(id);
   const profileRef = adminDb.doc(`user_profiles/${uid}`);
   const reviewed = await adminDb.runTransaction(async tx => {
-    const [account, snapshot, profile] = await Promise.all([tx.get(accountRef), tx.get(ref), tx.get(profileRef)]);
+    const [account, snapshot, profile, settingsSnap] = await Promise.all([
+      tx.get(accountRef), tx.get(ref), tx.get(profileRef), tx.get(adminDb.doc(`${profileRef.path}/settings/homeOffice`)),
+    ]);
     const data = snapshot.data();
     const matchesOwner = (record: Record<string, unknown>) => [record.userId, record.user_id].some(value => value === uid) &&
       [record.userId, record.user_id].every(value => value == null || value === uid);
@@ -61,6 +104,10 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
     let reason: string;
     let suggestionId: string | null = null;
     let source: 'ai_confirmed' | 'user_corrected';
+    let confirmedSuggestion: AiReviewSuggestion | null = null;
+    const profileData = profile.exists ? profile.data() as LegacyVehicleProfile : null;
+    const fareProfile = withHomeOfficeSources(profileData, settingsSnap.exists ? settingsSnap.data() : null);
+    const vehicles = await loadVehicles(tx, profileRef);
     if (input.action === 'confirm') {
       if (data.review_status === 'confirmed' && data.review_source === 'ai_confirmed' && data.review_suggestion_id === input.suggestionId) {
         return hydrateReviewTransaction(data, id);
@@ -75,6 +122,13 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       if (!profile.exists || !suggestion.profileHash || suggestion.profileHash !== analysisProfileHash(profile.data()!, data.date)) {
         throw new TransactionReviewError('AI_PROFILE_CHANGED', 'Your business profile changed after this analysis. Run AI again or correct the category manually.', 409);
       }
+      if (typeof suggestion.vehicleContextHash === 'string') {
+        const linked = typeof data.vehicleId === 'string' ? data.vehicleId : typeof data.vehicle_id === 'string' ? data.vehicle_id : null;
+        const savedDate = typeof data.date === 'string' ? data.date : '';
+        if (suggestion.vehicleContextHash !== vehicleContextHash(profile.data()!, savedDate, { vehicles, vehicleId: linked })) {
+          throw new TransactionReviewError('AI_PROFILE_CHANGED', 'Your business profile changed after this analysis. Run AI again or correct the category manually.', 409);
+        }
+      }
       if (!canConfirmAiSuggestion(suggestion)) throw new TransactionReviewError('AI_REVIEW_REQUIRED', 'This suggestion needs more information before its category can be confirmed.');
       if (typeof data.is_deductible === 'boolean') throw new TransactionReviewError('CLASSIFICATION_EXISTS', 'This transaction already has a saved tax decision. Use Correct to change it.', 409);
       kind = suggestion.transactionKind as typeof kind;
@@ -83,9 +137,20 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       reason = suggestion.reasoning;
       suggestionId = suggestion.id;
       source = 'ai_confirmed';
+      confirmedSuggestion = suggestion;
       if (deduction === true) {
         const mapped = reviewCategory(category);
-        if (!mapped || mapped.recordedCategory.endsWith('_REVIEW_REQUIRED') ||
+        const suggestionShare = finiteUsePercent(suggestion.deductiblePercent);
+        const cost = vehicleCostShare(data, profileData, vehicles);
+        const settledLocalFare = mileageVehicleCopyEnabled() && suggestion.scheduleCLine === '27a' && suggestion.deductiblePercent === 100 &&
+          hiredFareChoiceFromRecord(data) === 'between' && !(hiredFareStartedAtHome(data) === true && !profileHasHomeOffice(fareProfile));
+        if (cost && suggestionShare === cost.share) {
+          deduction = true;
+        } else if (settledLocalFare) {
+          deduction = true;
+        } else if (cost && (cost.kind === 'loan_interest' || cost.kind === 'property_tax')) {
+          deduction = null;
+        } else if (!mapped || mapped.recordedCategory.endsWith('_REVIEW_REQUIRED') ||
             suggestion.deductiblePercent !== (mapped.value === 'meals_50' ? 50 : 100)) deduction = null;
       }
     } else {
@@ -99,6 +164,7 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       throw new TransactionReviewError('DEDUCTION_REVIEW_REQUIRED', 'Income, transfers and personal entries are not expense deductions. Refunds need reconciliation with the original expense.');
     }
     let recordedCategory: string;
+    let savedShare: number | null = null;
     if (kind === 'income') recordedCategory = 'INCOME';
     else if (kind === 'transfer') recordedCategory = 'TRANSFER';
     else if (kind === 'personal') recordedCategory = 'PERSONAL';
@@ -106,8 +172,25 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       const mapped = reviewCategory(category);
       if (!mapped) throw new TransactionReviewError('INVALID_CATEGORY', 'Choose a supported category.');
       recordedCategory = mapped.recordedCategory;
-      if (deduction === true && recordedCategory.endsWith('_REVIEW_REQUIRED')) {
+      const cost = deduction === true ? vehicleCostShare(data, profileData, vehicles) : null;
+      const separate = standardMileageSeparateCost(chargeText(data));
+      const suggestionShare = finiteUsePercent(confirmedSuggestion?.deductiblePercent);
+      const shareMatches = input.action === 'correct' || suggestionShare === cost?.share;
+      if (mileageVehicleCopyEnabled() && deduction === true && separate && !cost) {
         throw new TransactionReviewError('DEDUCTION_REVIEW_REQUIRED', 'This category needs a separate tax method review. Save the category without claiming a deduction.');
+      }
+      const localWorkFare = mileageVehicleCopyEnabled() && deduction === true && hiredVehicleFare(chargeText(data)) && hiredFareChoiceFromRecord(data) === 'between';
+      const startedAtHome = hiredFareStartedAtHome(data);
+      if (localWorkFare && !(startedAtHome === true && !profileHasHomeOffice(fareProfile))) {
+        recordedCategory = HIRED_LOCAL_TRANSPORT_CATEGORY;
+      } else if (deduction === true && cost && (cost.kind === 'loan_interest' || cost.kind === 'property_tax') && shareMatches) {
+        recordedCategory = cost.kind === 'property_tax' ? VEHICLE_PROPERTY_TAX_CATEGORY : VEHICLE_LOAN_INTEREST_CATEGORY;
+        savedShare = cost.share;
+      } else if (deduction === true && recordedCategory.endsWith('_REVIEW_REQUIRED')) {
+        if (cost?.kind === 'actual' && shareMatches) {
+          recordedCategory = VEHICLE_ACTUAL_EXPENSE_CATEGORY;
+          savedShare = cost.share;
+        } else throw new TransactionReviewError('DEDUCTION_REVIEW_REQUIRED', 'This category needs a separate tax method review. Save the category without claiming a deduction.');
       }
     }
     // Refund category is useful, but never claims an offset without original-expense reconciliation.
@@ -120,6 +203,7 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       review_status: 'confirmed', review_source: source, review_suggestion_id: suggestionId,
       reviewed_at: new Date().toISOString(), tax_review_required: deduction === null,
       updated_at: new Date(),
+      ...(savedShare !== null ? { business_use_percentage: savedShare, deductible_percent: savedShare } : {}),
     };
     tx.update(ref, update);
     return hydrateReviewTransaction({ ...data, ...update }, id);

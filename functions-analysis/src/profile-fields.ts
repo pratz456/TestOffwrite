@@ -6,7 +6,7 @@ export const ANALYSIS_PROFILE_FIELDS = [
   'total_home_sqft', 'home_office_method', 'vehicle_business_use_percentage', 'vehicle_deduction_method',
   'naics_code', 'business_purpose', 'w2_income', 'business_income', 'other_income', 'tax_bracket',
   'professional_licenses', 'prior_year_deductions', 'audit_history', 'tax_professional', 'documentation_habits',
-  'business_seasonality', 'multiple_locations', 'international_business', 'business_vehicle', 'home_office_details',
+  'business_seasonality', 'multiple_locations', 'international_business', 'business_vehicle', 'vehicles', 'home_office_details',
   'income_breakdown',
 ] as const;
 

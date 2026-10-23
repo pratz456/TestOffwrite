@@ -1,4 +1,6 @@
 import { APIConnectionError } from 'openai/error';
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
+import { vehicleMethodForRead, type VehicleRecord } from '@/lib/mileage/vehicles';
 import { getOpenAIClientOrThrow } from '@/lib/openai/client';
 import { z } from 'zod';
 import { aiLearningEngine } from './learning-engine';
@@ -349,8 +351,73 @@ function calculateYearsInBusiness(businessStartDate: string | undefined, transac
   }
 }
 
+export interface VehicleContextFacts {
+  vehicles?: readonly VehicleRecord[] | null;
+  vehicleId?: string | null;
+}
+
+/** Settings stores actual_expense. Older profiles also store the plural actual_expenses. */
+function acceptedDeductionMethod(value: unknown): 'standard_mileage' | 'actual_expense' | undefined {
+  if (value === 'standard_mileage') return 'standard_mileage';
+  if (value === 'actual_expense' || value === 'actual_expenses') return 'actual_expense';
+  return undefined;
+}
+
+/** A saved business-use percent may be a number or a numeric string, from 0 through 100. */
+function acceptedUsePercent(value: unknown): number | undefined {
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return undefined;
+    value = Number(text);
+  }
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100 ? value : undefined;
+}
+
+/** Method and percent for the AI context. Several cars and no link leave the method unknown. */
+function vehicleContextFields(userProfile: Record<string, any>, transactionDate: string, vehicleFacts?: VehicleContextFacts) {
+  const taxYear = /^\d{4}-\d{2}-\d{2}/.test(transactionDate) ? Number(transactionDate.slice(0, 4)) : new Date().getFullYear();
+  const vehicleId = vehicleFacts?.vehicleId
+    ?? (typeof userProfile.vehicleId === 'string' ? userProfile.vehicleId : typeof userProfile.vehicle_id === 'string' ? userProfile.vehicle_id : null);
+  const fact = vehicleMethodForRead({ vehicles: vehicleFacts?.vehicles, profile: userProfile, taxYear, vehicleId });
+  const carsProvided = Array.isArray(vehicleFacts?.vehicles) && vehicleFacts.vehicles.length > 0;
+  const nestedSource = userProfile.business_vehicle && typeof userProfile.business_vehicle === 'object' && !Array.isArray(userProfile.business_vehicle)
+    ? userProfile.business_vehicle : undefined;
+  const storedMethod = acceptedDeductionMethod(userProfile.vehicle_deduction_method)
+    ?? acceptedDeductionMethod(nestedSource?.deduction_method);
+  // A vehicle id with no loaded car list, and the plural actual_expenses spelling, still name a method.
+  let method = fact.status === 'known' ? fact.method ?? undefined : undefined;
+  if (method === undefined && !carsProvided) method = storedMethod;
+  // Status none drops the helper percent. With the switch off, a recorded 0 still has to reach the prompt, matching the base field copy.
+  const recordedPercent = finiteNonnegative(userProfile.vehicle_business_use_percentage);
+  // A number uses the same 0 through 100 rule as a numeric string. Values outside that range are dropped.
+  let businessUsePercent = fact.status === 'unknown' || fact.status === 'none'
+    ? (!mileageVehicleCopyEnabled() && fact.status === 'none' ? recordedPercent : undefined)
+    : acceptedUsePercent(fact.businessUsePercent);
+  if (businessUsePercent === undefined && !(fact.status === 'unknown' && carsProvided)) {
+    const storedPercent = acceptedUsePercent(userProfile.vehicle_business_use_percentage)
+      ?? acceptedUsePercent(nestedSource?.business_use_percentage);
+    if (storedPercent !== undefined) businessUsePercent = storedPercent;
+  }
+  const nested = nestedSource ? { ...nestedSource } : undefined;
+  let business_vehicle = nested as UserContext['business_vehicle'] | undefined;
+  if (fact.status === 'unknown' && carsProvided) {
+    if (business_vehicle) {
+      delete business_vehicle.deduction_method;
+      delete business_vehicle.business_use_percentage;
+      if (Object.keys(business_vehicle).length === 0) business_vehicle = undefined;
+    }
+  } else if (nested || method) {
+    business_vehicle = business_vehicle ?? {};
+    if (method) business_vehicle.deduction_method = method;
+    else delete business_vehicle.deduction_method;
+    if (businessUsePercent !== undefined) business_vehicle.business_use_percentage = businessUsePercent;
+    else delete business_vehicle.business_use_percentage;
+  }
+  return { method, businessUsePercent, business_vehicle };
+}
+
 // Helper function to convert user profile to enhanced context
-export function convertToEnhancedContext(userProfile: any, transactionDate: string): UserContext {
+export function convertToEnhancedContext(userProfile: any, transactionDate: string, vehicleFacts?: VehicleContextFacts): UserContext {
   userProfile = userProfile && typeof userProfile === 'object' && !Array.isArray(userProfile) ? userProfile : {};
   const rawProfessions = typeof userProfile.profession === 'string' ? userProfile.profession.split(',') :
     Array.isArray(userProfile.profession) ? userProfile.profession : [];
@@ -360,7 +427,17 @@ export function convertToEnhancedContext(userProfile: any, transactionDate: stri
   const income = finiteNonnegative(userProfile.income);
   const yearsInBusiness = calculateYearsInBusiness(userProfile.business_start_date, transactionDate);
   const travel = nonemptyText(userProfile.work_related_travel_pattern)?.toLowerCase();
-  
+  // Switch off copies the same vehicle fields the profile hash used before vehicle copy.
+  // That keeps actual_expenses and a saved business_vehicle object intact.
+  const vehicleCopy = mileageVehicleCopyEnabled();
+  const vehicle = vehicleCopy
+    ? vehicleContextFields(userProfile, transactionDate, vehicleFacts)
+    : {
+        method: userProfile.vehicle_deduction_method,
+        businessUsePercent: finiteNonnegative(userProfile.vehicle_business_use_percentage),
+        business_vehicle: userProfile.business_vehicle,
+      };
+
   return {
     user_id: userProfile.id || '',
     // A birth year alone cannot establish an exact age on the transaction date.
@@ -386,11 +463,13 @@ export function convertToEnhancedContext(userProfile: any, transactionDate: stri
     itemization_status: userProfile.itemization_status,
     business_start_date: userProfile.business_start_date,
     years_in_business: yearsInBusiness,
-    home_office_sqft: finiteNonnegative(userProfile.home_office_sqft),
+    home_office_sqft: vehicleCopy
+      ? finiteNonnegative(userProfile.home_office_sqft ?? userProfile.homeOfficeSqft)
+      : finiteNonnegative(userProfile.home_office_sqft),
     total_home_sqft: finiteNonnegative(userProfile.total_home_sqft),
     home_office_method: userProfile.home_office_method,
-    vehicle_business_use_percentage: finiteNonnegative(userProfile.vehicle_business_use_percentage),
-    vehicle_deduction_method: userProfile.vehicle_deduction_method,
+    vehicle_business_use_percentage: vehicle.businessUsePercent,
+    vehicle_deduction_method: vehicle.method,
     
     // Phase 2: Medium Impact Fields
     naics_code: userProfile.naics_code,
@@ -411,7 +490,7 @@ export function convertToEnhancedContext(userProfile: any, transactionDate: stri
     international_business: userProfile.international_business,
     
     // Vehicle Details
-    business_vehicle: userProfile.business_vehicle,
+    business_vehicle: vehicle.business_vehicle,
     
     // Home Office Details
     home_office_details: userProfile.home_office_details,

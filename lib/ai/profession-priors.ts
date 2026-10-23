@@ -5,6 +5,7 @@
  * deductibility. Rule text is traceable to the evidence packet in transaction-tax-policy.ts by the
  * listed evidence IDs; anything outside the packet is flagged in `notes` rather than asserted.
  */
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import type { MerchantSubtype } from './merchant-intelligence';
 import type { ExpenseCategory } from './transaction-tax-policy';
 
@@ -693,9 +694,17 @@ export function professionHint(priors: readonly ProfessionPrior[], subtype: Merc
 
 export const PROFESSION_CONTEXT_LIMIT = 900;
 
+const RIDESHARE_MILEAGE_BASE = 'Standard mileage covers fuel, repairs, insurance, depreciation and car washes; only tolls and parking are added. App-on and en-route miles need a contemporaneous log; personal and commuting miles are out';
+const RIDESHARE_MILEAGE_WITH_VEHICLE_COPY = 'Standard mileage covers fuel, repairs, insurance, depreciation and car washes. Parking, tolls, and the business share of car loan interest and personal property tax on the car are added on their own. App-on and en-route miles need a contemporaneous log; personal and commuting miles are out';
+
+function visibleNuance(nuance: string): string {
+  if (nuance === RIDESHARE_MILEAGE_BASE && mileageVehicleCopyEnabled()) return RIDESHARE_MILEAGE_WITH_VEHICLE_COPY;
+  return nuance;
+}
+
 interface BlockPlan { categories: number; traps: number; summary: boolean; merchants: boolean }
 function professionBlock(prior: ProfessionPrior, plan: BlockPlan): string {
-  const typical = prior.typical.slice(0, plan.categories).map(item => `${item.category}: ${item.nuance}`).join('; ');
+  const typical = prior.typical.slice(0, plan.categories).map(item => `${item.category}: ${visibleNuance(item.nuance)}`).join('; ');
   const parts = [plan.summary ? `${prior.label} — ${prior.summary}` : `${prior.label}.`, `Typical: ${typical}.`];
   if (plan.traps > 0) parts.push(`Traps: ${prior.auditTraps.slice(0, plan.traps).join(' ')}`);
   if (plan.merchants && prior.merchants.length) parts.push(`Merchants: ${prior.merchants.slice(0, 6).join(', ')}.`);

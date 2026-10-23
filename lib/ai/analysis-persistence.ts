@@ -1,11 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { DocumentReference } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
+import { vehicleFromDocument, vehicleMethodForTaxYear, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
+import { hiredFareAnswerLabel, hiredFareChoiceFromRecord, hiredFarePurpose, hiredFarePurposeText, hiredFareStartedAtHome, hiredFareUsePrompt, hiredVehicleFare, HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, HIRED_FARE_USE, profileHasHomeOffice, SEPARATE_VEHICLE_COST_SHARE, standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
+import { withHomeOfficeSources } from '@/lib/profile/home-office';
+import { ACTUAL_EXPENSE_BUSINESS_SHARE, finiteUsePercent } from '@/lib/ai/actual-expense-share';
 import type { OutputType } from './analyzeTransaction';
 import { composeExplanation, type ExplainableResult, type ExplanationProfile } from './explanation';
 import { getOpenAIModel } from '@/lib/openai/client';
 import { reviewCategory, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
-import { analysisProfileHash } from './profile-context';
+import { analysisProfileHash, vehicleContextHash } from './profile-context';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 
 export const ANALYSIS_LEASE_MS = 240_000;
@@ -13,7 +18,7 @@ export interface AnalysisLease { token: string; inputHash: string; expiresAt: nu
 const INPUT_FIELDS = [
   'trans_id', 'merchant_name', 'name', 'amount', 'date', 'datetime', 'category', 'bank_category', 'description', 'notes', 'note',
   'account_id', 'pending', 'business_purpose', 'attendees', 'travel_destination', 'equipment_details',
-  'client_project', 'documentation_status', 'meeting_notes', 'mileage_details', 'location', 'city', 'state',
+  'client_project', 'documentation_status', 'meeting_notes', 'mileage_details', 'hired_fare_use', 'location', 'city', 'state',
   'receipt_url', 'receipt_filename', 'ocr_data',
   'merchant_category_code', 'mcc', 'payment_channel', 'authorized_date', 'iso_currency_code',
   'unofficial_currency_code', 'personal_finance_category', 'counterparties', 'merchant_entity_id',
@@ -28,9 +33,14 @@ function canonical(value: unknown): unknown {
   return value ?? null;
 }
 
-/** Classification fields are excluded: AI never owns or writes the user's tax decision. */
+/**
+ * Classification fields are excluded: AI never owns or writes the user's tax decision.
+ * A hired fare code is part of the hash only when one is saved. Null and undefined are
+ * left out so a record from before that field existed keeps its hash.
+ */
 export function analysisInputHash(data: Record<string, unknown>): string {
-  return createHash('sha256').update(JSON.stringify(canonical(Object.fromEntries(INPUT_FIELDS.map(key => [key, data[key]]))))).digest('hex');
+  const hashed = INPUT_FIELDS.filter(key => key !== 'hired_fare_use' || (data.hired_fare_use !== undefined && data.hired_fare_use !== null));
+  return createHash('sha256').update(JSON.stringify(canonical(Object.fromEntries(hashed.map(key => [key, data[key]]))))).digest('hex');
 }
 
 export function createAnalysisLease(data: Record<string, unknown>, now = Date.now()): AnalysisLease {
@@ -53,6 +63,26 @@ export function isAnalysisLeaseCurrent(data: Record<string, unknown>, lease: Ana
     lease.expiresAt > now && analysisInputHash(data) === lease.inputHash;
 }
 
+/** Base vehicle-expense question. Actual expenses, an unknown method, no vehicle data, and the copy switch off all keep this text. */
+export const VEHICLE_METHOD_GATE = {
+  question: 'Do you use the standard mileage rate or actual expenses for this vehicle?',
+  reason: 'Vehicle costs depend on the method chosen for the vehicle. Fuel, repairs and insurance are included in the standard mileage rate; with actual expenses they are allocated by business-use share. Record the method and your mileage log in Settings before this charge can count.',
+} as const;
+
+/** Standard mileage already covers running costs. Parking, tolls, car loan interest, and vehicle personal property tax stay deductible on their own. */
+export const STANDARD_MILEAGE_RUNNING_COST_GATE = {
+  question: 'Fuel, repairs, insurance and depreciation are included in the standard mileage rate. Parking, tolls, and the business share of car loan interest and personal property tax on the car are added on their own.',
+  reason: 'This car uses the standard mileage rate, so fuel, repairs, insurance and depreciation are already included and are not deducted again. Parking, tolls, and the business share of car loan interest and personal property tax on the car are added on their own.',
+} as const;
+
+function approvalText(data: Record<string, unknown> | undefined): string {
+  if (!data) return '';
+  return ['merchant_name', 'name', 'description', 'notes', 'note', 'business_purpose']
+    .map(key => typeof data[key] === 'string' ? data[key] as string : '')
+    .filter(Boolean)
+    .join(' ');
+}
+
 /** Call only after resolving and authorizing the transaction's actual document reference. */
 export async function claimAnalysisLease(ref: DocumentReference) {
   return adminDb.runTransaction(async tx => {
@@ -71,8 +101,17 @@ export async function claimAnalysisLease(ref: DocumentReference) {
  * Schedule C paths cannot consume a deduction in a method-review category or at a partial share, so
  * the stored suggestion must ask for the fact that unblocks it rather than restate the approval.
  */
-export function withheldApprovalGate(input: { category: string | null; deductiblePercent: number | null; transactionKind: TransactionKind; amount?: unknown },
-  expectedPercent: number): { question: string; reason: string } {
+export interface VehicleMethodGateFacts {
+  vehicles?: readonly VehicleRecord[] | null;
+  profile?: LegacyVehicleProfile | null;
+  /** Raw saved profile. The vehicle context hash reads this, not the enhanced analysis context. */
+  savedProfile?: Record<string, unknown> | null;
+  taxYear?: number;
+  vehicleId?: string | null;
+}
+
+export function withheldApprovalGate(input: { category: string | null; deductiblePercent: number | null; transactionKind: TransactionKind; amount?: unknown; text?: string; merchantText?: string; businessUsePercent?: number | null },
+  expectedPercent: number, facts?: VehicleMethodGateFacts): { question: string; reason: string } | { share: number; reason?: string } | null {
   const category = reviewCategory(input.category);
   if (input.transactionKind === 'unknown') {
     return { question: 'Was this a purchase, customer payment, refund, loan, owner contribution or movement between your own accounts?',
@@ -82,9 +121,36 @@ export function withheldApprovalGate(input: { category: string | null; deductibl
     return { question: 'Which expense category fits this charge?',
       reason: 'This charge does not fit a category WriteOff can place on Schedule C automatically. Choose a specific category, or keep it with its saved purpose for your preparer.' };
   }
-  if (category.value === 'vehicle_expense') {
-    return { question: 'Do you use the standard mileage rate or actual expenses for this vehicle?',
-      reason: 'Vehicle costs depend on the method chosen for the vehicle. Fuel, repairs and insurance are included in the standard mileage rate; with actual expenses they are allocated by business-use share. Record the method and your mileage log in Settings before this charge can count.' };
+  const separateCost = standardMileageSeparateCost(input.text ?? '');
+  const vehiclePropertyTax = category.value === 'taxes_licenses' && separateCost === 'property_tax';
+  if (category.value === 'vehicle_expense' || vehiclePropertyTax) {
+    if (mileageVehicleCopyEnabled()) {
+      const dated = facts?.taxYear;
+      const fact = vehicleMethodForTaxYear({
+        vehicles: facts?.vehicles,
+        profile: facts?.profile,
+        taxYear: typeof dated === 'number' ? dated : new Date().getFullYear(),
+        vehicleId: facts?.vehicleId,
+      });
+      // Interest and vehicle property tax stay out of the mileage hold and count only at the recorded share, under either method.
+      if (separateCost) {
+        const recorded = finiteUsePercent(input.businessUsePercent) ?? finiteUsePercent(fact.businessUsePercent);
+        if (recorded === null) return { ...SEPARATE_VEHICLE_COST_SHARE };
+        return { share: recorded, reason: SEPARATE_VEHICLE_COST_SHARE.reason };
+      }
+      if (category.value === 'vehicle_expense' && hiredVehicleFare(input.merchantText ?? '')) {
+        return { question: HIRED_FARE_USE.question, reason: HIRED_FARE_USE.reason };
+      }
+      if (fact.status === 'known' && fact.method === 'standard_mileage') {
+        return { ...STANDARD_MILEAGE_RUNNING_COST_GATE };
+      }
+      if (fact.status === 'known' && fact.method === 'actual_expense') {
+        const recorded = finiteUsePercent(input.businessUsePercent) ?? finiteUsePercent(fact.businessUsePercent);
+        if (recorded === null) return { ...ACTUAL_EXPENSE_BUSINESS_SHARE };
+        return { share: recorded };
+      }
+    }
+    if (category.value === 'vehicle_expense') return { ...VEHICLE_METHOD_GATE };
   }
   if (category.value === 'equipment') {
     return { question: 'What was purchased, when was it first used for business, and which depreciation or de minimis election applies?',
@@ -123,7 +189,7 @@ export function withheldMissingField(category: string | null, transactionKind: T
 
 /** Only suggestions and workflow state; no user classification, category, amount, or reason fields. */
 export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), canonicalData?: Record<string, unknown>, profileHash?: string,
-  profile?: ExplanationProfile | Record<string, unknown> | null) {
+  profile?: ExplanationProfile | Record<string, unknown> | null, vehicleFacts?: VehicleMethodGateFacts) {
   const evidence = result as OutputType & { transaction_kind?: TransactionKind; tax_year?: number | null;
     policy_version?: string; sources?: AiReviewSuggestion['sources'] };
   const model = result.provenance?.model?.trim() || getOpenAIModel('transaction');
@@ -147,6 +213,16 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
     ...(proposedPurpose ? { proposedPurpose } : {}),
     ...(scheduleCLine ? { scheduleCLine } : {}),
   };
+  if (mileageVehicleCopyEnabled() && canonicalData) {
+    const savedProfile = vehicleFacts?.savedProfile && typeof vehicleFacts.savedProfile === 'object' && !Array.isArray(vehicleFacts.savedProfile)
+      ? vehicleFacts.savedProfile
+      : profile && typeof profile === 'object' && !Array.isArray(profile) ? profile as Record<string, unknown> : {};
+    const linked = typeof canonicalData.vehicleId === 'string' ? canonicalData.vehicleId
+      : typeof canonicalData.vehicle_id === 'string' ? canonicalData.vehicle_id : vehicleFacts?.vehicleId ?? null;
+    suggestion.vehicleContextHash = vehicleContextHash(savedProfile, typeof canonicalData.date === 'string' ? canonicalData.date : '', {
+      vehicles: vehicleFacts?.vehicles, vehicleId: linked,
+    });
+  }
   // A saved suggestion never approves a credit/zero amount as a new expense or approves an unsupported method.
   if (canonicalData && (transactionKind === 'expense' && !(Number(canonicalData.amount) > 0) ||
       transactionKind === 'income' && !(Number(canonicalData.amount) < 0) ||
@@ -155,43 +231,167 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
     suggestion.status = 'needs_more_info'; suggestion.isDeductible = null; suggestion.deductiblePercent = null;
     suggestion.questions = [...suggestion.questions, 'Confirm whether this entry is a purchase, income, a transfer, or a refund before assigning tax treatment.'].slice(0, 3);
   }
+  const merchantText = canonicalData ? ['merchant_name', 'name', 'description'].map(key => typeof canonicalData[key] === 'string' ? canonicalData[key] as string : '').filter(Boolean).join(' ') : '';
+  if (mileageVehicleCopyEnabled() && canonicalData && suggestion.status === 'ok' && suggestion.isDeductible === true &&
+      suggestion.category === 'vehicle_expense' && /\buber\s*eats\b/i.test(merchantText)) {
+    suggestion.category = 'meals_50';
+    suggestion.deductiblePercent = 50;
+    suggestion.scheduleCLine = '24b';
+  }
+  const purposeText = hiredFarePurposeText(canonicalData);
+  // A hired fare is transportation decided by the trip. It never takes the method or the share of the user's own car.
+  // undefined keeps the incoming line. null clears it. Line 24a is only the confirmed overnight answer.
+  let scheduleLine: string | null | undefined;
+  if (mileageVehicleCopyEnabled() && canonicalData && suggestion.status === 'ok' && suggestion.isDeductible === true &&
+      hiredVehicleFare(merchantText) && suggestion.category !== 'meals_50' &&
+      (suggestion.category === 'vehicle_expense' || suggestion.category === 'travel' || suggestion.category === 'other')) {
+    const choice = hiredFareChoiceFromRecord(canonicalData);
+    const startedAtHome = hiredFareStartedAtHome(canonicalData);
+    const homeOffice = profileHasHomeOffice(profile);
+    const typedPurpose = typeof canonicalData.business_purpose === 'string' ? canonicalData.business_purpose : '';
+    // An exact answer label typed into the purpose is not a choice, even when notes repeat it.
+    const exactLabel = hiredFareAnswerLabel(typedPurpose) || hiredFareAnswerLabel(purposeText);
+    const clearLine = () => { suggestion.category = 'travel'; delete suggestion.scheduleCLine; scheduleLine = null; };
+    if (choice === 'overnight') {
+      suggestion.category = 'travel';
+      suggestion.scheduleCLine = '24a';
+      suggestion.deductiblePercent = 100;
+      suggestion.isDeductible = true;
+      suggestion.status = 'ok';
+      suggestion.questions = hiredFareUsePrompt(profile);
+      suggestion.reasoning = HIRED_FARE_USE.overnightReason;
+      scheduleLine = '24a';
+    } else if (choice === 'between' && startedAtHome === true && !homeOffice) {
+      suggestion.category = null;
+      delete suggestion.scheduleCLine;
+      suggestion.status = 'needs_more_info';
+      suggestion.isDeductible = null;
+      suggestion.deductiblePercent = null;
+      suggestion.questions = hiredFareUsePrompt(profile);
+      suggestion.reasoning = HIRED_FARE_USE.homeStartReason;
+      scheduleLine = null;
+    } else if (choice === 'between') {
+      suggestion.category = null;
+      suggestion.scheduleCLine = '27a';
+      suggestion.deductiblePercent = 100;
+      suggestion.isDeductible = true;
+      suggestion.status = 'ok';
+      suggestion.questions = hiredFareUsePrompt(profile);
+      suggestion.reasoning = HIRED_FARE_USE.betweenReason;
+      scheduleLine = '27a';
+    } else if (choice === 'commute' || choice === 'personal' || (!exactLabel && hiredFarePurpose(purposeText) === 'personal')) {
+      clearLine();
+      suggestion.isDeductible = false;
+      suggestion.deductiblePercent = 0;
+      suggestion.status = 'ok';
+      suggestion.questions = hiredFareUsePrompt(profile);
+      suggestion.reasoning = choice === 'commute' ? HIRED_FARE_USE.commuteReason : HIRED_FARE_PERSONAL.reason;
+    } else if (!exactLabel && hiredFarePurpose(purposeText) === 'unstated') {
+      clearLine();
+      suggestion.status = 'needs_more_info';
+      suggestion.isDeductible = null;
+      suggestion.deductiblePercent = null;
+      suggestion.questions = hiredFareUsePrompt(profile);
+      suggestion.reasoning = HIRED_FARE_USE.reason;
+    } else {
+      suggestion.category = null;
+      delete suggestion.scheduleCLine;
+      suggestion.status = 'needs_more_info';
+      suggestion.isDeductible = null;
+      suggestion.deductiblePercent = null;
+      suggestion.questions = hiredFareUsePrompt(profile);
+      suggestion.reasoning = HIRED_FARE_USE.reason;
+      scheduleLine = null;
+    }
+  }
   const supportedCategory = reviewCategory(suggestion.category);
   const expectedPercent = supportedCategory?.value === 'meals_50' ? 50 : 100;
+  const separateOnThisCharge = mileageVehicleCopyEnabled() && canonicalData &&
+    (suggestion.category === 'vehicle_expense' || suggestion.category === 'taxes_licenses') &&
+    standardMileageSeparateCost(approvalText(canonicalData));
   // The reasoning the user reads must describe the saved suggestion; an approval the review path cannot
   // consume is stored with the question that unblocks it, never beside "deductible on line N" prose.
   let withheld: { question: string; reason: string } | null = null;
-  if (suggestion.status === 'ok' && canonicalData && (transactionKind === 'unknown' ||
+  let appliedShareReason: string | null = null;
+  if (suggestion.status === 'ok' && scheduleLine !== '27a' && canonicalData && (transactionKind === 'unknown' ||
       suggestion.isDeductible === true && (!supportedCategory || supportedCategory.recordedCategory.endsWith('_REVIEW_REQUIRED') ||
-        suggestion.deductiblePercent !== expectedPercent))) {
-    withheld = withheldApprovalGate({ category: suggestion.category, deductiblePercent: suggestion.deductiblePercent, transactionKind, amount: canonicalData.amount }, expectedPercent);
-    suggestion.status = 'needs_more_info'; suggestion.isDeductible = null; suggestion.deductiblePercent = null;
-    suggestion.questions = [withheld.question, ...suggestion.questions.filter(question => question !== withheld!.question)].slice(0, 3);
-    suggestion.reasoning = withheld.reason;
+        suggestion.deductiblePercent !== expectedPercent || Boolean(separateOnThisCharge)))) {
+    const savedDate = typeof canonicalData.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(canonicalData.date) ? Number(canonicalData.date.slice(0, 4)) : null;
+    const vehicleId = typeof canonicalData.vehicleId === 'string' ? canonicalData.vehicleId : typeof canonicalData.vehicle_id === 'string' ? canonicalData.vehicle_id : vehicleFacts?.vehicleId;
+    const gate = withheldApprovalGate({
+      category: suggestion.category, deductiblePercent: suggestion.deductiblePercent, transactionKind, amount: canonicalData.amount, text: approvalText(canonicalData),
+      merchantText, businessUsePercent: finiteUsePercent(canonicalData.business_use_percentage),
+    }, expectedPercent, {
+      ...vehicleFacts,
+      taxYear: vehicleFacts?.taxYear ?? evidence.tax_year ?? savedDate ?? undefined,
+      vehicleId,
+    });
+    if (gate && 'share' in gate) {
+      suggestion.deductiblePercent = gate.share;
+      suggestion.isDeductible = true;
+      suggestion.status = 'ok';
+      if (result.deductible_percent !== gate.share) {
+        appliedShareReason = gate.reason ?? ACTUAL_EXPENSE_BUSINESS_SHARE.reason;
+        suggestion.reasoning = appliedShareReason;
+      }
+    } else if (gate) {
+      withheld = gate;
+      suggestion.status = 'needs_more_info'; suggestion.isDeductible = null; suggestion.deductiblePercent = null;
+      suggestion.questions = gate.question === HIRED_FARE_USE.question
+        ? hiredFareUsePrompt(profile)
+        : [gate.question, ...suggestion.questions.filter(question => question !== gate.question)].slice(0, 3);
+      suggestion.reasoning = gate.reason;
+    }
   }
-  const displayedReason = withheld?.reason ?? result.customized_reason ?? null;
+  // A hired fare that still needs an answer shows the four choices, typed purpose or not.
+  if (mileageVehicleCopyEnabled() && canonicalData && hiredVehicleFare(merchantText) && suggestion.category !== 'meals_50' &&
+      suggestion.questions[0] === HIRED_FARE_PURPOSE.question) {
+    suggestion.questions = hiredFareUsePrompt(profile);
+    suggestion.reasoning = HIRED_FARE_USE.reason;
+    if (withheld && withheld.question === HIRED_FARE_PURPOSE.question) {
+      withheld = { question: HIRED_FARE_USE.question, reason: HIRED_FARE_USE.reason };
+    }
+  }
+  const fareReasons: readonly string[] = [HIRED_FARE_PERSONAL.reason, HIRED_FARE_PURPOSE.reason, HIRED_FARE_USE.reason, HIRED_FARE_USE.overnightReason, HIRED_FARE_USE.betweenReason, HIRED_FARE_USE.commuteReason, HIRED_FARE_USE.homeStartReason];
+  const fareReason = fareReasons.includes(suggestion.reasoning) ? suggestion.reasoning : null;
+  const displayedReason = withheld?.reason ?? appliedShareReason ?? fareReason ?? result.customized_reason ?? null;
+  const hiredPurposeField = mileageVehicleCopyEnabled() && suggestion.questions[0] === HIRED_FARE_PURPOSE.question;
+  const missingFields = withheld
+    ? [withheld.question === ACTUAL_EXPENSE_BUSINESS_SHARE.question ? 'business_use_percentage'
+      : mileageVehicleCopyEnabled() && withheld.question === HIRED_FARE_PURPOSE.question ? 'business_purpose'
+        : withheldMissingField(suggestion.category, transactionKind)]
+    : hiredPurposeField && suggestion.status === 'needs_more_info'
+      ? ['business_purpose']
+      : mileageVehicleCopyEnabled() && suggestion.status === 'needs_more_info' && suggestion.questions[0] === HIRED_FARE_USE.question
+        ? ['travel_eligibility']
+        : result.missing_fields ?? [];
   const label = suggestion.status === 'needs_more_info' ? 'Needs more information' : suggestion.status === 'blocked' ? 'Needs manual review' :
     suggestion.isDeductible === true ? 'Likely Deductible' : suggestion.isDeductible === false ? 'Unlikely Deductible' : 'Needs manual review';
   // The explanation describes the gated suggestion the user sees, never the raw model output.
+  const savedLine = scheduleLine !== undefined ? scheduleLine : (suggestion.scheduleCLine ?? scheduleCLine ?? null);
   const gated: ExplainableResult = { ...(result as ExplainableResult), status: suggestion.status, transaction_kind: transactionKind,
-    questions: suggestion.questions, is_deductible: suggestion.isDeductible ?? undefined, deductible_percent: suggestion.deductiblePercent ?? undefined,
+    category: scheduleLine === null || suggestion.category == null ? undefined : (suggestion.category ?? result.category), questions: suggestion.questions, is_deductible: suggestion.isDeductible ?? undefined, deductible_percent: suggestion.deductiblePercent ?? undefined,
+    ...(scheduleLine === null ? { schedule_c_line: undefined } : scheduleLine ? { schedule_c_line: scheduleLine } : {}),
     ...(withheld ? { customized_reason: withheld.reason, reasoning_summary: withheld.reason, key_analysis_factor: withheld.reason.slice(0, 400),
-      missing_fields: [withheldMissingField(suggestion.category, transactionKind)] } : {}) };
+      missing_fields: missingFields } : {}),
+    ...(fareReason ? { customized_reason: fareReason, reasoning_summary: fareReason, key_analysis_factor: fareReason.slice(0, 400), missing_fields: missingFields } : {}),
+    ...(appliedShareReason ? { customized_reason: appliedShareReason, reasoning_summary: appliedShareReason, key_analysis_factor: appliedShareReason.slice(0, 400), deductible_percent: suggestion.deductiblePercent ?? undefined } : {}) };
   const savedDate = typeof canonicalData?.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(canonicalData.date) ? Number(canonicalData.date.slice(0, 4)) : null;
   const explanation = composeExplanation({ result: gated, transaction: canonicalData, profile, taxYear: evidence.tax_year ?? savedDate });
   return {
     ai_suggestion: suggestion, ai_explanation: explanation, ai_transaction_kind: transactionKind,
     ai_tax_year: evidence.tax_year ?? null, ai_sources: evidence.sources ?? [],
     ai_policy_version: evidence.policy_version ?? null, ai_provenance: evidence.provenance ?? null,
-    ai_status: suggestion.status, ai_category: result.category ?? null,
+    ai_status: suggestion.status, ai_category: suggestion.category ?? null,
     ai_deductible_percent: suggestion.deductiblePercent,
-    ai_key_analysis_factor: withheld ? withheld.reason.slice(0, 400) : result.key_analysis_factor ?? null,
+    ai_key_analysis_factor: withheld ? withheld.reason.slice(0, 400) : fareReason ? fareReason.slice(0, 400) : result.key_analysis_factor ?? null,
     ai_customized_reason: displayedReason,
-    ai_reasoning_summary: withheld ? withheld.reason : result.reasoning_summary ?? null,
+    ai_reasoning_summary: withheld ? withheld.reason : fareReason ?? result.reasoning_summary ?? null,
     ai_irs_refs: result.irs_refs ?? [], ai_audit_risk: result.audit_risk ?? null,
     ai_audit_risk_rationale: result.audit_risk_rationale ?? null, ai_confidence: result.confidence ?? null,
-    ai_missing_fields: withheld ? [withheldMissingField(suggestion.category, transactionKind)] : result.missing_fields ?? [], ai_questions: suggestion.questions,
+    ai_missing_fields: missingFields, ai_questions: suggestion.questions,
     ai_documentation_required: result.documentation_required ?? [], ai_reason_hash: result.reason_hash ?? null,
-    ai_proposed_purpose: proposedPurpose ?? null, ai_schedule_c_line: scheduleCLine ?? null,
+    ai_proposed_purpose: proposedPurpose ?? null, ai_schedule_c_line: savedLine,
     ai_model: model, ai_last_analyzed_at: now,
     deductionStatus: label, confidence: result.confidence ?? null,
     reasoning: displayedReason ?? result.reasoning_summary ?? null,
@@ -200,11 +400,11 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
       transaction_kind: transactionKind, tax_year: evidence.tax_year ?? null, sources: evidence.sources ?? [],
       policy_version: evidence.policy_version ?? null, provenance: evidence.provenance ?? null,
       status: suggestion.status, status_label: label, score_pct: result.confidence == null ? null : Math.round(result.confidence * 100),
-      reasoning: displayedReason ?? result.reasoning_summary ?? null, category: result.category ?? null,
+      reasoning: displayedReason ?? result.reasoning_summary ?? null, category: suggestion.category ?? null,
       irs_refs: result.irs_refs ?? [], audit_risk: result.audit_risk ?? null,
       deductible_percent: suggestion.deductiblePercent, questions: suggestion.questions,
-      missing_fields: withheld ? [withheldMissingField(suggestion.category, transactionKind)] : result.missing_fields ?? [], documentation_required: result.documentation_required ?? [],
-      proposed_purpose: proposedPurpose ?? null, schedule_c_line: scheduleCLine ?? null,
+      missing_fields: missingFields, documentation_required: result.documentation_required ?? [],
+      proposed_purpose: proposedPurpose ?? null, schedule_c_line: savedLine,
       model, last_analyzed_at: now,
     },
     analyzed: true, analysis_status: 'completed', analysisStatus: 'completed', analysisErrorCode: null, analysisRefreshReason: null,
@@ -221,12 +421,32 @@ export async function persistAnalysisSuggestion(ref: DocumentReference, result: 
   }
   const profileRef = adminDb.doc(`user_profiles/${parts[1]}`);
   return adminDb.runTransaction(async tx => {
-    const [snap, currentProfile] = await Promise.all([tx.get(ref), tx.get(profileRef)]);
+    const vehicleRead = mileageVehicleCopyEnabled() ? tx.get(profileRef.collection('vehicles')).then(vehicleSnap => {
+      const docs = (vehicleSnap as { docs?: Array<{ id: string; data: () => Record<string, unknown> }> }).docs;
+      return Array.isArray(docs) ? docs.map(doc => vehicleFromDocument(doc.id, doc.data())) : undefined;
+    }).catch(() => undefined) : Promise.resolve(undefined);
+    const settingsRead = tx.get(adminDb.doc(`${profileRef.path}/settings/homeOffice`)).catch(() => null);
+    const [snap, currentProfile, vehicles, settingsSnap] = await Promise.all([
+      tx.get(ref), tx.get(profileRef), vehicleRead, settingsRead,
+    ]);
     if (!snap.exists || !isAnalysisLeaseCurrent(snap.data()!, lease)) return { status: 'stale' as const };
     // Profile edits can change both the decision and displayed tax effect while the model runs.
     // Reading profile and transaction inside one commit transaction prevents publishing old facts.
     if (!currentProfile.exists || analysisProfileHash(currentProfile.data()!, snap.data()!.date) !== profileHash) return { status: 'stale' as const };
-    const update = analysisSuggestionUpdate(result, Date.now(), snap.data()!, profileHash, profile);
+    const profileData = currentProfile.data() as Record<string, unknown>;
+    const nested = profileData.business_vehicle;
+    const vehicleId = typeof snap.data()!.vehicleId === 'string' ? snap.data()!.vehicleId : typeof snap.data()!.vehicle_id === 'string' ? snap.data()!.vehicle_id : null;
+    const settings = settingsSnap && settingsSnap.exists ? settingsSnap.data() : null;
+    const update = analysisSuggestionUpdate(result, Date.now(), snap.data()!, profileHash, withHomeOfficeSources(profile, profileData, settings), {
+      vehicles,
+      vehicleId,
+      savedProfile: profileData,
+      profile: {
+        vehicle_deduction_method: typeof profileData.vehicle_deduction_method === 'string' ? profileData.vehicle_deduction_method : null,
+        vehicle_business_use_percentage: typeof profileData.vehicle_business_use_percentage === 'number' ? profileData.vehicle_business_use_percentage : null,
+        business_vehicle: nested && typeof nested === 'object' ? nested as LegacyVehicleProfile['business_vehicle'] : null,
+      },
+    });
     tx.update(ref, update);
     return {
       status: 'saved' as const,

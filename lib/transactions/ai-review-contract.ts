@@ -1,3 +1,5 @@
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
+
 /** Client-safe review contract. Categories map to the existing export taxonomy only after user review. */
 export const REVIEW_CATEGORIES = [
   { value: 'advertising_marketing', label: 'Advertising and marketing', recordedCategory: 'SERVICE_ADVERTISING' },
@@ -42,6 +44,8 @@ export interface AiReviewSuggestion {
   analyzedAt: number;
   inputHash: string;
   profileHash?: string;
+  /** Saved only when analysis ran with vehicle copy on. Confirm recomputes it when present. */
+  vehicleContextHash?: string;
   /** Unsupported year/entity can block tax treatment without blocking a known bookkeeping category. */
   categoryReady?: boolean;
   /**
@@ -66,6 +70,8 @@ export function canConfirmAiSuggestion(suggestion: AiReviewSuggestion | null | u
   if (!suggestion || suggestion.status === 'blocked' && suggestion.categoryReady !== true || !suggestion.id || !suggestion.inputHash ||
       suggestion.transactionKind === 'unknown') return false;
   if (['income', 'transfer', 'personal', 'refund'].includes(suggestion.transactionKind)) return suggestion.isDeductible !== true;
+  if (mileageVehicleCopyEnabled() && suggestion.category == null && suggestion.scheduleCLine === '27a' && suggestion.status === 'ok' &&
+      suggestion.transactionKind === 'expense' && suggestion.isDeductible === true && suggestion.deductiblePercent === 100) return true;
   const category = reviewCategory(suggestion.category);
   return !!category && category.value !== 'other';
 }
@@ -95,6 +101,7 @@ export function reviewHydrationFields(record: Record<string, any>) {
     iso_currency_code: record.iso_currency_code,
     unofficial_currency_code: record.unofficial_currency_code,
     business_purpose: record.business_purpose,
+    hired_fare_use: record.hired_fare_use ?? null,
     attendees: record.attendees,
     equipment_details: record.equipment_details,
     documentation_status: record.documentation_status,

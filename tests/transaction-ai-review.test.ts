@@ -4,20 +4,33 @@ import { NextRequest } from 'next/server';
 const mocks = vi.hoisted(() => ({ docs: new Map<string, Record<string, any>>(), uid: 'owner', auth: true }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: mocks.auth ? { uid: mocks.uid } : null }) }));
 vi.mock('@/lib/firebase/admin', () => {
-  const ref = (path: string): any => ({ path, id: path.split('/').at(-1), collection: (name: string) => ({ doc: (id: string) => ref(`${path}/${name}/${id}`) }) });
+  const ref = (path: string): any => ({
+    path, id: path.split('/').at(-1),
+    collection: (name: string) => ({ path: `${path}/${name}`, doc: (id: string) => ref(`${path}/${name}/${id}`) }),
+  });
   return { adminDb: { doc: ref, runTransaction: async (work: (tx: any) => unknown) => work({
-    get: async (value: any) => ({ exists: mocks.docs.has(value.path), data: () => structuredClone(mocks.docs.get(value.path)), ref: value }),
+    get: async (value: any) => {
+      const docPath = typeof value?.path === 'string' ? value.path : '';
+      const docs = [...mocks.docs.keys()]
+        .filter(key => key.startsWith(`${docPath}/`) && !key.slice(docPath.length + 1).includes('/'))
+        .map(key => ({ id: key.split('/').at(-1), data: () => structuredClone(mocks.docs.get(key)) }));
+      return { exists: mocks.docs.has(docPath), docs, data: () => structuredClone(mocks.docs.get(docPath)), ref: value };
+    },
     update: (value: any, data: any) => { mocks.docs.set(value.path, { ...mocks.docs.get(value.path), ...structuredClone(data) }); },
   }) } };
 });
 
 import { analysisProfileHash } from '@/lib/ai/profile-context';
+import { vehicleFromDocument } from '@/lib/mileage/vehicles';
+import { baselineInputHash, baselineProfileHash } from './baseline-analysis-context';
 import { analysisSuggestionUpdate } from '@/lib/ai/analysis-persistence';
 import { POST } from '@/app/api/transactions/[id]/review/route';
 import { hydrateReviewTransaction } from '@/lib/transactions/review';
 import { canConfirmAiSuggestion } from '@/lib/transactions/ai-review-contract';
 import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { aggregateScheduleC } from '@/lib/schedule-c/aggregate';
+import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
+import { HIRED_FARE_USE } from '@/lib/ai/vehicle-separate-costs';
 import { reconcileBusinessIncome } from '@/lib/tax-rules/business-income';
 import { TRANSACTION_TAX_POLICY_VERSION } from '@/lib/ai/transaction-tax-policy';
 
@@ -30,7 +43,20 @@ const result = { status: 'ok' as const, transaction_kind: 'expense' as const, ca
 
 function record() { return mocks.docs.get(path)!; }
 function change(values: Record<string, any>) { mocks.docs.set(path, { ...record(), ...values }); }
-function suggest(overrides = {}) { change(analysisSuggestionUpdate({ ...result, ...overrides }, 1770000000000, record(), analysisProfileHash(mocks.docs.get('user_profiles/owner')!, record().date))); }
+function storedVehicles() {
+  const prefix = 'user_profiles/owner/vehicles/';
+  return [...mocks.docs.keys()]
+    .filter(key => key.startsWith(prefix) && !key.slice(prefix.length).includes('/'))
+    .map(key => vehicleFromDocument(key.slice(prefix.length), structuredClone(mocks.docs.get(key)!)));
+}
+function suggest(overrides = {}) {
+  const data = record();
+  const profile = mocks.docs.get('user_profiles/owner')!;
+  const vehicleId = typeof data.vehicleId === 'string' ? data.vehicleId : typeof data.vehicle_id === 'string' ? data.vehicle_id : null;
+  change(analysisSuggestionUpdate({ ...result, ...overrides }, 1770000000000, data, analysisProfileHash(profile, data.date), profile, {
+    vehicles: storedVehicles(), vehicleId, savedProfile: profile,
+  }));
+}
 async function send(body: unknown, id = 'tx') {
   return POST(new NextRequest(`http://localhost/api/transactions/${id}/review`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), { params: Promise.resolve({ id }) });
 }
@@ -112,6 +138,121 @@ describe('saved AI categorization confirmation', () => {
     // The user can still deliberately categorize it without asserting a tax deduction.
     expect((await send(correct())).status).toBe(200);
     expect(record().tax_review_required).toBe(true);
+  });
+  it('confirms a suggestion saved before hired fare codes, with the switch off and on', async () => {
+    const profile = { profession: 'Designer', state: 'CA', business_entity_type: 'sole_proprietor' };
+    const base = { userId: 'owner', account_id: 'bank', trans_id: 'tx', merchant_name: 'Office store', amount: 100,
+      date: '2026-09-15', category: 'UNCLASSIFIED', iso_currency_code: 'USD', pending: false,
+      is_deductible: null, notes: 'Supplies used only for Client A.', analysisLeaseToken: 'private-token' };
+    for (const [flag, fare] of [['0', undefined], ['1', null]] as const) {
+      vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', flag);
+      mocks.docs.set('user_profiles/owner', { ...profile });
+      mocks.docs.set(path, fare === null ? { ...base, hired_fare_use: null } : { ...base });
+      suggest();
+      const data = record();
+      change({ ai_suggestion: { ...data.ai_suggestion, inputHash: baselineInputHash(data), profileHash: baselineProfileHash(profile, data.date) } });
+      const response = await send(confirm());
+      expect(response.status).toBe(200);
+      expect(record().review_status).toBe('confirmed');
+      expect(await response.json()).not.toMatchObject({ code: 'AI_SUGGESTION_CHANGED' });
+    }
+    vi.unstubAllEnvs();
+  });
+  it('confirms a base saved suggestion for car profiles when the switch is on, and a method or percent edit still conflicts', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    const base = { userId: 'owner', account_id: 'bank', trans_id: 'tx', merchant_name: 'Office store', amount: 100,
+      date: '2026-09-15', category: 'UNCLASSIFIED', iso_currency_code: 'USD', pending: false,
+      is_deductible: null, notes: 'Supplies used only for Client A.', analysisLeaseToken: 'private-token' };
+    const profiles = [
+      { profession: 'Designer', state: 'CA', business_entity_type: 'sole_proprietor', vehicle_deduction_method: 'standard_mileage', vehicle_business_use_percentage: 40 },
+      { profession: 'Designer', state: 'CA', business_entity_type: 'sole_proprietor', vehicle_deduction_method: 'actual_expenses', vehicle_business_use_percentage: 60, business_vehicle: { business_use_percentage: 25, make: 'Honda' } },
+    ];
+    for (const profile of profiles) {
+      mocks.docs.set('user_profiles/owner', { ...profile, business_vehicle: profile.business_vehicle ? { ...profile.business_vehicle } : undefined });
+      mocks.docs.set(path, { ...base });
+      suggest();
+      const savedHash = baselineProfileHash(profile, record().date);
+      expect(record().ai_suggestion.profileHash).toBe(savedHash);
+      change({ ai_suggestion: { ...record().ai_suggestion, profileHash: savedHash } });
+      const confirmed = await send(confirm());
+      expect(confirmed.status).toBe(200);
+
+      mocks.docs.set('user_profiles/owner', { ...profile, business_vehicle: profile.business_vehicle ? { ...profile.business_vehicle } : undefined });
+      mocks.docs.set(path, { ...base });
+      suggest();
+      change({ ai_suggestion: { ...record().ai_suggestion, profileHash: savedHash } });
+      mocks.docs.set('user_profiles/owner', { ...mocks.docs.get('user_profiles/owner'), vehicle_deduction_method: 'actual_expense' });
+      const methodEdit = await send(confirm());
+      expect(methodEdit.status).toBe(409);
+      expect(await methodEdit.json()).toMatchObject({ code: 'AI_PROFILE_CHANGED' });
+
+      mocks.docs.set('user_profiles/owner', { ...profile, business_vehicle: profile.business_vehicle ? { ...profile.business_vehicle } : undefined });
+      mocks.docs.set(path, { ...base });
+      suggest();
+      change({ ai_suggestion: { ...record().ai_suggestion, profileHash: savedHash } });
+      mocks.docs.set('user_profiles/owner', { ...mocks.docs.get('user_profiles/owner'), vehicle_business_use_percentage: 10 });
+      const percentEdit = await send(confirm());
+      expect(percentEdit.status).toBe(409);
+      expect(await percentEdit.json()).toMatchObject({ code: 'AI_PROFILE_CHANGED' });
+    }
+    vi.unstubAllEnvs();
+  });
+  it('rejects a linked car change or camelCase home office added after switch-on analysis, and confirms when that hash is absent', async () => {
+    const date = '2026-09-15';
+    const profile = { profession: 'Designer', state: 'CA', business_entity_type: 'sole_proprietor', vehicle_deduction_method: 'standard_mileage', vehicle_business_use_percentage: 40 };
+    const base = { userId: 'owner', account_id: 'bank', trans_id: 'tx', merchant_name: 'Office store', amount: 100,
+      date, category: 'UNCLASSIFIED', iso_currency_code: 'USD', pending: false,
+      is_deductible: null, notes: 'Supplies used only for Client A.', analysisLeaseToken: 'private-token' };
+    const car = (method: 'standard_mileage' | 'actual_expense', percent: number) => ({
+      method, methodByYear: { '2026': method }, legacyBusinessUsePercentage: percent,
+    });
+    const prepare = (next: Record<string, unknown>, extra: Record<string, unknown> = {}) => {
+      for (const key of [...mocks.docs.keys()]) if (key.startsWith('user_profiles/owner/vehicles/')) mocks.docs.delete(key);
+      mocks.docs.set('user_profiles/owner', next);
+      mocks.docs.set(path, { ...base, ...extra });
+    };
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    prepare(profile, { vehicleId: 'car-1' });
+    mocks.docs.set('user_profiles/owner/vehicles/car-1', car('standard_mileage', 40));
+    suggest();
+    expect(record().ai_suggestion.vehicleContextHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(record().ai_suggestion.profileHash).toBe(baselineProfileHash(profile, date));
+    expect(analysisProfileHash({ ...profile, homeOfficeSqft: 150 }, date)).toBe(baselineProfileHash(profile, date));
+    expect((await send(confirm())).status).toBe(200);
+
+    prepare(profile, { vehicleId: 'car-1' });
+    mocks.docs.set('user_profiles/owner/vehicles/car-1', car('standard_mileage', 40));
+    suggest();
+    mocks.docs.set('user_profiles/owner/vehicles/car-1', car('actual_expense', 90));
+    const carEdit = await send(confirm());
+    expect(carEdit.status).toBe(409);
+    expect(await carEdit.json()).toMatchObject({ code: 'AI_PROFILE_CHANGED' });
+    expect(analysisProfileHash(mocks.docs.get('user_profiles/owner')!, date)).toBe(baselineProfileHash(profile, date));
+
+    prepare(profile);
+    suggest();
+    mocks.docs.set('user_profiles/owner', { ...profile, homeOfficeSqft: 150 });
+    const office = await send(confirm());
+    expect(office.status).toBe(409);
+    expect(await office.json()).toMatchObject({ code: 'AI_PROFILE_CHANGED' });
+    expect(analysisProfileHash(mocks.docs.get('user_profiles/owner')!, date)).toBe(baselineProfileHash(profile, date));
+
+    prepare(profile, { vehicleId: 'car-1' });
+    mocks.docs.set('user_profiles/owner/vehicles/car-1', car('standard_mileage', 40));
+    suggest();
+    const saved = { ...record().ai_suggestion };
+    delete saved.vehicleContextHash;
+    change({ ai_suggestion: saved });
+    expect((await send(confirm())).status).toBe(200);
+
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    prepare(profile, { vehicleId: 'car-1' });
+    mocks.docs.set('user_profiles/owner/vehicles/car-1', car('standard_mileage', 40));
+    suggest();
+    expect(record().ai_suggestion.vehicleContextHash).toBeUndefined();
+    expect(record().ai_suggestion.profileHash).toBe(baselineProfileHash(profile, date));
+    expect((await send(confirm())).status).toBe(200);
+    vi.unstubAllEnvs();
   });
   it('ignores non-tax display and subscription changes in the profile fingerprint', async () => {
     const profilePath = 'user_profiles/owner';
@@ -267,5 +408,220 @@ describe('proposed purpose and Schedule C line pass through persistence', () => 
     suggest({ ...proposal, transaction_kind: 'personal', category: 'other', missing_fields: ['transaction_kind'], schedule_c_line: '18' });
     expect(record().ai_suggestion.scheduleCLine).toBeUndefined();
     expect(record().ai_suggestion.proposedPurpose).toBeUndefined();
+  });
+});
+
+describe('actual expenses save at the recorded business share', () => {
+  const reviewError = 'This category needs a separate tax method review. Save the category without claiming a deduction.';
+  function actualProfile(percent?: number) {
+    const profile = mocks.docs.get('user_profiles/owner')!;
+    const next = { ...profile, vehicle_deduction_method: 'actual_expense' as const };
+    if (percent !== undefined) next.vehicle_business_use_percentage = percent;
+    mocks.docs.set('user_profiles/owner', next);
+  }
+  it('a correction that claimed the deduction saves gas at the recorded share', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      actualProfile(40);
+      change({ merchant_name: 'CHEVRON', amount: 100, business_purpose: 'Gas for the work car', date: '2026-09-15', is_deductible: null });
+      const response = await send(correct({ category: 'vehicle_expense', isDeductible: true, reason: 'Gas for the work car' }));
+      expect(response.status).toBe(200);
+      expect(record()).toMatchObject({
+        category: 'VEHICLE_ACTUAL_EXPENSE', is_deductible: true, business_use_percentage: 40,
+        deductible_percent: 40, tax_review_required: false,
+      });
+      const totals = aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' });
+      expect(totals.totalDeductible).toBe(40);
+      expect(totals.lineItems['9']).toMatchObject({ deductible: 40, lineCode: '9' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('confirming the suggestion at that same share counts the business portion', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      actualProfile(40);
+      const profile = mocks.docs.get('user_profiles/owner')!;
+      change({ merchant_name: 'JIFFY LUBE', amount: 100, business_purpose: 'Oil change on the work car', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED' });
+      change(analysisSuggestionUpdate({
+        ...result, category: 'vehicle_expense', deductible_percent: 100, schedule_c_line: '9',
+        customized_reason: 'Oil change on the work car is deductible on Schedule C line 9.',
+      }, 1770000000000, record(), analysisProfileHash(profile, record().date), profile, { profile, taxYear: 2026 }));
+      expect(record().ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 40, category: 'vehicle_expense' });
+      const response = await send(confirm());
+      expect(response.status).toBe(200);
+      expect(record()).toMatchObject({
+        category: 'VEHICLE_ACTUAL_EXPENSE', is_deductible: true, business_use_percentage: 40, deductible_percent: 40,
+      });
+      expect(aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' }).totalDeductible).toBe(40);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('the same correction still returns the method review error when the switch is off or no share is recorded', async () => {
+    actualProfile(40);
+    change({ merchant_name: 'GEICO', amount: 100, business_purpose: 'Car insurance for the work car' });
+    const off = await send(correct({ category: 'vehicle_expense', isDeductible: true, reason: 'Car insurance for the work car' }));
+    expect(off.status).toBe(422);
+    expect(await off.json()).toEqual({ error: reviewError, code: 'DEDUCTION_REVIEW_REQUIRED' });
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      const { vehicle_business_use_percentage: _dropped, ...withoutShare } = mocks.docs.get('user_profiles/owner')!;
+      mocks.docs.set('user_profiles/owner', withoutShare);
+      const missing = await send(correct({ category: 'vehicle_expense', isDeductible: true, reason: 'Car insurance for the work car' }));
+      expect(missing.status).toBe(422);
+      expect(await missing.json()).toEqual({ error: reviewError, code: 'DEDUCTION_REVIEW_REQUIRED' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe('interest, vehicle property tax, and hired fares', () => {
+  const reviewError = 'This category needs a separate tax method review. Save the category without claiming a deduction.';
+  function vehicleProfile(method: 'standard_mileage' | 'actual_expense', percent?: number) {
+    const profile = mocks.docs.get('user_profiles/owner')!;
+    const next = { ...profile, vehicle_deduction_method: method };
+    if (percent !== undefined) next.vehicle_business_use_percentage = percent;
+    mocks.docs.set('user_profiles/owner', next);
+  }
+  it('saves car loan interest and vehicle property tax at the recorded share under either method', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      for (const method of ['standard_mileage', 'actual_expense'] as const) {
+        vehicleProfile(method, 40);
+        change({ merchant_name: 'Toyota Financial', amount: 200, business_purpose: 'Interest on the car loan for business miles', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED' });
+        const interest = await send(correct({ category: 'vehicle_expense', isDeductible: true, reason: 'Interest on the car loan' }));
+        expect(interest.status).toBe(200);
+        expect(record()).toMatchObject({ category: 'VEHICLE_LOAN_INTEREST', is_deductible: true, business_use_percentage: 40, deductible_percent: 40 });
+        const interestTotals = aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' });
+        expect(interestTotals.totalDeductible).toBe(80);
+        expect(interestTotals.lineItems['16b']).toMatchObject({ lineCode: '16b', lineName: 'Interest: other', deductible: 80 });
+        expect(interestTotals.lineItems['9']).toBeUndefined();
+        change({ merchant_name: 'County Treasurer', amount: 90, business_purpose: 'Personal property tax on the car', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED', business_use_percentage: undefined, deductible_percent: undefined });
+        const propertyTax = await send(correct({ category: 'taxes_licenses', isDeductible: true, reason: 'Personal property tax on the car' }));
+        expect(propertyTax.status).toBe(200);
+        expect(record()).toMatchObject({ category: 'VEHICLE_PROPERTY_TAX', is_deductible: true, business_use_percentage: 40, deductible_percent: 40 });
+        expect(aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' }).lineItems['23']).toMatchObject({ deductible: 36 });
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('does not save interest or vehicle property tax at 100 when no share is recorded', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      vehicleProfile('standard_mileage');
+      change({ merchant_name: 'Toyota Financial', amount: 200, business_purpose: 'Interest on the car loan for business miles' });
+      const interest = await send(correct({ category: 'vehicle_expense', isDeductible: true, reason: 'Interest on the car loan' }));
+      expect(interest.status).toBe(422);
+      expect(await interest.json()).toEqual({ error: reviewError, code: 'DEDUCTION_REVIEW_REQUIRED' });
+      change({ merchant_name: 'County Treasurer', amount: 90, business_purpose: 'Personal property tax on the car' });
+      const propertyTax = await send(correct({ category: 'taxes_licenses', isDeductible: true, reason: 'Personal property tax on the car' }));
+      expect(propertyTax.status).toBe(422);
+      expect(await propertyTax.json()).toEqual({ error: reviewError, code: 'DEDUCTION_REVIEW_REQUIRED' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('confirms a business fare as transportation and does not scale it by the car share', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      vehicleProfile('actual_expense', 40);
+      const profile = mocks.docs.get('user_profiles/owner')!;
+      change({ merchant_name: 'Uber', amount: 28, business_purpose: 'Ride to the client meeting', hired_fare_use: 'overnight_trip', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED' });
+      change(analysisSuggestionUpdate({
+        ...result, category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9',
+        customized_reason: HIRED_FARE_USE.overnightReason,
+      }, 1770000000000, record(), analysisProfileHash(profile, record().date), profile, { profile, taxYear: 2026 }));
+      expect(record().ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, category: 'travel', scheduleCLine: '24a' });
+      const response = await send(confirm());
+      expect(response.status).toBe(200);
+      expect(record()).toMatchObject({ category: 'TRAVEL_OTHER_TRAVEL', is_deductible: true });
+      expect(record().business_use_percentage).toBeUndefined();
+      const fareTotals = aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' });
+      expect(fareTotals.totalDeductible).toBe(28);
+      expect(fareTotals.lineItems['24a']).toMatchObject({ lineCode: '24a', deductible: 28 });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('confirms a client to client fare on other expenses and does not use line 24a', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      vehicleProfile('actual_expense', 40);
+      const profile = mocks.docs.get('user_profiles/owner')!;
+      change({ merchant_name: 'Uber', amount: 28, business_purpose: 'Ride to the client meeting', hired_fare_use: 'between_work_locations', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED', mileage_details: { start_location: 'Client office', end_location: 'Second workplace' } });
+      change(analysisSuggestionUpdate({
+        ...result, category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9',
+        customized_reason: 'Ride between work locations.',
+      }, 1770000000000, record(), analysisProfileHash(profile, record().date), profile, { profile, taxYear: 2026 }));
+      expect(record().ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, scheduleCLine: '27a' });
+      expect(record().ai_suggestion.category).toBeNull();
+      expect(record().ai_schedule_c_line).toBe('27a');
+      const response = await send(confirm());
+      expect(response.status).toBe(200);
+      expect(record()).toMatchObject({ category: 'HIRED_LOCAL_TRANSPORT', is_deductible: true });
+      const fareTotals = aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' });
+      expect(fareTotals.totalDeductible).toBe(28);
+      expect(fareTotals.lineItems['27a']).toMatchObject({ lineCode: '27a', lineName: 'Other expenses', deductible: 28 });
+      expect(scheduleCExportLine('27a', 2026)).toBe('27b');
+      expect(fareTotals.lineItems['24a']).toBeUndefined();
+      expect(fareTotals.lineItems['27b']).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('confirms a home start fare when the saved profile has office square footage', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      const profilePath = 'user_profiles/owner';
+      mocks.docs.set(profilePath, { ...mocks.docs.get(profilePath), home_office_sqft: 150, home_office_method: 'simplified' });
+      const profile = mocks.docs.get(profilePath)!;
+      change({ merchant_name: 'Uber', amount: 28, business_purpose: 'Ride to the client meeting', hired_fare_use: 'between_work_locations', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED', mileage_details: { start_location: 'Home', end_location: 'Client office' } });
+      change(analysisSuggestionUpdate({
+        ...result, category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9',
+      }, 1770000000000, record(), analysisProfileHash(profile, record().date), profile, { profile, taxYear: 2026 }));
+      expect(record().ai_suggestion).toMatchObject({ status: 'ok', deductiblePercent: 100, scheduleCLine: '27a' });
+      const response = await send(confirm());
+      expect(response.status).toBe(200);
+      expect(record()).toMatchObject({ category: 'HIRED_LOCAL_TRANSPORT', is_deductible: true });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('confirms a home start fare from settings square footage when the profile has no square footage', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      const profilePath = 'user_profiles/owner';
+      mocks.docs.set(`${profilePath}/settings/homeOffice`, { officeSqFt: 120, method: 'simplified' });
+      const profile = mocks.docs.get(profilePath)!;
+      const savedProfile = { ...profile, officeSqFt: 120 };
+      change({ merchant_name: 'Lyft', amount: 28, business_purpose: 'Ride to the client meeting', hired_fare_use: 'between_work_locations', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED', mileage_details: { start_location: 'Home', end_location: 'Client office' } });
+      change(analysisSuggestionUpdate({
+        ...result, category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9',
+      }, 1770000000000, record(), analysisProfileHash(profile, record().date), savedProfile, { profile, taxYear: 2026 }));
+      expect(record().ai_suggestion.scheduleCLine).toBe('27a');
+      const response = await send(confirm());
+      expect(response.status).toBe(200);
+      expect(record()).toMatchObject({ category: 'HIRED_LOCAL_TRANSPORT', is_deductible: true });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('with the switch off, car loan interest is not saved or totaled as vehicle loan interest', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    vehicleProfile('standard_mileage', 40);
+    change({ merchant_name: 'Toyota Financial', amount: 200, business_purpose: 'Interest on the car loan for business miles', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED' });
+    const interest = await send(correct({ category: 'vehicle_expense', isDeductible: true, reason: 'Interest on the car loan' }));
+    expect(interest.status).toBe(422);
+    expect(record().category).toBe('UNCLASSIFIED');
+    expect(record().category).not.toBe('VEHICLE_LOAN_INTEREST');
+    const totals = aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' });
+    expect(totals.lineItems['16b']).toBeUndefined();
+    expect(totals.totalDeductible).toBe(0);
+    const kept = aggregateScheduleC([{ amount: 200, date: '2026-09-15', category: 'VEHICLE_LOAN_INTEREST', is_deductible: true, business_use_percentage: 40, review_status: 'confirmed', tax_review_required: false } as any], '2026', undefined, { mode: 'confirmed-only' });
+    expect(kept.lineItems['16b']).toMatchObject({ lineCode: '16b', lineName: 'Interest: other', deductible: 80 });
+    vi.unstubAllEnvs();
   });
 });

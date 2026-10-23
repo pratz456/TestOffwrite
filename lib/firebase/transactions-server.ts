@@ -404,6 +404,7 @@ export async function updateTransactionServerWithUserId(
     ai_analysis?: string;
     user_classification_reason?: string;
     notes?: string;
+    hired_fare_use?: 'overnight_trip' | 'between_work_locations' | 'home_to_workplace' | 'personal' | null;
     analyzed?: boolean;
     analysisStatus?: 'pending' | 'running' | 'completed' | 'failed';
     analysisStartedAt?: Date;

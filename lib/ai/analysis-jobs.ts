@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
+import { vehicleFromDocument, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
+import { withHomeOfficeSources } from '@/lib/profile/home-office';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 import { analyzeTransactionWithRetry, convertToEnhancedContext, findMissingUserFields, type TransactionInput } from './analyzeTransaction';
 import { getAIProviderStatus } from './provider-status';
@@ -50,6 +53,23 @@ function eligibleBankTransaction(data: Data, account: Data, address: AnalysisTas
     isCountableRecord(data) &&
     [data.account_id, data.accountId].every(value => value == null || value === address.accountId);
 }
+function legacyProfile(data: Record<string, unknown> | undefined): LegacyVehicleProfile {
+  const nested = data?.business_vehicle;
+  return {
+    vehicle_deduction_method: typeof data?.vehicle_deduction_method === 'string' ? data.vehicle_deduction_method : null,
+    vehicle_business_use_percentage: typeof data?.vehicle_business_use_percentage === 'number' ? data.vehicle_business_use_percentage : null,
+    business_vehicle: nested && typeof nested === 'object' ? nested as LegacyVehicleProfile['business_vehicle'] : null,
+  };
+}
+
+function readVehicles(tx: { get: (ref: any) => Promise<any> }, profileRef: { collection: (name: string) => any }): Promise<VehicleRecord[] | undefined> {
+  if (!mileageVehicleCopyEnabled()) return Promise.resolve(undefined);
+  return tx.get(profileRef.collection('vehicles')).then(vehicleSnap => {
+    const docs = (vehicleSnap as { docs?: Array<{ id: string; data: () => Record<string, unknown> }> }).docs;
+    return Array.isArray(docs) ? docs.map(doc => vehicleFromDocument(doc.id, doc.data())) : undefined;
+  }).catch(() => undefined);
+}
+
 function refs(address: AnalysisTaskAddress) {
   return {
     account: adminDb.doc(`user_profiles/${address.userId}/accounts/${address.accountId}`),
@@ -175,7 +195,8 @@ export async function processAnalysisTask(taskId: string, generation: string): P
   const ref = refs(address);
 
   const claim = await adminDb.runTransaction(async tx => {
-    const [task, record, profile, account, job] = await Promise.all([tx.get(taskRef), tx.get(ref.transaction), tx.get(ref.profile), tx.get(ref.account), tx.get(ref.job)]);
+    const vehicleRead = readVehicles(tx, ref.profile);
+    const [task, record, profile, account, job, vehicles] = await Promise.all([tx.get(taskRef), tx.get(ref.transaction), tx.get(ref.profile), tx.get(ref.account), tx.get(ref.job), vehicleRead]);
     const work = task.data();
     if (!work || work.generation !== generation || ['completed', 'failed', 'paused', 'skipped'].includes(work.status)) return { status: 'finished' as const };
     const data = record.data();
@@ -201,7 +222,8 @@ export async function processAnalysisTask(taskId: string, generation: string): P
     if (work.attempts >= MAX_ATTEMPTS || now - work.requestedAt > TASK_MAX_AGE_MS) return finish('failed', 'AI_RETRY_LIMIT');
     if (!getAIProviderStatus().configured) return finish('paused', 'AI_UNAVAILABLE');
     if (!profile.exists) return finish('paused', 'PROFILE_REQUIRED');
-    const context = convertToEnhancedContext(profile.data()!, data.date);
+    const vehicleId = typeof data.vehicleId === 'string' ? data.vehicleId : typeof data.vehicle_id === 'string' ? data.vehicle_id : null;
+    const context = convertToEnhancedContext(profile.data()!, data.date, { vehicles, vehicleId });
     if (findMissingUserFields(context).length > 0) return finish('paused', 'PROFILE_REQUIRED');
     if (!Number.isFinite(data.amount) || typeof data.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(data.date) ||
       !Number.isFinite(Date.parse(data.date)) || new Date(data.date).toISOString().slice(0, 10) !== data.date ||
@@ -224,7 +246,11 @@ export async function processAnalysisTask(taskId: string, generation: string): P
   catch { result = { success: false, error: 'AI analysis could not complete.', code: 'AI_FAILED', retryable: true }; }
 
   return adminDb.runTransaction(async tx => {
-    const [task, record, job, profile] = await Promise.all([tx.get(taskRef), tx.get(ref.transaction), tx.get(ref.job), tx.get(ref.profile)]);
+    const vehicleRead = readVehicles(tx, ref.profile);
+    const [task, record, job, profile, vehicles, settingsSnap] = await Promise.all([
+      tx.get(taskRef), tx.get(ref.transaction), tx.get(ref.job), tx.get(ref.profile), vehicleRead,
+      tx.get(adminDb.doc(`${ref.profile.path}/settings/homeOffice`)),
+    ]);
     const work = task.data();
     if (!work || work.generation !== generation || work.leaseToken !== claim.lease.token) return { status: 'obsolete', retry: false };
     const data = record.data();
@@ -236,7 +262,11 @@ export async function processAnalysisTask(taskId: string, generation: string): P
     const now = Date.now();
     tx.update(taskRef, { status, lastErrorCode: code, nextAttemptAt: retry ? now + Math.min(60_000 * (2 ** (claim.attempts - 1)), 300_000) : null,
       leaseToken: null, finishedAt: retry ? null : now });
-    if (current && result.success) tx.update(ref.transaction, analysisSuggestionUpdate(result.result, now, data, claim.profileHash, claim.context));
+    const vehicleId = typeof data?.vehicleId === 'string' ? data.vehicleId : typeof data?.vehicle_id === 'string' ? data.vehicle_id : null;
+    const fareProfile = withHomeOfficeSources(claim.context, profile.exists ? profile.data() : null, settingsSnap.exists ? settingsSnap.data() : null);
+    if (current && result.success) tx.update(ref.transaction, analysisSuggestionUpdate(result.result, now, data, claim.profileHash, fareProfile, {
+      vehicles, vehicleId, profile: legacyProfile(profile.data()), savedProfile: profile.data(),
+    }));
     else if (data?.analysisLeaseToken === claim.lease.token) tx.update(ref.transaction, {
       analysisLeaseToken: null, analysisLeaseExpiresAt: null, analysis_status: retry ? 'pending' : 'failed',
       analysisStatus: retry ? 'pending' : 'failed', analysisErrorCode: code,

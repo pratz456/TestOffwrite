@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildTaxpayerContext, detectRecurrence, merchantKey, summarizeConfirmedMerchants, taxpayerContextForModel } from '@/lib/ai/taxpayer-context';
+import { blankVehicle, saveVehicle } from '@/lib/mileage/vehicles';
 import { groundTransactionAnalysis } from '@/lib/ai/transaction-tax-policy';
 import type { OutputType, TransactionInput, UserContext } from '@/lib/ai/analyzeTransaction';
 
@@ -65,6 +66,38 @@ describe('confirmed merchant priors', () => {
     const forModel = taxpayerContextForModel(context);
     expect(JSON.stringify(forModel)).not.toMatch(/deductible["']?\s*:\s*true/);
     expect(forModel.prior_merchant_decisions?.note).toContain('do not establish deductibility');
+  });
+
+  it('reads the vehicle method for the tax year from the vehicle list, not a stale profile field', () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    const car = saveVehicle([blankVehicle('legacy-vehicle-1', 0)], 'legacy-vehicle-1', { method: 'standard_mileage', taxYear: 2026 });
+    if (!car.ok) throw new Error(car.reason);
+    car.vehicles[0].legacyBusinessUsePercentage = 40;
+    const context = buildTaxpayerContext({
+      profile: { ...profile, vehicle_deduction_method: 'actual_expense', vehicle_business_use_percentage: 90 },
+      vehicles: car.vehicles, transactionDate: '2026-08-01', merchant: 'Adobe', confirmed: [],
+    });
+    expect(context.methods.vehicle).toEqual({ method: 'standard_mileage', businessUsePercent: 40 });
+    expect(context.gaps).not.toContain('vehicle_deduction_method');
+    vi.unstubAllEnvs();
+  });
+
+  it('treats the method as unknown when several cars are on file and the transaction names none', () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    const first = saveVehicle([blankVehicle('legacy-vehicle-1', 0)], 'legacy-vehicle-1', { method: 'standard_mileage', taxYear: 2026 });
+    if (!first.ok) throw new Error(first.reason);
+    const cars = [...first.vehicles, blankVehicle('van', 1)];
+    const context = buildTaxpayerContext({
+      profile: { ...profile, vehicle_deduction_method: 'actual_expense' },
+      vehicles: cars, transactionDate: '2026-08-01', merchant: 'Adobe', confirmed: [],
+    });
+    expect(context.methods.vehicle).toEqual({ method: null, businessUsePercent: null });
+    expect(context.gaps).toContain('vehicle_deduction_method');
+    const linked = buildTaxpayerContext({
+      profile, vehicles: cars, vehicleId: 'legacy-vehicle-1', transactionDate: '2026-08-01', merchant: 'Adobe', confirmed: [],
+    });
+    expect(linked.methods.vehicle?.method).toBe('standard_mileage');
+    vi.unstubAllEnvs();
   });
 });
 

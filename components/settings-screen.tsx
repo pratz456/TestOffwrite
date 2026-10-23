@@ -33,6 +33,8 @@ import { openLocalPreviewBilling } from '@/lib/subscriptions/local-preview-billi
 import { homeOfficeReviewReasons, SIMPLIFIED_MAX_SQFT, SIMPLIFIED_RATE_PER_SQFT, type HomeOfficeSettings } from '@/lib/reports/calc8829';
 import { DE_MINIMIS_SAFE_HARBOR_LIMIT } from '@/lib/reports/calc4562';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { VehicleDeductionBlock } from '@/components/mileage/vehicle-deduction-block';
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 
 // Payment Settings Tab Component
 export const PaymentSettingsTab: React.FC<{ beforeNavigate: (action: () => void) => void }> = ({ beforeNavigate }) => {
@@ -1495,7 +1497,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             {/* De minimis safe harbor election (settings/depreciation) */}
             <DeMinimisElectionSection userId={user.id} />
 
-            {/* Vehicle Deduction */}
+            {/* Vehicle Deduction. The vehicle list replaces this section only while its copy flag is on. */}
+            {mileageVehicleCopyEnabled() ? (
+              <VehicleDeductionBlock userId={user.id} taxYear={new Date().getFullYear()} />
+            ) : (
             <SettingsSection title="Vehicle Deduction" icon={Car} summary={profile.vehicle_deduction_method ? `${profile.vehicle_deduction_method === 'standard_mileage' ? 'Standard mileage' : 'Actual expense'}${profile.vehicle_business_use_percentage !== undefined ? ` · ${profile.vehicle_business_use_percentage}% business` : ''}` : 'Business use & deduction method'}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <SettingsField label="Vehicle Business Use %" hint="0-100">
@@ -1522,6 +1527,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </SettingsField>
               </div>
             </SettingsSection>
+            )}
 
             {/* Tax Preferences */}
             <SettingsSection title="Tax Preferences" icon={FileText} summary={profile.itemization_status === 'standard' ? 'Standard deduction' : profile.itemization_status === 'itemized' ? 'Itemized deductions' : 'Deduction choice & prior-year tax'}>

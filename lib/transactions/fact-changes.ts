@@ -1,6 +1,6 @@
 /** Saved facts that can change the AI review. Decisions, AI output and timestamps are excluded. */
 export const TRANSACTION_FACT_FIELDS = ['notes', 'business_purpose', 'attendees', 'travel_destination', 'client_project',
-  'documentation_status', 'meeting_notes', 'equipment_details', 'mileage_details'] as const;
+  'documentation_status', 'meeting_notes', 'equipment_details', 'mileage_details', 'hired_fare_use'] as const;
 
 function normalized(value: unknown): unknown {
   if (typeof value === 'string') return value.trim().replace(/\s+/g, ' ');

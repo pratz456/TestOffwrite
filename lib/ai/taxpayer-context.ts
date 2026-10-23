@@ -4,6 +4,7 @@
  * analysis. It never states that an expense is deductible; the server policy
  * keeps that decision behind the user's confirmation.
  */
+import { vehicleMethodForRead, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
 import type { UserContext } from './analyzeTransaction';
 
 export type PriorDecision = 'business' | 'personal' | 'unresolved';
@@ -166,6 +167,9 @@ export function buildTaxpayerContext(input: {
   merchant: string | null | undefined;
   transactionDate?: string | null;
   generatedAt?: string;
+  vehicles?: readonly VehicleRecord[] | null;
+  vehicleId?: string | null;
+  taxYear?: number;
 }): TaxpayerAnalysisContext {
   const { profile } = input;
   const key = merchantKey(input.merchant);
@@ -174,18 +178,26 @@ export function buildTaxpayerContext(input: {
     : profile.home_office_details?.method === 'simplified' || profile.home_office_details?.method === 'actual' ? profile.home_office_details.method : null;
   const officeSqFt = input.homeOffice?.officeSqFt ?? profile.home_office_sqft ?? profile.home_office_details?.sqft ?? null;
   const totalHomeSqFt = input.homeOffice?.totalHomeSqFt ?? profile.total_home_sqft ?? profile.home_office_details?.total_home_sqft ?? null;
-  const vehicleMethod = profile.vehicle_deduction_method === 'standard_mileage' || profile.vehicle_deduction_method === 'actual_expense'
-    ? profile.vehicle_deduction_method : profile.business_vehicle?.deduction_method ?? null;
-  const vehiclePercent = profile.vehicle_business_use_percentage ?? profile.business_vehicle?.business_use_percentage ?? null;
+  const datedYear = typeof input.transactionDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(input.transactionDate)
+    ? Number(input.transactionDate.slice(0, 4)) : null;
+  const taxYear = input.taxYear ?? datedYear ?? new Date().getFullYear();
+  const vehicleFact = vehicleMethodForRead({
+    vehicles: input.vehicles,
+    profile: profile as LegacyVehicleProfile,
+    taxYear,
+    vehicleId: input.vehicleId,
+  });
+  const vehicleMethod = vehicleFact.method;
+  const vehiclePercent = vehicleFact.status === 'unknown' ? null : vehicleFact.businessUsePercent;
   const hasHomeOffice = Boolean(homeOfficeMethod || officeSqFt || profile.office_location?.toLowerCase().includes('home'));
-  const hasVehicle = Boolean(vehicleMethod || vehiclePercent);
+  const hasVehicle = vehicleFact.status !== 'none';
 
   const gaps: string[] = [];
   if (!profile.business_entity) gaps.push('business_entity');
   if (hasHomeOffice && !homeOfficeMethod) gaps.push('home_office_method');
   if (hasHomeOffice && profile.home_office_details?.exclusive_use !== true) gaps.push('home_office_exclusive_use');
-  if (hasVehicle && !vehicleMethod) gaps.push('vehicle_deduction_method');
-  if (hasVehicle && vehiclePercent == null) gaps.push('vehicle_business_use_percentage');
+  if (vehicleFact.needsInfo) gaps.push('vehicle_deduction_method');
+  if (vehicleFact.status !== 'unknown' && hasVehicle && vehiclePercent == null) gaps.push('vehicle_business_use_percentage');
   if (!profile.work_related_travel) gaps.push('work_related_travel');
 
   return {
