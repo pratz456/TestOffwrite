@@ -10,7 +10,7 @@ import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
 import { reconcileBusinessIncome, IncomeReconciliationRequiredError } from '@/lib/tax-rules/business-income';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { decideScheduleCExport, scheduleCNow } from '@/lib/schedule-c/filed-year';
-import { confirmTaxYear, loadFiledYearState, readLatestExportRecord, recordServedExport, sha256Hex } from '@/lib/schedule-c/export-record';
+import { awaitExportStep, confirmTaxYear, loadFiledYearState, readLatestExportRecord, recordServedExport, sha256Hex } from '@/lib/schedule-c/export-record';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
@@ -35,15 +35,17 @@ export async function POST(request: NextRequest) {
   if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many report downloads. Please wait a few minutes and try again.' });
   try {
     const query = (name: string) => adminDb.collection(name).where('userId', '==', user.uid).where('taxYear', '==', year);
-    const [tx, profile, orgSnap, gross, forms, decisions] = await Promise.all([
+    const [tx, profile, orgSnap, gross, forms, decisions] = await awaitExportStep(Promise.all([
       readTaxExportTransactions(user.uid, year), getUserProfileServer(user.uid), query('tax_organizers').limit(1).get(),
       query('gross_receipts').get(), query('income_1099').get(), readIncomeReconciliationDecisions(user.uid, year),
-    ]);
+    ]));
     if (profile.error) return NextResponse.json({ error: 'Could not load all export records. Please retry.' }, { status: 503 });
     const transactions = tx;
     const receipts = reconcileBusinessIncome(year, transactions.map(row => ({ ...row })), gross.docs.map(doc => ({ ...doc.data(), id: doc.id })), forms.docs.map(doc => ({ ...doc.data(), id: doc.id })), decisions);
-    const filed = await loadFiledYearState(user.uid, year);
-    const stored = await readLatestExportRecord(user.uid, year);
+    const [filed, stored] = await Promise.all([
+      loadFiledYearState(user.uid, year),
+      readLatestExportRecord(user.uid, year),
+    ]);
     const decision = decideScheduleCExport({ uid: user.uid, year, transactions, prior: stored, confirmedRulesVersion: filed.confirmedRulesVersion });
     const generatedAt = scheduleCNow();
     const render = { contribution: decision.contribution, comparison: decision.comparison, generatedAt };
@@ -56,11 +58,18 @@ export async function POST(request: NextRequest) {
       });
     }
     // Identifiers are decrypted only to derive the masked (last 4) display values printed below.
-    const org = orgSnap.empty ? {} : await readOrganizerDocument(orgSnap.docs[0]);
-    const bytes = await generateScheduleCPlanningPDF({ taxYear: year, grossReceipts: receipts.grossReceipts, lineItems: decision.lineItems,
+    let org: Awaited<ReturnType<typeof readOrganizerDocument>> = {};
+    if (!orgSnap.empty) {
+      try {
+        org = await awaitExportStep(readOrganizerDocument(orgSnap.docs[0]));
+      } catch {
+        console.error('Schedule C organizer could not be read');
+      }
+    }
+    const bytes = await awaitExportStep(generateScheduleCPlanningPDF({ taxYear: year, grossReceipts: receipts.grossReceipts, lineItems: decision.lineItems,
       name: profile.data?.name, ssn: maskOrganizerIdentifier('ssn', org.taxpayerSSN),
       profession: Array.isArray(profile.data?.profession) ? profile.data.profession.join(', ') : profile.data?.profession,
-      naicsCode: profile.data?.naics_code, ein: maskOrganizerIdentifier('ein', profile.data?.ein), includeAppendix: body.includeAppendix !== false, ...render });
+      naicsCode: profile.data?.naics_code, ein: maskOrganizerIdentifier('ein', profile.data?.ein), includeAppendix: body.includeAppendix !== false, ...render }));
     await recordServedExport({ ...recordBase, kind: 'schedule-c-pdf', sha256: sha256Hex(bytes) });
     return new NextResponse(Buffer.from(bytes), { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="Schedule_C_${year}_WriteOff.pdf"`, 'Cache-Control': 'private, no-store' } });
   } catch (error) {

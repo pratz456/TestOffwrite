@@ -44,6 +44,11 @@ export interface ScheduleCChargeSnapshot {
   id: string;
   line: string;
   amount: number;
+  /** Row fields saved with the export. A held file prints these instead of live transactions. */
+  date?: string;
+  merchant?: string;
+  category?: string;
+  contribution?: number;
 }
 
 export interface ScheduleCLineTotal {
@@ -190,12 +195,25 @@ function keysFor(transactions: ScheduleCTransactionLike[]): Map<ScheduleCTransac
   return keys;
 }
 
-function snapshotFromLineItems(rulesVersion: string, lineItems: LineItemSummary[], keys: Map<ScheduleCTransactionLike, string>): ScheduleCExportSnapshot {
+function snapshotFromLineItems(
+  rulesVersion: string,
+  lineItems: LineItemSummary[],
+  keys: Map<ScheduleCTransactionLike, string>,
+  contribution: (tx: ScheduleCTransactionLike) => number,
+): ScheduleCExportSnapshot {
   const charges: ScheduleCChargeSnapshot[] = [];
   for (const line of lineItems) {
     line.transactions.forEach((tx, index) => {
       const id = keys.get(tx) ?? (typeof tx.id === 'string' && tx.id ? tx.id : chargeKey(tx, index));
-      charges.push({ id, line: line.lineCode, amount: roundMoney(Number(tx.amount) || 0) });
+      charges.push({
+        id,
+        line: line.lineCode,
+        amount: roundMoney(Number(tx.amount) || 0),
+        date: typeof tx.date === 'string' ? tx.date : '',
+        merchant: typeof tx.merchant_name === 'string' ? tx.merchant_name : '',
+        category: typeof tx.category === 'string' ? tx.category : '',
+        contribution: roundMoney(contribution(tx)),
+      });
     });
   }
   const lineTotals = lineItems.map(line => ({ line: line.lineCode, amount: roundMoney(line.deductible) }));
@@ -220,9 +238,17 @@ function lineItemsFromSnapshot(snapshot: ScheduleCExportSnapshot, transactions: 
   };
   for (const charge of snapshot.charges) {
     const source = byId.get(charge.id);
-    const tx: ScheduleCTransactionLike = source
-      ? { ...source, id: charge.id, amount: charge.amount }
-      : { id: charge.id, amount: charge.amount, date: '', category: '' };
+    const tx: ScheduleCTransactionLike = {
+      id: charge.id,
+      amount: charge.amount,
+      date: typeof charge.date === 'string' ? charge.date : (typeof source?.date === 'string' ? source.date : ''),
+      merchant_name: typeof charge.merchant === 'string' ? charge.merchant : (typeof source?.merchant_name === 'string' ? source.merchant_name : ''),
+      category: typeof charge.category === 'string' ? charge.category : (typeof source?.category === 'string' ? source.category : ''),
+      review_status: 'confirmed',
+      is_deductible: true,
+      tax_review_required: false,
+    };
+    if (typeof charge.contribution === 'number') tx.confirmedContribution = charge.contribution;
     const group = ensure(charge.line || '27a');
     group.transactions.push(tx);
     group.transactionCount += 1;
@@ -387,19 +413,21 @@ export function decideScheduleCExport(input: {
 
   if (!held) {
     const lineItems = currentResult.lineItemsArray;
+    const contribution = contributionFor(current, input.year);
     return {
       held: false,
       rulesVersion: current.version,
       lineItems,
       totalDeductible: currentResult.totalDeductible,
       comparison: null,
-      snapshot: snapshotFromLineItems(current.version, lineItems, keys),
-      contribution: contributionFor(current, input.year),
+      snapshot: snapshotFromLineItems(current.version, lineItems, keys, contribution),
+      contribution,
     };
   }
 
   const frozenResult = frozen.aggregate(input.transactions, String(input.year), frozen.categoryMap, { mode: 'confirmed-only' });
-  const oldSnapshot = input.prior ?? snapshotFromLineItems(frozen.version, frozenResult.lineItemsArray, keys);
+  const frozenContribution = contributionFor(frozen, input.year);
+  const oldSnapshot = input.prior ?? snapshotFromLineItems(frozen.version, frozenResult.lineItemsArray, keys, frozenContribution);
   const lineItems = input.prior
     ? lineItemsFromSnapshot(input.prior, input.transactions, keys, rulesForVersion(input.prior.rulesVersion))
     : frozenResult.lineItemsArray;
@@ -418,13 +446,17 @@ export function decideScheduleCExport(input: {
     newTotal: currentResult.totalDeductible,
   });
   const rulesVersion = input.prior?.rulesVersion ?? frozen.version;
+  const rules = rulesForVersion(rulesVersion);
+  const contribution = (tx: ScheduleCTransactionLike) => (
+    typeof tx.confirmedContribution === 'number' ? tx.confirmedContribution : contributionFor(rules, input.year)(tx)
+  );
   return {
     held,
     rulesVersion,
     lineItems,
     totalDeductible: roundMoney(lineItems.reduce((sum, line) => sum + line.deductible, 0)),
     comparison,
-    snapshot: snapshotFromLineItems(rulesVersion, lineItems, keys),
-    contribution: contributionFor(rulesForVersion(rulesVersion), input.year),
+    snapshot: snapshotFromLineItems(rulesVersion, lineItems, keys, contribution),
+    contribution,
   };
 }

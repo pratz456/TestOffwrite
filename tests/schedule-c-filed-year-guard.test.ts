@@ -40,6 +40,9 @@ const harness = vi.hoisted(() => ({
   csvTransactions: [] as Record<string, unknown>[],
   db: null as null | {
     records: Map<string, Record<string, unknown>>;
+    committedWrites: number;
+    holdOpenTransaction: boolean;
+    stuckReads: Set<string>;
     collection: (name: string) => { add: (data: Record<string, unknown>) => Promise<unknown> };
   },
 }));
@@ -171,6 +174,17 @@ function seedCounter(next: number, year = 2025, uid = 'owner') {
 function counterNext(): unknown[] {
   return [...harness.db!.records.entries()].filter(([key]) => key.startsWith('user_export_sequences/')).map(([, value]) => value.next);
 }
+async function withinFiveSeconds<T>(work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const hung = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('export hung past 5 seconds')), 5000);
+  });
+  try {
+    return await Promise.race([work, hung]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 async function saveExportLog(id: string, kind: string, totalDeductible: number, chargeId: string, exportedAt = CLOCK.toISOString(), exportSequence?: number) {
   const { adminDb } = await import('@/lib/firebase/admin');
   await adminDb.collection('user_export_records').doc(id).set({
@@ -252,6 +266,8 @@ beforeEach(async () => {
   harness.transactions = [];
   harness.csvTransactions = [];
   harness.db?.records.clear();
+  harness.db?.stuckReads.clear();
+  if (harness.db) harness.db.holdOpenTransaction = false;
   setScheduleCClockForTests(clock);
   setCurrentScheduleCRulesForTests(null);
 });
@@ -387,8 +403,8 @@ describe('filed year guard', () => {
       exportedAt: CLOCK.toISOString(), sha256: hash(pdfBytes),
       lineTotals: [{ line: '10', amount: 30 }], charges: [{ id: 'fee1', line: '10', amount: 30 }],
     });
-    expect(JSON.stringify(savedExports()[0])).not.toContain('Secret Merchant');
-    expect(Object.keys((savedExports()[0].charges as Record<string, unknown>[])[0]).sort()).toEqual(['amount', 'id', 'line']);
+    expect(JSON.stringify(savedExports()[0])).toContain('Secret Merchant');
+    expect(Object.keys((savedExports()[0].charges as Record<string, unknown>[])[0]).sort()).toEqual(['amount', 'category', 'contribution', 'date', 'id', 'line', 'merchant']);
     const csv = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
     expect(csv.status).toBe(200);
     const csvText = await csv.text();
@@ -792,7 +808,7 @@ describe('filed year guard', () => {
       rulesVersion: 'v0',
       lineTotals: [{ line: '8', amount: 120 }],
       totalDeductible: 120,
-      charges: [{ id: 'ad1', line: '8', amount: 120 }],
+      charges: [{ id: 'ad1', line: '8', amount: 120, date: '2025-06-01', merchant: 'Secret Merchant', category: 'SERVICE_ADVERTISING', contribution: 120 }],
     });
   });
 
@@ -979,7 +995,7 @@ describe('filed year guard', () => {
     }
   });
 
-  it('serves the stored total when sequence reservation times out and leaves no sequence', async () => {
+  it('serves the stored total when sequence reservation times out and writes nothing', async () => {
     await saveExportLog('held', 'schedule-c-pdf', 100, 'ad1', CLOCK.toISOString(), 1);
     seedCounter(1);
     harness.transactions = [confirmed({ id: 'ad1', amount: 250, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
@@ -999,23 +1015,81 @@ describe('filed year guard', () => {
       expect(counterNext()).toEqual([1]);
       expect(error).toHaveBeenCalledTimes(1);
       expect(error).toHaveBeenCalledWith('Export sequence reservation failed or timed out', expect.any(String));
-      await vi.advanceTimersByTimeAsync(2000);
+    } finally {
+      harness.reservationDelayMs = 0;
+      await vi.advanceTimersByTimeAsync(10000);
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns the file within 5 seconds when a reservation transaction holds its locks', async () => {
+    await saveExportLog('held', 'schedule-c-pdf', 100, 'ad1', CLOCK.toISOString(), 1);
+    seedCounter(1);
+    harness.transactions = [confirmed({ id: 'ad1', amount: 250, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    const db = harness.db!;
+    const beforeWrites = db.committedWrites;
+    const beforeRecords = JSON.stringify([...db.records.entries()]);
+    db.holdOpenTransaction = true;
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const response = await withinFiveSeconds(scheduleCExport(exportBody({ year: 2025, format: 'csv' })));
+      expect(response.status).toBe(200);
+      const csv = await response.text();
+      expect(csv).toContain('SERVICE_ADVERTISING,8,100,100');
+      expect(csv).not.toContain('SERVICE_ADVERTISING,8,250,250');
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(error).toHaveBeenCalledWith('Export sequence reservation failed or timed out', expect.any(String));
+      expect(pendingMarkers()).toHaveLength(0);
+      expect(savedExports()).toEqual([expect.objectContaining({ totalDeductible: 100, exportSequence: 1 })]);
+      expect(counterNext()).toEqual([1]);
+      expect(db.committedWrites).toBe(beforeWrites);
+      expect(JSON.stringify([...db.records.entries()])).toBe(beforeRecords);
+    } finally {
+      db.holdOpenTransaction = false;
+    }
+  });
+
+  it('reads the stored record after a late reservation leaves a sequence gap', async () => {
+    await saveExportLog('held', 'schedule-c-pdf', 100, 'ad1', CLOCK.toISOString(), 1);
+    seedCounter(1);
+    harness.transactions = [confirmed({ id: 'ad1', amount: 250, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    harness.reservationDelayMs = 5000;
+    vi.useFakeTimers();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const pending = scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+      await vi.advanceTimersByTimeAsync(4000);
+      const response = await pending;
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('SERVICE_ADVERTISING,8,100,100');
       expect(pendingMarkers()).toHaveLength(0);
       expect(savedExports()).toHaveLength(1);
       expect(counterNext()).toEqual([1]);
+      expect(error).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(counterNext()).toEqual([2]);
+      expect(savedExports()).toEqual([expect.objectContaining({ totalDeductible: 100, exportSequence: 1 })]);
+      expect(pendingMarkers()).toHaveLength(0);
       expect(error).toHaveBeenCalledTimes(1);
       harness.reservationDelayMs = 0;
       vi.useRealTimers();
       const next = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
       expect(next.status).toBe(200);
-      expect(savedExports().map(row => row.exportSequence).sort((left, right) => Number(left) - Number(right))).toEqual([1, 2]);
+      const csv = await next.text();
+      expect(csv).toContain('SERVICE_ADVERTISING,8,100,100');
+      expect(csv).not.toContain('SERVICE_ADVERTISING,8,250,250');
+      expect(savedExports().map(row => row.exportSequence).sort((left, right) => Number(left) - Number(right))).toEqual([1, 3]);
       expect(savedExports().every(row => row.totalDeductible === 100)).toBe(true);
+      expect(savedExports().some(row => row.exportSequence === 2)).toBe(false);
       expect((await readLatestExportRecord('owner', 2025))?.totalDeductible).toBe(100);
       expect((await readHeldYearExport('owner', 2025)).latestExportUnrecorded).toBe(false);
       expect(error).toHaveBeenCalledTimes(1);
     } finally {
       harness.reservationDelayMs = 0;
-      vi.useRealTimers();
+      if (vi.isFakeTimers()) {
+        await vi.advanceTimersByTimeAsync(10000);
+        vi.useRealTimers();
+      }
     }
   });
 
@@ -1036,5 +1110,60 @@ describe('filed year guard', () => {
     const held = await readHeldYearExport('owner', 2025);
     expect(held.latestExportUnrecorded).toBe(false);
     expect(held.prior?.totalDeductible).toBe(100);
+  });
+
+  it('serves the file when the filed year reads never settle', async () => {
+    harness.db!.stuckReads.add('user_tax_year_confirmations');
+    harness.db!.stuckReads.add('user_export_records');
+    harness.transactions = [confirmed({ id: 'ad1', amount: 80, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const response = await withinFiveSeconds(scheduleCExport(exportBody({ year: 2025, format: 'csv' })));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('SERVICE_ADVERTISING');
+    expect(error.mock.calls.map(call => call[0])).toEqual(expect.arrayContaining([
+      'Schedule C filed year state could not be read',
+      'Schedule C export record could not be read',
+    ]));
+  });
+
+  it('prints the stored row when the live charge is gone', async () => {
+    const { adminDb } = await import('@/lib/firebase/admin');
+    await adminDb.collection('user_export_records').doc('held').set({
+      uid: 'owner', kind: 'schedule-c-pdf', taxYear: 2025, rulesVersion: 'v0', exportedAt: CLOCK.toISOString(), sha256: 'held', exportSequence: 1,
+      lineTotals: [{ line: '8', amount: 100 }],
+      totalDeductible: 100,
+      charges: [{ id: 'ad1', line: '8', amount: 100, contribution: 100, date: '2025-04-02', merchant: 'North Merchant', category: 'SERVICE_ADVERTISING' }],
+    });
+    seedCounter(1);
+    harness.transactions = [];
+    const csvResponse = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+    expect(csvResponse.status).toBe(200);
+    expect(await csvResponse.text()).toContain('2025-04-02,North Merchant,SERVICE_ADVERTISING,8,100,100');
+    const view = capturePdf();
+    const pdfResponse = await scheduleCExport(exportBody({ year: 2025, format: 'pdf' }));
+    expect(pdfResponse.status).toBe(200);
+    const text = view.text();
+    expect(subtotal(text)).toBe('$100.00');
+    const lines = text.split('\n');
+    const lineLabel = lines.indexOf('Advertising - 1 confirmed records');
+    expect(lines[lineLabel + 1]).toBe('$100.00');
+    const merchant = lines.indexOf('North Merchant');
+    expect(lines.slice(merchant, merchant + 4)).toEqual(['North Merchant', '8', '$100.00', '$100.00']);
+  });
+
+  it('logs a malformed latest export record', async () => {
+    const { adminDb } = await import('@/lib/firebase/admin');
+    await saveExportLog('older', 'schedule-c-pdf', 40, 'ad1', CLOCK.toISOString(), 1);
+    await adminDb.collection('user_export_records').doc('bad-latest').set({
+      uid: 'owner', kind: 'schedule-c-csv', taxYear: 2025, rulesVersion: 'v0', exportedAt: CLOCK.toISOString(), sha256: 'bad', exportSequence: 4,
+      lineTotals: [{ line: '8', amount: 100 }], totalDeductible: 100, charges: [{ id: 'ad1', line: '8' }],
+    });
+    await adminDb.collection('user_export_records').doc('ignored-kind').set({
+      uid: 'owner', kind: 'planning-pdf', taxYear: 2025, exportedAt: CLOCK.toISOString(),
+    });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await readLatestExportRecord('owner', 2025))?.totalDeductible).toBe(40);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith('Malformed Schedule C export record', 'bad-latest');
   });
 });

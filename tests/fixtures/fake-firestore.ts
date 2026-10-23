@@ -51,9 +51,19 @@ export const fakeFieldValue = { delete: () => DELETE_FIELD as unknown as never }
 export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
   const records: FakeRecords = options.records ?? new Map();
   let generated = 0;
+  let committedWrites = 0;
+  /** While true, a transaction never settles, and a write to a document it already read never settles. */
+  const control = { holdOpenTransaction: false };
+  /** Collection ids whose document and query reads never settle. */
+  const stuckReads = new Set<string>();
+  /** Document paths read by a transaction that is still open. */
+  const lockedPaths = new Set<string>();
   const fail = () => { const error = options.failure?.(); if (error) throw error; };
   const clone = (data: Record<string, any> | undefined) => data === undefined ? undefined : { ...data };
   const nextId = () => `generated-${++generated}`;
+  const collectionId = (path: string) => path.split('/')[0] ?? '';
+  const readStuck = (path: string) => stuckReads.has(collectionId(path));
+  const never = () => new Promise(() => {});
 
   const snapshot = (path: string) => ({
     id: path.split('/').at(-1), ref: ref(path), exists: records.has(path), data: () => clone(records.get(path)),
@@ -62,17 +72,18 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
   const ref = (path: string): any => ({
     path, id: path.split('/').at(-1),
     parent: query(path.split('/').slice(0, -1).join('/')),
-    get: async () => { fail(); return snapshot(path); },
-    set: async (data: Record<string, any>, setOptions?: { merge?: boolean }) => { fail(); write(path, data, setOptions); },
-    update: async (data: Record<string, any>) => { fail(); if (!records.has(path)) throw new Error(`No document at ${path}`); write(path, data, { merge: true }); },
-    create: async (data: Record<string, any>) => { fail(); if (records.has(path)) throw new Error(`Document exists at ${path}`); write(path, data); },
-    delete: async () => { fail(); records.delete(path); },
+    get: async () => { fail(); if (readStuck(path)) return never(); return snapshot(path); },
+    set: async (data: Record<string, any>, setOptions?: { merge?: boolean }) => { fail(); if (lockedPaths.has(path)) return never(); write(path, data, setOptions); },
+    update: async (data: Record<string, any>) => { fail(); if (lockedPaths.has(path)) return never(); if (!records.has(path)) throw new Error(`No document at ${path}`); write(path, data, { merge: true }); },
+    create: async (data: Record<string, any>) => { fail(); if (lockedPaths.has(path)) return never(); if (records.has(path)) throw new Error(`Document exists at ${path}`); write(path, data); },
+    delete: async () => { fail(); if (lockedPaths.has(path)) return never(); records.delete(path); committedWrites += 1; },
     collection: (name: string) => query(`${path}/${name}`),
     listCollections: async () => { fail(); const depth = path.split('/').length + 1; const names = new Set<string>();
       for (const key of records.keys()) if (key.startsWith(`${path}/`) && key.split('/').length >= depth + 1) names.add(key.split('/')[depth - 1]);
       return [...names].map(name => query(`${path}/${name}`)); },
   });
   const write = (path: string, data: Record<string, any>, setOptions?: { merge?: boolean }) => {
+    committedWrites += 1;
     const next: Record<string, any> = { ...(setOptions?.merge ? records.get(path) : {}) };
     for (const [key, value] of Object.entries(data)) { if (value === DELETE_FIELD) delete next[key]; else next[key] = value; }
     records.set(path, next);
@@ -103,7 +114,7 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
     startAfter: (...cursor: any[]) => builder(path, entries, { ...state, after: cursor }, extra),
     select: () => builder(path, entries, state, extra),
     count: () => ({ get: async () => { fail(); return { data: () => ({ count: select(entries(), state).size }) }; } }),
-    get: async () => { fail(); return select(entries(), state); },
+    get: async () => { fail(); if (readStuck(path)) return never(); return select(entries(), state); },
   });
   const query = (path: string): any => {
     const depth = path.split('/').length + 1;
@@ -117,8 +128,23 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
   };
   const collectionGroup = (name: string): any =>
     builder(name, () => [...records].filter(([key]) => key.split('/').at(-2) === name), initialState());
+  const lockTransaction = (target: any) => {
+    if (typeof target?.path === 'string' && typeof target?.where !== 'function') lockedPaths.add(target.path);
+  };
   const runTransaction = async <T>(work: (tx: any) => Promise<T>): Promise<T> => {
     fail();
+    if (control.holdOpenTransaction) {
+      const pending = Promise.resolve().then(() => work({
+        get: (target: any) => { lockTransaction(target); return never(); },
+        getAll: (...targets: any[]) => { targets.forEach(lockTransaction); return never(); },
+        set: () => undefined,
+        update: () => undefined,
+        create: () => undefined,
+        delete: () => undefined,
+      }));
+      pending.catch(() => undefined);
+      return never() as Promise<T>;
+    }
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const writes: Array<() => void> = [];
       const reads = new Map<string, string>();
@@ -154,6 +180,13 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
     return self;
   };
   return { records, doc: ref, collection: query, collectionGroup, runTransaction, batch,
+    stuckReads,
+    get committedWrites() { return committedWrites; },
+    get holdOpenTransaction() { return control.holdOpenTransaction; },
+    set holdOpenTransaction(value: boolean) {
+      control.holdOpenTransaction = value;
+      if (!value) lockedPaths.clear();
+    },
     getAll: async (...targets: any[]) => { fail(); return targets.map(target => snapshot(target.path)); },
     recursiveDelete: async (target: any) => { for (const key of [...records.keys()]) if (key === target.path || key.startsWith(`${target.path}/`)) records.delete(key); } };
 }
