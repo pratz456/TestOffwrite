@@ -140,7 +140,7 @@ describe('Working Families Tax Cuts deductions through the routes', () => {
     await expectReview('OBBBA_DEDUCTION_REVIEW_REQUIRED', /Notice 2025-69/);
   });
 
-  it('does not review-block a no on current personal use, and files the Schedule 1-A amount when the loan-date expectation is no', async () => {
+  it('does not review-block a no on current personal use, and a no on the loan-date expectation leaves Schedule 1-A at 0 with no car loan needs more information entry', async () => {
     state.profile = { filing_status: 'single', vehicle_business_use_percentage: 60 };
     await save({ obbbaDeductionFacts: reviewedOBBBADeductionFacts(2026, {
       hasVehicleLoanInterest: 'yes', vehicleLoanInterestAmount: '3000', vehicleLoanAfter2024: 'yes', vehicleNewUSAssembled: 'yes',
@@ -152,9 +152,8 @@ describe('Working Families Tax Cuts deductions through the routes', () => {
     expect(body.income.scheduleCNetProfit).toBe(38200);
     expect(body.form1040.vehicleLoanInterestDeduction).toBe(0);
     expect(body.form1040.obbbaDeductions.scheduleCLine16b).toBe(1800);
-    expect(body.form1040.obbbaDeductions.needsMoreInformation).toEqual([
-      expect.objectContaining({ amount: 1200, note: expect.stringContaining('expected more than 50% personal use on the loan date') }),
-    ]);
+    const carLoanEntries = (body.form1040.obbbaDeductions.needsMoreInformation ?? []).filter((item: { note?: string }) => /schedule 1-a|car loan|vehicle/i.test(item.note ?? ''));
+    expect(carLoanEntries).toEqual([]);
   });
 
   it('applies the tips deduction on line 13b before QBI and shows it in the PDF', async () => {

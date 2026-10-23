@@ -161,8 +161,9 @@ const none = (reason?: string): OBBBAItemResult => ({ deduction: 0, amountReport
 const DRAFT_COPY = 'draft, awaiting copy approval';
 /** Ask for the profile percentage. The whole interest stays off both forms until it is known. */
 export const VEHICLE_BUSINESS_SHARE_NOTE = `${DRAFT_COPY}. Enter the vehicle business use percentage so this car loan interest can be placed. WriteOff puts the business share on Schedule C line 16b. The same dollar is never counted in both places.`;
-/** Treas. Reg. 1.163-16(f)(1). Shown for a no and for a missing answer so the user can correct it. */
+/** Treas. Reg. 1.163-16(f)(1). Only a missing answer. An answer of no is $0 with no entry here. */
 export const VEHICLE_EXPECTED_PERSONAL_USE_NOTE = `${DRAFT_COPY}. This interest qualifies for Schedule 1-A only if the buyer expected more than 50% personal use on the loan date. WriteOff puts the business share on Schedule C. The same dollar is never counted in both places.`;
+const VEHICLE_EXPECTED_PERSONAL_USE_NO_REASON = `${DRAFT_COPY}. An answer of no leaves this interest off Schedule 1-A. WriteOff puts the business share on Schedule C line 16b. The same dollar is never counted in both places.`;
 
 function readVehicleBusinessPercent(value: unknown): { state: 'unset' } | { state: 'invalid' } | { state: 'set'; value: number } {
   if (value === undefined || value === null || value === '') return { state: 'unset' };
@@ -212,8 +213,11 @@ export function scheduleCLine16bVehicleInterest(input: {
  * Below-the-line deductions taken after AGI whether or not itemizing (§63(b)(5)–(7)).
  * Unanswered intake produces no deduction and a warning; an explicit claim with
  * missing facts, an SSTB, or contractor overtime is review-blocked.
- * A missing vehicle business-use percentage, or a missing or negative loan-date
- * personal-use expectation, is needs more information and does not throw.
+ * A missing vehicle business-use percentage is needs more information and does not throw.
+ * A missing loan-date personal-use expectation is the only expected-use case that
+ * creates needs more information. An answer of no is $0 on Schedule 1-A with no such entry.
+ * Treas. Reg. 1.163-16(i) covers tax years beginning after December 31, 2024 and before
+ * January 1, 2029. The expectation test uses that Schedule 1-A span and has no separate date gate.
  */
 export function calculateOBBBADeductions(input: OBBBADeductionInput): OBBBADeductionResult {
   const taxYear = getFederalTaxRules(input.taxYear).taxYear;
@@ -317,8 +321,11 @@ export function calculateOBBBADeductions(input: OBBBADeductionInput): OBBBADeduc
       result.scheduleCLine16b = businessShare;
       if (businessShare !== 0) lineItems.push({ line: '16b', amount: businessShare });
       const expectation = facts.vehicleExpectedPersonalUseOver50AtPurchase;
-      if (expectation !== 'yes') {
-        // No and missing both stay off Schedule 1-A and stay visible for correction. Never throw.
+      if (expectation === 'no') {
+        // A no is final: $0 on Schedule 1-A and no needs-more-information entry. Never throw.
+        result.vehicleLoanInterest = { ...none(VEHICLE_EXPECTED_PERSONAL_USE_NO_REASON), amountReported: personalShare };
+      } else if (expectation !== 'yes') {
+        // A missing answer is the only expected-use case that files needs more information. Never throw.
         result.vehicleLoanInterest = { ...none(VEHICLE_EXPECTED_PERSONAL_USE_NOTE), amountReported: personalShare };
         needsMoreInformation.push({ amount: personalShare, note: VEHICLE_EXPECTED_PERSONAL_USE_NOTE });
       } else {

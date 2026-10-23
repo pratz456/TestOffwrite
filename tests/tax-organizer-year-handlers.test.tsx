@@ -255,7 +255,10 @@ describe('compact organizer sections', () => {
     tree = render();
     expect(text(section(tree, 'Working Families Tax Cuts deductions').props.children[0])).toContain('1 claimed');
     const claimed = walk(tree).find(node => node.type === OBBBADeductionFields)!;
-    expect(text(OBBBADeductionFields(claimed.props))).toContain('When you took out the loan, did you expect to use this vehicle personally more than half the time you expect to own it?');
+    const vehicleCopy = text(OBBBADeductionFields(claimed.props));
+    expect(vehicleCopy).toContain('When you took out the loan, did you expect to use this vehicle personally more than half the time you expect to own it?');
+    expect(vehicleCopy).toContain('An answer of no keeps that share off Schedule 1-A');
+    expect(vehicleCopy).not.toMatch(/savings|you will save|Up to \$10,000/i);
     await button(tree, 'Save').props.onClick();
     const saved = JSON.parse(harness.request.mock.calls.find(call => call[1]?.method === 'POST')![1].body);
     expect(JSON.parse(saved.businessLossFacts)).toMatchObject({ taxYear: 2026, allInvestmentAtRisk: 'yes', profitMotive: '' });

@@ -19,18 +19,34 @@ const place = (facts: Partial<OBBBADeductionAnswers>, overrides: Partial<OBBBADe
   ...overrides,
 });
 
+const carLoanInformation = (items: { note: string }[] | undefined) =>
+  (items ?? []).filter(item => /schedule 1-a|car loan|vehicle business use|vehicle loan interest/i.test(item.note));
+
 describe('car loan interest is deducted in one place', () => {
-  it.each([
-    ['no', 'no'],
-    ['missing', undefined],
-  ] as const)('expectation %s puts $0 on Schedule 1-A, files that amount as needs more information, and still puts the business share on line 16b', (_label, expectation) => {
-    const facts = vehicle('600', expectation === undefined
-      ? { vehicleExpectedPersonalUseOver50AtPurchase: undefined }
-      : { vehicleExpectedPersonalUseOver50AtPurchase: expectation });
+  it('an answer of no puts 0 on Schedule 1-A, adds no car loan needs more information entry, and still puts the business share on line 16b', () => {
     let thrown = false;
     let result: ReturnType<typeof calculateOBBBADeductions> | undefined;
     try {
-      result = place(facts, { vehicleBusinessUsePercentage: 60, businessVehicleBusinessUsePercentage: 60 });
+      result = place(vehicle('600', { vehicleExpectedPersonalUseOver50AtPurchase: 'no' }), { vehicleBusinessUsePercentage: 60, businessVehicleBusinessUsePercentage: 60 });
+    } catch {
+      thrown = true;
+    }
+    expect(thrown).toBe(false);
+    expect(result).toMatchObject({
+      scheduleCLine16b: 360,
+      lineItems: [{ line: '16b', amount: 360 }],
+      vehicleLoanInterest: { deduction: 0, amountReported: 240 },
+      scheduleOneATotal: 0,
+    });
+    expect(carLoanInformation(result?.needsMoreInformation)).toEqual([]);
+    expect(result?.warnings ?? []).not.toContain(EXPECTED_USE_NOTE);
+  });
+
+  it.each([undefined, ''] as const)('a missing expectation (%j) puts 0 on Schedule 1-A, files that amount as needs more information, and still puts the business share on line 16b', expectation => {
+    let thrown = false;
+    let result: ReturnType<typeof calculateOBBBADeductions> | undefined;
+    try {
+      result = place(vehicle('600', { vehicleExpectedPersonalUseOver50AtPurchase: expectation }), { vehicleBusinessUsePercentage: 60, businessVehicleBusinessUsePercentage: 60 });
     } catch {
       thrown = true;
     }
@@ -43,6 +59,26 @@ describe('car loan interest is deducted in one place', () => {
       scheduleOneATotal: 0,
     });
     expect(result?.warnings).toContain(EXPECTED_USE_NOTE);
+  });
+
+  it('applies the more than 50 percent expectation test on a 2025 return', () => {
+    const run = (extra: Partial<OBBBADeductionAnswers>) => calculateOBBBADeductions({
+      taxYear: 2025, filingStatus: 'single', agi: 100000, scheduleCNetProfit: 60000, usingStandardDeduction: true,
+      vehicleBusinessUsePercentage: 60,
+      organizer: { obbbaDeductionFacts: reviewedOBBBADeductionFacts(2025, vehicle('600', extra)) },
+    });
+    const declined = run({ vehicleExpectedPersonalUseOver50AtPurchase: 'no' });
+    expect(declined.scheduleCLine16b).toBe(360);
+    expect(declined.vehicleLoanInterest.deduction).toBe(0);
+    expect(carLoanInformation(declined.needsMoreInformation)).toEqual([]);
+    const missing = run({ vehicleExpectedPersonalUseOver50AtPurchase: undefined });
+    expect(missing.scheduleCLine16b).toBe(360);
+    expect(missing.vehicleLoanInterest.deduction).toBe(0);
+    expect(missing.needsMoreInformation).toEqual([{ amount: 240, note: EXPECTED_USE_NOTE }]);
+    const expected = run({ vehicleExpectedPersonalUseOver50AtPurchase: 'yes' });
+    expect(expected.scheduleCLine16b).toBe(360);
+    expect(expected.vehicleLoanInterest.deduction).toBe(240);
+    expect(expected.needsMoreInformation).toEqual([]);
   });
 
   it('puts the personal share on Schedule 1-A when the loan-date expectation is yes', () => {
@@ -153,6 +189,7 @@ describe('auto lender hints do not send interest to Schedule C line 9', () => {
     expect(result.question).toContain('The same dollar is never counted in both places');
     expect(result.question).toContain('draft, awaiting copy approval');
     expect(result.question ?? '').not.toMatch(/can(?:not|'t).{0,40}Schedule 1-A/i);
+    expect(result.question ?? '').not.toMatch(/savings|you will save|Schedule 1-A/i);
   });
 
   it('uses the same hint for a Plaid car payment and leaves other loans on the generic question', () => {
