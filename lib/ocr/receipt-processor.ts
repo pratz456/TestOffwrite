@@ -58,6 +58,12 @@ function calendarDay(year: number, month: number, day: number): string | null {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === iso ? iso : null;
 }
 
+/** The calendar day in local time, checked with the same real-day rule as a written date. */
+function localCalendarDay(date: Date): string | null {
+  if (!Number.isFinite(date.getTime())) return null;
+  return calendarDay(date.getFullYear(), date.getMonth() + 1, date.getDate());
+}
+
 /** Clock time by parts. An hour such as 25 is rejected. The date is not shifted through local time. */
 function clockIsReal(time: string): boolean {
   const match = /^(\d{2}):(\d{2})(?::(\d{2})(\.\d+)?)?(?:Z|([+-])(\d{2}):?(\d{2}))?$/.exec(time);
@@ -787,8 +793,8 @@ export class ReceiptProcessor {
     try {
       if (!dateLike) return null;
       if (typeof dateLike === 'string') return dateFromWrittenParts(dateLike);
-      if (dateLike instanceof Date) return dateLike.toISOString().split('T')[0];
-      if (typeof dateLike === 'number') return new Date(dateLike).toISOString().split('T')[0];
+      if (dateLike instanceof Date) return localCalendarDay(dateLike);
+      if (typeof dateLike === 'number') return localCalendarDay(new Date(dateLike));
       return null;
     } catch {
       return null;

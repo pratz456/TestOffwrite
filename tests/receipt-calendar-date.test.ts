@@ -25,6 +25,12 @@ describe('OCR receipt dates must be real calendar days', () => {
     expect(normalizeDateToISO(date)).toBe(date);
   });
 
+  it('keeps Jan 1, 2027 when the value is a local Date or a timestamp', () => {
+    const local = new Date(2027, 0, 1, 0, 0, 0, 0);
+    expect(normalizeDateToISO(local)).toBe('2027-01-01');
+    expect(normalizeDateToISO(local.getTime())).toBe('2027-01-01');
+  });
+
   it.each(['2026-13-01', '2026-02-30', '2025-12-32'])('leaves OCR date %s blank so it can be entered', async date => {
     recognized(date);
     const result = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));

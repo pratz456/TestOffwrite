@@ -285,6 +285,31 @@ function request() {
   body.append('file', new File([PNG], 'receipt.png', { type: 'image/png' }));
   return new NextRequest('https://staging.example/api/receipts/process', { method: 'POST', body });
 }
+async function expectUndatedReceipt(text: string, amount?: number) {
+  worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+  const response = await POST(request());
+  expect(response.status).toBe(200);
+  const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as {
+    amount: number; date: string; deductionStatus?: string; tax_review_required?: boolean;
+    year?: unknown; taxYear?: unknown; tax_year?: unknown;
+  };
+  expect(saved.date).toBe('');
+  expect(saved.deductionStatus).toBe('Needs more information');
+  expect(saved.tax_review_required).toBe(true);
+  expect(saved.year).toBeUndefined();
+  expect(saved.taxYear).toBeUndefined();
+  expect(saved.tax_year).toBeUndefined();
+  expect(Number.isFinite(saved.amount) && saved.amount > 0).toBe(true);
+  if (amount !== undefined) expect(saved.amount).toBe(amount);
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  expect(JSON.stringify(saved)).not.toContain(today);
+  const body = await response.json();
+  expect(body.transaction.date).toBe('');
+  expect(body.transaction.amount).toBe(saved.amount);
+  expect(body.transaction.deductionStatus).toBe('Needs more information');
+  expect(body.transaction.year).toBeUndefined();
+}
 
 beforeEach(() => {
   resetRateLimitStore();
@@ -413,20 +438,12 @@ describe('OCR save uses the printed calendar day', () => {
 
   it('leaves two unlabeled dates from different years for the user to enter', async () => {
     expect(extractDate(MIXED_YEARS)).toBe('');
-    worker.recognize.mockResolvedValue({ data: { text: MIXED_YEARS, confidence: 95 } });
-    const response = await POST(request());
-    expect(response.status).toBe(422);
-    expect(await response.json()).toEqual({ error: 'Enter a real receipt date before saving' });
-    expect(mocks.createTransaction).not.toHaveBeenCalled();
+    await expectUndatedReceipt(MIXED_YEARS, 12.34);
   });
 
   it.each(CLOCK_NOT_YEAR)('does not save a clock time as the year from %j', async text => {
     expect(extractDate(text)).toBe('');
-    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
-    const response = await POST(request());
-    expect(response.status).toBe(422);
-    expect(await response.json()).toEqual({ error: 'Enter a real receipt date before saving' });
-    expect(mocks.createTransaction).not.toHaveBeenCalled();
+    await expectUndatedReceipt(text, 12.34);
   });
 
   it.each(ITEM_LINE)('keeps Jan 15, 2026 when an item line is present in %j', async (text, iso) => {
@@ -453,11 +470,7 @@ describe('OCR save uses the printed calendar day', () => {
 
   it.each(NUMBERED_ALONE)('saves no date from %j', async text => {
     expect(extractDate(text)).toBe('');
-    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
-    const response = await POST(request());
-    expect(response.status).toBe(422);
-    expect(await response.json()).toEqual({ error: 'Enter a real receipt date before saving' });
-    expect(mocks.createTransaction).not.toHaveBeenCalled();
+    await expectUndatedReceipt(text, 12.34);
   });
 
   it('skip words drop a return line and keep the purchase day', async () => {
@@ -492,11 +505,7 @@ describe('OCR save uses the printed calendar day', () => {
 
   it.each(STILL_DROPPED)('drops a date that sits next to a skip phrase in %j', async text => {
     expect(extractDate(text)).toBe('');
-    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
-    const response = await POST(request());
-    expect(response.status).toBe(422);
-    expect(await response.json()).toEqual({ error: 'Enter a real receipt date before saving' });
-    expect(mocks.createTransaction).not.toHaveBeenCalled();
+    await expectUndatedReceipt(text, 12.34);
   });
 
   it.each(TIERS)('keeps the highest purchase tier in %j', async (text, raw, iso) => {
@@ -512,11 +521,7 @@ describe('OCR save uses the printed calendar day', () => {
 
   it.each(NO_DATE)('saves no date for %j', async text => {
     expect(extractDate(text)).toBe('');
-    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
-    const response = await POST(request());
-    expect(response.status).toBe(422);
-    expect(await response.json()).toEqual({ error: 'Enter a real receipt date before saving' });
-    expect(mocks.createTransaction).not.toHaveBeenCalled();
+    await expectUndatedReceipt(text);
   });
 
   it.each(VERIFIED)('keeps the purchase day in %j', async (text, raw, iso) => {
@@ -577,23 +582,59 @@ describe('OCR save uses the printed calendar day', () => {
     expect((await response.json()).transaction.date).toBe(iso);
   });
 
-  it.each(REFUSED)('refuses to save OCR text %s', async input => {
-    recognized(input);
-    const response = await POST(request());
-    expect(response.status).toBe(422);
-    expect(await response.json()).toEqual({ error: 'Enter a real receipt date before saving' });
-    expect(mocks.createTransaction).not.toHaveBeenCalled();
-    expect(mocks.storageSave).not.toHaveBeenCalled();
+  it.each(REFUSED)('saves OCR text %s with no readable date', async input => {
+    expect(extractDate(receiptText(input))).toBe('');
+    await expectUndatedReceipt(receiptText(input), 25);
   });
 
-  it('refuses a receipt that has no date', async () => {
-    worker.recognize.mockResolvedValue({ data: {
-      text: 'SYNTHETIC OFFICE STORE\nOffice supplies $25.00\nTOTAL $25.00',
-      confidence: 95,
-    } });
+  it('saves a receipt that has no date', async () => {
+    const text = 'SYNTHETIC OFFICE STORE\nOffice supplies $25.00\nTOTAL $25.00';
+    expect(extractDate(text)).toBe('');
+    await expectUndatedReceipt(text, 25);
+  });
+
+  it('keeps the 2026 purchase date when the receipt says RETURN BY 12/31/2026', async () => {
+    const text = 'SYNTHETIC OFFICE STORE\nRETURN BY 12/31/2026\nPurchased 06/15/2026\nTotal $12.34';
+    const extracted = extractDate(text);
+    expect(extracted).toBe('06/15/2026');
+    expect(normalizeDateToISO(extracted)).toBe('2026-06-15');
+    expect(normalizeDateToISO('12/31/2026')).toBe('2026-12-31');
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
     const response = await POST(request());
-    expect(response.status).toBe(422);
-    expect(await response.json()).toEqual({ error: 'Enter a real receipt date before saving' });
-    expect(mocks.createTransaction).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({
+      amount: 12.34, date: '2026-06-15',
+    }));
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string };
+    expect(saved.date).not.toBe('2026-12-31');
+    expect((await response.json()).transaction.date).toBe('2026-06-15');
+  });
+
+  it('saves 01/01/2027 as 2027-01-01', async () => {
+    const text = 'SYNTHETIC OFFICE STORE\n01/01/2027\nTotal $12.34';
+    const extracted = extractDate(text);
+    expect(extracted).toBe('01/01/2027');
+    expect(normalizeDateToISO(extracted)).toBe('2027-01-01');
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({
+      amount: 12.34, date: '2027-01-01',
+    }));
+    expect((await response.json()).transaction.date).toBe('2027-01-01');
+  });
+
+  it('saves 12/31/2026 as 2026-12-31', async () => {
+    const text = 'SYNTHETIC OFFICE STORE\n12/31/2026\nTotal $12.34';
+    const extracted = extractDate(text);
+    expect(extracted).toBe('12/31/2026');
+    expect(normalizeDateToISO(extracted)).toBe('2026-12-31');
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({
+      amount: 12.34, date: '2026-12-31',
+    }));
+    expect((await response.json()).transaction.date).toBe('2026-12-31');
   });
 });

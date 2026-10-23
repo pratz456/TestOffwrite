@@ -34,6 +34,11 @@ function receiptResponse(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: PRIVATE_RECEIPT_HEADERS });
 }
 
+/** YYYY-MM-DD only when that calendar day exists. Date-only strings are UTC, so the check does not follow the viewer clock. */
+function isRealCalendarDay(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+}
+
 function stagingReceiptFailure(step: string, error: unknown) {
   if (process.env.WRITEOFF_ENV !== 'staging') return;
   const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
@@ -205,10 +210,13 @@ export async function POST(request: NextRequest) {
       throw new ReceiptRequestError('Enter a positive receipt amount before saving', 422);
     }
     const receiptDate = receiptData.date || '';
-    const realCalendarDay = /^\d{4}-\d{2}-\d{2}$/.test(receiptDate) && Number.isFinite(Date.parse(receiptDate)) && new Date(receiptDate).toISOString().slice(0, 10) === receiptDate;
-    if (attachTransactionId === null && !realCalendarDay) {
+    // This route owns the undated save. A blank date is stored with no date and no year,
+    // marked Needs more information, and is never replaced with today. A non-empty date
+    // that is not a real calendar day is still refused.
+    if (attachTransactionId === null && receiptDate !== '' && !isRealCalendarDay(receiptDate)) {
       throw new ReceiptRequestError('Enter a real receipt date before saving', 422);
     }
+    const undated = receiptDate === '';
     const signedAmount = receiptType === 'income' ? -receiptAmountAbs : receiptAmountAbs; // app expects expenses positive
 
     const ocr_data = {
@@ -252,10 +260,11 @@ export async function POST(request: NextRequest) {
       amount: signedAmount,
       ...(manualReceipt?.iso_currency_code ? { iso_currency_code: manualReceipt.iso_currency_code } : {}),
       category: receiptType === 'income' ? 'income' : receiptData.category || 'other',
-      date: receiptData.date,
+      date: undated ? '' : receiptDate,
       description: `Receipt: ${receiptData.merchant}`,
       notes: manualReceipt ? 'Receipt details confirmed manually.' : `Receipt created from OCR. OCR confidence: ${Math.round(receiptData.confidence * 100)}%.`,
       is_deductible: null,
+      ...(undated ? { deductionStatus: 'Needs more information', tax_review_required: true } : {}),
       analysis_status: 'pending',
       source: 'receipt',
       analyzed: false,
