@@ -113,7 +113,8 @@ describe('Schedule C export lists every unreadable charge date outside the year 
   });
 
   it('shows the unreadable count and dollar total in Needs more information and says that year totals may be missing them', async () => {
-    const row = charge('jan', 17.25, 'Jan 5, 2025', 'UNDATED-JAN');
+    // February 31 is not a calendar day, so a written English month still leaves this charge undated.
+    const row = charge('jan', 17.25, 'February 31, 2025', 'UNDATED-JAN');
     const notice = SCHEDULE_C_UNREADABLE_DATE_NOTICE(1, 17.25);
     expect(notice).toBe("These totals leave out 1 charge ($17.25) because their dates couldn't be read, so they aren't assigned to any year. Fix the dates in WriteOff and export again to include them.");
     expect(notice).toContain('leave out');
@@ -125,7 +126,7 @@ describe('Schedule C export lists every unreadable charge date outside the year 
     const sectionAt = text.indexOf('Needs more information');
     expect(sectionAt).toBeGreaterThan(text.indexOf('DATED-KEEP'));
     expect(text.indexOf('UNDATED-JAN')).toBeGreaterThan(sectionAt);
-    expect(text.indexOf('Jan 5, 2025')).toBeGreaterThan(sectionAt);
+    expect(text.indexOf('February 31, 2025')).toBeGreaterThan(sectionAt);
     expect(text.indexOf('Subtotal')).toBeGreaterThan(sectionAt);
     expect(text).toContain('1 charge');
     expect(text).toContain('$17.25');
