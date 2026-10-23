@@ -65,6 +65,27 @@ describe('OCR receipt dates must be real calendar days', () => {
     }
   });
 
+  it('passes the upload zone through a receipt batch', async () => {
+    const instant = new Date('2027-01-01T07:30:00Z');
+    const processor = receiptProcessor as unknown as {
+      parseReceiptText(text: string): { merchant: string; amount: number; date: Date; category: string; items: [] };
+    };
+    const original = processor.parseReceiptText;
+    processor.parseReceiptText = () => ({
+      merchant: 'SYNTHETIC OFFICE STORE', amount: 12.34, date: instant, category: 'other', items: [],
+    });
+    worker.recognize.mockResolvedValue({ data: { text: 'synthetic', confidence: 95 } });
+    try {
+      const [withZone] = await receiptProcessor.processReceiptBatch([Buffer.from('synthetic')], 'America/Los_Angeles');
+      expect(withZone.success).toBe(true);
+      expect(withZone.data?.date).toBe('2026-12-31');
+      const [withoutZone] = await receiptProcessor.processReceiptBatch([Buffer.from('synthetic')]);
+      expect(withoutZone.data?.date).toBe('');
+    } finally {
+      processor.parseReceiptText = original;
+    }
+  });
+
   it.each(['2026-13-01', '2026-02-30', '2025-12-32'])('leaves OCR date %s blank so it can be entered', async date => {
     recognized(date);
     const result = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
