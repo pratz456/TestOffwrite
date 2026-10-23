@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { filingNavName, PREPARER_NAV_RENAME } from '../lib/copy/preparer-copy';
+import { filingAuthNavLabel, filingNavName, PREPARER_NAV_RENAME } from '../lib/copy/preparer-copy';
 import {
   ACCOUNT_NAVIGATION,
   PRIMARY_NAVIGATION,
@@ -18,6 +18,8 @@ const NAVIGATION = [
 ];
 
 const FILING_HREF = '/protected?screen=tax-filing-hub';
+const AUTH_HREF = '/protected?screen=form-8879';
+const FILING_AUTH_LABEL = 'Filing authorization';
 const FILING_EXPORTS_DESCRIPTION = 'Get your records ready and export them for your tax preparer';
 const RETIRED_FILING_DESCRIPTION = 'Prepare and export for filing';
 const NAV_SOURCE = resolve(process.cwd(), 'lib/navigation/app-navigation.ts');
@@ -40,19 +42,29 @@ function filingItem(records: readonly AppNavigationItem[]): AppNavigationItem {
   return item as AppNavigationItem;
 }
 
-async function loadFilingItem(rename: boolean): Promise<AppNavigationItem> {
+function authItem(records: readonly AppNavigationItem[]): AppNavigationItem {
+  const item = records.find(entry => entry.href === AUTH_HREF);
+  expect(item).toBeDefined();
+  return item as AppNavigationItem;
+}
+
+async function loadNavigation(rename: boolean) {
   vi.resetModules();
   vi.doMock('../lib/copy/preparer-copy', async () => {
     const actual = await vi.importActual<typeof import('../lib/copy/preparer-copy')>('../lib/copy/preparer-copy');
     return { ...actual, PREPARER_NAV_RENAME: rename };
   });
   try {
-    const navigation = await import('../lib/navigation/app-navigation');
-    return filingItem(navigation.RECORD_NAVIGATION);
+    return await import('../lib/navigation/app-navigation');
   } finally {
     vi.doUnmock('../lib/copy/preparer-copy');
     vi.resetModules();
   }
+}
+
+async function loadFilingItem(rename: boolean): Promise<AppNavigationItem> {
+  const navigation = await loadNavigation(rename);
+  return filingItem(navigation.RECORD_NAVIGATION);
 }
 
 describe('filing and exports navigation copy', () => {
@@ -78,13 +90,27 @@ describe('filing and exports navigation copy', () => {
     expect(on.description).toBe(FILING_EXPORTS_DESCRIPTION);
   });
 
+  it('keeps Filing authorization for both switch values', async () => {
+    expect(filingAuthNavLabel(false)).toBe(FILING_AUTH_LABEL);
+    expect(filingAuthNavLabel(true)).toBe(FILING_AUTH_LABEL);
+    const live = authItem(TAX_TOOL_NAVIGATION);
+    const off = authItem((await loadNavigation(false)).TAX_TOOL_NAVIGATION);
+    const on = authItem((await loadNavigation(true)).TAX_TOOL_NAVIGATION);
+    expect(live.name).toBe(FILING_AUTH_LABEL);
+    expect(off.name).toBe(FILING_AUTH_LABEL);
+    expect(on.name).toBe(FILING_AUTH_LABEL);
+  });
+
   it('fails when the nav item hardcodes its name', () => {
     const source = readFileSync(NAV_SOURCE, 'utf8');
     expect(source).toContain('name: filingNavName(PREPARER_NAV_RENAME)');
+    expect(source).toContain('name: filingAuthNavLabel(PREPARER_NAV_RENAME)');
     expect(source).not.toContain("name: 'Filing & exports'");
     expect(source).not.toContain('name: "Filing & exports"');
     expect(source).not.toContain("name: 'Preparer exports'");
     expect(source).not.toContain('name: "Preparer exports"');
+    expect(source).not.toContain("name: 'Filing authorization'");
+    expect(source).not.toContain('name: "Filing authorization"');
   });
 
   it('rejects a nav description that uses Prepare without an object', () => {
