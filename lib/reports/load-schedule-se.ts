@@ -9,6 +9,7 @@ import { normalizeFilingStatus } from '@/lib/tax-rules/filing-status';
 import { summarizeW2Income } from '@/lib/tax-rules/w2-income';
 import { getFederalTaxRules } from '@/lib/tax-rules/federal-year-rules';
 import { computeScheduleCProfit } from '@/lib/tax-rules/schedule-c-profit';
+import { scheduleCLine16bVehicleInterest } from '@/lib/tax-rules/obbba-deductions';
 import { calcScheduleSE } from './calcSE';
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
 export class TaxExportDataUnavailableError extends Error {
@@ -23,9 +24,9 @@ export class TaxExportDataUnavailableError extends Error {
 export async function loadScheduleCRecords(uid: string, taxYear: number) {
   getFederalTaxRules(taxYear);
   const query = (name: string) => adminDb.collection(name).where('userId', '==', uid).where('taxYear', '==', taxYear);
-  const [tx, profile, gross, forms, wages, deductions, settings, decisions] = await Promise.all([
+  const [tx, profile, gross, forms, wages, deductions, organizerSnap, settings, decisions] = await Promise.all([
     readTaxExportTransactions(uid, taxYear), getUserProfileServer(uid), query('gross_receipts').get(), query('income_1099').get(),
-    query('w2_income').get(), query('tax_deductions').limit(1).get(), getScheduleCSettings(uid), readIncomeReconciliationDecisions(uid, taxYear),
+    query('w2_income').get(), query('tax_deductions').limit(1).get(), query('tax_organizers').limit(1).get(), getScheduleCSettings(uid), readIncomeReconciliationDecisions(uid, taxYear),
   ]);
   if (profile.error || !profile.data || settings.error || !settings.data) throw new TaxExportDataUnavailableError();
   const transactions = tx;
@@ -33,14 +34,22 @@ export async function loadScheduleCRecords(uid: string, taxYear: number) {
   const receipts = reconcileBusinessIncome(taxYear, transactions.map(row => ({ ...row })), gross.docs.map(doc => ({ ...doc.data(), id: doc.id })), forms.docs.map(doc => ({ ...doc.data(), id: doc.id })), decisions);
   const expense = aggregateScheduleC(transactions, String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' });
   const w2 = summarizeW2Income(wages.docs.map(doc => doc.data()));
+  const organizer = organizerSnap.empty ? {} : organizerSnap.docs[0].data();
+  const vehicleLoanBusinessInterest = scheduleCLine16bVehicleInterest({
+    taxYear, organizer,
+    vehicleBusinessUsePercentage: profile.data.vehicle_business_use_percentage,
+    businessVehicleBusinessUsePercentage: profile.data.business_vehicle?.business_use_percentage,
+  });
   return {
     taxYear, profile: profile.data, transactions, receipts, expense, w2, w2Count: wages.docs.length,
     w2SocialSecurityBoxesComplete: wages.docs.every(doc => doc.data().box3SocialSecurityWages != null || doc.data().socialSecurityWages != null),
     w2MedicareBoxesComplete: wages.docs.every(doc => doc.data().box5MedicareWages != null || doc.data().medicareWages != null),
     deductions: deductions.empty ? {} : deductions.docs[0].data(),
     assets: settings.data.assets, homeOffice: settings.data.homeOffice, depreciationElections: settings.data.depreciationElections,
+    /** Business share of passenger vehicle loan interest on Schedule C line 16b. Unknown share is $0. */
+    vehicleLoanBusinessInterest,
     /** §179(b)(3) business income: Schedule C profit before assets plus employee wages (Pub 946 ch. 2). */
-    section179BusinessIncome: receipts.grossReceipts - expense.totalDeductible + w2.wages,
+    section179BusinessIncome: receipts.grossReceipts - expense.totalDeductible - vehicleLoanBusinessInterest + w2.wages,
   };
 }
 
@@ -49,7 +58,8 @@ export type ScheduleCRecords = Awaited<ReturnType<typeof loadScheduleCRecords>>;
 /** The shared line 13 → 29 → 30 → 31 ordering applied to loaded records; throws the review errors. */
 export function scheduleCProfitFromRecords(records: ScheduleCRecords) {
   return computeScheduleCProfit({
-    taxYear: records.taxYear, grossReceipts: records.receipts.grossReceipts, confirmedExpenses: records.expense.totalDeductible, w2Wages: records.w2.wages,
+    taxYear: records.taxYear, grossReceipts: records.receipts.grossReceipts,
+    confirmedExpenses: records.expense.totalDeductible + records.vehicleLoanBusinessInterest, w2Wages: records.w2.wages,
     assets: records.assets, depreciationElections: records.depreciationElections, homeOffice: records.homeOffice, legacyHomeOfficeMethod: records.profile.home_office_method,
   });
 }
@@ -87,7 +97,7 @@ export async function loadScheduleSEData(uid: string, taxYear: number) {
   return {
     userProfile: { ...profile, filing_status: filingStatus }, taxYear, filingStatus,
     calculation, w2SocialSecurityWages: ownerSocialSecurityWages, w2MedicareWages: w2.medicareWagesForSE,
-    grossReceipts: receipts.grossReceipts, totalExpenses: expense.totalDeductible,
+    grossReceipts: receipts.grossReceipts, totalExpenses: expense.totalDeductible + records.vehicleLoanBusinessInterest,
     netProfitBeforeDepreciation, deMinimisExpense, depreciationDeduction, tentativeProfit: scheduleC.tentativeProfit, homeOfficeDeduction, netProfit,
     homeOffice: scheduleC.homeOffice.calculation, scheduleCWarnings: scheduleC.warnings,
     w2Wages: w2.wages, w2Withheld: w2.federalWithheld, w2Count: records.w2Count,

@@ -254,6 +254,8 @@ describe('compact organizer sections', () => {
     obbba.props.onChange(reviewedOBBBADeductionFacts(2026, { hasVehicleLoanInterest: 'yes' }));
     tree = render();
     expect(text(section(tree, 'Working Families Tax Cuts deductions').props.children[0])).toContain('1 claimed');
+    const claimed = walk(tree).find(node => node.type === OBBBADeductionFields)!;
+    expect(text(OBBBADeductionFields(claimed.props))).toContain('When you took out the loan, did you expect to use this vehicle personally more than half the time you expect to own it?');
     await button(tree, 'Save').props.onClick();
     const saved = JSON.parse(harness.request.mock.calls.find(call => call[1]?.method === 'POST')![1].body);
     expect(JSON.parse(saved.businessLossFacts)).toMatchObject({ taxYear: 2026, allInvestmentAtRisk: 'yes', profitMotive: '' });

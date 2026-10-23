@@ -9,7 +9,8 @@ import { maskOrganizerIdentifier } from '@/lib/tax-organizer/identifiers';
 import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
 import { reconcileBusinessIncome, IncomeReconciliationRequiredError } from '@/lib/tax-rules/business-income';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
-import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { aggregateScheduleC, CATEGORY_MAP, type LineItemSummary } from '@/lib/schedule-c/aggregate';
+import { OBBBADeductionReviewRequiredError, scheduleCLine16bVehicleInterest } from '@/lib/tax-rules/obbba-deductions';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
@@ -41,6 +42,26 @@ export async function POST(request: NextRequest) {
     const transactions = tx;
     const receipts = reconcileBusinessIncome(year, transactions.map(row => ({ ...row })), gross.docs.map(doc => ({ ...doc.data(), id: doc.id })), forms.docs.map(doc => ({ ...doc.data(), id: doc.id })), decisions);
     const aggregate = aggregateScheduleC(transactions, String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
+    const profileData = profile.data;
+    const businessVehicle = profileData?.business_vehicle;
+    const organizerForInterest = orgSnap.empty ? {} : orgSnap.docs[0].data();
+    const vehicleLoanBusinessInterest = scheduleCLine16bVehicleInterest({
+      taxYear: year, organizer: organizerForInterest,
+      vehicleBusinessUsePercentage: profileData?.vehicle_business_use_percentage,
+      businessVehicleBusinessUsePercentage: businessVehicle?.business_use_percentage,
+    });
+    // The business share is a Schedule C line. Needs more information is not a line item.
+    if (vehicleLoanBusinessInterest !== 0) {
+      const interestLine: LineItemSummary = {
+        lineCode: '16b', lineName: 'Other interest', total: vehicleLoanBusinessInterest, deductible: vehicleLoanBusinessInterest, transactionCount: 0, transactions: [],
+      };
+      const existing = aggregate.lineItemsArray.find(item => item.lineCode === '16b');
+      if (existing) {
+        existing.total = Math.round((existing.total + vehicleLoanBusinessInterest + Number.EPSILON) * 100) / 100;
+        existing.deductible = Math.round((existing.deductible + vehicleLoanBusinessInterest + Number.EPSILON) * 100) / 100;
+      } else aggregate.lineItemsArray.push(interestLine);
+      aggregate.lineItemsArray.sort((a, b) => parseInt(a.lineCode, 10) - parseInt(b.lineCode, 10));
+    }
     if (body.format === 'csv') return new NextResponse(generateScheduleCCSV(aggregate.lineItemsArray, year), {
       headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="Schedule_C_${year}_WriteOff.csv"`, 'Cache-Control': 'private, no-store' },
     });
@@ -53,7 +74,7 @@ export async function POST(request: NextRequest) {
     return new NextResponse(Buffer.from(bytes), { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="Schedule_C_${year}_WriteOff.pdf"`, 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     if (error instanceof IncomeReconciliationRequiredError) return NextResponse.json(incomeReconciliationReviewBody(error, year), { status: 422 });
-    if (error instanceof ExportReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
+    if (error instanceof ExportReviewRequiredError || error instanceof OBBBADeductionReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     return NextResponse.json({ error: 'Could not create the Schedule C preparer summary. Please retry.' }, { status: 503 });
   }
 }
