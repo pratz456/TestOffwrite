@@ -2,11 +2,37 @@ export function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
+const MONTH_LENGTHS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const MONTH_INDEX: Record<string, number> = {
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4, may: 5,
+  jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, september: 9,
+  oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
+};
+
+function isLeapYear(year: number): boolean {
+  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+}
+
+/** English month, day, and four-digit year. The day is the numbers as written, not a UTC conversion. */
+function writtenMonthDay(value: string): string | null {
+  const match = /^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})$/.exec(value);
+  if (!match) return null;
+  const month = MONTH_INDEX[match[1].toLowerCase()];
+  if (!month) return null;
+  const day = Number(match[2]);
+  const year = Number(match[3]);
+  const length = MONTH_LENGTHS[month - 1] + (month === 2 && isLeapYear(year) ? 1 : 0);
+  if (!Number.isInteger(day) || day < 1 || day > length) return null;
+  return `${match[3]}-${pad2(month)}-${pad2(day)}`;
+}
+
 /**
  * Calendar day of a charge, using the same rules as the transaction export Tax Date.
  * A real YYYY-MM-DD is kept. An ISO timestamp, a trailing Z, or a space and a
  * time uses that same written day when the first ten characters round-trip
- * through noon UTC. Impossible days, blanks, and junk are undated.
+ * through noon UTC. An English month name, full or three letters, followed by
+ * the day and a four-digit year is that written day. Impossible days, blanks,
+ * and junk are undated.
  * Save time, upload time, and today's date are not inputs to this function.
  */
 export function calendarChargeDay(value: unknown): string | null {
@@ -18,10 +44,13 @@ export function calendarChargeDay(value: unknown): string | null {
   } catch {
     return null;
   }
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}(?:$|T|Z$| \d{2}:\d{2}:\d{2})/.test(value)) return null;
-  const day = value.slice(0, 10);
-  const parsed = new Date(`${day}T12:00:00Z`);
-  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
+  if (typeof value !== 'string') return null;
+  if (/^\d{4}-\d{2}-\d{2}(?:$|T|Z$| \d{2}:\d{2}:\d{2})/.test(value)) {
+    const day = value.slice(0, 10);
+    const parsed = new Date(`${day}T12:00:00Z`);
+    return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
+  }
+  return writtenMonthDay(value);
 }
 
 /**

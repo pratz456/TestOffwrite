@@ -8,10 +8,10 @@ import { assistantProfileFacts, composeForYou, mentionedMerchantFacts, needsMore
 
 const formats = [
   ['slash date', '01/05/2025'],
-  ['written date', 'Jan 5, 2025'],
   ['epoch number', Date.UTC(2025, 0, 5)],
   ['impossible date', '2025-02-30'],
   ['impossible day with a time', '2025-02-30 10:00:00'],
+  ['impossible written day', 'Feb 30, 2025'],
   ['missing date', undefined],
 ] as const;
 

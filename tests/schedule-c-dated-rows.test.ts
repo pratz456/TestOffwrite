@@ -150,8 +150,15 @@ describe('offset timestamps keep the date written in the string', () => {
   });
 });
 
-describe('a space and a time, or a trailing Z, keep the written day', () => {
-  it.each(['2025-01-05 10:00:00', '2025-01-05Z'])('counts %s on 2025-01-05 in the 2025 total', (date) => {
+describe('a space and a time, a trailing Z, or an English month keeps the written day', () => {
+  it.each([
+    '2025-01-05 10:00:00',
+    '2025-01-05Z',
+    'Jan 5, 2025',
+    'January 5, 2025',
+    'jan 5 2025',
+    'JANUARY 5, 2025',
+  ])('counts %s on 2025-01-05 in the 2025 total', (date) => {
     const row = confirmed({ id: 'written-day', date, amount: 55 });
     expect(chargeDay(row)).toBe('2025-01-05');
     expect(chargeYear(row)).toBe(2025);
