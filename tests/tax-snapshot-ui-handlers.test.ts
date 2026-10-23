@@ -451,24 +451,18 @@ describe('tax preview personal deduction and benefit contract', () => {
     expect(harness.navigate).toHaveBeenCalledWith('tax-organizer');
   });
 
-  it('lists the NEC same-payments review warning on a successful estimate only while legacy reconfirm is on', async () => {
+  it('lists a NEC review warning the estimate already included', async () => {
     const data = snapshot(2026);
     data.income.grossReceipts = 12000;
     data.form1040.calculationWarnings = [LEGACY_NEC_WARNING];
     harness.request.mockImplementation((url: string) => url.includes('compute-1040') ? Promise.resolve(response(data)) : requests(url));
-    delete process.env.legacyDecisionReconfirm;
+    delete process.env.legacyNecReopen;
     render(TaxPreviewScreen); await flush();
-    expect(text(render(TaxPreviewScreen))).not.toContain(LEGACY_NEC_WARNING);
-    process.env.legacyDecisionReconfirm = '1';
-    try {
-      const tree = render(TaxPreviewScreen);
-      const listed = walk(tree).find(node => node.props?.['aria-label'] === 'Records that need a reconciliation decision');
-      expect(text(listed)).toBe(LEGACY_NEC_WARNING);
-      expect(text(tree)).toContain('Estimated federal');
-      expect(text(tree)).not.toContain('Resolve the issue above');
-    } finally {
-      delete process.env.legacyDecisionReconfirm;
-    }
+    const tree = render(TaxPreviewScreen);
+    const listed = walk(tree).find(node => node.props?.['aria-label'] === 'Records that need a reconciliation decision');
+    expect(text(listed)).toBe(LEGACY_NEC_WARNING);
+    expect(text(tree)).toContain('Estimated federal');
+    expect(text(tree)).not.toContain('Resolve the issue above');
   });
 
   it('shows server-provided net and taxable benefits, benefit withholding, and the separate senior deduction', async () => {
@@ -497,7 +491,7 @@ describe('filing hub Schedule C export guidance', () => {
 
   it('shows the reconcile card and opens the review path', async () => {
     harness.request.mockImplementation((url: string) => url.includes('/api/tax/schedule-c/export')
-      ? Promise.resolve(response({ error: 'Review income sources before calculating tax', code: 'INCOME_RECONCILIATION_REQUIRED', conflicts, reviewPath, features: { legacyDecisionReconfirm: true } }, 422))
+      ? Promise.resolve(response({ error: 'Review income sources before calculating tax', code: 'INCOME_RECONCILIATION_REQUIRED', conflicts, reviewPath, features: { guidedV1: true } }, 422))
       : requests(url));
     render(); await flush();
     await walk(render()).find(node => node.props?.['aria-label'] === 'Export Schedule C PDF')!.props.onClick();

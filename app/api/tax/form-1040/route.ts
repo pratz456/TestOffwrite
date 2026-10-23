@@ -40,7 +40,7 @@ import { getScheduleCSettings } from '@/lib/firebase/settings-server';
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
 import { LEGACY_NEC_WARNING } from '@/lib/tax-rules/income-reconciliation-copy';
 import { incomeReconciliationReviewBody } from '@/lib/tax-rules/income-reconciliation-response';
-import { legacyDecisionReconfirm } from '@/lib/tax-rules/reconciliation-feature';
+import { legacyNecReopen } from '@/lib/tax-rules/reconciliation-feature';
 import { scheduleCReviewCode } from '@/lib/tax-rules/schedule-c-profit';
 
 const PW = 612, PH = 792, ML = 36, MR = 576, MT = 756;
@@ -438,7 +438,7 @@ export async function POST(request: NextRequest) {
 
     // Add completeness warnings to displayData
     const warnings: string[] = [...(result.calculationWarnings || [])].filter(warning =>
-      legacyDecisionReconfirm() || warning !== LEGACY_NEC_WARNING,
+      legacyNecReopen() || warning !== LEGACY_NEC_WARNING,
     );
     if (!result.totalIncome || result.totalIncome === 0) warnings.push('No income entered - add income in WriteOff before using this form');
     if (!enrichedProfile.ssn) warnings.push('SSN not filled in - enter SSN in Tax Organizer');

@@ -12,7 +12,6 @@ import type { BusinessTaxNotice, StateTaxComponents, StateTaxLine } from "@/lib/
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import { incomeReconciliationPath } from "@/lib/tax-rules/income-reconciliation-response";
 import { LEGACY_NEC_WARNING } from "@/lib/tax-rules/income-reconciliation-copy";
-import { legacyDecisionReconfirm } from "@/lib/tax-rules/reconciliation-feature";
 
 interface Props {
   user: { id: string; email?: string };
@@ -38,12 +37,6 @@ const sourceLabel = (url: string) => { try { return new URL(url).hostname.replac
 const stringList = (value: unknown): string[] => Array.isArray(value)
   ? [...new Set(value.filter((item): item is string => typeof item === "string" && item.trim().length > 0))]
   : [];
-/** The NEC review warning follows legacyDecisionReconfirm. A browser bundle cannot read that server-only value, so a warning the estimate already included stays. */
-function showLegacyNecReviewWarning(): boolean {
-  if (legacyDecisionReconfirm()) return true;
-  return typeof window !== "undefined" && process.env.legacyDecisionReconfirm === undefined;
-}
-
 interface StateLine { label: string; amount: number; negative?: boolean }
 
 const lineList = (value: unknown): Partial<StateTaxLine>[] =>
@@ -112,9 +105,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
   const hasRefund = f1040?.refund > 0;
   const hasBalance = f1040?.balanceDue > 0;
 
-  const calculationWarnings = stringList(f1040?.calculationWarnings).filter(warning =>
-    warning !== LEGACY_NEC_WARNING || showLegacyNecReviewWarning(),
-  );
+  const calculationWarnings = stringList(f1040?.calculationWarnings);
   // Informational state planning estimate: { supported: true, estimate, components, warnings, sources } or { supported: false, reason }.
   const stateTax = data?.stateTax && typeof data.stateTax === "object" && typeof data.stateTax.supported === "boolean" ? data.stateTax : null;
   const stateLines = stateTax?.supported && !stateTax.noIncomeTax ? stateComponentLines(stateTax.components) : [];

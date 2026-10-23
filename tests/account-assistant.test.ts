@@ -114,17 +114,17 @@ describe('account facts, scope and comparisons', () => {
     expect(taxPositionResult(current, { ...previous, userId: 'other' }, true).account.notes[0]).toContain('first comparable');
     expect(taxPositionResult(current, null, true).account.notes[0]).toContain('first comparable');
   });
-  it('omits the NEC review warning from assistant notes while legacy reconfirm is off', () => {
-    delete process.env.legacyDecisionReconfirm;
+  it('omits the NEC review warning from assistant notes while legacyNecReopen is off', () => {
+    delete process.env.legacyNecReopen;
     const current = extractTaxPosition(tax, 'owner', 2026, now)!;
     const hidden = taxPositionResult(current, null, false, [LEGACY_NEC_WARNING, 'Other limit']).account.notes.join('\n');
     expect(hidden).not.toContain(LEGACY_NEC_WARNING);
     expect(hidden).toContain('Other limit');
-    process.env.legacyDecisionReconfirm = '1';
+    process.env.legacyNecReopen = '1';
     try {
       expect(taxPositionResult(current, null, false, [LEGACY_NEC_WARNING]).account.notes.join('\n')).toContain(LEGACY_NEC_WARNING);
     } finally {
-      delete process.env.legacyDecisionReconfirm;
+      delete process.env.legacyNecReopen;
     }
   });
   it.each(['https://evil.example', '//evil.example', 'javascript:alert(1)', '/api/user/delete', '/protected?screen=settings&redirect=evil'])('refuses non-navigation targets %s', href => expect(isAccountActionHref(href)).toBe(false));

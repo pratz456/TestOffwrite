@@ -1,5 +1,7 @@
 import { aggregateScheduleC, CATEGORY_MAP, type LineItemSummary } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
+import { NET_RECEIPTS, RETURNS_AND_ALLOWANCES } from '@/lib/tax-rules/income-reconciliation-copy';
+import { kNotBusinessIncomeEnabled } from '@/lib/tax-rules/reconciliation-feature';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 
 export interface ScheduleCExportData {
@@ -31,9 +33,9 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   const netReceipts = data.netReceipts ?? data.grossReceipts - returns;
   pdf.table(['Reference', 'Recorded amount / scope', 'Amount'], [
     ['1', 'Reconciled gross receipts in WriteOff', money(data.grossReceipts)],
-    ...(returns > 0 ? [
-      ['2', 'Returns and allowances', money(returns)],
-      ['3', 'Net receipts', money(netReceipts)],
+    ...(kNotBusinessIncomeEnabled() && returns > 0 ? [
+      ['2', RETURNS_AND_ALLOWANCES, money(returns)],
+      ['3', NET_RECEIPTS, money(netReceipts)],
     ] : []),
     ...data.lineItems.map(row => [scheduleCExportLine(row.lineCode, data.taxYear), `${row.lineName} - ${row.transactionCount} confirmed records`, money(row.deductible)]),
     ['28 subtotal', 'Confirmed expense subtotal only', money(total)],

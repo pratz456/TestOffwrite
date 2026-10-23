@@ -60,7 +60,7 @@ export const COMPARE_ROW_AMOUNT = 'Amount';
 export const COMPARE_DIFF = 'These forms differ by {diff}.';
 export const COMPARE_SAME_AMOUNT = 'These forms show the same amount. That alone doesn\'t mean they report the same payments.';
 export const ERR_SAME_NEEDS_K = 'Two 1099-NECs usually report different payments, so you can\'t count them once here. If one corrects the other, choose "A client sent a corrected 1099-NEC". If a client sent the same form twice, ask them which one is right.';
-/** Reconcile tab text while legacyNecReopen is on. Tax preview still needs legacyDecisionReconfirm. PENDING APPROVAL. */
+/** Review warning. It follows legacyNecReopen on every surface. PENDING APPROVAL. */
 export const LEGACY_NEC_WARNING = 'Two 1099-NECs are usually separate income. Review this match.';
 /** Shown when legacyNecReopen reopens a current-year NEC-only same-payments decision. PENDING APPROVAL. */
 export const LEGACY_NEC_REOPEN_REASON = 'Two 1099-NECs are usually separate income, so both count.';
@@ -90,6 +90,8 @@ export const OUTSIDE_SC_AMOUNT = 'Outside Schedule C, needs review {amount}';
 
 /** A separate-income decision that pairs a form with a deposit or direct income. PENDING APPROVAL. */
 export const ERR_SEPARATE_FORM_WITH_MONEY = 'Separate income can\'t include a 1099 together with a deposit or direct income. That counts the same money twice. Choose same payments, or the decision for the part of a 1099-K that is also on a 1099-NEC.';
+/** Same block while the 1099-K switch is off, so it does not name the hidden partial overlap choice. PENDING APPROVAL. */
+export const ERR_SEPARATE_SAME_PAYMENTS_ONLY = 'Separate income can\'t include a 1099 together with a deposit or direct income. That counts the same money twice. Choose same payments.';
 
 export const DECISION_LABEL_PARTIAL = 'Part of the 1099-K is also on the 1099-NEC';
 export const DECISION_HELP_PARTIAL = 'Enter the amount that is on both the 1099-K and the 1099-NEC. That shared amount counts once. The rest of each form counts too.';
@@ -98,6 +100,21 @@ export const ERR_PARTIAL_OVERLAP = 'Enter an overlapping amount greater than $0 
 /** Deposits on a partial overlap are claimed and not added again. PENDING APPROVAL. */
 export const ERR_PARTIAL_DEPOSITS = 'Deposits included here total {deposits}, which is more than the income counted from the two forms ({total}). Those deposits are not added again. Remove a deposit that is not already part of these forms.';
 export const PARTIAL_OVERLAP_PREVIEW = 'The overlapping {overlap} counts once. Total counted: {total}.';
+
+/** Inline labels and errors moved out of the screens. Each one follows the switch named in the PR. */
+export const SELECTED_1099_FORMS = 'Selected 1099 forms';
+export const ERR_PARTS_ON_K_ONLY = 'Refund and personal amounts can only be recorded on the 1099-K decision for amounts that are not business income.';
+export const ERR_CORRECTED_FEE = 'A corrected 1099-NEC does not record a platform fee.';
+export const ERR_PARTIAL_FEE = 'A partial overlap does not record a platform fee.';
+export const PARTIAL_OVERLAP_AMOUNT = 'Amount on both forms ($)';
+export const DISMISS_NOTICE = 'Dismiss';
+export const RETURNS_AND_ALLOWANCES = 'Returns and allowances';
+export const NET_RECEIPTS = 'Net receipts';
+export const ERR_PARTIAL_DEPOSIT_NOT_SHARED = 'A deposit of {deposits} is not part of the shared amount ({overlap}) and does not match either form. Remove it, or include the bank record of one form.';
+/** The invalid-body sentence from 7a8ba53. Used while the guided switch is off. */
+export const INVALID_DECISION_BODY = 'Provide the tax year, a decision type (same_payments, separate_income or k_includes_fees) and the records it covers with their current amounts.';
+/** Separate income of one record, the base rule, used while the guided switch is off. */
+export const ONE_RECORD_SEPARATE = 'Mark one record at a time as separate income.';
 
 export function fillIncomeCopy(template: string, values: Record<string, string | number>): string {
   return template.replace(/\{([A-Za-z]+)\}/g, (_, key: string) => {

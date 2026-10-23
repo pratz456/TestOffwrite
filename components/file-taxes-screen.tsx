@@ -26,6 +26,8 @@ import {
 } from "@/lib/tax/dashboard-snapshot";
 import { protectedScreenUrl } from "@/lib/navigation/protected-screens";
 import { SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
+import { RETURNS_AND_ALLOWANCES } from "@/lib/tax-rules/income-reconciliation-copy";
+import { kNotBusinessIncomeEnabled } from "@/lib/tax-rules/reconciliation-feature";
 import { trackTaxFilingEvent } from "@/lib/analytics/tax-filing";
 import {
   FILING_PROVIDERS,
@@ -161,8 +163,8 @@ export function FileTaxesScreen() {
 
     const rows = [
       { label: "Gross receipts", value: income.grossReceipts, note: "Reconciled business income" },
-      ...(income.returnsAndAllowances && income.returnsAndAllowances > 0
-        ? [{ label: "Returns and allowances", value: income.returnsAndAllowances, note: "Schedule C line 2" }]
+      ...(kNotBusinessIncomeEnabled() && income.returnsAndAllowances && income.returnsAndAllowances > 0
+        ? [{ label: RETURNS_AND_ALLOWANCES, value: income.returnsAndAllowances, note: "Schedule C line 2" }]
         : []),
       { label: "Confirmed expenses", value: income.totalDeductible, note: "Posted, confirmed deductions after category limits and refunds" },
       { label: "Net profit", value: income.scheduleCNetProfit, note: "Before depreciation; used for the federal estimate" },

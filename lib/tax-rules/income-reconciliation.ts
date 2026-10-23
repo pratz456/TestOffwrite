@@ -16,11 +16,11 @@
 import {
   DECISION_LABEL_CORRECTED, DECISION_LABEL_NOT_BUSINESS, DECISION_LABEL_PARTIAL, ERR_CORRECTED_NEEDS_TWO_NEC, ERR_CORRECTED_PICK,
   ERR_CORRECTED_SAME_PAYER, ERR_CORRECTED_SUM, ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTIAL_NEEDS_K_AND_NEC, ERR_PARTIAL_OVERLAP,
-  ERR_PARTIAL_DEPOSITS, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED, ERR_SEPARATE_FORM_WITH_MONEY,
+  ERR_CORRECTED_FEE, ERR_PARTIAL_DEPOSIT_NOT_SHARED, ERR_PARTIAL_DEPOSITS, ERR_PARTIAL_FEE, ERR_PARTS_EXCEED_GROSS, ERR_PARTS_ON_K_ONLY, ERR_REASON_REQUIRED, ERR_SEPARATE_FORM_WITH_MONEY, ERR_SEPARATE_SAME_PAYMENTS_ONLY, ONE_RECORD_SEPARATE,
   CONFIRM_FORMS_REQUIRED, ERR_SAME_NEEDS_K, ERR_SELECT_BUSINESS_RECORDS, ERR_SUM_MISMATCH, fillIncomeCopy,
   LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_NEC_WARNING,
 } from './income-reconciliation-copy';
-import { kNotBusinessIncomeEnabled, legacyDecisionReconfirm, legacyNecReopen, reconciliationYearMayAlreadyBeFiled } from './reconciliation-feature';
+import { guidedReconciliationV1Enabled, kNotBusinessIncomeEnabled, legacyNecReopen, reconciliationYearMayAlreadyBeFiled } from './reconciliation-feature';
 
 /** Customer sentence already used at 7a8ba53 when records have no verified link. */
 export const UNLINKED_SOURCES_MESSAGE = 'Transactions, gross receipts or 1099 forms may describe the same payments. They have no verified matching link and cannot be added safely.';
@@ -99,9 +99,9 @@ export interface IncomeReconciliationConflict {
 export const sourceKey = (ref: Pick<IncomeSourceRef, 'kind' | 'id'>) => `${ref.kind}:${ref.id}`;
 export const toCents = (amount: number) => Math.round(amount * 100);
 
-/** Same payments that joins two or more 1099s must echo the form total the dialog showed. The value is checked, not stored. Off with legacyDecisionReconfirm. */
+/** Same payments that joins two or more 1099s must echo the form total the dialog showed. The value is checked, not stored. Off unless the guided switch is on. */
 export function formsConfirmationError(decision: string, sources: ReadonlyArray<{ kind: string; amount: number }>, confirmedFormsTotal: number | undefined): string | null {
-  if (!legacyDecisionReconfirm()) return null;
+  if (!guidedReconciliationV1Enabled()) return null;
   if (decision !== 'same_payments') return null;
   const forms = sources.filter(source => source.kind === 'form_1099');
   if (forms.length < 2) return null;
@@ -218,7 +218,7 @@ export function validateReconciliationDecision(
   }
   const parts = decision.notBusinessParts ?? [];
   if (decision.decision !== 'k_not_business_income' && parts.length) {
-    return { ok: false, reason: 'Refund and personal amounts can only be recorded on the 1099-K decision for amounts that are not business income.' };
+    return { ok: false, reason: kNotBusinessIncomeEnabled() ? ERR_PARTS_ON_K_ONLY : UNLINKED_SOURCES_MESSAGE };
   }
   const feeCents = toCents(decision.platformFeeAmount);
   const kinds = new Set(resolved.map(source => source.kind));
@@ -228,16 +228,20 @@ export function validateReconciliationDecision(
 
   if (decision.decision === 'separate_income') {
     if (feeCents) return { ok: false, reason: 'Separate income does not record a platform fee.' };
-    // A form plus a deposit or direct income is the same payments, or a partial overlap. Never sum them.
+    if (!guidedReconciliationV1Enabled()) {
+      if (resolved.length !== 1) return { ok: false, reason: ONE_RECORD_SEPARATE };
+      return okCheck(sum(resolved), 0, kinds, resolved);
+    }
+    // A form plus a deposit or direct income is the same payments, or a partial overlap while that choice is available.
     if (forms.length && (transactions.length || receipts.length)) {
-      return { ok: false, reason: kNotBusinessIncomeEnabled() ? ERR_SEPARATE_FORM_WITH_MONEY : UNLINKED_SOURCES_MESSAGE };
+      return { ok: false, reason: kNotBusinessIncomeEnabled() ? ERR_SEPARATE_FORM_WITH_MONEY : ERR_SEPARATE_SAME_PAYMENTS_ONLY };
     }
     return okCheck(sum(resolved), 0, kinds, resolved);
   }
 
   if (decision.decision === 'corrected_form_replaces') {
     if (forms.length !== 2 || forms.some(form => form.formType !== '1099-NEC')) return { ok: false, reason: ERR_CORRECTED_NEEDS_TWO_NEC };
-    if (feeCents) return { ok: false, reason: 'A corrected 1099-NEC does not record a platform fee.' };
+    if (feeCents) return { ok: false, reason: ERR_CORRECTED_FEE };
     const [first, second] = forms;
     const payerA = (first.payerName ?? '').trim();
     const payerB = (second.payerName ?? '').trim();
@@ -263,7 +267,7 @@ export function validateReconciliationDecision(
     // summed by the base rule, so they cannot be declared duplicates here.
     if (kinds.size < 2 && forms.length !== resolved.length) return { ok: false, reason: 'Select records of at least two kinds (a 1099, direct income or bank income) that describe the same payments.' };
     if (!samePaymentsAllowed(resolved) && options.rejectNecOnlySamePayments !== false) {
-      return { ok: false, reason: legacyNecReopen() ? ERR_SAME_NEEDS_K : UNLINKED_SOURCES_MESSAGE };
+      return { ok: false, reason: ERR_SAME_NEEDS_K };
     }
     if (feeCents) return { ok: false, reason: 'Record platform fees with the “1099-K includes fees” decision.' };
     // An information return reports the whole payment stream; receipts and deposits may be split.
@@ -285,7 +289,7 @@ export function validateReconciliationDecision(
   }
 
   if (decision.decision === 'partial_overlap') {
-    if (feeCents) return { ok: false, reason: 'A partial overlap does not record a platform fee.' };
+    if (feeCents) return { ok: false, reason: ERR_PARTIAL_FEE };
     const kForm = forms.find(form => form.formType === '1099-K');
     const necForm = forms.find(form => form.formType === '1099-NEC');
     // Related deposits may be included. Direct income stays on same payments. The shared amount counts once.
@@ -302,6 +306,10 @@ export function validateReconciliationDecision(
       const depositCents = sum(transactions);
       if (depositCents <= 0 || depositCents > counted) {
         return { ok: false, reason: fillIncomeCopy(ERR_PARTIAL_DEPOSITS, { deposits: dollars(depositCents), total: dollars(counted) }) };
+      }
+      const onAForm = depositCents === toCents(kForm.amount) || depositCents === toCents(necForm.amount);
+      if (!onAForm && depositCents > overlapCents) {
+        return { ok: false, reason: fillIncomeCopy(ERR_PARTIAL_DEPOSIT_NOT_SHARED, { deposits: dollars(depositCents), overlap: dollars(overlapCents) }) };
       }
     }
     return okCheck(counted, 0, kinds, resolved);
@@ -453,7 +461,7 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
           continue;
         }
       }
-      const shownReason = decision.decision === 'corrected_form_replaces' && !reopenNecOnly
+      const shownReason = decision.decision === 'corrected_form_replaces' && !guidedReconciliationV1Enabled()
         ? UNLINKED_SOURCES_MESSAGE
         : (decision.decision === 'k_not_business_income' || decision.decision === 'partial_overlap') && !kNotBusinessIncomeEnabled()
           ? UNLINKED_SOURCES_MESSAGE
@@ -467,10 +475,9 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
     }
     if (reopenNecOnly && protectFiledLegacy) notices.push(LEGACY_NEC_PRIOR_YEAR_NOTE);
     const necForms = check.sources.filter(source => source.kind === 'form_1099' && source.formType === '1099-NEC').length;
-    if (decision.decision === 'same_payments' && necForms >= 2) {
+    if (reopenNecOnly && decision.decision === 'same_payments' && necForms >= 2) {
       notices.push(LEGACY_NEC_WARNING);
-      // The Reconcile tab prints this only while legacyNecReopen is on. Other surfaces still use the notice.
-      if (reopenNecOnly) legacyNecWarningIds.push(decision.id);
+      legacyNecWarningIds.push(decision.id);
     }
     check.sources.forEach(source => claimedBy.set(sourceKey(source), decision.id));
     reconciledCents += check.countedCents;

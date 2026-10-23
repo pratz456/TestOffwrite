@@ -1,6 +1,6 @@
 import { IncomeReconciliationRequiredError, listIncomeSourceCandidates, type IncomeRecord } from './business-income';
 import { CORRECTED_ORIGINAL_BADGE, LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_WARNING } from './income-reconciliation-copy';
-import { legacyDecisionReconfirm, legacyNecReopen, reconciliationFeatures, reconciliationYearMayAlreadyBeFiled, type ReconciliationFeatures } from './reconciliation-feature';
+import { guidedReconciliationV1Enabled, legacyDecisionReconfirm, reconciliationFeatures, reconciliationYearMayAlreadyBeFiled, type ReconciliationFeatures } from './reconciliation-feature';
 import {
   normalizeReconciliationDecision, resolveIncomeSources, sourceKey, toCents, validateReconciliationDecision,
   type FeeExpenseCandidate, type IncomeReconciliationConflict, type IncomeSourceCandidate, type IncomeSourceRef,
@@ -142,7 +142,7 @@ export function summarizeIncomeReconciliation(taxYear: number, records: IncomeSo
     ...base,
     candidates: candidates.map(candidate => {
       const decisionId = resolution.claimedBy.get(sourceKey(candidate));
-      const badge = legacyNecReopen() && candidate.kind === 'form_1099' && replacedIds.has(candidate.id) ? CORRECTED_ORIGINAL_BADGE : undefined;
+      const badge = guidedReconciliationV1Enabled() && candidate.kind === 'form_1099' && replacedIds.has(candidate.id) ? CORRECTED_ORIGINAL_BADGE : undefined;
       return { ...candidate, ...(decisionId ? { decisionId } : {}), ...(badge ? { badge } : {}) };
     }),
     replacedForms: resolution.replacedForms,

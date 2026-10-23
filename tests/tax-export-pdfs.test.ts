@@ -187,7 +187,7 @@ describe('Schedule C real PDF and request integrity', () => {
     const counted = reconcileBusinessIncome(2026, [], [], forms, [saved]);
     expect(counted.grossReceipts).toBe(12000);
     expect(counted.netReceipts).toBe(12000);
-    expect(counted.warnings).toContain(LEGACY_NEC_WARNING);
+    expect(counted.warnings).not.toContain(LEGACY_NEC_WARNING);
     state.records.gross_receipts = [];
     state.records.income_1099 = forms.map(form => record(form));
     state.records.income_reconciliations = [record(saved)];
@@ -201,6 +201,7 @@ describe('Schedule C real PDF and request integrity', () => {
     }
     expect(view.text()).toContain('$12,000.00');
     expect(view.text()).not.toContain('$24,000.00');
+    expect(view.text()).not.toContain(LEGACY_NEC_WARNING);
     expect(JSON.stringify(state.records)).toBe(before);
   });
   it('keeps 2025 and 2024 NEC-only same-payments exports at the saved total while the switch is on', async () => {
@@ -401,19 +402,19 @@ describe('Form 1040 planning PDF prints its review notes', () => {
     checkFormBounds(view.spy); saveArtifact('form-1040-2026-masked-identifiers', new Uint8Array(await response.arrayBuffer()));
   });
 
-  it('omits the NEC review warning from Form 1040 notes while legacy reconfirm is off', async () => {
-    delete process.env.legacyDecisionReconfirm;
+  it('omits the NEC review warning from Form 1040 notes while legacyNecReopen is off', async () => {
+    delete process.env.legacyNecReopen;
     state.extraWarnings = [LEGACY_NEC_WARNING];
     const view = inspectText();
     expect((await form1040(request1040())).status).toBe(200);
     expect(view.text()).not.toContain(LEGACY_NEC_WARNING);
-    process.env.legacyDecisionReconfirm = '1';
+    process.env.legacyNecReopen = '1';
     try {
       const shown = inspectText();
       expect((await form1040(request1040())).status).toBe(200);
       expect(shown.text()).toContain(LEGACY_NEC_WARNING);
     } finally {
-      delete process.env.legacyDecisionReconfirm;
+      delete process.env.legacyNecReopen;
     }
   });
 

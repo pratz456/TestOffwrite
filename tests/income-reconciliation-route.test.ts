@@ -48,8 +48,8 @@ vi.mock('@/lib/firebase/admin', () => {
 import { DELETE, GET, PATCH, POST } from '../app/api/income/reconciliation/route';
 import { ExportReviewRequiredError } from '../lib/reports/transaction-export';
 import { ExportDataUnavailableError } from '../lib/reports/export-records';
-import { CONFIRM_FORMS_REQUIRED, DECISION_LABEL_CORRECTED, ERR_PARTIAL_DEPOSITS, ERR_PARTIAL_OVERLAP, ERR_SAME_NEEDS_K, STALE_APP_REFRESH, fillIncomeCopy } from '../lib/tax-rules/income-reconciliation-copy';
-import { UNLINKED_SOURCES_MESSAGE } from '../lib/tax-rules/income-reconciliation';
+import { CONFIRM_FORMS_REQUIRED, DECISION_LABEL_CORRECTED, ERR_PARTIAL_DEPOSITS, ERR_PARTIAL_OVERLAP, ERR_SAME_NEEDS_K, ERR_SEPARATE_FORM_WITH_MONEY, ERR_SEPARATE_SAME_PAYMENTS_ONLY, INVALID_DECISION_BODY, ONE_RECORD_SEPARATE, STALE_APP_REFRESH, fillIncomeCopy } from '../lib/tax-rules/income-reconciliation-copy';
+import * as incomeCopy from '../lib/tax-rules/income-reconciliation-copy';
 
 type Body = Record<string, unknown>;
 function request(method: string, { body, query = '', headers = {} }: { body?: unknown; query?: string; headers?: Record<string, string> } = {}) {
@@ -66,6 +66,7 @@ beforeEach(() => {
   delete process.env.legacyNecReopen;
   delete process.env.legacyDecisionReconfirm;
   delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
+  delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
   seed('gross_receipts', 'r1', { userId: 'owner-a', taxYear: 2026, amount: 12000, source: 'Synthetic platform', date: '2026-01-31', type: 'freelance' });
   seed('gross_receipts', 'r-other-owner', { userId: 'owner-b', taxYear: 2026, amount: 5000, source: 'Other owner', date: '2026-02-01', type: 'freelance' });
   seed('gross_receipts', 'r-prior-year', { userId: 'owner-a', taxYear: 2025, amount: 7000, source: 'Prior year', date: '2025-06-01', type: 'freelance' });
@@ -263,15 +264,25 @@ describe('updating and removing decisions', () => {
 });
 
 describe('explicit choice and save rules', () => {
-  it('uses the existing invalid-body sentence when an explicit choice is missing and reconfirm is off', async () => {
-    const created = await json(await POST(request('POST', { body: { taxYear: 2026, decision: 'same_payments', sources: [ref('form_1099', 'k1', 12000), ref('gross_receipt', 'r1', 12000)] } })));
-    expect(created.status).toBe(400);
-    expect(created.body.error).toBe('Provide the tax year, a decision type (same_payments, separate_income or k_includes_fees) and the records it covers with their current amounts.');
-    expect(created.body.error).not.toBe(STALE_APP_REFRESH);
-    expect(state.writes).toEqual([]);
+  it('uses the base invalid-body sentence while the guided switch is off and saves a choice that omits explicitChoice', async () => {
+    for (const value of [undefined, '0', 'true'] as const) {
+      if (value === undefined) delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
+      else process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = value;
+      const created = await json(await POST(request('POST', { body: { taxYear: 2026, decision: 'merge', sources: [ref('form_1099', 'k1', 12000), ref('gross_receipt', 'r1', 12000)] } })));
+      expect(created.status).toBe(400);
+      expect(created.body.error).toBe(INVALID_DECISION_BODY);
+      expect(created.body.error).not.toBe(STALE_APP_REFRESH);
+      expect(String(created.body.error)).not.toContain(DECISION_LABEL_CORRECTED);
+      expect(state.writes).toEqual([]);
+    }
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
+    const saved = await json(await POST(request('POST', { body: { taxYear: 2026, decision: 'same_payments', sources: [ref('form_1099', 'k1', 12000), ref('gross_receipt', 'r1', 12000)] } })));
+    expect(saved.status).toBe(201);
+    expect(saved.body.countedAmount).toBe(12000);
   });
 
   it('rejects a valid same-payments body that omits explicitChoice before any other validation', async () => {
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
     process.env.legacyDecisionReconfirm = '1';
     const created = await json(await POST(request('POST', { body: { taxYear: 2026, decision: 'same_payments', sources: [ref('form_1099', 'k1', 12000), ref('gross_receipt', 'r1', 12000)] } })));
     expect(created).toMatchObject({ status: 400, body: { error: STALE_APP_REFRESH } });
@@ -281,6 +292,7 @@ describe('explicit choice and save rules', () => {
   });
 
   it('refuses to count a 1099-K and a 1099-NEC as $12,000 without an explicit choice', async () => {
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
     process.env.legacyDecisionReconfirm = '1';
     state.docs.delete('gross_receipts/r1');
     seed('income_1099', 'n1', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Synthetic client' });
@@ -294,6 +306,7 @@ describe('explicit choice and save rules', () => {
 
   it('rejects same payments for two 1099-NEC forms and counts a separate-income save as $24,000', async () => {
     process.env.legacyNecReopen = '1';
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
     state.docs.delete('gross_receipts/r1');
     state.docs.delete('income_1099/k1');
     seed('income_1099', 'n1', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Client A' });
@@ -327,6 +340,7 @@ describe('explicit choice and save rules', () => {
   });
 
   it('refuses a two-form same-payments save until the form total is confirmed', async () => {
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
     process.env.legacyDecisionReconfirm = '1';
     state.docs.delete('gross_receipts/r1');
     seed('income_1099', 'n1', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Client A' });
@@ -351,6 +365,7 @@ describe('explicit choice and save rules', () => {
 
   it('rejects same payments for two 1099-NECs even when the form total is confirmed', async () => {
     process.env.legacyNecReopen = '1';
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
     state.docs.delete('gross_receipts/r1');
     state.docs.delete('income_1099/k1');
     for (const payer of ['Client B', 'Client A']) {
@@ -370,6 +385,7 @@ describe('explicit choice and save rules', () => {
 
   it('deletes only the decision when a corrected form is removed', async () => {
     process.env.legacyNecReopen = '1';
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
     state.docs.delete('gross_receipts/r1');
     state.docs.delete('income_1099/k1');
     seed('income_1099', 'n1', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Client A' });
@@ -393,6 +409,7 @@ describe('explicit choice and save rules', () => {
   });
 
   it('rejects a PATCH that omits explicitChoice before any write', async () => {
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
     process.env.legacyDecisionReconfirm = '1';
     seed('income_reconciliations', 'd1', {
       userId: 'owner-a', taxYear: 2026, decision: 'same_payments', countedAmount: 12000,
@@ -423,6 +440,7 @@ describe('explicit choice and save rules', () => {
   });
 
   it('rejects a PATCH of two forms until the form total is confirmed and writes nothing', async () => {
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
     process.env.legacyDecisionReconfirm = '1';
     state.docs.delete('gross_receipts/r1');
     seed('income_1099', 'n1', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Client A' });
@@ -504,6 +522,7 @@ describe('explicit choice and save rules', () => {
     expect(String(hidden.body.error)).not.toContain('partial_overlap');
     expect(String(hidden.body.error)).not.toContain('k_not_business_income');
     expect(state.writes).toEqual([]);
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
     process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME = '1';
     process.env.legacyNecReopen = '1';
     try {
@@ -531,7 +550,7 @@ describe('separate income does not count a form together with a deposit or direc
       sources: [ref('form_1099', 'k1', 8000), ref('transaction', 't1', 8000)],
     } })));
     expect(rejected.status).toBe(400);
-    expect(rejected.body.error).toBe(UNLINKED_SOURCES_MESSAGE);
+    expect(rejected.body.error).toBe(ONE_RECORD_SEPARATE);
     expect(state.writes).toEqual([]);
     const { body } = await json(await GET(request('GET', { query: '?year=2026' })));
     expect(body.grossReceipts).not.toBe(16000);
@@ -547,7 +566,21 @@ describe('separate income does not count a form together with a deposit or direc
       sources: [ref('form_1099', 'k1', 8000), ref('transaction', 't1', 3000)],
     } })));
     expect(saved.status).toBe(400);
-    expect(saved.body.error).toBe(UNLINKED_SOURCES_MESSAGE);
+    expect(saved.body.error).toBe(ONE_RECORD_SEPARATE);
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
+    const guidedOffK = await json(await POST(request('POST', { body: {
+      taxYear: 2026, decision: 'separate_income', explicitChoice: true,
+      sources: [ref('form_1099', 'k1', 8000), ref('transaction', 't1', 3000)],
+    } })));
+    expect(guidedOffK.body.error).toBe(ERR_SEPARATE_SAME_PAYMENTS_ONLY);
+    expect(String(guidedOffK.body.error)).not.toContain('1099-NEC');
+    process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME = '1';
+    const guidedOnK = await json(await POST(request('POST', { body: {
+      taxYear: 2026, decision: 'separate_income', explicitChoice: true,
+      sources: [ref('form_1099', 'k1', 8000), ref('transaction', 't1', 3000)],
+    } })));
+    expect(guidedOnK.body.error).toBe(ERR_SEPARATE_FORM_WITH_MONEY);
+    expect(state.writes).toEqual([]);
     expect(saved.body.countedAmount).not.toBe(11000);
     expect(state.writes).toEqual([]);
   });
@@ -643,5 +676,81 @@ describe('partial overlap between a 1099-K and a 1099-NEC', () => {
     expect(overSmaller.status).toBe(400);
     expect(overSmaller.body.error).toBe(fillIncomeCopy(ERR_PARTIAL_OVERLAP, { smaller: '$10.01' }));
     expect(state.writes).toEqual([]);
+  });
+});
+
+describe('guided copy stays off the reconciliation route', () => {
+  const visibleWithSwitchesOff = new Set(['RECONCILE_BUTTON', 'ERR_SAME_NEEDS_K', 'SAME_DISABLED_NEC', 'INVALID_DECISION_BODY', 'ONE_RECORD_SEPARATE']);
+  const gated = Object.entries(incomeCopy).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && !visibleWithSwitchesOff.has(entry[0]));
+
+  function assertNoGated(payload: unknown, label: string) {
+    const strip = (value: unknown): unknown => {
+      if (typeof value === 'string') return value.split(ERR_SAME_NEEDS_K).join('').split(incomeCopy.SAME_DISABLED_NEC).join('');
+      if (Array.isArray(value)) return value.map(strip);
+      if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, strip(item)]));
+      return value;
+    };
+    const raw = JSON.stringify(strip(payload));
+    for (const [name, value] of gated) {
+      if (value.includes('{')) {
+        const pattern = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{[A-Za-z]+\\\}/g, '[\\s\\S]{0,80}');
+        expect(raw, `${label} ${name}`).not.toMatch(new RegExp(pattern));
+      } else if (value.length <= 8) {
+        const error = payload && typeof payload === 'object' && 'error' in payload ? (payload as { error?: unknown }).error : undefined;
+        expect(error, `${label} ${name}`).not.toBe(value);
+      } else {
+        expect(raw, `${label} ${name}`).not.toContain(value);
+      }
+    }
+  }
+
+  it('returns none of the gated strings while the guided switch is unset, true, or 0', async () => {
+    for (const value of [undefined, 'true', '0'] as const) {
+      if (value === undefined) delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
+      else process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = value;
+      delete process.env.legacyNecReopen;
+      delete process.env.legacyDecisionReconfirm;
+      delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
+      state.docs.clear();
+      state.writes.length = 0;
+      state.transactions = {};
+      seed('income_1099', 'k1', { userId: 'owner-a', taxYear: 2026, amount: 8000, formType: '1099-K', payerName: 'Synthetic platform' });
+      seed('income_1099', 'n1', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Client A' });
+      seed('income_1099', 'n2', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Client B' });
+      state.transactions['owner-a'] = [deposit('t1', 3000)];
+
+      const invalid = await json(await POST(request('POST', { body: { taxYear: 2026, decision: 'merge', sources: [ref('form_1099', 'k1', 8000)] } })));
+      expect(invalid.body.error, String(value)).toBe(INVALID_DECISION_BODY);
+      assertNoGated(invalid.body, `invalid ${String(value)}`);
+
+      const twoNec = await json(await POST(request('POST', { body: samePayments([ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)]) })));
+      expect(twoNec.body.error, String(value)).toBe(ERR_SAME_NEEDS_K);
+      assertNoGated(twoNec.body, `two nec ${String(value)}`);
+
+      const separate = await json(await POST(request('POST', { body: {
+        taxYear: 2026, decision: 'separate_income', sources: [ref('form_1099', 'k1', 8000), ref('transaction', 't1', 3000)],
+      } })));
+      expect(separate.body.error, String(value)).toBe(ONE_RECORD_SEPARATE);
+      assertNoGated(separate.body, `separate ${String(value)}`);
+
+      const corrected = await json(await POST(request('POST', { body: {
+        taxYear: 2026, decision: 'corrected_form_replaces', correctedFormId: 'n2',
+        sources: [ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)],
+      } })));
+      expect(corrected.body.error, String(value)).toBe(INVALID_DECISION_BODY);
+      assertNoGated(corrected.body, `corrected ${String(value)}`);
+
+      const partial = await json(await POST(request('POST', { body: {
+        taxYear: 2026, decision: 'partial_overlap', overlapAmount: 1000,
+        sources: [ref('form_1099', 'k1', 8000), ref('form_1099', 'n1', 12000)],
+      } })));
+      expect(partial.body.error, String(value)).toBe(INVALID_DECISION_BODY);
+      assertNoGated(partial.body, `partial ${String(value)}`);
+
+      const loaded = await json(await GET(request('GET', { query: '?year=2026' })));
+      assertNoGated(loaded.body, `get ${String(value)}`);
+      expect(state.writes).toEqual([]);
+    }
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
   });
 });

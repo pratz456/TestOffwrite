@@ -6,7 +6,7 @@ import { compute1040 } from './compute-1040';
 import { computeScheduleCProfit } from './schedule-c-profit';
 import { reconcileBusinessIncome, type IncomeRecord } from './business-income';
 import { LEGACY_NEC_WARNING } from './income-reconciliation-copy';
-import { legacyDecisionReconfirm } from './reconciliation-feature';
+import { legacyNecReopen } from './reconciliation-feature';
 import { summarizeW2Income } from './w2-income';
 import { normalizeFilingStatus } from './filing-status';
 import { assertWageOwnershipScope, TaxCalculationScopeReviewRequiredError } from './calculation-scope';
@@ -155,7 +155,7 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     charitableDonations: amount(ded.charitableCashDonations) + amount(ded.charitableNonCashDonations), depreciationDeduction, deMinimisExpense, homeOfficeDeduction,
     stateCode: location.state, taxableSocialSecurityBenefits: socialSecurity,
   }, priorYearTotalTax > 0 ? priorYearTotalTax : undefined);
-  const reconciliationNotes = legacyDecisionReconfirm()
+  const reconciliationNotes = legacyNecReopen()
     ? reconciliation.warnings
     : reconciliation.warnings.filter(warning => warning !== LEGACY_NEC_WARNING);
   result.calculationWarnings.push(...reconciliationNotes, ...capitalGains.warnings, ...scheduleC.warnings);

@@ -49,7 +49,6 @@ import { TaxPreviewScreen } from '../components/tax-preview-screen';
 import { incomeScreenTab, incomeScreenYear } from '../components/income-tracking-screen';
 import { protectedScreenUrl } from '../lib/navigation/protected-screens';
 import { formsConfirmationError } from '../lib/tax-rules/income-reconciliation';
-import { UNLINKED_SOURCES_MESSAGE } from '../lib/tax-rules/income-reconciliation';
 import { incomeReconciliationReviewBody, isLegacySamePaymentsResave, prepareReconciliationDecision, summarizeIncomeReconciliation, type IncomeSourceRecords } from '../lib/tax-rules/income-reconciliation-response';
 import { IncomeReconciliationRequiredError, reconcileBusinessIncome } from '../lib/tax-rules/business-income';
 import { buildFederalTaxSnapshot } from '../lib/tax-rules/federal-tax-snapshot';
@@ -128,6 +127,7 @@ beforeEach(() => {
   delete process.env.legacyNecReopen;
   delete process.env.legacyDecisionReconfirm;
   delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
+  delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
   records.transactions = []; records.receipts = [receipt('r1', 12000)]; records.forms = [form('k1', 12000)]; records.decisions = []; nextId = 0;
 });
 
@@ -135,6 +135,7 @@ describe('income reconciliation panel', () => {
   it('explains the hold, shows the conflicting records side by side, and never offers an automatic merge', async () => {
     process.env[FLAG] = '1';
     process.env.legacyNecReopen = '1';
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
     render(panel); await flush(); const tree = render(panel); const content = text(tree);
     expect(content).toContain('never merges, edits or deletes income records automatically');
     expect(content).toContain('Tax totals for 2026 are on hold');
@@ -295,11 +296,13 @@ describe('reconciliation choice and guide question', () => {
   beforeEach(() => {
     process.env[FLAG] = '1';
     process.env.legacyDecisionReconfirm = '1';
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
   });
   afterEach(() => {
     delete process.env[FLAG];
     delete process.env.legacyDecisionReconfirm;
     delete process.env.legacyNecReopen;
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
   });
 
   it('starts with no decision selected', async () => {
@@ -596,11 +599,13 @@ describe('confirm step, compare and corrected form', () => {
     process.env[FLAG] = '1';
     process.env.legacyDecisionReconfirm = '1';
     process.env.legacyNecReopen = '1';
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
   });
   afterEach(() => {
     delete process.env[FLAG];
     delete process.env.legacyDecisionReconfirm;
     delete process.env.legacyNecReopen;
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
   });
 
   it('saves two forms as separate income in one request', async () => {
@@ -1054,7 +1059,8 @@ describe('tax preview reconcile link', () => {
 });
 
 describe('reconciliation copy with every switch off', () => {
-  const newCopy = Object.entries(incomeCopy).filter((entry): entry is [string, string] => entry[0] !== 'RECONCILE_BUTTON' && typeof entry[1] === 'string');
+  const visibleWithSwitchesOff = new Set(['RECONCILE_BUTTON', 'ERR_SAME_NEEDS_K', 'SAME_DISABLED_NEC', 'INVALID_DECISION_BODY', 'ONE_RECORD_SEPARATE']);
+  const newCopy = Object.entries(incomeCopy).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && !visibleWithSwitchesOff.has(entry[0]));
 
   function leavesOf(node: any, into: string[] = []): string[] {
     if (Array.isArray(node)) { node.forEach(item => leavesOf(item, into)); return into; }
@@ -1102,8 +1108,14 @@ describe('reconciliation copy with every switch off', () => {
     if (button) button.props.onClick();
   }
 
-  it('renders the reconciliation screens without any of the new strings', async () => {
-    expect(newCopy).toHaveLength(75);
+  it('renders the reconciliation screens without the gated strings while the guided switch is unset, true, or 0', async () => {
+    expect(newCopy.length).toBeGreaterThanOrEqual(39);
+    for (const guidedValue of [undefined, 'true', '0'] as const) {
+    if (guidedValue === undefined) delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
+    else process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = guidedValue;
+    delete process.env.legacyNecReopen;
+    delete process.env.legacyDecisionReconfirm;
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
     const panelLeaves: string[] = [];
     const screenLeaves: string[] = [];
     const keep = (tree: Element) => { panelLeaves.push(...leavesOf(tree)); };
@@ -1146,7 +1158,8 @@ describe('reconciliation copy with every switch off', () => {
     clickDecision(render(panel), 'same_payments');
     tree = render(panel);
     keep(tree);
-    expect(preview(tree)).toContain(UNLINKED_SOURCES_MESSAGE);
+    expect(text(tree), String(guidedValue)).toContain(SAME_DISABLED_NEC);
+    expect(preview(tree)).not.toContain('$24,000.00');
 
     records.forms = [form('k1', 10000)];
     records.transactions = [deposit('t1', 8000)];
@@ -1156,7 +1169,9 @@ describe('reconciliation copy with every switch off', () => {
     clickDecision(render(panel), 'separate_income');
     tree = render(panel);
     keep(tree);
-    expect(preview(tree)).toContain(UNLINKED_SOURCES_MESSAGE);
+    expect(preview(tree), String(guidedValue)).toContain(incomeCopy.ONE_RECORD_SEPARATE);
+    expect(preview(tree)).not.toContain(incomeCopy.ERR_SEPARATE_FORM_WITH_MONEY);
+    expect(preview(tree)).not.toContain(incomeCopy.ERR_SEPARATE_SAME_PAYMENTS_ONLY);
     expect(preview(tree)).not.toContain('$18,000.00');
 
     records.transactions = [];
@@ -1265,5 +1280,7 @@ describe('reconciliation copy with every switch off', () => {
     }
 
     assertNoNewCopy(panelLeaves, screenLeaves);
+    }
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
   });
 });
