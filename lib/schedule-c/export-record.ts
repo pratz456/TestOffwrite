@@ -101,14 +101,28 @@ export function parseExportSnapshot(data: Record<string, unknown> | undefined): 
   return { rulesVersion: data.rulesVersion, exportedAt: data.exportedAt, lineTotals, totalDeductible: data.totalDeductible, charges };
 }
 
+/** Milliseconds for a server Date or a Firestore Timestamp. Missing values stay unknown. */
+function markerCreatedAtMillis(value: unknown): number | null {
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (value && typeof value === 'object' && typeof (value as { toMillis?: unknown }).toMillis === 'function') {
+    const millis = (value as { toMillis: () => number }).toMillis();
+    return typeof millis === 'number' && Number.isFinite(millis) ? millis : null;
+  }
+  return null;
+}
+
 /**
  * Writes the pending marker for this export id before the file is served.
- * A marker write error is logged and does not block the download.
+ * createdAt is the server clock at that write. A marker write error is logged
+ * and does not block the download.
  */
 export async function beginPendingExport(uid: string, taxYear: number): Promise<string> {
   const exportId = randomUUID();
   try {
-    await adminDb.collection(EXPORT_PENDING).doc(exportId).set({ uid, taxYear, exportId });
+    await adminDb.collection(EXPORT_PENDING).doc(exportId).set({
+      uid, taxYear, exportId, createdAt: new Date(),
+    });
   } catch (error) {
     console.error('Pending export marker was not written', exportId, error);
   }
@@ -116,22 +130,42 @@ export async function beginPendingExport(uid: string, taxYear: number): Promise<
 }
 
 /**
- * Assigns the next exportSequence for this user and year, writes the record,
- * and clears that export's pending marker. One transaction, so a late commit
- * still clears the marker, and overlapping exports cannot share a sequence.
+ * Assigns the next exportSequence for this user and year and writes the record.
+ * The same transaction deletes this export's pending marker and every marker
+ * for that user and year whose createdAt is earlier than or equal to this
+ * export's marker. A marker created later stays, so a newer export still in
+ * flight keeps its marker. The counter read and the pending query both finish
+ * before any write. A late commit still clears the markers it owns, and
+ * overlapping exports cannot share a sequence.
  */
 async function writeExportRecord(record: Omit<ExportRecordDocument, 'exportSequence'>, exportId: string): Promise<void> {
   const counterRef = adminDb.collection(EXPORT_SEQUENCES).doc(sequenceDocId(record.uid, record.taxYear));
   const recordRef = adminDb.collection(EXPORT_RECORDS).doc();
   const pendingRef = adminDb.collection(EXPORT_PENDING).doc(exportId);
+  const pendingQuery = adminDb.collection(EXPORT_PENDING).where('uid', '==', record.uid).where('taxYear', '==', record.taxYear);
   await adminDb.runTransaction(async tx => {
     const counter = await tx.get(counterRef);
-    await tx.get(pendingRef);
+    const pending = await tx.get(pendingQuery);
     const current = counter.exists ? assignedSequence(counter.data()?.next) ?? 0 : 0;
     const exportSequence = current + 1;
+    const own = pending.docs.find(doc => doc.id === exportId);
+    const ownCreatedAt = markerCreatedAtMillis(own?.data()?.createdAt);
+    const clearing = new Set<string>();
+    for (const doc of pending.docs) {
+      if (doc.id === exportId) {
+        clearing.add(doc.ref.path);
+        continue;
+      }
+      if (ownCreatedAt === null) continue;
+      const createdAt = markerCreatedAtMillis(doc.data()?.createdAt);
+      if (createdAt !== null && createdAt <= ownCreatedAt) clearing.add(doc.ref.path);
+    }
     tx.set(counterRef, { uid: record.uid, taxYear: record.taxYear, next: exportSequence });
     tx.set(recordRef, plainDocument({ ...record, exportSequence }));
-    tx.delete(pendingRef);
+    for (const doc of pending.docs) {
+      if (clearing.has(doc.ref.path)) tx.delete(doc.ref);
+    }
+    if (!clearing.has(pendingRef.path)) tx.delete(pendingRef);
   });
 }
 
@@ -205,7 +239,7 @@ function preferExport(candidate: RankedExport, current: RankedExport): boolean {
   return candidate.id > current.id;
 }
 
-export async function readLatestExportRecord(uid: string, year: number): Promise<ScheduleCExportSnapshot | null> {
+async function rankLatestExport(uid: string, year: number): Promise<RankedExport | null> {
   const snap = await adminDb.collection(EXPORT_RECORDS).where('uid', '==', uid).where('taxYear', '==', year).get();
   let latest: RankedExport | null = null;
   for (const doc of snap.docs) {
@@ -221,17 +255,32 @@ export async function readLatestExportRecord(uid: string, year: number): Promise
     };
     if (!latest || preferExport(candidate, latest)) latest = candidate;
   }
-  return latest?.snapshot ?? null;
+  return latest;
+}
+
+export async function readLatestExportRecord(uid: string, year: number): Promise<ScheduleCExportSnapshot | null> {
+  return (await rankLatestExport(uid, year))?.snapshot ?? null;
 }
 
 /**
- * A pending marker means the latest export for this year was not recorded.
- * Callers must not compare that year with an older export while the flag is set.
+ * A pending marker blocks a held year only when it is newer than the latest
+ * confirmed export for that user and year. A marker whose createdAt is older
+ * than that record's exportedAt is ignored, and a marker with no createdAt
+ * counts as older than any record written after it. While a newer marker
+ * remains, callers must not compare the year with an older export.
  */
 export async function readHeldYearExport(uid: string, year: number): Promise<{ prior: ScheduleCExportSnapshot | null; latestExportUnrecorded: boolean }> {
-  const pending = await adminDb.collection(EXPORT_PENDING).where('uid', '==', uid).where('taxYear', '==', year).limit(1).get();
-  if (!pending.empty) return { prior: null, latestExportUnrecorded: true };
-  return { prior: await readLatestExportRecord(uid, year), latestExportUnrecorded: false };
+  const pending = await adminDb.collection(EXPORT_PENDING).where('uid', '==', uid).where('taxYear', '==', year).get();
+  const latest = await rankLatestExport(uid, year);
+  const latestExportedAt = latest ? Date.parse(latest.exportedAt) : Number.NaN;
+  const blocking = pending.docs.some(doc => {
+    if (!latest || !Number.isFinite(latestExportedAt)) return true;
+    const createdAt = markerCreatedAtMillis(doc.data()?.createdAt);
+    if (createdAt === null) return false;
+    return createdAt > latestExportedAt;
+  });
+  if (blocking) return { prior: null, latestExportUnrecorded: true };
+  return { prior: latest?.snapshot ?? null, latestExportUnrecorded: false };
 }
 
 export async function loadFiledYearState(uid: string, year: number): Promise<{ prior: ScheduleCExportSnapshot | null; confirmedRulesVersion: string | null; latestExportUnrecorded: boolean }> {

@@ -21,13 +21,14 @@ import {
   setScheduleCClockForTests,
   shouldHoldYear,
 } from '@/lib/schedule-c/filed-year';
-import { readLatestExportRecord, safeWriteExportRecord } from '@/lib/schedule-c/export-record';
+import { readHeldYearExport, readLatestExportRecord, safeWriteExportRecord } from '@/lib/schedule-c/export-record';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
 const harness = vi.hoisted(() => ({
   failWrites: false,
   failPending: false,
   recordWriteDelayMs: 0,
+  beforeRecordWrite: null as null | (() => Promise<void>),
   uid: 'owner',
   authed: true,
   transactions: [] as ScheduleCTransactionLike[],
@@ -83,12 +84,15 @@ vi.mock('@/lib/firebase/admin', async () => {
       doc: (path: string) => db.doc(path),
       runTransaction(work: (tx: unknown) => Promise<unknown>) {
         if (harness.failWrites) return Promise.reject(new Error('export record store unavailable'));
+        const run = () => harness.beforeRecordWrite
+          ? harness.beforeRecordWrite().then(() => db.runTransaction(work))
+          : db.runTransaction(work);
         if (harness.recordWriteDelayMs > 0) {
           return new Promise((resolve, reject) => {
-            setTimeout(() => { db.runTransaction(work).then(resolve, reject); }, harness.recordWriteDelayMs);
+            setTimeout(() => { run().then(resolve, reject); }, harness.recordWriteDelayMs);
           });
         }
-        return db.runTransaction(work);
+        return run();
       },
     },
   };
@@ -191,6 +195,8 @@ beforeEach(async () => {
   harness.failWrites = false;
   harness.failPending = false;
   harness.recordWriteDelayMs = 0;
+  harness.beforeRecordWrite = null;
+  vi.useRealTimers();
   harness.authed = true;
   harness.uid = 'owner';
   harness.transactions = [];
@@ -711,5 +717,96 @@ describe('filed year guard', () => {
     await saveExportLog('tie-b', 'schedule-c-csv', 100, 'later', stamped);
     expect((await readLatestExportRecord('owner', 2025))?.totalDeductible).toBe(100);
     expect((await readLatestExportRecord('owner', 2025))?.charges).toEqual([{ id: 'later', line: '8', amount: 100 }]);
+  });
+
+  it('clears the earlier failed marker when the next export commits and drops the unrecorded notice', async () => {
+    harness.transactions = [confirmed({ id: 'ad1', amount: 100, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    harness.failWrites = true;
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failed = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+    expect(failed.status).toBe(200);
+    expect(pendingMarkers()).toHaveLength(1);
+    expect(pendingMarkers()[0].createdAt).toBeInstanceOf(Date);
+    const blocked = await readFiledYear(new NextRequest('http://localhost/api/tax/schedule-c/filed-year?year=2025'));
+    expect(await blocked.json()).toEqual({ prior: null, latestExportUnrecorded: true, confirmedRulesVersion: null });
+    expect(await readHeldYearExport('owner', 2025)).toEqual({ prior: null, latestExportUnrecorded: true });
+
+    harness.failWrites = false;
+    harness.transactions = [confirmed({ id: 'ad1', amount: 120, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    const committed = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+    expect(committed.status).toBe(200);
+    expect(pendingMarkers()).toHaveLength(0);
+    const recorded = await readHeldYearExport('owner', 2025);
+    expect(recorded.latestExportUnrecorded).toBe(false);
+    expect(recorded.prior).toEqual({
+      rulesVersion: 'v0',
+      lineTotals: [{ line: '8', amount: 120 }],
+      totalDeductible: 120,
+      charges: [{ id: 'ad1', line: '8', amount: 120 }],
+    });
+  });
+
+  it('keeps a newer in flight marker when the older export commits first', async () => {
+    const releases: Array<() => void> = [];
+    harness.beforeRecordWrite = () => new Promise(resolve => { releases.push(resolve); });
+    const ready = async (pending: number) => {
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        if (pendingMarkers().length === pending && releases.length === pending) return;
+        await new Promise(resolve => setTimeout(resolve, 5));
+      }
+      throw new Error(`export did not reach the record write with ${pending} markers`);
+    };
+    harness.transactions = [confirmed({ id: 'ad1', amount: 40, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    const older = scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+    await ready(1);
+    const olderMarker = pendingMarkers()[0];
+    await new Promise(resolve => setTimeout(resolve, 20));
+    harness.transactions = [confirmed({ id: 'ad1', amount: 90, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    const newer = scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+    await ready(2);
+    const newerMarker = pendingMarkers().find(marker => marker.exportId !== olderMarker.exportId);
+    expect(newerMarker?.createdAt).toBeInstanceOf(Date);
+    expect((olderMarker.createdAt as Date).getTime()).toBeLessThan((newerMarker?.createdAt as Date).getTime());
+
+    releases[0]();
+    expect((await older).status).toBe(200);
+    expect(pendingMarkers().map(marker => marker.exportId)).toEqual([newerMarker?.exportId]);
+    expect(savedExports().map(row => row.totalDeductible)).toEqual([40]);
+    expect(await readHeldYearExport('owner', 2025)).toEqual({ prior: null, latestExportUnrecorded: true });
+    const stillBlocked = await readFiledYear(new NextRequest('http://localhost/api/tax/schedule-c/filed-year?year=2025'));
+    expect(await stillBlocked.json()).toEqual({ prior: null, latestExportUnrecorded: true, confirmedRulesVersion: null });
+
+    releases[1]();
+    expect((await newer).status).toBe(200);
+    expect(pendingMarkers()).toHaveLength(0);
+    const recorded = await readHeldYearExport('owner', 2025);
+    expect(recorded.latestExportUnrecorded).toBe(false);
+    expect(recorded.prior).toMatchObject({ totalDeductible: 90, charges: [{ id: 'ad1', line: '8', amount: 90 }] });
+  });
+
+  it('does not let a stale or undated pending marker block a later export record', async () => {
+    await saveExportLog('latest', 'schedule-c-pdf', 80, 'ad1', CLOCK.toISOString(), 3);
+    const { adminDb } = await import('@/lib/firebase/admin');
+    await adminDb.collection('user_export_pending').doc('older').set({
+      uid: 'owner', taxYear: 2025, exportId: 'older', createdAt: new Date(CLOCK.getTime() - 1),
+    });
+    await adminDb.collection('user_export_pending').doc('same-time').set({
+      uid: 'owner', taxYear: 2025, exportId: 'same-time', createdAt: new Date(CLOCK.getTime()),
+    });
+    await adminDb.collection('user_export_pending').doc('legacy').set({
+      uid: 'owner', taxYear: 2025, exportId: 'legacy',
+    });
+    const open = await readHeldYearExport('owner', 2025);
+    expect(open.latestExportUnrecorded).toBe(false);
+    expect(open.prior).toMatchObject({ totalDeductible: 80 });
+    expect(pendingMarkers()).toHaveLength(3);
+    const filed = await readFiledYear(new NextRequest('http://localhost/api/tax/schedule-c/filed-year?year=2025'));
+    expect((await filed.json()).latestExportUnrecorded).toBe(false);
+
+    await adminDb.collection('user_export_pending').doc('newer').set({
+      uid: 'owner', taxYear: 2025, exportId: 'newer', createdAt: new Date(CLOCK.getTime() + 1),
+    });
+    expect(await readHeldYearExport('owner', 2025)).toEqual({ prior: null, latestExportUnrecorded: true });
+    expect(pendingMarkers()).toHaveLength(4);
   });
 });
