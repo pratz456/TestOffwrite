@@ -165,7 +165,6 @@ function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction
     analysisCompletedAt: data.analysisCompletedAt,
     created_at: data.created_at,
     updated_at: data.updated_at,
-    ai: data.ai || null,
     ...reviewHydrationFields(data),
   };
 }
@@ -730,9 +729,8 @@ export async function getPaginatedTransactionsServer(
         created_at: data.created_at,
         updated_at: data.updated_at,
 
-        // Include AI analysis data
-        ai: data.ai || null,
-    ...reviewHydrationFields(data),
+        // Include AI analysis data. Hydration supplies ai, with a stored other-expenses line read as 27b.
+        ...reviewHydrationFields(data),
       };
 
       // Apply search filter if specified
