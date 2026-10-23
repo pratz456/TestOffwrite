@@ -1,5 +1,5 @@
 /**
- * Owner-facing reconciliation copy. Every string is PENDING PRATHAM OK
+ * Owner-facing reconciliation copy. Every string is PENDING APPROVAL
  * except RECONCILE_BUTTON, which already appears on the tax preview.
  * No em dashes. {tokens} are filled by fillIncomeCopy.
  */
@@ -60,13 +60,13 @@ export const COMPARE_ROW_AMOUNT = 'Amount';
 export const COMPARE_DIFF = 'These forms differ by {diff}.';
 export const COMPARE_SAME_AMOUNT = 'These forms show the same amount. That alone doesn\'t mean they report the same payments.';
 export const ERR_SAME_NEEDS_K = 'Two 1099-NECs can\'t report the same payments. Mark each one as separate income, or record a corrected form.';
-/** Shown on the saved decision while r10_5LegacyNecReopen is off. PENDING PRATHAM OK. */
+/** Shown on the saved decision while r10_5LegacyNecReopen is off. PENDING APPROVAL. */
 export const LEGACY_NEC_WARNING = 'Two 1099-NECs are separate income. Review this match.';
-/** Shown when r10_5LegacyNecReopen reopens a current-year NEC-only same-payments decision. PENDING PRATHAM OK. */
+/** Shown when r10_5LegacyNecReopen reopens a current-year NEC-only same-payments decision. PENDING APPROVAL. */
 export const LEGACY_NEC_REOPEN_REASON = 'Two 1099-NECs are separate income, so both count.';
-/** One-time notice beside a reopened current-year decision. PENDING PRATHAM OK. */
+/** One-time notice beside a reopened current-year decision. PENDING APPROVAL. */
 export const LEGACY_NEC_CHANGE_NOTICE = 'We used to count these two 1099-NECs once. Two 1099-NECs are separate income, so both now count, and your total and quarterly estimate may go up.';
-/** Shown when r10_5LegacyNecReopen flags a prior-year NEC-only same-payments decision without changing its total. PENDING PRATHAM OK. */
+/** Shown when r10_5LegacyNecReopen flags a prior-year NEC-only same-payments decision without changing its total. PENDING APPROVAL. */
 export const LEGACY_NEC_PRIOR_YEAR_NOTE = 'If this was on a return you already filed, the IRS explains how to correct it at irs.gov/form1040x.';
 export const SAME_DISABLED_NEC = 'Not available for 1099-NECs only. Each 1099-NEC reports different payments.';
 export const DECISION_LABEL_CORRECTED = 'A corrected 1099-NEC replaces the original';
@@ -79,12 +79,12 @@ export const ERR_CORRECTED_SAME_PAYER = 'A corrected form comes from the same pa
 export const ERR_CORRECTED_PICK = 'Choose which form is the corrected one.';
 export const ERR_CORRECTED_SUM = 'The {kind} you selected totals {selected}, but the corrected form reports {corrected}. They must match to the cent.';
 
-/** Mockup live sum. PENDING PRATHAM OK. */
+/** Mockup live sum. PENDING APPROVAL. */
 export const LIVE_SUM_LINE = '1099-K gross {gross}, minus refunds or credits {refunds}, minus personal {personal}, minus fees {fee}, equals the business part {business}.';
 export const LIVE_SUM_MATCH = 'The selected records match the business part.';
 export const LIVE_SUM_DIFFER = 'The selected records do not match the business part yet.';
 
-/** Schedule C line 2 label on display-only screens. PENDING PRATHAM OK. */
+/** Schedule C line 2 label on display-only screens. PENDING APPROVAL. */
 export const LINE_2_LABEL = 'Returns and allowances';
 export const LINE_2_NOTE = 'Schedule C line 2';
 export const LINE_1_COUNTED = 'Counted {amount} on line 1';

@@ -18,7 +18,7 @@ export function kNotBusinessIncomeEnabled(): boolean {
  * On, current year: that decision reopens as a conflict, both forms count, and export can 422.
  * On, 2025 or earlier: the saved total stays and a filing note is shown.
  * New saves of that decision are rejected either way.
- * Read at call time. It stays off until Pratham says otherwise.
+ * Read at call time. Off by default.
  */
 export function r10_5LegacyNecReopen(): boolean {
   return process.env.r10_5LegacyNecReopen === '1';
