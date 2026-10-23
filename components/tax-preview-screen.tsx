@@ -11,7 +11,7 @@ import { SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 import type { BusinessTaxNotice, StateTaxComponents, StateTaxLine } from "@/lib/tax-rules/state";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import { incomeReconciliationPath } from "@/lib/tax-rules/income-reconciliation-response";
-import { NEC_SAME_PAYMENTS_REVIEW } from "@/lib/tax-rules/income-reconciliation-copy";
+import { LEGACY_NEC_WARNING } from "@/lib/tax-rules/income-reconciliation-copy";
 
 interface Props {
   user: { id: string; email?: string };
@@ -200,10 +200,10 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
           </div>
         ) : f1040 ? (
           <>
-          {calculationWarnings.includes(NEC_SAME_PAYMENTS_REVIEW) && (
+          {calculationWarnings.includes(LEGACY_NEC_WARNING) && (
             <div role="status" className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-100">
               <ul aria-label="Records that need a reconciliation decision" className="space-y-1 text-xs leading-relaxed">
-                <li>{NEC_SAME_PAYMENTS_REVIEW}</li>
+                <li>{LEGACY_NEC_WARNING}</li>
               </ul>
             </div>
           )}

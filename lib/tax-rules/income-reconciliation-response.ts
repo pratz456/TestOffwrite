@@ -1,5 +1,5 @@
 import { IncomeReconciliationRequiredError, listIncomeSourceCandidates, type IncomeRecord } from './business-income';
-import { CORRECTED_ORIGINAL_BADGE } from './income-reconciliation-copy';
+import { CORRECTED_ORIGINAL_BADGE, LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_WARNING } from './income-reconciliation-copy';
 import {
   normalizeReconciliationDecision, resolveIncomeSources, sourceKey, validateReconciliationDecision,
   type FeeExpenseCandidate, type IncomeReconciliationConflict, type IncomeSourceCandidate, type IncomeSourceRef,
@@ -51,6 +51,10 @@ export interface SavedDecisionView {
   applied: boolean;
   /** True only for a same_payments decision saved before this change (version missing or 1). */
   needsReconfirm: boolean;
+  /** Non-blocking warning while r10_5LegacyNecReopen is off. */
+  legacyNecWarning?: string;
+  /** One-time notice while a current-year NEC-only decision is reopened. Dismissal is view state, not stored on the decision. */
+  changeNotice?: string;
 }
 
 export interface IncomeReconciliationSummary {
@@ -80,7 +84,7 @@ export interface IncomeReconciliationSummary {
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object';
 const str = (value: unknown) => typeof value === 'string' ? value : '';
 
-function decisionView(record: IncomeRecord, appliedIds: ReadonlySet<string>): SavedDecisionView {
+function decisionView(record: IncomeRecord, appliedIds: ReadonlySet<string>, warningIds: ReadonlySet<string> = new Set(), reopenedIds: ReadonlySet<string> = new Set()): SavedDecisionView {
   const normalized = normalizeReconciliationDecision(record);
   const id = str(record.id);
   const rawSources = Array.isArray(record.sources) ? record.sources.filter(isRecord) : [];
@@ -100,6 +104,8 @@ function decisionView(record: IncomeRecord, appliedIds: ReadonlySet<string>): Sa
     decidedAt: str(record.decidedAt) || null,
     applied: appliedIds.has(id),
     needsReconfirm: record.decision === 'same_payments' && (record.version === undefined || record.version === null || record.version === 1),
+    ...(warningIds.has(id) ? { legacyNecWarning: LEGACY_NEC_WARNING } : {}),
+    ...(reopenedIds.has(id) ? { changeNotice: LEGACY_NEC_CHANGE_NOTICE } : {}),
   };
 }
 
@@ -115,9 +121,11 @@ export function summarizeIncomeReconciliation(taxYear: number, records: IncomeSo
   }
   const resolution = resolveIncomeSources(taxYear, candidates, records.decisions);
   const appliedIds = new Set(resolution.appliedDecisionIds);
+  const warningIds = new Set(resolution.legacyNecWarningIds);
+  const reopenedIds = new Set(resolution.reopenedNecDecisionIds);
   const unclaimed = resolution.unclaimedCents.form_1099 + resolution.unclaimedCents.gross_receipt + resolution.unclaimedCents.transaction;
   const line1Cents = resolution.reconciledCents + unclaimed;
-  const open = resolution.conflicts.length > 0;
+  const open = resolution.conflicts.some(conflict => conflict.reason !== 'stale_decision' || !reopenedIds.has(conflict.decisionId ?? ''));
   const replacedIds = new Set(resolution.replacedForms.map(form => form.formId));
   return {
     ...base,
@@ -127,7 +135,7 @@ export function summarizeIncomeReconciliation(taxYear: number, records: IncomeSo
       return { ...candidate, ...(decisionId ? { decisionId } : {}), ...(badge ? { badge } : {}) };
     }),
     replacedForms: resolution.replacedForms,
-    decisions: records.decisions.map(record => decisionView(record, appliedIds)),
+    decisions: records.decisions.map(record => decisionView(record, appliedIds, warningIds, reopenedIds)),
     conflicts: resolution.conflicts,
     grossReceipts: open ? null : line1Cents / 100,
     returnsAndAllowances: open ? null : resolution.returnsCents / 100,

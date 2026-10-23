@@ -17,9 +17,9 @@ import {
   DECISION_LABEL_CORRECTED, DECISION_LABEL_NOT_BUSINESS, ERR_CORRECTED_NEEDS_TWO_NEC, ERR_CORRECTED_PICK,
   ERR_CORRECTED_SAME_PAYER, ERR_CORRECTED_SUM, ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED,
   ERR_SAME_NEEDS_K, ERR_SELECT_BUSINESS_RECORDS, ERR_SUM_MISMATCH, fillIncomeCopy,
-  LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, NEC_SAME_PAYMENTS_REVIEW,
+  LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_NEC_WARNING,
 } from './income-reconciliation-copy';
-import { legacyNecSamePaymentsReopenEnabled, reconciliationYearMayAlreadyBeFiled } from './reconciliation-feature';
+import { r10_5LegacyNecReopen, reconciliationYearMayAlreadyBeFiled } from './reconciliation-feature';
 
 export const INCOME_SOURCE_KINDS = ['form_1099', 'gross_receipt', 'transaction'] as const;
 export type IncomeSourceKind = (typeof INCOME_SOURCE_KINDS)[number];
@@ -338,6 +338,10 @@ export interface IncomeReconciliationResolution {
   conflicts: IncomeReconciliationConflict[];
   /** Non-blocking notes. A prior-year NEC-only same-payments flag lives here and does not change the total. */
   notices: string[];
+  /** Saved NEC-only same-payments decisions that keep counting while the R10.5 switch is off. */
+  legacyNecWarningIds: string[];
+  /** Current-year NEC-only same-payments decisions reopened while the R10.5 switch is on. */
+  reopenedNecDecisionIds: string[];
 }
 
 /**
@@ -352,11 +356,13 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
   const outsideScheduleC: OutsideScheduleCItem[] = [];
   const replacedForms: ReplacedForm[] = [];
   const notices: string[] = [];
+  const legacyNecWarningIds: string[] = [];
+  const reopenedNecDecisionIds: string[] = [];
   const groups: Array<{ decisionId: string; kinds: Set<IncomeSourceKind> }> = [];
   const appliedDecisionIds: string[] = [];
   let reconciledCents = 0;
   let returnsCents = 0;
-  const reopenNecOnly = legacyNecSamePaymentsReopenEnabled();
+  const reopenNecOnly = r10_5LegacyNecReopen();
   for (const record of decisions) {
     const decision = normalizeReconciliationDecision(record);
     const decisionId = typeof record.id === 'string' ? record.id : 'unknown';
@@ -371,16 +377,30 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
     });
     if (!check.ok) {
       const reopenedNow = reopenNecOnly && necOnly && !filedYear && check.reason === ERR_SAME_NEEDS_K;
+      const sources = decision.sources.map(ref => ({ ...ref, label: byKey.get(sourceKey(ref))?.label ?? `${SOURCE_KIND_LABELS[ref.kind]} (record removed)` }));
+      if (reopenedNow) {
+        const counted = validateReconciliationDecision(decision, byKey, claimedBy, { rejectNecOnlySamePayments: false });
+        if (counted.ok) {
+          counted.sources.forEach(source => claimedBy.set(sourceKey(source), decision.id));
+          reconciledCents += counted.sources.reduce((total, source) => total + toCents(source.amount), 0);
+          reopenedNecDecisionIds.push(decision.id);
+          conflicts.push({ reason: 'stale_decision', decisionId, message: `${LEGACY_NEC_REOPEN_REASON} ${ERR_SAME_NEEDS_K}`, sources });
+          continue;
+        }
+      }
       conflicts.push({
         reason: 'stale_decision', decisionId,
-        message: reopenedNow ? LEGACY_NEC_REOPEN_REASON : `A saved reconciliation decision no longer matches your records: ${check.reason}`,
-        sources: decision.sources.map(ref => ({ ...ref, label: byKey.get(sourceKey(ref))?.label ?? `${SOURCE_KIND_LABELS[ref.kind]} (record removed)` })),
+        message: `A saved reconciliation decision no longer matches your records: ${check.reason}`,
+        sources,
       });
       continue;
     }
     if (reopenNecOnly && necOnly && filedYear) notices.push(LEGACY_NEC_PRIOR_YEAR_NOTE);
     const necForms = check.sources.filter(source => source.kind === 'form_1099' && source.formType === '1099-NEC').length;
-    if (!reopenNecOnly && decision.decision === 'same_payments' && necForms >= 2) notices.push(NEC_SAME_PAYMENTS_REVIEW);
+    if (!reopenNecOnly && decision.decision === 'same_payments' && necForms >= 2) {
+      notices.push(LEGACY_NEC_WARNING);
+      legacyNecWarningIds.push(decision.id);
+    }
     check.sources.forEach(source => claimedBy.set(sourceKey(source), decision.id));
     reconciledCents += check.countedCents;
     returnsCents += check.returnsCents;
@@ -423,5 +443,5 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
       message: `Unreconciled ${uncovered.map(kind => SOURCE_KIND_LABELS[kind]).join(' and ')} may belong to payments already reconciled in a saved decision that has no ${uncovered.map(kind => SOURCE_KIND_LABELS[kind]).join(' or ')} record. Add those records to that decision or mark them as separate income.`,
       sources: unclaimed.filter(candidate => uncovered.includes(candidate.kind)).map(publicRef) });
   }
-  return { reconciledCents, returnsCents, unclaimedCents, claimedBy, appliedDecisionIds, feeExpenseCandidates, outsideScheduleC, replacedForms, conflicts, notices };
+  return { reconciledCents, returnsCents, unclaimedCents, claimedBy, appliedDecisionIds, feeExpenseCandidates, outsideScheduleC, replacedForms, conflicts, notices, legacyNecWarningIds, reopenedNecDecisionIds };
 }

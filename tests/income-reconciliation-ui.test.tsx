@@ -42,7 +42,7 @@ import {
   COMPARE_DIFF, COMPARE_SAME_AMOUNT, COMPARE_TITLE, CONFIRM_FORMS_REQUIRED, CONFIRM_SAME_BACK, CONFIRM_SAME_TITLE, CONFIRM_SAME_YES,
   CORRECTED_ORIGINAL_BADGE, CORRECTED_PICK_QUESTION, CORRECTED_PREVIEW, DECISION_HELP_CORRECTED, DECISION_LABEL_CORRECTED,
   DECISION_LABEL_NOT_BUSINESS, ERR_REASON_AMOUNT, GUIDE_ANSWER_APP, GUIDE_ANSWER_BANK, GUIDE_HINT_APP, GUIDE_HINT_BANK,
-  GUIDE_QUESTION, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_YES, NEC_SAME_PAYMENTS_REVIEW, NO_CHOICE_YET, NO_FORM_NO_INCOME, PANEL_FORMS_NOTE,
+  GUIDE_QUESTION, LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_YES, LEGACY_NEC_WARNING, NO_CHOICE_YET, NO_FORM_NO_INCOME, PANEL_FORMS_NOTE,
   SAME_DISABLED_NEC, fillIncomeCopy,
 } from '../lib/tax-rules/income-reconciliation-copy';
 import { incomeReconciliationPath } from '../lib/tax-rules/income-reconciliation-response';
@@ -112,7 +112,7 @@ function api(url: string, init?: RequestInit): Promise<Response> {
 beforeEach(() => {
   harness.slots = []; harness.cursor = 0; harness.effects = []; harness.request.mockReset(); harness.navigate.mockReset(); harness.changed.mockReset();
   harness.request.mockImplementation(api);
-  delete process.env.NEXT_PUBLIC_RECONCILIATION_R10_5_LEGACY_NEC_REOPEN;
+  delete process.env.r10_5LegacyNecReopen;
   records.transactions = []; records.receipts = [receipt('r1', 12000)]; records.forms = [form('k1', 12000)]; records.decisions = []; nextId = 0;
 });
 
@@ -663,7 +663,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
   });
 
   it('lets one 1099-NEC and its bank deposit stay on same payments', async () => {
-    process.env.NEXT_PUBLIC_RECONCILIATION_R10_5_LEGACY_NEC_REOPEN = '1';
+    process.env.r10_5LegacyNecReopen = '1';
     records.receipts = [];
     records.transactions = [deposit('t1', 10000)];
     records.forms = [form('n1', 10000, '1099-NEC', 'Client A')];
@@ -681,7 +681,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
   });
 
   it('shows the NEC review warning on the Reconcile tab while R10.5 is off', async () => {
-    delete process.env.NEXT_PUBLIC_RECONCILIATION_R10_5_LEGACY_NEC_REOPEN;
+    delete process.env.r10_5LegacyNecReopen;
     const sources = [{ kind: 'form_1099', id: 'n1', amount: 12000 }, { kind: 'form_1099', id: 'n2', amount: 12000 }];
     records.receipts = [];
     records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
@@ -689,7 +689,7 @@ describe('v1.1 confirm step, compare and corrected form', () => {
     const before = JSON.stringify(records.decisions);
     render(panel); await flush();
     const shown = text(render(panel));
-    expect(shown).toContain(NEC_SAME_PAYMENTS_REVIEW);
+    expect(shown).toContain(LEGACY_NEC_WARNING);
     expect(shown).toContain('Gross receipts for 2026 (Schedule C line 1)');
     expect(shown).toContain('$12,000.00');
     expect(shown).not.toContain('$24,000.00');
@@ -703,13 +703,20 @@ describe('v1.1 confirm step, compare and corrected form', () => {
     records.receipts = [];
     records.forms = forms;
     records.decisions = [{ id: 'd1', taxYear: 2026, decision: 'same_payments', version: 1, platformFeeAmount: null, countedAmount: 12000, sources }];
-    process.env.NEXT_PUBLIC_RECONCILIATION_R10_5_LEGACY_NEC_REOPEN = '1';
+    process.env.r10_5LegacyNecReopen = '1';
     render(panel); await flush();
-    const current = text(render(panel));
-    expect(current).toContain(LEGACY_NEC_REOPEN_REASON);
+    const currentTree = render(panel);
+    const current = text(currentTree);
+    const alert = walk(currentTree).find(node => node.props?.role === 'alert')!;
+    const alertText = text(alert);
+    expect(alertText).toContain(LEGACY_NEC_REOPEN_REASON);
+    expect(alertText).toContain('$24,000.00');
+    expect(alertText.indexOf(LEGACY_NEC_REOPEN_REASON)).toBeLessThan(alertText.indexOf('$24,000.00'));
+    expect(current).toContain(LEGACY_NEC_CHANGE_NOTICE);
     expect(current).toContain('Tax totals for 2026 are on hold');
     expect(current).not.toContain(LEGACY_NEC_PRIOR_YEAR_NOTE);
     expect(current).not.toContain('no longer matches your records');
+    expect(current.replace(alertText, '')).not.toContain('$24,000.00');
 
     harness.slots = [];
     records.decisions = [{ id: 'd1', taxYear: 2025, decision: 'same_payments', version: 1, platformFeeAmount: null, countedAmount: 12000, sources }];
@@ -723,6 +730,44 @@ describe('v1.1 confirm step, compare and corrected form', () => {
     expect(prior).not.toContain('on hold');
     expect(prior).not.toContain(LEGACY_NEC_REOPEN_REASON);
     expect(JSON.stringify(records.decisions)).toBe(before);
+    delete process.env.r10_5LegacyNecReopen;
+  });
+
+  it('R-75 shows the change notice once and keeps the reopen reason after dismiss and reload', async () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
+      clear: () => { store.clear(); },
+    });
+    try {
+      const sources = [{ kind: 'form_1099', id: 'n1', amount: 12000 }, { kind: 'form_1099', id: 'n2', amount: 12000 }];
+      records.receipts = [];
+      records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
+      records.decisions = [{ id: 'd1', taxYear: 2026, decision: 'same_payments', version: 1, platformFeeAmount: null, countedAmount: 12000, sources }];
+      process.env.r10_5LegacyNecReopen = '1';
+      render(panel); await flush();
+      const first = render(panel);
+      expect(text(first)).toContain(LEGACY_NEC_CHANGE_NOTICE);
+      expect(text(first)).toContain(LEGACY_NEC_REOPEN_REASON);
+      expect(walk(first).some(node => typeof node.props?.onClick === 'function' && text(node) === 'Dismiss')).toBe(true);
+      clickText(first, 'Dismiss');
+      const dismissed = text(render(panel));
+      expect(dismissed).not.toContain(LEGACY_NEC_CHANGE_NOTICE);
+      expect(dismissed).toContain(LEGACY_NEC_REOPEN_REASON);
+      expect(store.get('r10_5LegacyNecReopen.changeNoticeDismissedAt.d1')).toBeTruthy();
+      expect(JSON.stringify(records.decisions)).not.toContain('changeNoticeDismissedAt');
+      harness.slots = [];
+      render(panel); await flush();
+      const reloaded = text(render(panel));
+      expect(reloaded).not.toContain(LEGACY_NEC_CHANGE_NOTICE);
+      expect(reloaded).toContain(LEGACY_NEC_REOPEN_REASON);
+      expect(reloaded).toContain('$24,000.00');
+    } finally {
+      vi.unstubAllGlobals();
+      delete process.env.r10_5LegacyNecReopen;
+    }
   });
 
   it('R-58 disables same payments for two 1099-NECs from one payer or two', async () => {

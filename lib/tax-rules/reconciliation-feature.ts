@@ -12,17 +12,16 @@ export function kNotBusinessIncomeEnabled(): boolean {
 }
 
 /**
- * R10.5. Off unless this is exactly "1".
- * When off, a saved same-payments decision that joins two or more 1099-NECs keeps counting
- * and shows a non-blocking review warning.
- * When on, the current published year stops applying that decision and shows it as a conflict.
- * An earlier year, which the user may already have filed, keeps the saved total and shows a note.
+ * R10.5 switch `r10_5LegacyNecReopen`. Off unless the environment value is exactly "1".
+ * Off: a saved same-payments decision that joins only 1099-NECs keeps counting, and the
+ * Reconcile tab shows a non-blocking warning. Export is not blocked.
+ * On, current year: that decision reopens as a conflict, both forms count, and export can 422.
+ * On, 2025 or earlier: the saved total stays and a filing note is shown.
  * New saves of that decision are rejected either way.
- * Read at call time, same as the not-business flag. Turning this on changes current-year
- * totals and can block that year's export with a 422. It stays off until Pratham says otherwise.
+ * Read at call time. It stays off until Pratham says otherwise.
  */
-export function legacyNecSamePaymentsReopenEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_RECONCILIATION_R10_5_LEGACY_NEC_REOPEN === '1';
+export function r10_5LegacyNecReopen(): boolean {
+  return process.env.r10_5LegacyNecReopen === '1';
 }
 
 /** A year before the latest published tax year may already be on a filed return. */

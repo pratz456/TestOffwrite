@@ -60,12 +60,14 @@ export const COMPARE_ROW_AMOUNT = 'Amount';
 export const COMPARE_DIFF = 'These forms differ by {diff}.';
 export const COMPARE_SAME_AMOUNT = 'These forms show the same amount. That alone doesn\'t mean they report the same payments.';
 export const ERR_SAME_NEEDS_K = 'Two 1099-NECs can\'t report the same payments. Mark each one as separate income, or record a corrected form.';
-/** Shown when R10.5 reopens a current-year NEC-only same-payments decision. PENDING PRATHAM OK. */
+/** Shown on the saved decision while r10_5LegacyNecReopen is off. PENDING PRATHAM OK. */
+export const LEGACY_NEC_WARNING = 'Two 1099-NECs are separate income. Review this match.';
+/** Shown when r10_5LegacyNecReopen reopens a current-year NEC-only same-payments decision. PENDING PRATHAM OK. */
 export const LEGACY_NEC_REOPEN_REASON = 'Two 1099-NECs are separate income, so both count.';
-/** Shown when R10.5 flags a prior-year NEC-only same-payments decision without changing its total. PENDING PRATHAM OK. */
+/** One-time notice beside a reopened current-year decision. PENDING PRATHAM OK. */
+export const LEGACY_NEC_CHANGE_NOTICE = 'We used to count these two 1099-NECs once. Two 1099-NECs are separate income, so both now count, and your total and quarterly estimate may go up.';
+/** Shown when r10_5LegacyNecReopen flags a prior-year NEC-only same-payments decision without changing its total. PENDING PRATHAM OK. */
 export const LEGACY_NEC_PRIOR_YEAR_NOTE = 'If this was on a return you already filed, the IRS explains how to correct it at irs.gov/form1040x.';
-/** Shown while R10.5 is off. Non-blocking: the saved total stays and export is not stopped. PENDING PRATHAM OK. */
-export const NEC_SAME_PAYMENTS_REVIEW = 'Two 1099-NECs are separate income. Review this match.';
 export const SAME_DISABLED_NEC = 'Not available for 1099-NECs only. Each 1099-NEC reports different payments.';
 export const DECISION_LABEL_CORRECTED = 'A corrected 1099-NEC replaces the original';
 export const DECISION_HELP_CORRECTED = 'Use this when a client sent you a corrected 1099-NEC. We count the corrected form and keep the original in your records without counting it.';

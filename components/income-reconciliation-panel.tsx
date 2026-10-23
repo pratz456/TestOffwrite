@@ -17,7 +17,7 @@ import {
   CORRECTED_ORIGINAL_BADGE, CORRECTED_PICK_QUESTION, CORRECTED_PREVIEW,
   DECISION_HELP_CORRECTED, DECISION_HELP_NOT_BUSINESS, DECISION_LABEL_CORRECTED, DECISION_LABEL_NOT_BUSINESS, ERR_REASON_AMOUNT,
   GUIDE_ANSWER_APP, GUIDE_ANSWER_BANK, GUIDE_ANSWER_NOT_SURE,
-  GUIDE_HINT_APP, GUIDE_HINT_BANK, GUIDE_HINT_NOT_SURE, GUIDE_QUESTION, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_TITLE,
+  GUIDE_HINT_APP, GUIDE_HINT_BANK, GUIDE_HINT_NOT_SURE, GUIDE_QUESTION, LEGACY_NEC_WARNING, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_TITLE,
   LEGACY_RECONFIRM_YES, LINE_1_COUNTED, LINE_2_AMOUNT, LIVE_SUM_DIFFER, LIVE_SUM_LINE, LIVE_SUM_MATCH, NO_CHOICE_YET, NO_FORM_NO_INCOME,
   OUTSIDE_SC_AMOUNT, PANEL_FORMS_NOTE, PANEL_SUMMARY_COUNTED, REASON_PERSONAL, REASON_PERSONAL_HELP, REASON_REFUNDS, REASON_REFUNDS_HELP,
   SAME_DISABLED_NEC, SEPARATE_MULTI_PREVIEW,
@@ -33,6 +33,15 @@ interface IncomeReconciliationPanelProps {
 }
 
 const fmt = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const changeNoticeKey = (id: string) => `r10_5LegacyNecReopen.changeNoticeDismissedAt.${id}`;
+const readChangeNoticeDismissedAt = (id: string) => {
+  try { return typeof localStorage === "undefined" ? null : localStorage.getItem(changeNoticeKey(id)); } catch { return null; }
+};
+const writeChangeNoticeDismissedAt = (id: string) => {
+  const at = new Date().toISOString();
+  try { if (typeof localStorage !== "undefined") localStorage.setItem(changeNoticeKey(id), at); } catch { /* view state only */ }
+  return at;
+};
 const KIND_TITLES: Record<IncomeSourceKind, string> = { form_1099: "1099 forms", gross_receipt: "Direct income", transaction: "Bank income" };
 const DECISION_HELP: Record<ReconciliationDecisionType, string> = {
   same_payments: "The selected records report the same payments, so they count once.",
@@ -68,6 +77,7 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmLegacy, setConfirmLegacy] = useState<SavedDecisionView | null>(null);
   const [correctedFormId, setCorrectedFormId] = useState<string | null>(null);
+  const [changeNoticeDismissedAt, setChangeNoticeDismissedAt] = useState<Record<string, string>>({});
   const requestId = useRef(0);
   const confirmTitleRef = useRef<HTMLHeadingElement | null>(null);
   const decisionChoices = RECONCILIATION_DECISION_TYPES.filter(type => type !== "k_not_business_income" || kNotBusinessIncomeEnabled());
@@ -299,9 +309,9 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
         </div>
       ) : (
         <>
-          {(summary.notices ?? []).length > 0 && (
+          {(summary.notices ?? []).filter(notice => notice !== LEGACY_NEC_WARNING).length > 0 && (
             <div role="status" className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm">
-              {summary.notices.map(notice => (
+              {summary.notices.filter(notice => notice !== LEGACY_NEC_WARNING).map(notice => (
                 <p key={notice} className="text-xs leading-relaxed">{notice}</p>
               ))}
             </div>
@@ -315,13 +325,30 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
             <div role="alert" className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm">
               <p className="font-medium text-foreground">Tax totals for {taxYear} are on hold until these records are reconciled</p>
               <ul className="mt-2 space-y-2">
-                {summary.conflicts.map((conflict, index) => (
+                {summary.conflicts.map((conflict, index) => {
+                  const notice = summary.decisions.find(saved => saved.id === conflict.decisionId)?.changeNotice;
+                  const dismissed = conflict.decisionId ? changeNoticeDismissedAt[conflict.decisionId] ?? readChangeNoticeDismissedAt(conflict.decisionId) : null;
+                  return (
                   <li key={`${conflict.reason}-${conflict.decisionId ?? index}`} className="text-xs leading-relaxed">
                     <p>{conflict.message}</p>
                     {conflict.sources.length > 0 && <p className="mt-0.5 text-muted-foreground">{sourceLine(conflict.sources)}</p>}
+                    {notice && !dismissed && (
+                      <div className="mt-2 rounded-md border border-warning/40 bg-background p-2">
+                        <p>{notice}</p>
+                        <Button type="button" variant="outline" className="mt-2 min-h-11" onClick={() => {
+                          if (!conflict.decisionId) return;
+                          const at = writeChangeNoticeDismissedAt(conflict.decisionId);
+                          setChangeNoticeDismissedAt(current => ({ ...current, [conflict.decisionId!]: at }));
+                        }}>Dismiss</Button>
+                      </div>
+                    )}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
+              {summary.grossReceipts !== null && (
+                <p className="mt-2 text-sm font-semibold tabular-nums">Gross receipts for {taxYear} (Schedule C line 1) {fmt(summary.grossReceipts)}</p>
+              )}
             </div>
           ) : (
             <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
@@ -560,6 +587,7 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
                               : saved.applied ? <Badge variant="success">Applied</Badge> : <Badge variant="warning">Needs review</Badge>}
                           </div>
                           <p className="mt-0.5 leading-relaxed text-muted-foreground">{sourceLine(saved.sources)}</p>
+                          {saved.legacyNecWarning && <p className="mt-1 leading-relaxed text-foreground">{saved.legacyNecWarning}</p>}
                           {saved.decision === "corrected_form_replaces" && saved.sources.filter(source => source.kind === "form_1099" && source.id !== saved.correctedFormId).map(source => (
                             <p key={source.id} className="mt-0.5 leading-relaxed text-muted-foreground">{CORRECTED_ORIGINAL_BADGE}</p>
                           ))}

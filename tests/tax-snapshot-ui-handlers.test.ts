@@ -39,7 +39,7 @@ import { TaxFilingHubScreen } from '../components/tax-filing-hub-screen';
 import { TaxPreviewScreen } from '../components/tax-preview-screen';
 import { FileTaxesScreen } from '../components/file-taxes-screen';
 import { reviewTargetForCode, loadDashboardTaxSnapshot } from '../lib/tax/dashboard-snapshot';
-import { EXPORT_BLOCKED_TITLE, NEC_SAME_PAYMENTS_REVIEW, RECONCILE_BUTTON } from '../lib/tax-rules/income-reconciliation-copy';
+import { EXPORT_BLOCKED_TITLE, LEGACY_NEC_WARNING, RECONCILE_BUTTON } from '../lib/tax-rules/income-reconciliation-copy';
 import { IncomeReconciliationExportCard } from '../components/income-reconciliation-export-card';
 import { protectedScreenUrl } from '../lib/navigation/protected-screens';
 
@@ -454,12 +454,12 @@ describe('tax preview personal deduction and benefit contract', () => {
   it('lists the NEC same-payments review warning on a successful estimate', async () => {
     const data = snapshot(2026);
     data.income.grossReceipts = 12000;
-    data.form1040.calculationWarnings = [NEC_SAME_PAYMENTS_REVIEW];
+    data.form1040.calculationWarnings = [LEGACY_NEC_WARNING];
     harness.request.mockImplementation((url: string) => url.includes('compute-1040') ? Promise.resolve(response(data)) : requests(url));
     render(TaxPreviewScreen); await flush();
     const tree = render(TaxPreviewScreen);
     const listed = walk(tree).find(node => node.props?.['aria-label'] === 'Records that need a reconciliation decision');
-    expect(text(listed)).toBe(NEC_SAME_PAYMENTS_REVIEW);
+    expect(text(listed)).toBe(LEGACY_NEC_WARNING);
     expect(text(tree)).toContain('Estimated federal');
     expect(text(tree)).not.toContain('Resolve the issue above');
   });
