@@ -77,10 +77,11 @@ export function OBBBADeductionFields({ taxYear, filingStatus, value, onChange }:
     {needsSSN && yesNo('workEligibleSSN', 'Do you have a Social Security number valid for employment?', 'Required for the tips and overtime deductions. Do not enter the number here.')}
 
     <div className="space-y-3 border-t pt-4">
-      <h4 className="font-medium">Passenger vehicle loan interest (personal use)</h4>
-      {yesNo('hasVehicleLoanInterest', 'Did you pay interest on a loan for a new personal-use passenger vehicle?', 'draft, awaiting copy approval. WriteOff puts the business share on Schedule C line 16b. The same dollar is never counted in both places.')}
+      <h4 className="font-medium">Car loan interest (draft, awaiting copy approval)</h4>
+      {yesNo('hasVehicleLoanInterest', 'Did you pay interest on a loan for a car you use?', 'draft, awaiting copy approval. WriteOff puts the business share on Schedule C line 16b under either car method, whether the car is new or used. The Schedule 1-A questions apply only to the personal share. The same dollar is never counted in both places.')}
       {facts.hasVehicleLoanInterest === 'yes' && <>
-        {amount('vehicleLoanInterestAmount', 'Vehicle loan interest paid in the year', 'Use the lender statement. Enter only interest on this vehicle loan.')}
+        {amount('vehicleLoanInterestAmount', 'Vehicle loan interest paid in the year', 'draft, awaiting copy approval. Use the lender statement. Enter only interest on this car loan.')}
+        <p className="text-xs text-muted-foreground">draft, awaiting copy approval. These questions decide only whether the personal share goes on Schedule 1-A. Schedule C line 16b still receives the business share when these answers are no.</p>
         {yesNo('vehicleExpectedPersonalUseOver50AtPurchase', 'When you took out the loan, did you expect to use this vehicle personally more than half the time you expect to own it?', 'draft, awaiting copy approval. A blank answer leaves the personal share in Needs more information. An answer of no keeps that share off Schedule 1-A. WriteOff puts the business share on Schedule C line 16b. The same dollar is never counted in both places.')}
         {yesNo('vehicleLoanAfter2024', 'Was the loan taken out after December 31, 2024?', 'Refinancing an eligible loan qualifies up to the refinanced balance.')}
         {yesNo('vehicleNewUSAssembled', 'Is the vehicle new (original use began with you) with final assembly in the United States?', 'Check the dealer label or the NHTSA VIN decoder. Cars, minivans, vans, SUVs, pickups and motorcycles under 14,000 pounds qualify.')}

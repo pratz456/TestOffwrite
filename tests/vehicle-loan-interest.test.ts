@@ -163,12 +163,73 @@ describe('car loan interest is deducted in one place', () => {
     expect(phased.vehicleLoanInterest).toMatchObject({ amountReported: 6000, limitedAmount: 6000, phaseoutReduction: 400, deduction: 5600 });
   });
 
-  it('rounds each share once, so $1.05 at 50% is $0.53 and $0.53', () => {
+  it('caps line 16b plus Schedule 1-A at the interest paid, so 1.05 at 50 percent is 0.53 and 0.52', () => {
     const result = place(vehicle('1.05'), { vehicleBusinessUsePercentage: 50 });
     expect(result.scheduleCLine16b).toBe(0.53);
-    expect(result.vehicleLoanInterest.amountReported).toBe(0.53);
-    expect(result.vehicleLoanInterest.deduction).toBe(0.53);
-    expect(result.scheduleCLine16b + result.vehicleLoanInterest.amountReported).toBe(1.06);
+    expect(result.vehicleLoanInterest.amountReported).toBe(0.52);
+    expect(result.vehicleLoanInterest.deduction).toBe(0.52);
+    expect(result.scheduleCLine16b + result.vehicleLoanInterest.deduction).toBe(1.05);
+    expect(result.scheduleCLine16b + result.vehicleLoanInterest.amountReported).toBe(1.05);
+  });
+
+  it('places a used car on line 16b when every Schedule 1-A answer is no', () => {
+    const result = place(vehicle('1000', {
+      vehicleLoanAfter2024: 'no',
+      vehicleNewUSAssembled: 'no',
+      vehicleExpectedPersonalUseOver50AtPurchase: 'no',
+      vehicleLoanQualified: 'no',
+    }), { vehicleBusinessUsePercentage: 60, businessVehicleBusinessUsePercentage: 60 });
+    expect(result.scheduleCLine16b).toBe(600);
+    expect(result.vehicleLoanInterest.deduction).toBe(0);
+    expect(result.needsMoreInformation).toEqual([]);
+    expect(result.lineItems).toEqual([{ line: '16b', amount: 600 }]);
+  });
+
+  it('splits a new qualifying car between line 16b and Schedule 1-A at 60 and 40 percent', () => {
+    const result = place(vehicle('1000'), { vehicleBusinessUsePercentage: 60 });
+    expect(result.scheduleCLine16b).toBe(600);
+    expect(result.vehicleLoanInterest.deduction).toBe(400);
+    expect(result.vehicleLoanInterest.amountReported).toBe(400);
+    expect(result.needsMoreInformation).toEqual([]);
+  });
+
+  it('puts all of a fully business car on line 16b and leaves Schedule 1-A at 0', () => {
+    const result = place(vehicle('1000'), { vehicleBusinessUsePercentage: 100 });
+    expect(result.scheduleCLine16b).toBe(1000);
+    expect(result.vehicleLoanInterest.deduction).toBe(0);
+    expect(result.vehicleLoanInterest.amountReported).toBe(0);
+    expect(result.needsMoreInformation).toEqual([]);
+  });
+
+  it('keeps a saved hasVehicleLoanInterest answer on the same field', () => {
+    const savedYes = reviewedOBBBADeductionFacts(2026, vehicle('1000', {
+      vehicleLoanAfter2024: 'no',
+      vehicleNewUSAssembled: 'no',
+      vehicleExpectedPersonalUseOver50AtPurchase: 'no',
+      vehicleLoanQualified: 'no',
+    }));
+    const parsedYes = JSON.parse(savedYes);
+    expect(parsedYes.hasVehicleLoanInterest).toBe('yes');
+    const placed = calculateOBBBADeductions({
+      taxYear: 2026, filingStatus: 'single', agi: 100000, scheduleCNetProfit: 60000, usingStandardDeduction: true,
+      vehicleBusinessUsePercentage: 60,
+      organizer: { obbbaDeductionFacts: savedYes },
+    });
+    expect(placed.scheduleCLine16b).toBe(600);
+    expect(placed.vehicleLoanInterest.deduction).toBe(0);
+    expect(placed.needsMoreInformation).toEqual([]);
+
+    const savedNo = reviewedOBBBADeductionFacts(2026, { hasVehicleLoanInterest: 'no' });
+    const parsedNo = JSON.parse(savedNo);
+    expect(parsedNo.hasVehicleLoanInterest).toBe('no');
+    expect(parsedNo.vehicleLoanInterestAmount).toBeUndefined();
+    const declined = calculateOBBBADeductions({
+      taxYear: 2026, filingStatus: 'single', agi: 100000, scheduleCNetProfit: 60000, usingStandardDeduction: true,
+      vehicleBusinessUsePercentage: 60,
+      organizer: { obbbaDeductionFacts: savedNo },
+    });
+    expect(declined.scheduleCLine16b).toBe(0);
+    expect(declined.vehicleLoanInterest.deduction).toBe(0);
   });
 });
 

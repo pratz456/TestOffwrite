@@ -190,8 +190,22 @@ function roundedPercentShare(amount: number, percent: number): number {
   return round((amount * percent) / 100);
 }
 
+/** Line 16b keeps its rounded share. Any extra cent comes off the personal share so the two never exceed interest paid. */
+function personalShareWithinInterest(lenderInterest: number, businessShare: number, personalShare: number): number {
+  const cents = (amount: number) => Math.round((amount + Number.EPSILON) * 100);
+  const interestCents = cents(lenderInterest);
+  const businessCents = cents(businessShare);
+  const personalCents = cents(personalShare);
+  if (businessCents + personalCents <= interestCents) return personalShare;
+  return Math.max(0, interestCents - businessCents) / 100;
+}
+
 /**
  * Schedule C line 16b business share, before AGI. Does not apply Schedule 1-A limits.
+ * hasVehicleLoanInterest yes means interest was paid on a car the taxpayer uses.
+ * New vehicle, United States assembly, loan date, expected personal use, qualified loan, and VIN
+ * decide only the personal share on Schedule 1-A. Publication 463 places this business share
+ * on line 16b under either car method.
  * Unknown share contributes $0 here; the caller lists it under needs more information.
  */
 export function scheduleCLine16bVehicleInterest(input: {
@@ -351,9 +365,11 @@ export function calculateOBBBADeductions(input: OBBBADeductionInput): OBBBADeduc
     }
   }
   // Part IV — qualified passenger vehicle loan interest.
+  // The intake yes is any car the taxpayer uses. Schedule 1-A qualification does not gate line 16b.
   // Treas. Reg. 1.163-16(f)(1) gates Schedule 1-A on the expectation at origination.
-  // Treas. Reg. 1.163-16(g)(2) would allow the business portion on Schedule 1-A;
-  // WriteOff places that share on Schedule C line 16b instead. The same dollar is never counted twice.
+  // Treas. Reg. 1.163-16(g)(2) would allow the business portion on Schedule 1-A.
+  // Publication 463 places that share on Schedule C line 16b under either car method, new or used.
+  // Each share is rounded once. If the two cents exceed the interest paid, the extra cent leaves Schedule 1-A.
   if (facts.hasVehicleLoanInterest === 'yes') {
     const lenderInterest = money(facts.vehicleLoanInterestAmount, 'passenger vehicle loan interest paid');
     const businessPercent = resolveVehicleBusinessUsePercentage(input.vehicleBusinessUsePercentage, input.businessVehicleBusinessUsePercentage);
@@ -362,7 +378,7 @@ export function calculateOBBBADeductions(input: OBBBADeductionInput): OBBBADeduc
       needsMoreInformation.push({ amount: lenderInterest, note: VEHICLE_BUSINESS_SHARE_NOTE });
     } else {
       const businessShare = roundedPercentShare(lenderInterest, businessPercent);
-      const personalShare = roundedPercentShare(lenderInterest, 100 - businessPercent);
+      const personalShare = personalShareWithinInterest(lenderInterest, businessShare, roundedPercentShare(lenderInterest, 100 - businessPercent));
       result.scheduleCLine16b = businessShare;
       if (businessShare !== 0) lineItems.push({ line: '16b', amount: businessShare });
       const expectation = facts.vehicleExpectedPersonalUseOver50AtPurchase;
@@ -385,7 +401,8 @@ export function calculateOBBBADeductions(input: OBBBADeductionInput): OBBBADeduc
           if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) review('enter the 17-character vehicle identification number; the VIN must be reported on Schedule 1-A line 22 to claim the deduction.');
           const limitedAmount = round(Math.min(personalShare, VEHICLE_LOAN_INTEREST_LIMIT));
           const phaseout = phaseoutReduction(magi, joint ? VEHICLE_LOAN_PHASEOUT_THRESHOLD_JOINT : VEHICLE_LOAN_PHASEOUT_THRESHOLD, VEHICLE_LOAN_PHASEOUT_PER_THOUSAND, 'ceil');
-          result.vehicleLoanInterest = { deduction: round(Math.max(0, limitedAmount - phaseout)), amountReported: personalShare, limitedAmount, phaseoutReduction: phaseout };
+          const deduction = personalShareWithinInterest(lenderInterest, businessShare, round(Math.max(0, limitedAmount - phaseout)));
+          result.vehicleLoanInterest = { deduction, amountReported: personalShare, limitedAmount, phaseoutReduction: phaseout };
           if (result.vehicleLoanInterest.deduction > 0) {
             warnings.push(`Qualified passenger vehicle loan interest deduction of ${usd(result.vehicleLoanInterest.deduction)} applied on Schedule 1-A Part IV for VIN ${vin}. ${DRAFT_COPY}. WriteOff puts the business share on Schedule C line 16b. The same dollar is never counted in both places. Keep the lender interest statement and the final-assembly evidence (dealer label or NHTSA VIN decoder).`);
           }

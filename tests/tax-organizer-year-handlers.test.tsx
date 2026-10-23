@@ -257,8 +257,13 @@ describe('compact organizer sections', () => {
     expect(text(section(tree, 'Working Families Tax Cuts deductions').props.children[0])).toContain('1 claimed');
     const claimed = walk(tree).find(node => node.type === OBBBADeductionFields)!;
     const vehicleCopy = text(OBBBADeductionFields(claimed.props));
+    expect(vehicleCopy).toContain('Did you pay interest on a loan for a car you use?');
+    expect(vehicleCopy).toContain('under either car method, whether the car is new or used');
+    expect(vehicleCopy).toContain('These questions decide only whether the personal share goes on Schedule 1-A');
     expect(vehicleCopy).toContain('When you took out the loan, did you expect to use this vehicle personally more than half the time you expect to own it?');
     expect(vehicleCopy).toContain('An answer of no keeps that share off Schedule 1-A');
+    expect(vehicleCopy).not.toContain('Did you pay interest on a loan for a new personal-use passenger vehicle?');
+    expect(vehicleCopy).not.toContain('Passenger vehicle loan interest (personal use)');
     expect(vehicleCopy).not.toContain('Is the vehicle used for personal purposes rather than in your business?');
     expect(vehicleCopy).not.toContain('savings');
     expect(vehicleCopy).not.toContain('you will save');
