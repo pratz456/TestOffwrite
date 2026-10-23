@@ -9,6 +9,7 @@ import type { ReceiptMatchCandidate } from '@/lib/ocr/receipt-processor';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { receiptCommitForm, type ReceiptDraft } from '@/lib/receipts/receipt-review';
+import { localCalendarYMD } from '@/lib/transactions/calendar-date';
 
 interface ReceiptUploadScreenProps {
   user: {
@@ -101,8 +102,9 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
   const editManually = () => {
     if (!selectedFile || operationRef.current) return;
     if (!extractedData) {
-      setDraft({ merchant: '', amount: '', date: '', category: 'other' });
-      setExtractedData({ merchant: '', amount: 0, date: '', category: 'other', confidence: 0, items: [], matchCandidates: [], suggestedReceiptType: 'expense', suggestedReceiptConfidence: 0 });
+      const date = localCalendarYMD();
+      setDraft({ merchant: '', amount: '', date, category: 'other' });
+      setExtractedData({ merchant: '', amount: 0, date, category: 'other', confidence: 0, items: [], matchCandidates: [], suggestedReceiptType: 'expense', suggestedReceiptConfidence: 0 });
       setAttachmentChoice('create');
     }
     setIsEditing(true);

@@ -195,6 +195,34 @@ describe('an ambiguous receipt date is saved unset', () => {
     }
   });
 
+  it('saves a receipt with no detectable date as unset Needs more information', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-07-04T15:00:00.000Z'));
+    worker.recognize.mockResolvedValue({
+      data: { text: 'SYNTHETIC OFFICE STORE\nOffice supplies $25.00\nTOTAL $25.00\nTEST RECEIPT NO PURCHASE', confidence: 95 },
+    });
+    try {
+      const file = new File([PNG], 'receipt.png', { type: 'image/png' });
+      const body = new FormData();
+      body.append('file', file);
+      body.append('mode', 'commit');
+      const response = await POST(new NextRequest('https://staging.example/api/receipts/process', { method: 'POST', body }));
+      expect(response.status).toBe(200);
+      const written = mocks.createTransaction.mock.calls[0][2] as {
+        amount: number; date: string; deductionStatus?: string; statusReason?: string; tax_year?: unknown; taxYear?: unknown;
+      };
+      expect(written.amount).toBe(25);
+      expect(written.date).toBe('');
+      expect(written.date).not.toBe('2026-07-04');
+      expect(written).not.toHaveProperty('tax_year');
+      expect(written).not.toHaveProperty('taxYear');
+      expect(written.deductionStatus).toBe('Needs more information');
+      expect(written.statusReason).toBe('unreadable_date');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps an AI Needs more information status when the reason is not the date', async () => {
     rows.set('ai-held', {
       trans_id: 'ai-held', amount: 12, date: '', deductionStatus: 'Needs more information', statusReason: 'missing_business_purpose',
