@@ -13,15 +13,21 @@ import { safeTaxYear } from './taxDate';
 /** Placeholder in static sentences. Display sites replace it with otherExpensesLine. */
 export const OTHER_EXPENSES_LINE_TOKEN = 'OTHER_EXPENSES_LINE';
 
-/** Other expenses line for a tax year. 2024 and earlier is 27a. 2025 and later is 27b. */
+/**
+ * First tax year on which Schedule C other expenses is line 27b.
+ * 2024 and earlier stay on 27a. This is a published form fact. The line does not follow the clock.
+ */
+export const OTHER_EXPENSES_27B_FIRST_YEAR = 2025;
+
+/** Other expenses line for a tax year. Years before OTHER_EXPENSES_27B_FIRST_YEAR are 27a. */
 export function otherExpensesLine(taxYear: number): '27a' | '27b' {
-  return taxYear >= 2025 ? '27b' : '27a';
+  return taxYear >= OTHER_EXPENSES_27B_FIRST_YEAR ? '27b' : '27a';
 }
 
 export function withOtherExpensesLine(text: string, taxYear: number | null | undefined): string {
   const line = typeof taxYear === 'number' && Number.isFinite(taxYear)
     ? otherExpensesLine(taxYear)
-    : '27a for 2024 and earlier, or 27b for 2025 and later';
+    : `27a for ${OTHER_EXPENSES_27B_FIRST_YEAR - 1} and earlier, or 27b for ${OTHER_EXPENSES_27B_FIRST_YEAR} and later`;
   return text.replaceAll(OTHER_EXPENSES_LINE_TOKEN, line);
 }
 

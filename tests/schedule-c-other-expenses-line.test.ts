@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { PDFPage } from 'pdf-lib';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
-import { otherExpensesLine, readStoredAiScheduleCLines } from '@/lib/schedule-c/other-expenses-line';
+import { OTHER_EXPENSES_27B_FIRST_YEAR, otherExpensesLine, readStoredAiScheduleCLines } from '@/lib/schedule-c/other-expenses-line';
+import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
 import { normalizeExplanation, scheduleCLineFor } from '@/lib/ai/explanation';
@@ -59,13 +60,55 @@ function stored(year: number, code: '27a' | '27b') {
 }
 
 describe('Schedule C other expenses line follows the tax year', () => {
-  it('keeps the year switch in one function', () => {
+  it('keeps the year switch in one function driven by a fixed year, never the clock', () => {
+    expect(OTHER_EXPENSES_27B_FIRST_YEAR).toBe(2025);
+    expect(otherExpensesLine(OTHER_EXPENSES_27B_FIRST_YEAR - 1)).toBe('27a');
     expect(otherExpensesLine(2023)).toBe('27a');
     expect(otherExpensesLine(2024)).toBe('27a');
     expect(otherExpensesLine(2025)).toBe('27b');
     expect(otherExpensesLine(2026)).toBe('27b');
+    expect(otherExpensesLine(OTHER_EXPENSES_27B_FIRST_YEAR)).toBe('27b');
     const source = readFileSync('lib/schedule-c/other-expenses-line.ts', 'utf8');
-    expect(source.match(/taxYear >= 2025 \? '27b' : '27a'/g)).toEqual(["taxYear >= 2025 ? '27b' : '27a'"]);
+    expect(source.match(/taxYear >= OTHER_EXPENSES_27B_FIRST_YEAR \? '27b' : '27a'/g)).toEqual(["taxYear >= OTHER_EXPENSES_27B_FIRST_YEAR ? '27b' : '27a'"]);
+    expect(source).not.toMatch(/Date\.now|new Date|getFullYear|getUTCFullYear/);
+  });
+
+  it('the same record shows 27a in 2024 and 27b in 2025 and 2026, with identical amounts', () => {
+    expect(SUPPORTED_TAX_YEARS).toEqual([2024, 2025, 2026]);
+    const record = {
+      amount: OTHER_EXPENSE_AMOUNT,
+      category: 'SERVICE_EDUCATION',
+      is_deductible: true as const,
+      merchant_name: 'SAME-RECORD',
+      id: 'same-record',
+      description: 'Confirmed business record',
+      ai_schedule_c_line: '27a' as const,
+    };
+    const expectedLine = { 2024: '27a', 2025: '27b', 2026: '27b' } as const;
+    const shown = SUPPORTED_TAX_YEARS.map(year => {
+      const dated = { ...record, date: `${year}-06-01` };
+      const result = aggregateScheduleC([dated], String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
+      const other = result.lineItemsArray.find(item => item.lineName === 'Other expenses');
+      const csv = generateScheduleCCSV(result.lineItemsArray, year);
+      const read = readStoredAiScheduleCLines(dated);
+      return { year, other, total: result.totalDeductible, form7205: result.lineItems[year >= 2025 ? '27a' : '27b'], csv, readLine: read.ai_schedule_c_line, amount: dated.amount };
+    });
+    expect(shown.map(item => [item.year, item.other?.lineCode, item.other?.deductible, item.other?.total, item.total, item.readLine, item.amount])).toEqual([
+      [2024, '27a', OTHER_EXPENSE_AMOUNT, OTHER_EXPENSE_AMOUNT, OTHER_EXPENSE_AMOUNT, '27a', OTHER_EXPENSE_AMOUNT],
+      [2025, '27b', OTHER_EXPENSE_AMOUNT, OTHER_EXPENSE_AMOUNT, OTHER_EXPENSE_AMOUNT, '27b', OTHER_EXPENSE_AMOUNT],
+      [2026, '27b', OTHER_EXPENSE_AMOUNT, OTHER_EXPENSE_AMOUNT, OTHER_EXPENSE_AMOUNT, '27b', OTHER_EXPENSE_AMOUNT],
+    ]);
+    for (const item of shown) {
+      expect(item.other?.lineCode).toBe(expectedLine[item.year]);
+      expect(item.form7205).toBeUndefined();
+      expect(item.csv).toContain(`SAME-RECORD,SERVICE_EDUCATION,${expectedLine[item.year]},${OTHER_EXPENSE_AMOUNT},`);
+    }
+    expect(shown[0].other?.deductible).toBe(shown[1].other?.deductible);
+    expect(shown[1].other?.deductible).toBe(shown[2].other?.deductible);
+    expect(shown[0].total).toBe(shown[1].total);
+    expect(shown[1].total).toBe(shown[2].total);
+    expect(record.amount).toBe(OTHER_EXPENSE_AMOUNT);
+    expect(record.ai_schedule_c_line).toBe('27a');
   });
 
   it('2024 shows 27a and 2025 and 2026 show 27b with the same dollar amounts', () => {
