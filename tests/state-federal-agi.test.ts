@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { calcScheduleSE, getTaxRatesAndLimits } from '../lib/reports/calcSE';
-import { estimateStateTax, federalAgiForStateEstimate, stateUsesFederalAgiIncomeBase } from '../lib/tax-rules/state';
+import { estimateStateTax, federalAgiForStateEstimate, getStateYearRules, isSupportedStateYear, stateUsesFederalAgiIncomeBase } from '../lib/tax-rules/state';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -125,39 +125,46 @@ describe('federal AGI for the state planning estimate', () => {
     expect(after.estimate).toBeCloseTo(75000 * 0.0307, 2);
   });
 
-  it('subtracts half of self-employment tax from Ohio federal AGI', () => {
-    expect(stateUsesFederalAgiIncomeBase('OH', 2025)).toBe(true);
-    expect(federalAgiForStateEstimate({
-      stateCode: 'OH', taxYear: 2025, scheduleCNetProfit: 50000, w2Wages: 0, otherIncome: 0,
-    })).toBe(46467.61);
-  });
-
   it('does not subtract the deduction for a no-income-tax state', () => {
     const input = { taxYear: 2026, scheduleCNetProfit: 50000, w2Wages: 0, otherIncome: 0 };
     expect(stateUsesFederalAgiIncomeBase('TX', 2026)).toBe(false);
     expect(federalAgiForStateEstimate({ ...input, stateCode: 'TX' })).toBe(50000);
   });
 
-  it('subtracts half of self-employment tax for an Ohio single filer with $50,000 of Schedule C profit and $40,000 of interest in 2026', () => {
-    const taxYear = 2026;
+  it('subtracts half of self-employment tax for an Ohio single filer with $50,000 of Schedule C profit and $40,000 of interest in 2025', () => {
+    const taxYear = 2025;
     const scheduleCNetProfit = 50000;
     const otherIncome = 40000;
     const se = calcScheduleSE({ scheduleCNetProfit, taxYear });
     expect(se.halfSEDeduction).toBe(3532.39);
     expect(stateUsesFederalAgiIncomeBase('OH', taxYear)).toBe(true);
-    const federalAGI = federalAgiForStateEstimate({
-      stateCode: 'OH', taxYear, scheduleCNetProfit, w2Wages: 0, otherIncome,
-    });
-    expect(federalAGI).toBe(round2(scheduleCNetProfit + otherIncome - se.halfSEDeduction));
+    const shared = {
+      stateCode: 'OH', taxYear, filingStatus: 'single' as const,
+      scheduleCNetProfit, w2Wages: 0, otherIncome,
+    };
+    const gross = scheduleCNetProfit + otherIncome;
+    const federalAGI = federalAgiForStateEstimate(shared);
     expect(federalAGI).toBe(86467.61);
+    const withoutDeduction = estimateStateTax({ ...shared, federalAGI: gross });
+    const withDeduction = estimateStateTax({ ...shared, federalAGI });
+    expect(withoutDeduction.supported && withDeduction.supported).toBe(true);
+    if (!withoutDeduction.supported || !withDeduction.supported) return;
+    expect(withoutDeduction.estimate).toBe(673.38);
+    expect(withDeduction.components.federalAGI).toBe(86467.61);
+    expect(withDeduction.estimate).toBe(576.23);
+  });
+
+  it('returns the shared unsupported-year reason for Ohio 2026', () => {
+    const rules = getStateYearRules('OH', 2026);
+    expect(isSupportedStateYear(rules)).toBe(false);
     const result = estimateStateTax({
-      stateCode: 'OH', taxYear, filingStatus: 'single',
-      federalAGI, scheduleCNetProfit, w2Wages: 0, otherIncome,
+      stateCode: 'OH', taxYear: 2026, filingStatus: 'single',
+      federalAGI: 86467.61, scheduleCNetProfit: 50000, w2Wages: 0, otherIncome: 40000,
     });
-    expect(result.supported).toBe(true);
-    if (!result.supported) return;
-    // ORC 5747.02(A)(3)(c): $332 plus 2.75% of the excess over $26,050.
-    expect(result.estimate).toBe(566.23);
+    expect(result.supported).toBe(false);
+    if (result.supported || isSupportedStateYear(rules)) return;
+    expect(result.reason).toBe(rules.reason);
+    expect(result.reason).toMatch(/2025 only/);
   });
 
   it('lowers the 2026 Georgia estimate for a single filer with $50,000 of Schedule C profit', () => {
