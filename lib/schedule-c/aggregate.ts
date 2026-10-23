@@ -350,6 +350,7 @@ export const AWAITING_SCHEDULE_C_LINE: ReadonlySet<string> = new Set([
   'GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT',
   'GENERAL_SERVICES_INSURANCE',
   'SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS',
+  'FOOD_AND_DRINK_GROCERIES',
 ]);
 
 /** These categories stay on the review list. Aggregation gives them no Schedule C line. */

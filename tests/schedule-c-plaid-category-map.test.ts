@@ -221,6 +221,7 @@ describe('Plaid category codes on Schedule C', () => {
       'GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT',
       'GENERAL_SERVICES_INSURANCE',
       'SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS',
+      'FOOD_AND_DRINK_GROCERIES',
     ]);
     expect([...AWAITING_SCHEDULE_C_LINE].sort()).toEqual([...noLine].sort());
     for (const code of REVIEW_REQUIRED_PLAID_CODES) {
@@ -606,6 +607,7 @@ describe('Plaid category codes on Schedule C', () => {
     ['GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT', 30],
     ['GENERAL_SERVICES_INSURANCE', 18],
     ['SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS', 42.5],
+    ['FOOD_AND_DRINK_GROCERIES', 31],
   ] as const)('%s has no Schedule C line and stays on the review list with its amount', (category, amount) => {
     const record = { ...confirmed(category, amount, '2026-06-15'), iso_currency_code: 'USD' };
     const priorYear = { ...confirmed(category, amount, '2024-06-15'), iso_currency_code: 'USD' };
