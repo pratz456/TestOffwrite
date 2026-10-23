@@ -1,6 +1,6 @@
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { calendarChargeDay, chargeDay } from '@/lib/schedule-c/taxDate';
-import { estimateIncomeDate, type QuarterlyTransactionLike } from '@/lib/tax-provider/quarterly-estimates';
+import { estimateIncomeDate, ROW_FLAG_FIELD, type QuarterlyTransactionLike } from '@/lib/tax-provider/quarterly-estimates';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 
@@ -44,18 +44,25 @@ function estimatePlacement(record: ExportRecord): string | null {
   return estimateIncomeDate(record as QuarterlyTransactionLike, 'UTC');
 }
 
+/**
+ * Rows for one calendar year. A missing or unreadable charge day does not throw.
+ * Undated income whose estimate placement falls in the year is included and
+ * marked placedWithoutDate. Every other undated row is left out of that year.
+ */
 export function selectExportYear(records: ExportRecord[], year?: number): ExportRecord[] {
   if (year === undefined) return [...records];
-  const needsMoreInformation = needsMoreInformationCount(records);
-  const blocksYear = records.some(record => !chargeDay(record) && estimatePlacement(record)?.startsWith(`${year}-`) !== true);
-  if (blocksYear) {
-    throw new ExportReviewRequiredError('Some saved transactions have missing or invalid dates. Correct them before exporting a selected year, or download all records for review.', needsMoreInformation);
-  }
-  return records.filter(record => {
+  const selected: ExportRecord[] = [];
+  for (const record of records) {
     const day = chargeDay(record);
-    if (day) return day.startsWith(`${year}-`);
-    return estimatePlacement(record)?.startsWith(`${year}-`) === true;
-  });
+    if (day) {
+      if (day.startsWith(`${year}-`)) selected.push(record);
+      continue;
+    }
+    if (estimatePlacement(record)?.startsWith(`${year}-`) === true) {
+      selected.push({ ...record, [ROW_FLAG_FIELD]: true });
+    }
+  }
+  return selected;
 }
 export function csvCell(value: unknown): string {
   if (value === undefined || value === null) return '';

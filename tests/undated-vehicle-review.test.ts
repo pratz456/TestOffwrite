@@ -112,7 +112,7 @@ describe('undated vehicle confirmation', () => {
       expect(totals.needsMoreInformation).toBe(1);
     }
     for (const year of [2024, 2025, 2026]) {
-      expect(() => selectExportYear([saved], year)).toThrow(/missing or invalid dates/);
+      expect(selectExportYear([saved], year)).toEqual([]);
     }
     const dashboard = summarizeDashboardRecords([saved]);
     expect(dashboard.needsMoreInformationCount).toBe(1);

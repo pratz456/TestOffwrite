@@ -364,6 +364,7 @@ describe('estimate boundary and undated income', () => {
   it('counts a boundary only when the US zones disagree on the calendar day', async () => {
     const cases = [
       { label: '2025-06-15T12:00Z', datetime: '2025-06-15T12:00Z', year: 2025, boundaryCount: 0 },
+      { label: '2025-06-15T15:00Z', datetime: '2025-06-15T15:00Z', year: 2025, boundaryCount: 0 },
       { label: '2025-06-15T18:00Z', datetime: '2025-06-15T18:00Z', year: 2025, boundaryCount: 0 },
       { label: '1735716600', datetime: 1735716600, year: 2024, boundaryCount: 1 },
       { label: '1735727400', datetime: 1735727400, year: 2024, boundaryCount: 1 },
@@ -389,7 +390,7 @@ describe('estimate boundary and undated income', () => {
         expect(placed.placedWithoutDate).toBe(true);
         expect(placed[api.ROW_FLAG_FIELD]).toBe(true);
         expect(placed[api.UNDATED_ROW_FLAG]).toBe(true);
-        expect(row).not.toHaveProperty('placedWithoutDate');
+        expect(row).toMatchObject({ placedWithoutDate: true });
         expect(chargeDay(row)).toBeNull();
       }
     }
@@ -418,6 +419,7 @@ describe('estimate boundary and undated income', () => {
         const review = await dateReview([row], zone, 2025);
         expect(review.undatedIncome).toEqual({ count: 1, total: 40, boundaryCount: 0 });
         expect(review.needsDateCopy).toContain('1 income rows need a date. Amount kept: $40.00.');
+        expect(row).not.toHaveProperty('placedWithoutDate');
       }
     }
   });
@@ -446,6 +448,7 @@ describe('estimate boundary and undated income', () => {
         expect(result.undatedIncome).toEqual({ count: 1, total: dollars, boundaryCount: year === 2024 ? 1 : 0 });
         const placed = api.incomeRowForEstimate(row, zone, year);
         expect(placed.placedWithoutDate).toBe(true);
+        expect(row).toMatchObject({ placedWithoutDate: true });
         expect(chargeDay(row)).toBeNull();
         expect(getLocalTransactionDate(row, zone)).toBeNull();
       }
@@ -479,20 +482,25 @@ describe('estimate boundary and undated income', () => {
       expect(result.undatedExpenses).toEqual({ count: 1, total: 250 });
       expect(result.grossIncome).toBe(0);
       expect(result.undatedIncome).toEqual({ count: 0, total: 0, boundaryCount: 0 });
+      expect(row).not.toHaveProperty('placedWithoutDate');
     }
   });
 
   it('selectExportYear returns 1500 for 500 dated plus 1000 undated income in 2025', async () => {
     const dated = incomeRow('dated', { date: '2025-03-01' }, -500);
     const undated = incomeRow('open', { datetime: '2025-06-15T12:00:00Z' }, -1000);
+    const expense = { id: 'exp', trans_id: 'exp', amount: 250, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' };
     for (const zone of zones) {
       expect(yearIncome([dated, undated], 2025, zone)).toBe(1500);
       expect(yearIncome([dated], 2025, zone)).toBe(500);
     }
-    expect(() => selectExportYear([dated, undated], 2025)).not.toThrow();
-    const selected = selectExportYear([dated, undated], 2025);
+    const selected = selectExportYear([dated, undated, expense], 2025);
     expect(selected.map(row => row.id)).toEqual(['dated', 'open']);
+    expect(selected.find(row => row.id === 'open')).toMatchObject({ placedWithoutDate: true });
+    expect(chargeDay(selected.find(row => row.id === 'open')!)).toBeNull();
+    expect(selected.find(row => row.id === 'dated')).not.toHaveProperty('placedWithoutDate');
     expect(selectExportYear([dated], 2025)).toHaveLength(1);
+    expect(selectExportYear([expense], 2025)).toEqual([]);
     for (const zone of zones) {
       const api = await import('@/lib/tax-provider/quarterly-estimates');
       expect(api.sumIncomeForYear([dated, undated], 2025, zone)).toMatchObject({

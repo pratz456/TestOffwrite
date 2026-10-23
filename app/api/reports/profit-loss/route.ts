@@ -22,7 +22,11 @@ function period(yearValue: unknown, monthValue: unknown) {
   return { year, month };
 }
 function recordsInPeriod(records: ExportRecord[], year: number, month?: number) {
-  return selectExportYear(records, year).filter(record => month === undefined || Number(exportDate(record)!.slice(5, 7)) === month);
+  return selectExportYear(records, year).filter(record => {
+    if (month === undefined) return true;
+    const day = exportDate(record);
+    return day !== null && Number(day.slice(5, 7)) === month;
+  });
 }
 function summarize(records: ExportRecord[]) {
   const income = new Map<string, number>(), outflows = new Map<string, number>();

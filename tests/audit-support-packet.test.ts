@@ -171,7 +171,9 @@ describe('inclusion, exclusion and review provenance', () => {
     expect(() => packet([confirmed({ trans_id: 'same' }), confirmed({ trans_id: 'same' })])).toThrow(ExportReviewRequiredError);
     expect(() => packet([confirmed({ amount: 'unknown' })])).toThrow(/invalid amount/);
     expect(() => packet([confirmed({ iso_currency_code: 'EUR' })])).toThrow(/Non-USD/);
-    expect(() => packet([confirmed(), confirmed({ is_deductible: false, date: undefined })])).toThrow(ExportReviewRequiredError);
+    const kept = packet([confirmed(), confirmed({ is_deductible: false, date: undefined })]);
+    expect(kept.deductions).toHaveLength(1);
+    expect(kept.deductions[0].amount).toBe(40);
   });
 });
 

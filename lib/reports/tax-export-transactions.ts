@@ -3,7 +3,7 @@ import { chargeDay } from '@/lib/schedule-c/taxDate';
 import { exportDate, selectExportYear, transactionAmount, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
-import { reviewEstimateDates, type EstimateDateReview, type QuarterlyTransactionLike } from '@/lib/tax-provider/quarterly-estimates';
+import { reviewEstimateDates, ROW_FLAG_FIELD, type EstimateDateReview, type QuarterlyTransactionLike } from '@/lib/tax-provider/quarterly-estimates';
 
 /**
  * Complete owner-verified records; invalid dates/amounts cannot disappear from a
@@ -36,9 +36,11 @@ export async function readTaxExportTransactions(uid: string, taxYear: number): P
         throw new ExportReviewRequiredError('A confirmed expense has a recorded deduction override. Review and reconcile that adjustment before creating a tax summary; the current calculation cannot apply it safely.');
       }
     }
+    const written = exportDate(record);
     return { ...record, id: String(record.trans_id ?? record.id ?? ''), trans_id: String(record.trans_id ?? record.id ?? ''), amount,
       type: amount < 0 ? 'income' : 'expense',
-      date: exportDate(record)!,
+      date: written ?? '',
+      ...(written ? {} : { [ROW_FLAG_FIELD]: true }),
       category: typeof record.category === 'string' ? record.category : '',
       merchant_name: String(record.merchant_name ?? record.merchant ?? record.name ?? ''),
       account_id: record.account_id ?? record.accountId,
@@ -80,7 +82,7 @@ function assertDatedYearRows(records: ExportRecord[], taxYear: number) {
 /**
  * Rows for the annual estimate. A missing charge day does not throw.
  * Dated rows in other years stay out of this year's validation.
- * `selectExportYear` still throws when a chargeless row is not estimate-placed income for that year.
+ * `selectExportYear` does not throw when a charge day is missing.
  */
 export async function readTransactionsForEstimate(uid: string, taxYear: number): Promise<{ transactions: ExportRecord[]; chargesNeedingDate: EstimateDateReview }> {
   const records = (await readOwnedTransactions(uid)).filter(record => !isSupersededRecord(record));

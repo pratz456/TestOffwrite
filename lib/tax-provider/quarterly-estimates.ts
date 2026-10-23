@@ -81,8 +81,8 @@ const LATEST_OFFSET_MINUTES = 14 * 60;
 
 /**
  * US zones for boundaryCount: UTC-11 (Pago Pago) through UTC-4 (Puerto Rico and St. Thomas).
- * Guam and Saipan are not in this list. 2025-06-15T12:00Z and 2025-06-15T18:00Z
- * stay on June 15 across this set, so each has boundaryCount 0.
+ * Guam and Saipan are not in this list. 2025-06-15T12:00Z, 2025-06-15T15:00Z,
+ * and 2025-06-15T18:00Z stay on June 15 across this set, so each has boundaryCount 0.
  */
 export const BOUNDARY_ZONES = [
   'Pacific/Pago_Pago',
@@ -373,6 +373,7 @@ export function sumIncomeForQuarter(
     if (!isIncome) continue;
 
     if (!Number.isFinite(tx.amount) || tx.amount >= 0) continue;
+    if (!getLocalTransactionDate(tx, userTimezone)) Object.assign(tx, { [ROW_FLAG_FIELD]: true });
     const cents = toCents(-tx.amount);
     grossIncomeCents += cents;
   }

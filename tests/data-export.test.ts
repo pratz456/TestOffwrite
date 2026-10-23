@@ -18,7 +18,6 @@ vi.mock('@/lib/firebase/admin', () => {
 });
 import { readOwnedTransactions, ExportDataUnavailableError } from '@/lib/reports/export-records';
 import { generateUserDataExport, generateDataPackage } from '@/lib/reports/data-export';
-import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 function seed(path: string, data: Record<string, unknown>) { state.rows.set(path, data); }
 beforeEach(() => {
   state.rows.clear(); state.fail = ''; state.reads.length = 0;
@@ -120,9 +119,11 @@ describe('owner export source completeness and privacy', () => {
     if (!exported) throw new Error('datetime-only row missing from the csv');
     expect(exported.split(',')[taxDateIndex]).toBe('');
   });
-  it('requires review for undated transactions instead of silently omitting them from a selected year', async () => {
+  it('omits an undated transaction from a selected year and keeps it in the all-years archive', async () => {
     seed('transactions/undated', { userId: 'owner', amount: 10 });
-    await expect(generateUserDataExport('owner', 2026)).rejects.toBeInstanceOf(ExportReviewRequiredError);
+    const yearExport = await generateUserDataExport('owner', 2026);
+    expect(yearExport.transactions.some(record => record.amount === 10)).toBe(false);
+    expect(yearExport.transactions).toHaveLength(2);
     expect((await generateUserDataExport('owner')).transactions).toHaveLength(4);
   });
 });

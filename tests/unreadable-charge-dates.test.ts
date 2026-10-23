@@ -65,11 +65,8 @@ describe('unreadable charge dates stay in Needs more information and out of tota
     }
 
     expect(exportNeedsMoreInformationCount(rows)).toBe(1);
-    for (const year of [2025, 2026]) {
-      let failure: unknown;
-      try { selectExportYear(rows, year); } catch (error) { failure = error; }
-      expect(failure).toMatchObject({ code: 'EXPORT_REVIEW_REQUIRED', needsMoreInformation: 1 });
-    }
+    expect(selectExportYear(rows, 2025).reduce((sum, row) => sum + Number(row.amount), 0)).toBe(40);
+    expect(selectExportYear(rows, 2026)).toEqual([]);
     expect(selectExportYear([dated], 2025).reduce((sum, row) => sum + Number(row.amount), 0)).toBe(40);
     expect(selectExportYear([dated], 2026)).toEqual([]);
     const exported = convertTransactionsToCSV([unreadable]);

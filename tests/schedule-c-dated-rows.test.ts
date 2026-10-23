@@ -103,7 +103,7 @@ describe('charge day shared by Schedule C totals and the export', () => {
       expect(aggregateScheduleC([row], '2024', CATEGORY_MAP).totalDeductible).toBe(0);
       expect(aggregateScheduleC([row], '2025', CATEGORY_MAP).totalDeductible).toBe(0);
     }
-    expect(() => selectExportYear(rows, 2024)).toThrow(/missing or invalid dates/);
+    expect(selectExportYear(rows, 2024).map(row => row.id)).toEqual(['date-only']);
   });
 });
 

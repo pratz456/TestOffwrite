@@ -303,7 +303,7 @@ describe('trimmed write-back cannot replace the charge day with a save time', ()
       const totals = aggregateScheduleC([row], String(year), CATEGORY_MAP);
       expect(totals.totalDeductible).toBe(0);
       expect(totals.counts.year).toBe(0);
-      expect(() => selectExportYear([row], year)).toThrow(/missing or invalid dates/);
+      expect(selectExportYear([row], year)).toEqual([]);
     }
     for (const query of ['?month=11&year=2025', '?month=0&year=2026']) {
       expect((await (await list(query)).json()).transactions).toEqual([]);
