@@ -679,18 +679,53 @@ describe('partial overlap between a 1099-K and a 1099-NEC', () => {
   });
 });
 
+describe('two 1099-NEC same payments follow the reconciliation switch', () => {
+  const body = { taxYear: 2026, decision: 'same_payments', sources: [ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)] };
+
+  function seedTwoNecs() {
+    state.docs.clear();
+    state.writes.length = 0;
+    state.seq = 0;
+    state.transactions = {};
+    delete process.env.legacyNecReopen;
+    delete process.env.legacyDecisionReconfirm;
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
+    seed('income_1099', 'n1', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Client A' });
+    seed('income_1099', 'n2', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Client B' });
+  }
+
+  it('saves two 1099-NECs as the same payments while every switch is off and returns the base response', async () => {
+    seedTwoNecs();
+    const before = JSON.stringify([state.docs.get('income_1099/n1'), state.docs.get('income_1099/n2')]);
+    const saved = await json(await POST(request('POST', { body })));
+    expect(saved.status).toBe(201);
+    expect(saved.body).toEqual({ success: true, id: 'income_reconciliations-1', countedAmount: 12000 });
+    expect(JSON.stringify(saved.body)).not.toContain(ERR_SAME_NEEDS_K);
+    expect(JSON.stringify(saved.body)).not.toContain(incomeCopy.SAME_DISABLED_NEC);
+    expect(state.writes).toEqual(['add income_reconciliations/income_reconciliations-1']);
+    expect(JSON.stringify([state.docs.get('income_1099/n1'), state.docs.get('income_1099/n2')])).toBe(before);
+    const loaded = await json(await GET(request('GET', { query: '?year=2026' })));
+    expect(loaded.body).toMatchObject({ conflicts: [], grossReceipts: 12000, reconciledAmount: 12000, unclaimedAmount: 0 });
+  });
+
+  it('rejects two 1099-NECs as the same payments while the reconciliation switch is on', async () => {
+    seedTwoNecs();
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
+    const rejected = await json(await POST(request('POST', { body: { ...body, explicitChoice: true } })));
+    expect(rejected).toMatchObject({ status: 400, body: { error: ERR_SAME_NEEDS_K } });
+    expect(state.writes).toEqual([]);
+    const loaded = await json(await GET(request('GET', { query: '?year=2026' })));
+    expect(loaded.body.grossReceipts).toBeNull();
+  });
+});
+
 describe('guided copy stays off the reconciliation route', () => {
-  const visibleWithSwitchesOff = new Set(['RECONCILE_BUTTON', 'ERR_SAME_NEEDS_K', 'SAME_DISABLED_NEC', 'INVALID_DECISION_BODY', 'ONE_RECORD_SEPARATE']);
+  const visibleWithSwitchesOff = new Set(['RECONCILE_BUTTON', 'INVALID_DECISION_BODY', 'ONE_RECORD_SEPARATE']);
   const gated = Object.entries(incomeCopy).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && !visibleWithSwitchesOff.has(entry[0]));
 
   function assertNoGated(payload: unknown, label: string) {
-    const strip = (value: unknown): unknown => {
-      if (typeof value === 'string') return value.split(ERR_SAME_NEEDS_K).join('').split(incomeCopy.SAME_DISABLED_NEC).join('');
-      if (Array.isArray(value)) return value.map(strip);
-      if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, strip(item)]));
-      return value;
-    };
-    const raw = JSON.stringify(strip(payload));
+    const raw = JSON.stringify(payload);
     for (const [name, value] of gated) {
       if (value.includes('{')) {
         const pattern = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{[A-Za-z]+\\\}/g, '[\\s\\S]{0,80}');
@@ -723,8 +758,10 @@ describe('guided copy stays off the reconciliation route', () => {
       expect(invalid.body.error, String(value)).toBe(INVALID_DECISION_BODY);
       assertNoGated(invalid.body, `invalid ${String(value)}`);
 
-      const twoNec = await json(await POST(request('POST', { body: samePayments([ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)]) })));
-      expect(twoNec.body.error, String(value)).toBe(ERR_SAME_NEEDS_K);
+      const twoNec = await json(await POST(request('POST', { body: { taxYear: 2026, decision: 'same_payments', sources: [ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)] } })));
+      expect(twoNec.status, String(value)).toBe(201);
+      expect(twoNec.body, String(value)).toMatchObject({ success: true, countedAmount: 12000 });
+      expect(twoNec.body).not.toHaveProperty('error');
       assertNoGated(twoNec.body, `two nec ${String(value)}`);
 
       const separate = await json(await POST(request('POST', { body: {
@@ -749,7 +786,9 @@ describe('guided copy stays off the reconciliation route', () => {
 
       const loaded = await json(await GET(request('GET', { query: '?year=2026' })));
       assertNoGated(loaded.body, `get ${String(value)}`);
-      expect(state.writes).toEqual([]);
+      expect(state.writes.every(write => write.startsWith('add income_reconciliations/'))).toBe(true);
+      expect(state.docs.get('income_1099/n1')).toMatchObject({ amount: 12000, formType: '1099-NEC' });
+      expect(state.docs.get('income_1099/n2')).toMatchObject({ amount: 12000, formType: '1099-NEC' });
     }
     delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
   });

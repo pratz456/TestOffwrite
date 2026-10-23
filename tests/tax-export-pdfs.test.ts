@@ -155,6 +155,7 @@ describe('Schedule C real PDF and request integrity', () => {
     const kept = await scheduleC(request({ year: 2026, format: 'pdf', includeAppendix: false }));
     expect(kept.status).toBe(200);
     process.env.legacyNecReopen = '1';
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
     try {
       const reopened = await scheduleC(request({ year: 2026, format: 'csv' }));
       expect(reopened.status).toBe(422);
@@ -172,6 +173,7 @@ describe('Schedule C real PDF and request integrity', () => {
       expect(state.records.income_1099?.map(row => row.amount)).toEqual([12000, 12000]);
     } finally {
       delete process.env.legacyNecReopen;
+      delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
     }
   });
   it('exports pdf and csv for a saved NEC match while the switch is off', async () => {

@@ -1059,7 +1059,7 @@ describe('tax preview reconcile link', () => {
 });
 
 describe('reconciliation copy with every switch off', () => {
-  const visibleWithSwitchesOff = new Set(['RECONCILE_BUTTON', 'ERR_SAME_NEEDS_K', 'SAME_DISABLED_NEC', 'INVALID_DECISION_BODY', 'ONE_RECORD_SEPARATE']);
+  const visibleWithSwitchesOff = new Set(['RECONCILE_BUTTON', 'INVALID_DECISION_BODY', 'ONE_RECORD_SEPARATE']);
   const newCopy = Object.entries(incomeCopy).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && !visibleWithSwitchesOff.has(entry[0]));
 
   function leavesOf(node: any, into: string[] = []): string[] {
@@ -1158,7 +1158,10 @@ describe('reconciliation copy with every switch off', () => {
     clickDecision(render(panel), 'same_payments');
     tree = render(panel);
     keep(tree);
-    expect(text(tree), String(guidedValue)).toContain(SAME_DISABLED_NEC);
+    expect(text(tree), String(guidedValue)).not.toContain(SAME_DISABLED_NEC);
+    expect(text(tree), String(guidedValue)).not.toContain(incomeCopy.ERR_SAME_NEEDS_K);
+    expect(walk(tree).find(item => item.props?.type === 'radio' && item.props?.value === 'same_payments')!.props.disabled).toBe(false);
+    expect(preview(tree)).toContain('$12,000.00');
     expect(preview(tree)).not.toContain('$24,000.00');
 
     records.forms = [form('k1', 10000)];

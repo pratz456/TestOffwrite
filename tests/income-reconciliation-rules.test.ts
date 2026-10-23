@@ -438,6 +438,7 @@ describe('legacy 1099-NEC year split', () => {
     const saved = decision('d1', 'same_payments', necSources(), { version: 1, countedAmount: 12000 });
     const before = JSON.stringify([forms, saved]);
     process.env.legacyNecReopen = '1';
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
     try {
       const error = blocked(() => reconcileBusinessIncome(2026, [], [], forms, [saved]));
       expect(error.conflicts[0]).toMatchObject({ reason: 'stale_decision', decisionId: 'd1' });
@@ -451,6 +452,7 @@ describe('legacy 1099-NEC year split', () => {
       expect(JSON.stringify([forms, saved])).toBe(before);
     } finally {
       delete process.env.legacyNecReopen;
+      delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
     }
   });
 
@@ -502,7 +504,7 @@ describe('legacy 1099-NEC year split', () => {
 });
 
 describe('same-payments and separate-income', () => {
-  it('rejects same payments for two 1099-NEC forms and counts them once each', () => {
+  it('accepts two 1099-NEC forms as same payments while the guided switch is off and rejects them while it is on', () => {
     const forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
     const sources = [ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)];
     expect(samePaymentsAllowed([{ kind: 'form_1099', formType: '1099-NEC' }, { kind: 'form_1099', formType: '1099-NEC' }])).toBe(false);
@@ -511,16 +513,17 @@ describe('same-payments and separate-income', () => {
     ])).toBe(false);
     const { candidates } = listIncomeSourceCandidates(2026, [], [], forms);
     const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate]));
-    const rejected = validateReconciliationDecision(decision('d1', 'same_payments', sources), byKey);
-    expect(rejected).toEqual({ ok: false, reason: ERR_SAME_NEEDS_K });
-    process.env.legacyNecReopen = '1';
-    expect(validateReconciliationDecision(decision('d1', 'same_payments', sources), byKey)).toEqual({ ok: false, reason: ERR_SAME_NEEDS_K });
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
     delete process.env.legacyNecReopen;
-    // The reopen switch is off by default, so a decision already saved this way still counts.
+    expect(validateReconciliationDecision(decision('d1', 'same_payments', sources), byKey)).toMatchObject({ ok: true, countedCents: 1_200_000 });
+    process.env.legacyNecReopen = '1';
+    expect(validateReconciliationDecision(decision('d1', 'same_payments', sources), byKey)).toMatchObject({ ok: true, countedCents: 1_200_000 });
+    delete process.env.legacyNecReopen;
     const kept = reconcileBusinessIncome(2026, [], [], forms, [decision('d1', 'same_payments', sources, { version: 1 })]);
     expect(kept.grossReceipts).toBe(12000);
     process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
     try {
+      expect(validateReconciliationDecision(decision('d1', 'same_payments', sources), byKey)).toEqual({ ok: false, reason: ERR_SAME_NEEDS_K });
       const counted = reconcileBusinessIncome(2026, [], [], forms, [decision('d1', 'separate_income', sources)]);
       expect(counted.grossReceipts).toBe(24000);
       expect(counted.netReceipts).toBe(24000);
@@ -727,6 +730,7 @@ describe('separate income, legacy NEC matches and corrected forms', () => {
     const before = JSON.stringify([forms, saved]);
     expect(reconcileBusinessIncome(2026, [], [], forms, [saved]).grossReceipts).toBe(12000);
     process.env.legacyNecReopen = '1';
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
     try {
       const error = blocked(() => reconcileBusinessIncome(2026, [], [], forms, [saved]));
       expect(error.conflicts).toEqual(expect.arrayContaining([
@@ -734,6 +738,7 @@ describe('separate income, legacy NEC matches and corrected forms', () => {
       ]));
     } finally {
       delete process.env.legacyNecReopen;
+      delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
     }
     expect(reconcileBusinessIncome(2026, [], [], forms, [saved]).grossReceipts).toBe(12000);
     expect(JSON.stringify([forms, saved])).toBe(before);
@@ -876,11 +881,20 @@ describe('legacy same-payments reconfirm', () => {
       expect(summary.conflicts, shape.name).toEqual([]);
     }
     const forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
-    const rejected = prepareReconciliationDecision(2026, { transactions: [], receipts: [], forms, decisions: [] }, {
-      id: 'pending', decision: 'same_payments', sources: [ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)],
+    const request = {
+      id: 'pending', decision: 'same_payments' as const, sources: [ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)],
       platformFeeAmount: 0, notBusinessParts: [], note: '',
-    });
-    expect(rejected).toMatchObject({ ok: false, status: 400, reason: ERR_SAME_NEEDS_K });
+    };
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
+    const accepted = prepareReconciliationDecision(2026, { transactions: [], receipts: [], forms, decisions: [] }, request);
+    expect(accepted).toMatchObject({ ok: true, stored: { decision: 'same_payments', countedAmount: 12000 } });
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
+    try {
+      const rejected = prepareReconciliationDecision(2026, { transactions: [], receipts: [], forms, decisions: [] }, request);
+      expect(rejected).toMatchObject({ ok: false, status: 400, reason: ERR_SAME_NEEDS_K });
+    } finally {
+      delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
+    }
   });
 });
 

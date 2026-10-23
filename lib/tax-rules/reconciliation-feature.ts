@@ -17,7 +17,7 @@ export function kNotBusinessIncomeEnabled(): boolean {
  * On: no default decision, an explicit choice, the payment guide, the confirm step,
  * several records in one separate-income save, the form-and-deposit block, and the
  * corrected 1099-NEC decision.
- * A new same-payments save of two or more 1099-NECs stays rejected either way.
+ * A new same-payments save of two or more 1099-NECs is rejected only while this switch is on.
  * Read at call time. Next inlines NEXT_PUBLIC_ access on the client.
  */
 export function guidedReconciliationV1Enabled(): boolean {
@@ -33,7 +33,7 @@ export function reconciliationDecisionNeedsKSwitch(decision: string): boolean {
  * Legacy 1099-NEC reopen switch `legacyNecReopen`. Off unless the environment value is exactly "1".
  * Off: a saved same-payments decision that joins two or more 1099-NECs keeps counting.
  * The review warning stays off the Reconcile tab, tax preview, Form 1040 notes and assistant notes.
- * A new save of two or more 1099-NEC same payments is still rejected.
+ * Reopening a saved two 1099-NEC same-payments decision uses the guided switch rejection, so that rejection stays off while the guided switch is off.
  * On, current year, forms only: that decision reopens as a conflict, both forms count, and export can 422.
  * On, 2025 or earlier: every legacy same-payments shape keeps its saved total and a filing note is shown.
  * Read at call time. Off by default. Server code reads this. The Reconcile tab follows the summary flag.
