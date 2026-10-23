@@ -152,8 +152,7 @@ describe('Working Families Tax Cuts deductions through the routes', () => {
     expect(body.income.scheduleCNetProfit).toBe(38200);
     expect(body.form1040.vehicleLoanInterestDeduction).toBe(0);
     expect(body.form1040.obbbaDeductions.scheduleCLine16b).toBe(1800);
-    const carLoanEntries = (body.form1040.obbbaDeductions.needsMoreInformation ?? []).filter((item: { note?: string }) => /schedule 1-a|car loan|vehicle/i.test(item.note ?? ''));
-    expect(carLoanEntries).toEqual([]);
+    expect(body.form1040.obbbaDeductions.needsMoreInformation).toEqual([]);
   });
 
   it('applies the tips deduction on line 13b before QBI and shows it in the PDF', async () => {

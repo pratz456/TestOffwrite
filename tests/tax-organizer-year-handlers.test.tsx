@@ -34,8 +34,9 @@ import { TaxOrganizerScreen, EMPTY_ORGANIZER_ANSWERS } from '../components/tax-o
 import { PersonalDeductionFields } from '../components/personal-deduction-fields';
 import { BusinessLossFields } from '../components/business-loss-fields';
 import { OBBBADeductionFields } from '../components/obbba-deduction-fields';
+import { calculateOBBBADeductions } from '../lib/tax-rules/obbba-deductions';
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
-import { reviewedBusinessLossFacts, reviewedOBBBADeductionFacts } from './fixtures/tier1-facts';
+import { reviewedBusinessLossFacts, reviewedOBBBADeductionFacts, SYNTHETIC_VIN } from './fixtures/tier1-facts';
 type Element = ReactElement<Record<string, any>>;
 const walk = (node: any): Element[] => Array.isArray(node) ? node.flatMap(walk)
   : node && typeof node === 'object' && 'props' in node ? [node, ...walk(node.props.children)] : [];
@@ -258,7 +259,24 @@ describe('compact organizer sections', () => {
     const vehicleCopy = text(OBBBADeductionFields(claimed.props));
     expect(vehicleCopy).toContain('When you took out the loan, did you expect to use this vehicle personally more than half the time you expect to own it?');
     expect(vehicleCopy).toContain('An answer of no keeps that share off Schedule 1-A');
-    expect(vehicleCopy).not.toMatch(/savings|you will save|Up to \$10,000/i);
+    expect(vehicleCopy).not.toContain('Is the vehicle used for personal purposes rather than in your business?');
+    expect(vehicleCopy).not.toContain('savings');
+    expect(vehicleCopy).not.toContain('you will save');
+    expect(vehicleCopy).not.toContain('Up to $10,000');
+    let thrown = false;
+    let placed: ReturnType<typeof calculateOBBBADeductions> | undefined;
+    try {
+      placed = calculateOBBBADeductions({
+        taxYear: 2026, filingStatus: 'single', agi: 100000, scheduleCNetProfit: 60000, usingStandardDeduction: true,
+        vehicleBusinessUsePercentage: 60,
+        organizer: { obbbaDeductionFacts: reviewedOBBBADeductionFacts(2026, {
+          hasVehicleLoanInterest: 'yes', vehicleLoanInterestAmount: '600', vehicleLoanAfter2024: 'yes', vehicleNewUSAssembled: 'yes',
+          vehicleExpectedPersonalUseOver50AtPurchase: 'no', vehicleLoanQualified: 'yes', vehicleVIN: SYNTHETIC_VIN,
+        }) },
+      });
+    } catch { thrown = true; }
+    expect(thrown).toBe(false);
+    expect(placed).toMatchObject({ needsMoreInformation: [] });
     await button(tree, 'Save').props.onClick();
     const saved = JSON.parse(harness.request.mock.calls.find(call => call[1]?.method === 'POST')![1].body);
     expect(JSON.parse(saved.businessLossFacts)).toMatchObject({ taxYear: 2026, allInvestmentAtRisk: 'yes', profitMotive: '' });

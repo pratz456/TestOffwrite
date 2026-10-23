@@ -132,8 +132,10 @@ describe('qualified passenger vehicle loan interest (§163(h)(4))', () => {
 
   it('does not throw for a business-use answer and still requires a VIN when Schedule 1-A applies', () => {
     let thrown = false;
-    try { run(vehicle('3000', { vehiclePersonalUse: 'no' })); } catch { thrown = true; }
+    let result: ReturnType<typeof run> | undefined;
+    try { result = run(vehicle('3000', { vehiclePersonalUse: 'no' })); } catch { thrown = true; }
     expect(thrown).toBe(false);
+    expect(result).toMatchObject({ needsMoreInformation: [] });
     expect(() => run(vehicle('3000', { vehicleVIN: '' }))).toThrow(/17-character vehicle identification number/);
     expect(() => run(vehicle('3000', { vehicleVIN: '1HGCM82633A00435I' }))).toThrow(OBBBADeductionReviewRequiredError);
     expect(run(vehicle('3000', { vehicleVIN: SYNTHETIC_VIN.toLowerCase() })).vehicleLoanInterest.deduction).toBe(3000);
@@ -195,10 +197,12 @@ describe('Form 1040 applies Schedule 1-A before the QBI cap', () => {
 
   it('propagates the review errors instead of a partial deduction', () => {
     let thrown = false;
+    let result: ReturnType<typeof compute1040> | undefined;
     try {
-      compute1040({ ...base, vehicleBusinessUsePercentage: 60, businessVehicleBusinessUsePercentage: 60, personalDeductionOrganizer: organizer(vehicle('600', { vehiclePersonalUse: 'no' })) });
+      result = compute1040({ ...base, vehicleBusinessUsePercentage: 60, businessVehicleBusinessUsePercentage: 60, personalDeductionOrganizer: organizer(vehicle('600', { vehiclePersonalUse: 'no' })) });
     } catch { thrown = true; }
     expect(thrown).toBe(false);
+    expect(result).toMatchObject({ obbbaDeductions: { needsMoreInformation: [] } });
     expect(() => compute1040({ ...base, scheduleCNetProfit: 20000, personalDeductionOrganizer: organizer(tips('4000', { tipsBusinessSSTB: 'yes' })) })).toThrow(OBBBADeductionReviewRequiredError);
   });
 });

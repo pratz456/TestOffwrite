@@ -10,7 +10,7 @@ import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
 import { reconcileBusinessIncome, IncomeReconciliationRequiredError } from '@/lib/tax-rules/business-income';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { aggregateScheduleC, CATEGORY_MAP, type LineItemSummary } from '@/lib/schedule-c/aggregate';
-import { OBBBADeductionReviewRequiredError, scheduleCLine16bVehicleInterest } from '@/lib/tax-rules/obbba-deductions';
+import { additionalScheduleCLine16bInterest, OBBBADeductionReviewRequiredError } from '@/lib/tax-rules/obbba-deductions';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
@@ -45,21 +45,24 @@ export async function POST(request: NextRequest) {
     const profileData = profile.data;
     const businessVehicle = profileData?.business_vehicle;
     const organizerForInterest = orgSnap.empty ? {} : orgSnap.docs[0].data();
-    const vehicleLoanBusinessInterest = scheduleCLine16bVehicleInterest({
+    const interestInput = {
       taxYear: year, organizer: organizerForInterest,
       vehicleBusinessUsePercentage: profileData?.vehicle_business_use_percentage,
       businessVehicleBusinessUsePercentage: businessVehicle?.business_use_percentage,
-    });
-    // The business share is a Schedule C line. Needs more information is not a line item.
+    };
+    const existingInterest = aggregate.lineItemsArray.find(item => item.lineCode === '16b');
+    // A car payment or its interest already on line 16b counts once. Other interest on 16b still receives the business share.
+    const vehicleLoanBusinessInterest = additionalScheduleCLine16bInterest(interestInput, existingInterest?.transactions ?? []);
     if (vehicleLoanBusinessInterest !== 0) {
-      const interestLine: LineItemSummary = {
-        lineCode: '16b', lineName: 'Other interest', total: vehicleLoanBusinessInterest, deductible: vehicleLoanBusinessInterest, transactionCount: 0, transactions: [],
-      };
-      const existing = aggregate.lineItemsArray.find(item => item.lineCode === '16b');
-      if (existing) {
-        existing.total = Math.round((existing.total + vehicleLoanBusinessInterest + Number.EPSILON) * 100) / 100;
-        existing.deductible = Math.round((existing.deductible + vehicleLoanBusinessInterest + Number.EPSILON) * 100) / 100;
-      } else aggregate.lineItemsArray.push(interestLine);
+      if (existingInterest) {
+        existingInterest.total = Math.round((existingInterest.total + vehicleLoanBusinessInterest + Number.EPSILON) * 100) / 100;
+        existingInterest.deductible = Math.round((existingInterest.deductible + vehicleLoanBusinessInterest + Number.EPSILON) * 100) / 100;
+      } else {
+        const interestLine: LineItemSummary = {
+          lineCode: '16b', lineName: 'Other interest', total: vehicleLoanBusinessInterest, deductible: vehicleLoanBusinessInterest, transactionCount: 0, transactions: [],
+        };
+        aggregate.lineItemsArray.push(interestLine);
+      }
       aggregate.lineItemsArray.sort((a, b) => parseInt(a.lineCode, 10) - parseInt(b.lineCode, 10));
     }
     if (body.format === 'csv') return new NextResponse(generateScheduleCCSV(aggregate.lineItemsArray, year), {

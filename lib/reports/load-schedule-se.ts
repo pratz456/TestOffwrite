@@ -9,7 +9,7 @@ import { normalizeFilingStatus } from '@/lib/tax-rules/filing-status';
 import { summarizeW2Income } from '@/lib/tax-rules/w2-income';
 import { getFederalTaxRules } from '@/lib/tax-rules/federal-year-rules';
 import { computeScheduleCProfit } from '@/lib/tax-rules/schedule-c-profit';
-import { scheduleCLine16bVehicleInterest } from '@/lib/tax-rules/obbba-deductions';
+import { additionalScheduleCLine16bInterest } from '@/lib/tax-rules/obbba-deductions';
 import { calcScheduleSE } from './calcSE';
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
 export class TaxExportDataUnavailableError extends Error {
@@ -35,18 +35,18 @@ export async function loadScheduleCRecords(uid: string, taxYear: number) {
   const expense = aggregateScheduleC(transactions, String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' });
   const w2 = summarizeW2Income(wages.docs.map(doc => doc.data()));
   const organizer = organizerSnap.empty ? {} : organizerSnap.docs[0].data();
-  const vehicleLoanBusinessInterest = scheduleCLine16bVehicleInterest({
+  const vehicleLoanBusinessInterest = additionalScheduleCLine16bInterest({
     taxYear, organizer,
     vehicleBusinessUsePercentage: profile.data.vehicle_business_use_percentage,
     businessVehicleBusinessUsePercentage: profile.data.business_vehicle?.business_use_percentage,
-  });
+  }, expense.lineItems['16b']?.transactions ?? []);
   return {
     taxYear, profile: profile.data, transactions, receipts, expense, w2, w2Count: wages.docs.length,
     w2SocialSecurityBoxesComplete: wages.docs.every(doc => doc.data().box3SocialSecurityWages != null || doc.data().socialSecurityWages != null),
     w2MedicareBoxesComplete: wages.docs.every(doc => doc.data().box5MedicareWages != null || doc.data().medicareWages != null),
     deductions: deductions.empty ? {} : deductions.docs[0].data(),
     assets: settings.data.assets, homeOffice: settings.data.homeOffice, depreciationElections: settings.data.depreciationElections,
-    /** Business share of passenger vehicle loan interest on Schedule C line 16b. Unknown share is $0. */
+    /** Business share of passenger vehicle loan interest not already on Schedule C line 16b. Unknown share is $0. */
     vehicleLoanBusinessInterest,
     /** §179(b)(3) business income: Schedule C profit before assets plus employee wages (Pub 946 ch. 2). */
     section179BusinessIncome: receipts.grossReceipts - expense.totalDeductible - vehicleLoanBusinessInterest + w2.wages,

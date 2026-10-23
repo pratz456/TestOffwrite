@@ -209,6 +209,51 @@ export function scheduleCLine16bVehicleInterest(input: {
   return roundedPercentShare(interest, businessPercent);
 }
 
+const AUTO_LOAN_PAYMENT = /\btoyota\s*financial\b|\bhonda\s*financial\b|\bford\s*credit\b|\bgm\s*financial\b|\bally\s*(?:auto|financial)\b|\bcapital\s*one\s*auto\b|\bauto\s*loan\b|\bcar\s*payment\b/i;
+
+function sameCents(left: number, right: number): boolean {
+  return Math.round(left * 100) === Math.round(right * 100);
+}
+
+function lenderVehicleInterestAmount(organizer: Record<string, unknown>, taxYear: number): number {
+  const saved = readOBBBADeductionAnswers(organizer[OBBBA_DEDUCTION_FIELD]);
+  const facts = saved && saved.taxYear === taxYear ? saved : undefined;
+  if (!facts || facts.hasVehicleLoanInterest !== 'yes') return 0;
+  const raw = typeof facts.vehicleLoanInterestAmount === 'string' ? facts.vehicleLoanInterestAmount.trim() : '';
+  if (!/^\d+(?:\.\d{1,2})?$/.test(raw)) return 0;
+  return Number(raw);
+}
+
+/**
+ * Business share of vehicle loan interest that is not already on Schedule C line 16b.
+ * A car payment, or that loan's interest, already on the line counts once.
+ * Other interest on 16b does not absorb this share.
+ */
+export function additionalScheduleCLine16bInterest(
+  input: {
+    taxYear: number;
+    organizer: Record<string, unknown>;
+    vehicleBusinessUsePercentage: unknown;
+    businessVehicleBusinessUsePercentage: unknown;
+  },
+  line16bTransactions: ReadonlyArray<{ category?: unknown; merchant_name?: unknown; amount?: unknown }>,
+): number {
+  const businessShare = scheduleCLine16bVehicleInterest(input);
+  if (businessShare === 0) return 0;
+  const lenderInterest = lenderVehicleInterestAmount(input.organizer, input.taxYear);
+  const alreadyCents = line16bTransactions.reduce((sum, tx) => {
+    const category = typeof tx.category === 'string' ? tx.category : '';
+    const merchant = typeof tx.merchant_name === 'string' ? tx.merchant_name : '';
+    const amount = typeof tx.amount === 'number' && Number.isFinite(tx.amount) ? tx.amount : 0;
+    const carPayment = category === 'LOAN_PAYMENTS_CAR_PAYMENT' || AUTO_LOAN_PAYMENT.test(merchant);
+    const itsInterest = category === 'BANK_FEES_INTEREST_CHARGE'
+      && (AUTO_LOAN_PAYMENT.test(merchant) || sameCents(amount, lenderInterest) || sameCents(amount, businessShare));
+    if (!carPayment && !itsInterest) return sum;
+    return sum + Math.round(amount * 100);
+  }, 0);
+  return round(Math.max(0, businessShare - alreadyCents / 100));
+}
+
 /**
  * Below-the-line deductions taken after AGI whether or not itemizing (§63(b)(5)–(7)).
  * Unanswered intake produces no deduction and a warning; an explicit claim with

@@ -19,9 +19,6 @@ const place = (facts: Partial<OBBBADeductionAnswers>, overrides: Partial<OBBBADe
   ...overrides,
 });
 
-const carLoanInformation = (items: { note: string }[] | undefined) =>
-  (items ?? []).filter(item => /schedule 1-a|car loan|vehicle business use|vehicle loan interest/i.test(item.note));
-
 describe('car loan interest is deducted in one place', () => {
   it('an answer of no puts 0 on Schedule 1-A, adds no car loan needs more information entry, and still puts the business share on line 16b', () => {
     let thrown = false;
@@ -38,7 +35,7 @@ describe('car loan interest is deducted in one place', () => {
       vehicleLoanInterest: { deduction: 0, amountReported: 240 },
       scheduleOneATotal: 0,
     });
-    expect(carLoanInformation(result?.needsMoreInformation)).toEqual([]);
+    expect(result).toMatchObject({ needsMoreInformation: [] });
     expect(result?.warnings ?? []).not.toContain(EXPECTED_USE_NOTE);
   });
 
@@ -70,7 +67,7 @@ describe('car loan interest is deducted in one place', () => {
     const declined = run({ vehicleExpectedPersonalUseOver50AtPurchase: 'no' });
     expect(declined.scheduleCLine16b).toBe(360);
     expect(declined.vehicleLoanInterest.deduction).toBe(0);
-    expect(carLoanInformation(declined.needsMoreInformation)).toEqual([]);
+    expect(declined.needsMoreInformation).toEqual([]);
     const missing = run({ vehicleExpectedPersonalUseOver50AtPurchase: undefined });
     expect(missing.scheduleCLine16b).toBe(360);
     expect(missing.vehicleLoanInterest.deduction).toBe(0);
@@ -218,6 +215,25 @@ describe('federal snapshot reduces Schedule C profit by the business share', () 
     expect(snapshot.obbbaDeductions?.scheduleCLine16b).toBe(240);
     expect(snapshot.obbbaDeductions?.vehicleLoanInterest.deduction).toBe(360);
     expect(snapshot.result.vehicleLoanInterestDeduction).toBe(360);
+    expect(snapshot.obbbaDeductions?.needsMoreInformation).toEqual([]);
+  });
+
+  it('keeps a confirmed $360 car payment at $360 of expenses when the business share is also $360', () => {
+    const snapshot = buildFederalTaxSnapshot({
+      taxYear: 2026,
+      profile: { filing_status: 'single', vehicle_business_use_percentage: 60 },
+      organizer: reviewedPersonalDeductionOrganizer(2026, {}, {
+        obbbaDeductionFacts: reviewedOBBBADeductionFacts(2026, vehicle('600')),
+      }),
+      transactions: [{ amount: 360, date: '2026-03-01', category: 'LOAN_PAYMENTS_CAR_PAYMENT', is_deductible: true, merchant_name: 'TOYOTA FINANCIAL' }],
+      grossReceipts: [{ amount: 100000 }], forms1099: [], w2Entries: [],
+      deductions: {}, assets: [], estimatedPayments: 0,
+    });
+    expect(snapshot.income.totalDeductible).toBe(360);
+    expect(snapshot.income.scheduleCNetProfit).toBe(99640);
+    expect(snapshot.obbbaDeductions?.scheduleCLine16b).toBe(360);
+    expect(snapshot.obbbaDeductions?.vehicleLoanInterest.deduction).toBe(240);
+    expect(snapshot.result.vehicleLoanInterestDeduction).toBe(240);
     expect(snapshot.obbbaDeductions?.needsMoreInformation).toEqual([]);
   });
 });

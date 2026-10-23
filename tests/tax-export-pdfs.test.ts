@@ -5,8 +5,9 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import type { UserProfile } from '../lib/firebase/profiles-server';
 import type { Asset } from '../lib/reports/calc4562';
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+import { reviewedOBBBADeductionFacts } from './fixtures/tier1-facts';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
-const state = vi.hoisted(() => ({ records: {} as Record<string, Record<string, unknown>[]>, transactions: [] as Record<string, unknown>[], assets: [] as Asset[], fail: '', queries: [] as string[], extraWarnings: [] as string[] }));
+const state = vi.hoisted(() => ({ records: {} as Record<string, Record<string, unknown>[]>, transactions: [] as Record<string, unknown>[], assets: [] as Asset[], fail: '', queries: [] as string[], extraWarnings: [] as string[], profile: {} as Record<string, unknown> }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'export-owner' } }) }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: async () => ({ uid: 'export-owner' }) }));
@@ -22,7 +23,7 @@ vi.mock('@/lib/tax-rules/compute-1040', async importOriginal => {
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
 vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: async () => { if (state.fail === 'transactions') throw new Error('private failure'); return state.transactions; } }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: state.transactions, error: state.fail === 'transactions' ? new Error('private failure') : null }) }));
-vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { name: 'Synthetic Taxpayer', profession: 'Consultant', filing_status: 'single', primary_work_location: 'Home Office' }, error: state.fail === 'profile' ? new Error('private failure') : null }) }));
+vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { name: 'Synthetic Taxpayer', profession: 'Consultant', filing_status: 'single', primary_work_location: 'Home Office', ...state.profile }, error: state.fail === 'profile' ? new Error('private failure') : null }) }));
 vi.mock('@/lib/firebase/settings-server', () => ({
   getAssetsSettings: async () => ({ data: state.assets, error: state.fail === 'assets' ? new Error('private failure') : null }),
   getScheduleCSettings: async () => state.fail === 'assets'
@@ -60,7 +61,7 @@ function inspectText() {
     }
   } };
 }
-beforeEach(() => { vi.restoreAllMocks(); resetRateLimitStore(); state.records = { gross_receipts: [record({ amount: 100000 })] }; state.transactions = []; state.assets = []; state.fail = ''; state.queries = []; state.extraWarnings = []; });
+beforeEach(() => { vi.restoreAllMocks(); resetRateLimitStore(); state.records = { gross_receipts: [record({ amount: 100000 })] }; state.transactions = []; state.assets = []; state.fail = ''; state.queries = []; state.extraWarnings = []; state.profile = {}; });
 
 describe('Schedule C real PDF and request integrity', () => {
   it.each([2027, 2026.5, '2026junk', '', null])('rejects unsupported/malformed year %s before fetching records', async year => {
@@ -102,6 +103,46 @@ describe('Schedule C real PDF and request integrity', () => {
   });
   it('uses the actual changed OtherExpenses line reference by year', () => {
     expect(scheduleCExportLine('27a', 2024)).toBe('27a'); expect(scheduleCExportLine('27a', 2025)).toBe('27b'); expect(scheduleCExportLine('24b', 2026)).toBe('24b');
+  });
+
+  it('counts vehicle loan interest once when a car payment or that interest is already on line 16b', async () => {
+    state.profile = { vehicle_business_use_percentage: 60 };
+    state.records.tax_organizers = [record({ obbbaDeductionFacts: reviewedOBBBADeductionFacts(2026, { hasVehicleLoanInterest: 'yes', vehicleLoanInterestAmount: '600' }) })];
+    const placed = (fields: Record<string, unknown>) => ({ id: 'placed-interest', date: '2026-03-01', iso_currency_code: 'USD', is_deductible: true, ...fields });
+    const exportText = async () => {
+      const view = inspectText();
+      const response = await scheduleC(request({ year: 2026, includeAppendix: false }));
+      expect(response.status).toBe(200);
+      return view.text();
+    };
+    state.transactions = [placed({ merchant_name: 'TOYOTA FINANCIAL', amount: 360, category: 'LOAN_PAYMENTS_CAR_PAYMENT' })];
+    const carPayment = await exportText();
+    expect(carPayment).toContain('Other interest - 1 confirmed records');
+    expect(carPayment).toContain('$360.00');
+    expect(carPayment).toContain('$99,640.00');
+    expect(carPayment).not.toContain('$720.00');
+    expect(carPayment).not.toContain('$99,280.00');
+
+    state.transactions = [placed({ merchant_name: 'LENDER INTEREST', amount: 600, category: 'BANK_FEES_INTEREST_CHARGE' })];
+    const recordedInterest = await exportText();
+    expect(recordedInterest).toContain('Other interest - 1 confirmed records');
+    expect(recordedInterest).toContain('$600.00');
+    expect(recordedInterest).toContain('$99,400.00');
+    expect(recordedInterest).not.toContain('$960.00');
+    expect(recordedInterest).not.toContain('$99,040.00');
+
+    state.transactions = [placed({ merchant_name: 'SYNTHETIC CARD INTEREST', amount: 125, category: 'BANK_FEES_INTEREST_CHARGE' })];
+    const otherInterest = await exportText();
+    expect(otherInterest).toContain('Other interest - 1 confirmed records');
+    expect(otherInterest).toContain('$485.00');
+    expect(otherInterest).toContain('$99,515.00');
+    expect(otherInterest).not.toContain('$845.00');
+
+    state.transactions = [];
+    const computedOnly = await exportText();
+    expect(computedOnly).toContain('Other interest - 0 confirmed records');
+    expect(computedOnly).toContain('$360.00');
+    expect(computedOnly).toContain('$99,640.00');
   });
 });
 
