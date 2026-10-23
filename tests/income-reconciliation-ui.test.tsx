@@ -2,8 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactElement } from 'react';
 
 // Runs the real UI request/state handlers against the real reconciliation engine. Not a browser rendering test.
-const harness = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effects: [] as (() => void)[], request: vi.fn(), navigate: vi.fn(), changed: vi.fn() }));
+const harness = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effects: [] as (() => void)[], request: vi.fn(), navigate: vi.fn(), changed: vi.fn(), toast: vi.fn() }));
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: harness.request }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: harness.navigate }) }));
+vi.mock('sonner', () => ({ toast: { error: harness.toast, warning: harness.toast, success: harness.toast } }));
+vi.mock('@/lib/hooks/use-subscription', () => ({ useSubscription: () => ({ canAccess: () => true, isTrial: false, isPaid: true, isLoading: false, status: null }) }));
+vi.mock('@/lib/firebase/client', () => ({ auth: { currentUser: { getIdToken: async () => 'synthetic-id-token' } } }));
 vi.mock('react', async importOriginal => {
   const actual = await importOriginal<typeof import('react')>();
   const same = (a: unknown[] | undefined, b: unknown[]) => a?.length === b.length && a.every((value, index) => Object.is(value, b[index]));
@@ -23,6 +27,12 @@ vi.mock('react', async importOriginal => {
       if (!same(harness.slots[index]?.deps, deps)) harness.slots[index] = { deps, callback };
       return harness.slots[index].callback;
     },
+    useMemo(factory: () => unknown, deps: unknown[]) {
+      const index = harness.cursor++;
+      if (!same(harness.slots[index]?.deps, deps)) harness.slots[index] = { deps, value: factory() };
+      return harness.slots[index].value;
+    },
+    useId() { return 'synthetic-id'; },
     useEffect(effect: () => void | (() => void), deps: unknown[]) {
       const index = harness.cursor++; const previous = harness.slots[index];
       if (!same(previous?.deps, deps)) {
@@ -34,11 +44,16 @@ vi.mock('react', async importOriginal => {
   return { ...actual, ...hooks, default: { ...actual.default, ...hooks } };
 });
 import { IncomeReconciliationPanel } from '../components/income-reconciliation-panel';
+import { ScheduleCExportScreen } from '../components/schedule-c-export-screen';
 import { TaxPreviewScreen } from '../components/tax-preview-screen';
 import { incomeScreenTab, incomeScreenYear } from '../components/income-tracking-screen';
 import { protectedScreenUrl } from '../lib/navigation/protected-screens';
 import { formsConfirmationError } from '../lib/tax-rules/income-reconciliation';
-import { isLegacySamePaymentsResave, prepareReconciliationDecision, summarizeIncomeReconciliation, type IncomeSourceRecords } from '../lib/tax-rules/income-reconciliation-response';
+import { UNLINKED_SOURCES_MESSAGE } from '../lib/tax-rules/income-reconciliation';
+import { incomeReconciliationReviewBody, isLegacySamePaymentsResave, prepareReconciliationDecision, summarizeIncomeReconciliation, type IncomeSourceRecords } from '../lib/tax-rules/income-reconciliation-response';
+import { IncomeReconciliationRequiredError, reconcileBusinessIncome } from '../lib/tax-rules/business-income';
+import { buildFederalTaxSnapshot } from '../lib/tax-rules/federal-tax-snapshot';
+import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
 import {
   COMPARE_DIFF, COMPARE_SAME_AMOUNT, COMPARE_TITLE, CONFIRM_SAME_BACK, CONFIRM_SAME_TITLE, CONFIRM_SAME_YES,
   CORRECTED_ORIGINAL_BADGE, CORRECTED_PICK_QUESTION, CORRECTED_PREVIEW, DECISION_HELP_CORRECTED, DECISION_LABEL_CORRECTED,
@@ -118,6 +133,8 @@ beforeEach(() => {
 
 describe('income reconciliation panel', () => {
   it('explains the hold, shows the conflicting records side by side, and never offers an automatic merge', async () => {
+    process.env[FLAG] = '1';
+    process.env.legacyNecReopen = '1';
     render(panel); await flush(); const tree = render(panel); const content = text(tree);
     expect(content).toContain('never merges, edits or deletes income records automatically');
     expect(content).toContain('Tax totals for 2026 are on hold');
@@ -275,8 +292,15 @@ const radios = (tree: Element) => walk(tree).filter(node => node.props?.type ===
 const clickText = (tree: Element, label: string) => walk(tree).find(node => typeof node.props?.onClick === 'function' && text(node) === label)!.props.onClick();
 
 describe('reconciliation choice and guide question', () => {
-  beforeEach(() => { process.env[FLAG] = '1'; });
-  afterEach(() => { delete process.env[FLAG]; });
+  beforeEach(() => {
+    process.env[FLAG] = '1';
+    process.env.legacyDecisionReconfirm = '1';
+  });
+  afterEach(() => {
+    delete process.env[FLAG];
+    delete process.env.legacyDecisionReconfirm;
+    delete process.env.legacyNecReopen;
+  });
 
   it('starts with no decision selected', async () => {
     records.receipts = [];
@@ -486,6 +510,7 @@ describe('reconciliation choice and guide question', () => {
   });
 
   it('shows the corrected threshold copy', async () => {
+    process.env.legacyNecReopen = '1';
     render(panel); await flush();
     const content = text(render(panel));
     expect(content).toContain(PANEL_FORMS_NOTE);
@@ -514,6 +539,7 @@ describe('reconciliation choice and guide question', () => {
   });
 
   it('disables same payments for two 1099-NEC forms and counts both on one separate-income save', async () => {
+    process.env.legacyNecReopen = '1';
     records.receipts = [];
     records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
     render(panel); await flush();
@@ -532,6 +558,7 @@ describe('reconciliation choice and guide question', () => {
   });
 
   it('shows the corrected-form label and keeps the code name off the label', async () => {
+    process.env.legacyNecReopen = '1';
     expect(DECISION_LABEL_CORRECTED).toBe('A client sent a corrected 1099-NEC');
     expect(CORRECTED_ORIGINAL_BADGE).toBe('Original form. A corrected form was sent, so this one is kept but not counted.');
     expect(DECISION_HELP_CORRECTED).toBe('Use this when a client sent you a corrected 1099-NEC. We count the corrected form and keep the original in your records without counting it.');
@@ -565,8 +592,16 @@ function classNames(node: unknown): string[] {
 const posts = () => harness.request.mock.calls.filter(([, init]) => init?.method === 'POST' || init?.method === 'PATCH');
 
 describe('confirm step, compare and corrected form', () => {
-  beforeEach(() => { process.env[FLAG] = '1'; });
-  afterEach(() => { delete process.env[FLAG]; });
+  beforeEach(() => {
+    process.env[FLAG] = '1';
+    process.env.legacyDecisionReconfirm = '1';
+    process.env.legacyNecReopen = '1';
+  });
+  afterEach(() => {
+    delete process.env[FLAG];
+    delete process.env.legacyDecisionReconfirm;
+    delete process.env.legacyNecReopen;
+  });
 
   it('saves two forms as separate income in one request', async () => {
     records.receipts = [];
@@ -1015,5 +1050,220 @@ describe('tax preview reconcile link', () => {
     await walk(render(screen)).find(node => node.props?.['aria-label'] === 'Refresh tax estimate')!.props.onClick();
     await flush();
     expect(incomeLink().props.href).toBe(incomeReconciliationPath(2026));
+  });
+});
+
+describe('reconciliation copy with every switch off', () => {
+  const newCopy = Object.entries(incomeCopy).filter((entry): entry is [string, string] => entry[0] !== 'RECONCILE_BUTTON' && typeof entry[1] === 'string');
+
+  function leavesOf(node: any, into: string[] = []): string[] {
+    if (Array.isArray(node)) { node.forEach(item => leavesOf(item, into)); return into; }
+    if (node && typeof node === 'object') {
+      const type = node.type;
+      if (typeof type === 'function' && (type.name === 'TaxCalculationNotice' || type.name === 'IncomeReconciliationExportCard')) leavesOf(type(node.props), into);
+      leavesOf(node.props?.children, into);
+      return into;
+    }
+    if (typeof node === 'string' || typeof node === 'number') into.push(String(node));
+    return into;
+  }
+
+  function assertNoNewCopy(panelLeaves: string[], screenLeaves: string[]) {
+    const content = [...panelLeaves, ...screenLeaves].join('\n');
+    for (const [name, value] of newCopy) {
+      if (value.includes('{')) {
+        const pattern = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{[A-Za-z]+\\\}/g, '[\\s\\S]{0,80}');
+        expect(content, name).not.toMatch(new RegExp(pattern));
+      } else if (value.length <= 8) {
+        expect(panelLeaves, name).not.toContain(value);
+      } else {
+        expect(content, name).not.toContain(value);
+      }
+    }
+  }
+
+  const sources = (pairs: Array<[string, string, number]>) => pairs.map(([kind, id, amount]) => ({ kind, id, amount }));
+  async function showPanel(taxYear = 2026) {
+    harness.slots = [];
+    const view = taxYear === 2026 ? panel : panelFor(taxYear);
+    render(view); await flush();
+    return render(view);
+  }
+  function clickDecision(tree: Element, value: string) {
+    const node = walk(tree).find(item => item.props?.type === 'radio' && item.props?.name === 'reconciliation-decision' && item.props?.value === value);
+    if (node) node.props.onChange();
+  }
+  function clickLabel(tree: Element, label: string) {
+    const node = walk(tree).find(item => typeof item.props?.onClick === 'function' && text(item) === label);
+    if (node) node.props.onClick();
+  }
+  function editSaved(tree: Element) {
+    const button = walk(tree).find(item => typeof item.props?.['aria-label'] === 'string' && String(item.props['aria-label']).startsWith('Edit decision'));
+    if (button) button.props.onClick();
+  }
+
+  it('renders the reconciliation screens without any of the new strings', async () => {
+    expect(newCopy).toHaveLength(75);
+    const panelLeaves: string[] = [];
+    const screenLeaves: string[] = [];
+    const keep = (tree: Element) => { panelLeaves.push(...leavesOf(tree)); };
+    const keepScreen = (tree: Element) => { screenLeaves.push(...leavesOf(tree)); };
+
+    records.receipts = [];
+    records.transactions = [];
+    records.decisions = [];
+    records.forms = [form('k1', 12000), form('n1', 12000, '1099-NEC', 'Client A')];
+    let tree = await showPanel();
+    keep(tree);
+    expect(text(tree)).toContain('only above $20,000 and 200 transactions');
+    check(tree, '1099-K · Synthetic platform $12,000.00');
+    check(render(panel), '1099-NEC · Client A $12,000.00');
+    tree = render(panel);
+    keep(tree);
+    for (const label of [incomeCopy.GUIDE_ANSWER_APP, incomeCopy.GUIDE_ANSWER_BANK, incomeCopy.GUIDE_ANSWER_NOT_SURE]) clickLabel(tree, label);
+    tree = render(panel);
+    keep(tree);
+    for (const value of ['k_not_business_income', 'partial_overlap', 'corrected_form_replaces', 'separate_income', 'same_payments']) {
+      clickDecision(render(panel), value);
+      tree = render(panel);
+      keep(tree);
+      const refunds = walk(tree).find(item => item.props?.['aria-label'] === incomeCopy.REASON_REFUNDS);
+      if (refunds) refunds.props.onChange();
+      keep(render(panel));
+    }
+    const ready = render(panel);
+    expect(walk(ready).find(item => item.props?.type === 'submit')!.props.disabled).toBe(false);
+    await submit(ready);
+    await flush();
+    keep(render(panel));
+
+    records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
+    records.decisions = [];
+    tree = await showPanel();
+    check(tree, '1099-NEC · Client A $12,000.00');
+    const second = walk(render(panel)).filter(item => item.props?.['aria-label'] === 'Select 1099-NEC · Client B $12,000.00');
+    second[second.length - 1].props.onChange({ target: { checked: true } });
+    clickDecision(render(panel), 'same_payments');
+    tree = render(panel);
+    keep(tree);
+    expect(preview(tree)).toContain(UNLINKED_SOURCES_MESSAGE);
+
+    records.forms = [form('k1', 10000)];
+    records.transactions = [deposit('t1', 8000)];
+    tree = await showPanel();
+    check(tree, '1099-K · Synthetic platform $10,000.00');
+    check(render(panel), 'Bank income · Synthetic platform payout $8,000.00');
+    clickDecision(render(panel), 'separate_income');
+    tree = render(panel);
+    keep(tree);
+    expect(preview(tree)).toContain(UNLINKED_SOURCES_MESSAGE);
+    expect(preview(tree)).not.toContain('$18,000.00');
+
+    records.transactions = [];
+    records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
+    records.decisions = [{ id: 'legacy', taxYear: 2026, decision: 'same_payments', version: 1, platformFeeAmount: null, countedAmount: 12000, sources: sources([['form_1099', 'n1', 12000], ['form_1099', 'n2', 12000]]) }];
+    keep(await showPanel());
+    records.decisions = [{ id: 'legacy', taxYear: 2025, decision: 'same_payments', version: 1, platformFeeAmount: null, countedAmount: 12000, sources: sources([['form_1099', 'n1', 12000], ['form_1099', 'n2', 12000]]) }];
+    keep(await showPanel(2025));
+
+    records.forms = [form('k1', 3000)];
+    records.transactions = [deposit('t1', 1700)];
+    records.decisions = [{ id: 'kdec', taxYear: 2026, decision: 'k_not_business_income', platformFeeAmount: 0, countedAmount: 2200, notBusinessParts: [{ reason: 'refunds_credits', amount: 500 }, { reason: 'personal', amount: 800 }], sources: sources([['form_1099', 'k1', 3000], ['transaction', 't1', 1700]]) }];
+    tree = await showPanel();
+    keep(tree);
+    editSaved(tree);
+    keep(render(panel));
+
+    records.transactions = [deposit('t1', 10000)];
+    records.forms = [form('k1', 10000), form('n1', 8000, '1099-NEC', 'Client A')];
+    records.decisions = [{ id: 'part', taxYear: 2026, decision: 'partial_overlap', overlapAmount: 3000, platformFeeAmount: 0, countedAmount: 15000, sources: sources([['form_1099', 'k1', 10000], ['form_1099', 'n1', 8000], ['transaction', 't1', 10000]]) }];
+    tree = await showPanel();
+    keep(tree);
+    editSaved(tree);
+    keep(render(panel));
+
+    records.transactions = [];
+    records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12500, '1099-NEC', 'Client A')];
+    records.decisions = [{ id: 'corr', taxYear: 2026, decision: 'corrected_form_replaces', correctedFormId: 'n2', platformFeeAmount: 0, countedAmount: 12500, sources: sources([['form_1099', 'n1', 12000], ['form_1099', 'n2', 12500]]) }];
+    tree = await showPanel();
+    keep(tree);
+    editSaved(tree);
+    keep(render(panel));
+
+    records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
+    records.decisions = [{ id: 'badcorr', taxYear: 2026, decision: 'corrected_form_replaces', correctedFormId: 'n2', platformFeeAmount: 0, countedAmount: 12000, sources: sources([['form_1099', 'n1', 12000], ['form_1099', 'n2', 12000]]) }];
+    tree = await showPanel();
+    keep(tree);
+    editSaved(tree);
+    keep(render(panel));
+
+    records.forms = [form('k1', 10000), form('n1', 8000, '1099-NEC', 'Client A')];
+    records.decisions = [{ id: 'badpart', taxYear: 2026, decision: 'partial_overlap', overlapAmount: 0, platformFeeAmount: 0, countedAmount: 18000, sources: sources([['form_1099', 'k1', 10000], ['form_1099', 'n1', 8000]]) }];
+    tree = await showPanel();
+    keep(tree);
+    editSaved(tree);
+    keep(render(panel));
+
+    records.forms = [form('k1', 3000)];
+    records.decisions = [{ id: 'badk', taxYear: 2026, decision: 'k_not_business_income', platformFeeAmount: 0, countedAmount: 3000, notBusinessParts: [], sources: sources([['form_1099', 'k1', 3000]]) }];
+    tree = await showPanel();
+    keep(tree);
+    editSaved(tree);
+    keep(render(panel));
+
+    const snapshotFor = (taxYear: number, forms1099: typeof records.forms, decisions: typeof records.decisions, transactions: typeof records.transactions = []) => buildFederalTaxSnapshot({
+      taxYear, transactions, grossReceipts: [], forms1099, reconciliationDecisions: decisions,
+      w2Entries: [{ wages: 100000, federalWithheld: 0, socialSecurityWages: 100000, medicareWages: 100000 }],
+      profile: { filing_status: 'single' }, organizer: reviewedPersonalDeductionOrganizer(taxYear), deductions: {}, assets: [], estimatedPayments: 0,
+    }).result.calculationWarnings;
+    const previewPayload = (warnings: string[]) => ({
+      form1040: { taxYear: 2026, refund: 0, balanceDue: 0, deductionUsed: 0, usingStandardDeduction: true, totalPayments: 0, totalIncome: 1, agi: 0, totalTax: 0, effectiveRate: 0, calculationWarnings: warnings },
+      income: { grossReceipts: 1, w2Wages: 1, totalDeductible: 1 },
+      w2: { count: 1 },
+      deductions: { healthInsurancePremiums: 1, sepIraContribution: 1 },
+    });
+    const screen = () => TaxPreviewScreen({ user: { id: 'owner' }, onBack() {}, onNavigate: harness.navigate });
+    vi.stubGlobal('window', { URL: { createObjectURL: () => 'blob:synthetic', revokeObjectURL: () => undefined } });
+    vi.stubGlobal('document', { createElement: () => ({ click() {}, href: '', download: '' }), body: { appendChild() {}, removeChild() {} } });
+    try {
+      const necForms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
+      const necDecision = (taxYear: number) => [{ id: 'legacy', taxYear, decision: 'same_payments', version: 1, platformFeeAmount: null, countedAmount: 12000, sources: sources([['form_1099', 'n1', 12000], ['form_1099', 'n2', 12000]]) }];
+      const warningCases = [
+        snapshotFor(2026, necForms, necDecision(2026)),
+        snapshotFor(2025, necForms, necDecision(2025)),
+        snapshotFor(2026, [form('k1', 10000)], [{ id: 'kdec', taxYear: 2026, decision: 'k_not_business_income', platformFeeAmount: 0, countedAmount: 8000, notBusinessParts: [{ reason: 'refunds_credits', amount: 1000 }, { reason: 'personal', amount: 2000 }], sources: sources([['form_1099', 'k1', 10000], ['transaction', 't1', 7000]]) }], [deposit('t1', 7000)]),
+      ];
+      for (const warnings of warningCases) {
+        harness.request.mockResolvedValue(Response.json(previewPayload(warnings)));
+        harness.slots = [];
+        render(screen); await flush();
+        keepScreen(render(screen));
+      }
+
+      let review: ReturnType<typeof incomeReconciliationReviewBody> | undefined;
+      try { reconcileBusinessIncome(2026, [], [receipt('r1', 12000)], [form('k1', 12000)]); }
+      catch (error) { if (error instanceof IncomeReconciliationRequiredError) review = incomeReconciliationReviewBody(error, 2026); }
+      expect(review?.features.legacyDecisionReconfirm).toBe(false);
+      records.receipts = [];
+      records.transactions = [];
+      records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
+      records.decisions = [{ id: 'legacy', taxYear: 2026, decision: 'same_payments', version: 1, platformFeeAmount: null, countedAmount: 12000, sources: sources([['form_1099', 'n1', 12000], ['form_1099', 'n2', 12000]]) }];
+      harness.request.mockImplementation(api);
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(review), { status: 422, headers: { 'content-type': 'application/json' } })));
+      const exportProps = { user: { id: 'owner' }, onBack() {}, transactions: [{ id: 'expense-2026', merchant_name: 'Synthetic supplies', amount: 100, category: 'GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE', date: '2026-03-01', is_deductible: true }] };
+      harness.slots = [];
+      const exportView = () => ScheduleCExportScreen(exportProps);
+      render(exportView); await flush();
+      const exported = render(exportView);
+      keepScreen(exported);
+      await walk(exported).find(item => typeof item.props?.onClick === 'function' && text(item).includes('Export 2026 Schedule C Data'))!.props.onClick();
+      await flush();
+      keepScreen(render(exportView));
+    } finally {
+      vi.unstubAllGlobals();
+      harness.request.mockImplementation(api);
+    }
+
+    assertNoNewCopy(panelLeaves, screenLeaves);
   });
 });

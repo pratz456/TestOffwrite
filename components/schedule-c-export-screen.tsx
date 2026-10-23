@@ -14,6 +14,7 @@ import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { IncomeReconciliationExportCard, type ExportConflictRecord } from '@/components/income-reconciliation-export-card';
+import { reconciliationExportCardEnabled } from '@/lib/tax-rules/reconciliation-feature';
 import { LEGACY_RECONFIRM_TITLE } from '@/lib/tax-rules/income-reconciliation-copy';
 
 interface Transaction {
@@ -198,7 +199,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
             router.push(subscriptionGateDestination(subscriptionStatus));
             return;
           }
-          if (response.status === 422 && errorData.code === 'INCOME_RECONCILIATION_REQUIRED') {
+          if (response.status === 422 && errorData.code === 'INCOME_RECONCILIATION_REQUIRED' && reconciliationExportCardEnabled(errorData)) {
             setIncomeReview({
               conflicts: Array.isArray(errorData.conflicts) ? errorData.conflicts : [],
               reviewPath: typeof errorData.reviewPath === 'string' ? errorData.reviewPath : `/protected?screen=income-tracking&tab=reconcile&year=${selectedYear}`,

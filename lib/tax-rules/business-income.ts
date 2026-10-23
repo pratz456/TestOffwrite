@@ -1,5 +1,6 @@
 import { OUTSIDE_SC_NOTE } from './income-reconciliation-copy';
 import { resolveIncomeSources, type FeeExpenseCandidate, type IncomeReconciliationConflict, type IncomeSourceCandidate, type OutsideScheduleCItem } from './income-reconciliation';
+import { kNotBusinessIncomeEnabled } from './reconciliation-feature';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 
 export type IncomeRecord = Record<string, unknown>;
@@ -132,8 +133,10 @@ export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyA
   for (const fee of resolution.feeExpenseCandidates) {
     warnings.push(`Platform fees of $${fee.amount.toFixed(2)} recorded with ${fee.label} are an expense candidate for your review. Gross receipts use the 1099-K gross amount; the fee is not recorded as a deductible expense until you add and confirm it.`);
   }
-  for (const item of resolution.outsideScheduleC) {
-    warnings.push(`${OUTSIDE_SC_NOTE} Amount: $${item.amount.toFixed(2)}.`);
+  if (kNotBusinessIncomeEnabled()) {
+    for (const item of resolution.outsideScheduleC) {
+      warnings.push(`${OUTSIDE_SC_NOTE} Amount: $${item.amount.toFixed(2)}.`);
+    }
   }
   warnings.push(...resolution.notices);
   const unclaimedTotal = unclaimedCents.transaction + unclaimedCents.gross_receipt + unclaimedCents.form_1099;

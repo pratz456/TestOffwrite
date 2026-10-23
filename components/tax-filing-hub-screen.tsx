@@ -19,6 +19,7 @@ import {
 import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import { IncomeReconciliationExportCard, reconciliationScreenTarget, type ExportConflictRecord } from "@/components/income-reconciliation-export-card";
+import { reconciliationExportCardEnabled } from "@/lib/tax-rules/reconciliation-feature";
 
 interface FilingHubProps {
   user: { id: string; email?: string };
@@ -236,7 +237,7 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
         body: JSON.stringify(routes[formType] ? { year: Number(year) } : { type: formType, year: Number(year) }) });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        if (formType === 'schedule-c' && res.status === 422 && data.code === 'INCOME_RECONCILIATION_REQUIRED') {
+        if (formType === 'schedule-c' && res.status === 422 && data.code === 'INCOME_RECONCILIATION_REQUIRED' && reconciliationExportCardEnabled(data)) {
           if (active.current === context) setIncomeReview({
             conflicts: Array.isArray(data.conflicts) ? data.conflicts : [],
             reviewPath: typeof data.reviewPath === 'string' ? data.reviewPath : `/protected?screen=income-tracking&tab=reconcile&year=${year}`,

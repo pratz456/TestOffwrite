@@ -20,7 +20,10 @@ import {
   CONFIRM_FORMS_REQUIRED, ERR_SAME_NEEDS_K, ERR_SELECT_BUSINESS_RECORDS, ERR_SUM_MISMATCH, fillIncomeCopy,
   LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_NEC_WARNING,
 } from './income-reconciliation-copy';
-import { legacyNecReopen, reconciliationYearMayAlreadyBeFiled } from './reconciliation-feature';
+import { kNotBusinessIncomeEnabled, legacyDecisionReconfirm, legacyNecReopen, reconciliationYearMayAlreadyBeFiled } from './reconciliation-feature';
+
+/** Customer sentence already used at 7a8ba53 when records have no verified link. */
+export const UNLINKED_SOURCES_MESSAGE = 'Transactions, gross receipts or 1099 forms may describe the same payments. They have no verified matching link and cannot be added safely.';
 
 export const INCOME_SOURCE_KINDS = ['form_1099', 'gross_receipt', 'transaction'] as const;
 export type IncomeSourceKind = (typeof INCOME_SOURCE_KINDS)[number];
@@ -96,8 +99,9 @@ export interface IncomeReconciliationConflict {
 export const sourceKey = (ref: Pick<IncomeSourceRef, 'kind' | 'id'>) => `${ref.kind}:${ref.id}`;
 export const toCents = (amount: number) => Math.round(amount * 100);
 
-/** Same payments that joins two or more 1099s must echo the form total the dialog showed. The value is checked, not stored. */
+/** Same payments that joins two or more 1099s must echo the form total the dialog showed. The value is checked, not stored. Off with legacyDecisionReconfirm. */
 export function formsConfirmationError(decision: string, sources: ReadonlyArray<{ kind: string; amount: number }>, confirmedFormsTotal: number | undefined): string | null {
+  if (!legacyDecisionReconfirm()) return null;
   if (decision !== 'same_payments') return null;
   const forms = sources.filter(source => source.kind === 'form_1099');
   if (forms.length < 2) return null;
@@ -225,7 +229,9 @@ export function validateReconciliationDecision(
   if (decision.decision === 'separate_income') {
     if (feeCents) return { ok: false, reason: 'Separate income does not record a platform fee.' };
     // A form plus a deposit or direct income is the same payments, or a partial overlap. Never sum them.
-    if (forms.length && (transactions.length || receipts.length)) return { ok: false, reason: ERR_SEPARATE_FORM_WITH_MONEY };
+    if (forms.length && (transactions.length || receipts.length)) {
+      return { ok: false, reason: kNotBusinessIncomeEnabled() ? ERR_SEPARATE_FORM_WITH_MONEY : UNLINKED_SOURCES_MESSAGE };
+    }
     return okCheck(sum(resolved), 0, kinds, resolved);
   }
 
@@ -256,7 +262,9 @@ export function validateReconciliationDecision(
     // Two 1099s can report one payment stream. Duplicate receipts or deposits of one kind are
     // summed by the base rule, so they cannot be declared duplicates here.
     if (kinds.size < 2 && forms.length !== resolved.length) return { ok: false, reason: 'Select records of at least two kinds (a 1099, direct income or bank income) that describe the same payments.' };
-    if (!samePaymentsAllowed(resolved) && options.rejectNecOnlySamePayments !== false) return { ok: false, reason: ERR_SAME_NEEDS_K };
+    if (!samePaymentsAllowed(resolved) && options.rejectNecOnlySamePayments !== false) {
+      return { ok: false, reason: legacyNecReopen() ? ERR_SAME_NEEDS_K : UNLINKED_SOURCES_MESSAGE };
+    }
     if (feeCents) return { ok: false, reason: 'Record platform fees with the “1099-K includes fees” decision.' };
     // An information return reports the whole payment stream; receipts and deposits may be split.
     const totals = [...forms.map(form => toCents(form.amount)), ...(receipts.length ? [sum(receipts)] : []), ...(transactions.length ? [sum(transactions)] : [])];
@@ -445,9 +453,14 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
           continue;
         }
       }
+      const shownReason = decision.decision === 'corrected_form_replaces' && !reopenNecOnly
+        ? UNLINKED_SOURCES_MESSAGE
+        : (decision.decision === 'k_not_business_income' || decision.decision === 'partial_overlap') && !kNotBusinessIncomeEnabled()
+          ? UNLINKED_SOURCES_MESSAGE
+          : check.reason;
       conflicts.push({
         reason: 'stale_decision', decisionId,
-        message: `A saved reconciliation decision no longer matches your records: ${check.reason}`,
+        message: `A saved reconciliation decision no longer matches your records: ${shownReason}`,
         sources,
       });
       continue;
@@ -484,7 +497,7 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
   const activeKinds = INCOME_SOURCE_KINDS.filter(kind => unclaimedCents[kind] > 0);
   const unclaimedForms = unclaimed.filter(candidate => candidate.kind === 'form_1099');
   if (activeKinds.length > 1) {
-    conflicts.push({ reason: 'overlapping_sources', message: 'Transactions, gross receipts or 1099 forms may describe the same payments. They have no verified matching link and cannot be added safely.',
+    conflicts.push({ reason: 'overlapping_sources', message: UNLINKED_SOURCES_MESSAGE,
       sources: unclaimed.filter(candidate => activeKinds.includes(candidate.kind)).map(publicRef) });
   }
   // A K and NEC (even from different named payers) can describe the same receipts,

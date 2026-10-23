@@ -25,7 +25,7 @@ import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 import { formsConfirmationError, INCOME_SOURCE_KINDS, NOT_BUSINESS_REASONS, PAYMENT_METHOD_HINTS, RECONCILIATION_DECISION_TYPES } from '@/lib/tax-rules/income-reconciliation';
 import { DECISION_LABEL_CORRECTED, STALE_APP_REFRESH } from '@/lib/tax-rules/income-reconciliation-copy';
 import { isLegacySamePaymentsResave, prepareReconciliationDecision, summarizeIncomeReconciliation } from '@/lib/tax-rules/income-reconciliation-response';
-import { kNotBusinessIncomeEnabled, reconciliationDecisionNeedsKSwitch } from '@/lib/tax-rules/reconciliation-feature';
+import { kNotBusinessIncomeEnabled, legacyDecisionReconfirm, legacyNecReopen, reconciliationDecisionNeedsKSwitch } from '@/lib/tax-rules/reconciliation-feature';
 
 const NO_STORE = { 'Cache-Control': 'private, no-store' };
 const yearInput = z.union([z.number(), z.string().trim().regex(/^\d{4}$/)]).transform(Number).pipe(z.number().int().min(2000).max(2100));
@@ -54,11 +54,12 @@ const decisionInput = z.object({
   overlapAmount: amountInput.optional(),
 });
 const updateInput = decisionInput.extend({ id: z.string().trim().min(1).max(200) });
+const englishOr = (items: string[]) => items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
 const invalidBody = () => {
-  const types = kNotBusinessIncomeEnabled()
-    ? `same_payments, separate_income, k_includes_fees, k_not_business_income, partial_overlap or ${DECISION_LABEL_CORRECTED}`
-    : `same_payments, separate_income, k_includes_fees or ${DECISION_LABEL_CORRECTED}`;
-  return `Provide the tax year, a decision type (${types}) and the records it covers with their current amounts.`;
+  const types = ['same_payments', 'separate_income', 'k_includes_fees'];
+  if (kNotBusinessIncomeEnabled()) types.push('k_not_business_income', 'partial_overlap');
+  if (legacyNecReopen()) types.push(DECISION_LABEL_CORRECTED);
+  return `Provide the tax year, a decision type (${englishOr(types)}) and the records it covers with their current amounts.`;
 };
 
 /** Same payments that joins two or more 1099s must echo the form total the dialog showed. The value is checked, not stored. */
@@ -71,10 +72,15 @@ function readJson(request: NextRequest) {
   return request.json().catch(() => null);
 }
 
+function decisionHidden(decision: string): boolean {
+  return (reconciliationDecisionNeedsKSwitch(decision) && !kNotBusinessIncomeEnabled())
+    || (decision === 'corrected_form_replaces' && !legacyNecReopen());
+}
+
 /** An old cached build still preselects a choice and omits this field. Refuse the save. */
 function requireExplicitChoice(body: unknown) {
   if (!body || typeof body !== 'object' || (body as { explicitChoice?: unknown }).explicitChoice !== true) {
-    return NextResponse.json({ error: STALE_APP_REFRESH }, { status: 400 });
+    return NextResponse.json({ error: legacyDecisionReconfirm() ? STALE_APP_REFRESH : invalidBody() }, { status: 400 });
   }
   return null;
 }
@@ -115,7 +121,7 @@ export async function POST(request: NextRequest) {
   if (stale) return stale;
   const parsed = decisionInput.safeParse(raw);
   if (!parsed.success) return NextResponse.json({ error: invalidBody() }, { status: 400 });
-  if (reconciliationDecisionNeedsKSwitch(parsed.data.decision) && !kNotBusinessIncomeEnabled()) {
+  if (decisionHidden(parsed.data.decision)) {
     return NextResponse.json({ error: invalidBody() }, { status: 400 });
   }
   try {
@@ -143,7 +149,7 @@ export async function PATCH(request: NextRequest) {
   if (stale) return stale;
   const parsed = updateInput.safeParse(raw);
   if (!parsed.success) return NextResponse.json({ error: invalidBody() }, { status: 400 });
-  if (reconciliationDecisionNeedsKSwitch(parsed.data.decision) && !kNotBusinessIncomeEnabled()) {
+  if (decisionHidden(parsed.data.decision)) {
     return NextResponse.json({ error: invalidBody() }, { status: 400 });
   }
   try {

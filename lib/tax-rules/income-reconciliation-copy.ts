@@ -37,7 +37,7 @@ export const EXPORT_BLOCKED_SAFE = 'Your records are saved and nothing was chang
 export const RECONCILE_BUTTON = 'Reconcile income sources';
 export const RETRY_EXPORT = 'Try the export again';
 
-export const PANEL_FORMS_NOTE = 'All business income is taxable, whether or not you get a 1099. For 2025 and later, a payment app or marketplace sends a 1099-K only when your payments are over $20,000 and over 200 transactions. Card payments have no threshold. A 1099-K shows gross amounts, before fees, refunds and credits.';
+export const PANEL_FORMS_NOTE = 'All business income is taxable, whether or not you get a 1099. For 2025 and later, a payment app or marketplace is required to send a 1099-K only when your payments are over $20,000 and over 200 transactions. Some send one anyway. Card payments have no threshold. A 1099-K shows gross amounts, before fees, refunds and credits.';
 export const NO_FORM_NO_INCOME = 'No form doesn\'t mean no income. Your bank deposits are the main record of what you earned. 1099s are only a cross-check. For payments made in 2026, clients don\'t have to send a 1099-NEC below $2,000.';
 export const PANEL_SUMMARY_COUNTED = 'Built from {n} records and {m} saved decisions. Records you reconciled count once.';
 

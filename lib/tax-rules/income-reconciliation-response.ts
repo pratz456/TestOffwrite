@@ -1,6 +1,6 @@
 import { IncomeReconciliationRequiredError, listIncomeSourceCandidates, type IncomeRecord } from './business-income';
 import { CORRECTED_ORIGINAL_BADGE, LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_WARNING } from './income-reconciliation-copy';
-import { legacyDecisionReconfirm, reconciliationYearMayAlreadyBeFiled } from './reconciliation-feature';
+import { legacyDecisionReconfirm, legacyNecReopen, reconciliationFeatures, reconciliationYearMayAlreadyBeFiled, type ReconciliationFeatures } from './reconciliation-feature';
 import {
   normalizeReconciliationDecision, resolveIncomeSources, sourceKey, toCents, validateReconciliationDecision,
   type FeeExpenseCandidate, type IncomeReconciliationConflict, type IncomeSourceCandidate, type IncomeSourceRef,
@@ -26,6 +26,7 @@ export function incomeReconciliationReviewBody(error: IncomeReconciliationRequir
     conflicts: error.conflicts,
     reviewPath: incomeReconciliationPath(taxYear),
     explainerPath: `/api/income/reconciliation?year=${taxYear}`,
+    features: reconciliationFeatures(),
   };
 }
 
@@ -82,6 +83,8 @@ export interface IncomeReconciliationSummary {
   /** Non-blocking notes, including a prior-year NEC-only same-payments flag. */
   notices: string[];
   policy: string;
+  /** Which reconciliation switches are on. The Reconcile tab renders new copy only for a true flag. */
+  features: ReconciliationFeatures;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object';
@@ -119,7 +122,7 @@ function decisionView(record: IncomeRecord, appliedIds: ReadonlySet<string>, war
 
 /** The owner-facing state of one tax year: what can be reconciled, what was decided, what still blocks a total. */
 export function summarizeIncomeReconciliation(taxYear: number, records: IncomeSourceRecords): IncomeReconciliationSummary {
-  const base = { taxYear, feeExpenseCandidates: [] as FeeExpenseCandidate[], outsideScheduleC: [] as OutsideScheduleCItem[], notices: [] as string[], policy: INCOME_RECONCILIATION_POLICY };
+  const base = { taxYear, feeExpenseCandidates: [] as FeeExpenseCandidate[], outsideScheduleC: [] as OutsideScheduleCItem[], notices: [] as string[], policy: INCOME_RECONCILIATION_POLICY, features: reconciliationFeatures() };
   let candidates: IncomeSourceCandidate[];
   try {
     candidates = listIncomeSourceCandidates(taxYear, records.transactions, records.receipts, records.forms).candidates;
@@ -139,7 +142,7 @@ export function summarizeIncomeReconciliation(taxYear: number, records: IncomeSo
     ...base,
     candidates: candidates.map(candidate => {
       const decisionId = resolution.claimedBy.get(sourceKey(candidate));
-      const badge = candidate.kind === 'form_1099' && replacedIds.has(candidate.id) ? CORRECTED_ORIGINAL_BADGE : undefined;
+      const badge = legacyNecReopen() && candidate.kind === 'form_1099' && replacedIds.has(candidate.id) ? CORRECTED_ORIGINAL_BADGE : undefined;
       return { ...candidate, ...(decisionId ? { decisionId } : {}), ...(badge ? { badge } : {}) };
     }),
     replacedForms: resolution.replacedForms,

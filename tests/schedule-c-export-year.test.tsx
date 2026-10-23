@@ -91,7 +91,7 @@ describe('Schedule C supported-year selection', () => {
         { label: '1099-K · Synthetic platform', amount: 10000 },
         { label: '1099-NEC · Synthetic client', amount: 10000 },
       ] }],
-      reviewPath,
+      reviewPath, features: { legacyDecisionReconfirm: true },
     }), { status: 422, headers: { 'content-type': 'application/json' } }));
     vi.spyOn(console, 'error').mockImplementation(() => {});
     walk(render()).filter(node => node.type === 'select')[1].props.onChange({ target: { value: 'PDF' } });
@@ -120,7 +120,7 @@ describe('Schedule C supported-year selection', () => {
         { label: '1099-K · Synthetic platform', amount: 10000 },
         { label: '1099-NEC · Synthetic client', amount: 10000 },
       ] }],
-      reviewPath,
+      reviewPath, features: { legacyDecisionReconfirm: true },
     }), { status: 422, headers: { 'content-type': 'application/json' } }));
     vi.spyOn(console, 'error').mockImplementation(() => {});
     render();

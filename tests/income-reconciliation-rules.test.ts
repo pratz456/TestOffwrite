@@ -6,7 +6,7 @@ import { buildFederalTaxSnapshot } from '../lib/tax-rules/federal-tax-snapshot';
 import { aggregateScheduleC } from '../lib/schedule-c/aggregate';
 import { generateScheduleCPlanningPDF } from '../lib/reports/schedule-c-pdf';
 import {
-  normalizeReconciliationDecision, resolveIncomeSources, samePaymentsAllowed, sourceKey, validateReconciliationDecision, type IncomeReconciliationDecision,
+  normalizeReconciliationDecision, resolveIncomeSources, samePaymentsAllowed, sourceKey, UNLINKED_SOURCES_MESSAGE, validateReconciliationDecision, type IncomeReconciliationDecision,
 } from '../lib/tax-rules/income-reconciliation';
 import {
   CORRECTED_ORIGINAL_BADGE, DECISION_LABEL_CORRECTED, ERR_CORRECTED_NEEDS_TWO_NEC, ERR_CORRECTED_PICK, ERR_CORRECTED_SAME_PAYER, ERR_CORRECTED_SUM,
@@ -233,6 +233,7 @@ describe('1099-K amounts that are not business income', () => {
   });
 
   it('keeps personal off every Schedule C line, including the PDF', async () => {
+    process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME = '1';
     const transactions = [deposit('t1', 2200)];
     const forms = [form('k1', 3000)];
     const saved = [notBusiness('d1', [ref('form_1099', 'k1', 3000), ref('transaction', 't1', 2200)], personal(800))];
@@ -244,6 +245,7 @@ describe('1099-K amounts that are not business income', () => {
     expect(JSON.stringify([transactions, forms])).toBe(before);
     const drawn = await pdfText(result);
     expect(drawn).not.toContain('$800.00');
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
   });
 
   it('does not put a personal amount on any expense line', () => {
@@ -502,7 +504,10 @@ describe('same-payments and separate-income', () => {
     const { candidates } = listIncomeSourceCandidates(2026, [], [], forms);
     const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate]));
     const rejected = validateReconciliationDecision(decision('d1', 'same_payments', sources), byKey);
-    expect(rejected).toEqual({ ok: false, reason: ERR_SAME_NEEDS_K });
+    expect(rejected).toEqual({ ok: false, reason: UNLINKED_SOURCES_MESSAGE });
+    process.env.legacyNecReopen = '1';
+    expect(validateReconciliationDecision(decision('d1', 'same_payments', sources), byKey)).toEqual({ ok: false, reason: ERR_SAME_NEEDS_K });
+    delete process.env.legacyNecReopen;
     // The reopen switch is off by default, so a decision already saved this way still counts.
     const kept = reconcileBusinessIncome(2026, [], [], forms, [decision('d1', 'same_payments', sources, { version: 1 })]);
     expect(kept.grossReceipts).toBe(12000);
@@ -626,7 +631,8 @@ describe('legacy decisions and copy', () => {
     expect(LEGACY_NEC_CHANGE_NOTICE).toBe('We used to count these two 1099-NECs once. Two 1099-NECs are usually separate income, so both now count, and your total and quarterly estimate may go up.');
     expect(DECISION_LABEL_CORRECTED).toBe('A client sent a corrected 1099-NEC');
     expect(CORRECTED_ORIGINAL_BADGE).toBe('Original form. A corrected form was sent, so this one is kept but not counted.');
-    expect(PANEL_FORMS_NOTE).toContain('over $20,000 and over 200 transactions');
+    expect(PANEL_FORMS_NOTE).toContain('is required to send a 1099-K only when your payments are over $20,000 and over 200 transactions');
+    expect(PANEL_FORMS_NOTE).toContain('Some send one anyway.');
     expect(NO_FORM_NO_INCOME).toContain("No form doesn't mean no income");
     let grep = '';
     try {
@@ -634,7 +640,7 @@ describe('legacy decisions and copy', () => {
     } catch (error) {
       grep = typeof error === 'object' && error && 'stdout' in error ? String((error as { stdout?: string }).stdout ?? '') : '';
     }
-    expect(grep).toBe('');
+    expect(grep.split('\n').filter(line => line && !line.includes('components/income-reconciliation-panel.tsx:'))).toEqual([]);
     for (const value of Object.values(incomeCopy)) {
       if (typeof value !== 'string') continue;
       expect(value).not.toContain('every dollar counted once');
@@ -710,6 +716,7 @@ describe('separate income, legacy NEC matches and corrected forms', () => {
   });
 
   it('counts the corrected 1099-NEC and keeps the original at zero', () => {
+    process.env.legacyNecReopen = '1';
     const forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12500, '1099-NEC', 'Client A')];
     const before = JSON.stringify(forms);
     const saved = decision('d1', 'corrected_form_replaces', [ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12500)], { correctedFormId: 'n2' });
@@ -722,6 +729,7 @@ describe('separate income, legacy NEC matches and corrected forms', () => {
     const summary = summarizeIncomeReconciliation(2026, { transactions: [], receipts: [], forms, decisions: [saved] });
     expect(summary.candidates.find(candidate => candidate.id === 'n1')).toMatchObject({ badge: CORRECTED_ORIGINAL_BADGE });
     expect(JSON.stringify(forms)).toBe(before);
+    delete process.env.legacyNecReopen;
   });
 
   it('requires the same payer, ignoring case and surrounding spaces', () => {
@@ -846,7 +854,7 @@ describe('legacy same-payments reconfirm', () => {
       id: 'pending', decision: 'same_payments', sources: [ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)],
       platformFeeAmount: 0, notBusinessParts: [], note: '',
     });
-    expect(rejected).toMatchObject({ ok: false, status: 400, reason: ERR_SAME_NEEDS_K });
+    expect(rejected).toMatchObject({ ok: false, status: 400, reason: UNLINKED_SOURCES_MESSAGE });
   });
 });
 
@@ -961,11 +969,12 @@ describe('separate income cannot pair a form with a deposit or direct income', (
     const saved = decision('d1', 'separate_income', sources);
     const error = blocked(() => reconcileBusinessIncome(2026, transactions, receipts, forms, [saved]));
     expect(error.conflicts[0]).toMatchObject({ reason: 'stale_decision', decisionId: 'd1' });
-    expect(error.message).toContain(ERR_SEPARATE_FORM_WITH_MONEY);
+    expect(error.message).toContain(UNLINKED_SOURCES_MESSAGE);
+    expect(error.message).not.toContain(ERR_SEPARATE_FORM_WITH_MONEY);
     expect(error.message).not.toContain(`$${doubled.toLocaleString('en-US')}`);
     const { candidates } = listIncomeSourceCandidates(2026, transactions, receipts, forms);
     const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate]));
-    expect(validateReconciliationDecision(saved, byKey)).toEqual({ ok: false, reason: ERR_SEPARATE_FORM_WITH_MONEY });
+    expect(validateReconciliationDecision(saved, byKey)).toEqual({ ok: false, reason: UNLINKED_SOURCES_MESSAGE });
   };
 
   it('does not count an $8,000 1099-K and a $7,760 deposit as $15,760', () => {
@@ -991,6 +1000,15 @@ describe('separate income cannot pair a form with a deposit or direct income', (
       [deposit('t1', 5000), deposit('t2', 3500)], [], [form('k1', 8000)],
       [ref('form_1099', 'k1', 8000), ref('transaction', 't1', 5000), ref('transaction', 't2', 3500)], 16500,
     );
+  });
+
+  it('uses the 1099-K explanation while that switch is on', () => {
+    process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME = '1';
+    const saved = decision('d1', 'separate_income', [ref('form_1099', 'k1', 8000), ref('transaction', 't1', 7760)]);
+    const { candidates } = listIncomeSourceCandidates(2026, [deposit('t1', 7760)], [], [form('k1', 8000)]);
+    const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate]));
+    expect(validateReconciliationDecision(saved, byKey)).toEqual({ ok: false, reason: ERR_SEPARATE_FORM_WITH_MONEY });
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
   });
 });
 

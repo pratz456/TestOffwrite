@@ -497,7 +497,7 @@ describe('filing hub Schedule C export guidance', () => {
 
   it('shows the reconcile card and opens the review path', async () => {
     harness.request.mockImplementation((url: string) => url.includes('/api/tax/schedule-c/export')
-      ? Promise.resolve(response({ error: 'Review income sources before calculating tax', code: 'INCOME_RECONCILIATION_REQUIRED', conflicts, reviewPath }, 422))
+      ? Promise.resolve(response({ error: 'Review income sources before calculating tax', code: 'INCOME_RECONCILIATION_REQUIRED', conflicts, reviewPath, features: { legacyDecisionReconfirm: true } }, 422))
       : requests(url));
     render(); await flush();
     await walk(render()).find(node => node.props?.['aria-label'] === 'Export Schedule C PDF')!.props.onClick();

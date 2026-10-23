@@ -282,7 +282,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                   <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
                 </summary>
                 <div className="px-3 pb-3">
-                  <TaxCalculationNotice taxYear={f1040.taxYear ?? year} warnings={f1040.calculationWarnings} />
+                  <TaxCalculationNotice taxYear={f1040.taxYear ?? year} warnings={calculationWarnings} />
                 </div>
               </details>
 
