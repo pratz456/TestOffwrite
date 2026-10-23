@@ -2,12 +2,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
 
-import { analysisSuggestionUpdate } from '@/lib/ai/analysis-persistence';
+import { analysisInputHash, analysisSuggestionUpdate } from '@/lib/ai/analysis-persistence';
+import { convertToEnhancedContext, type OutputType, type TransactionInput, type UserContext } from '@/lib/ai/analyzeTransaction';
 import { findMerchantEntry, merchantIntelligence } from '@/lib/ai/merchant-intelligence';
+import { analysisProfileHash } from '@/lib/ai/profile-context';
 import { professionContextForModel } from '@/lib/ai/profession-priors';
 import { groundTransactionAnalysis } from '@/lib/ai/transaction-tax-policy';
-import { HIRED_FARE_PURPOSE, HIRED_FARE_USE, hiredFareUsePrompt, SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
-import type { OutputType, TransactionInput, UserContext } from '@/lib/ai/analyzeTransaction';
+import { HIRED_FARE_USE, hiredFareBetweenLabel, hiredFareUsePrompt, SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
+import { getInitialAnswers } from '@/components/tax-form-wizard-screen';
+import { profileHasHomeOffice } from '@/lib/profile/home-office';
+import { baselineEnhancedContext, baselineInputHash, baselineProfileHash, canonicalJson } from './baseline-analysis-context';
 
 /**
  * Expected results captured from codex/cursor-latest-preview-20260924 at 52f5788d.
@@ -161,7 +165,20 @@ describe('vehicle copy switch off matches the base review', () => {
     expect(onSaved.ai_suggestion.questions[0]).toBe(HIRED_FARE_USE.question);
     expect(JSON.stringify(onSaved.ai_explanation)).not.toContain('27b');
     const unstated = analyze(input, { merchant: 'Lyft', amount_usd: 18, business_purpose: 'Ride across town tonight.' });
-    expect(unstated).toMatchObject({ status: 'needs_more_info', category: 'travel', missing_fields: ['business_purpose'], questions: [HIRED_FARE_PURPOSE.question] });
+    expect(unstated).toMatchObject({ status: 'needs_more_info', category: 'travel', missing_fields: ['travel_eligibility'] });
+    expect(unstated?.questions).toEqual(hiredFareUsePrompt(ctx));
+    expect(unstated?.questions?.[0]).toBe('What was this ride for?');
+    const blank = analyze(input, { merchant: 'Lyft', amount_usd: 18, business_purpose: '' });
+    expect(blank?.questions).toEqual(hiredFareUsePrompt(ctx));
+    const cleared = analyze(input, { merchant: 'Uber', amount_usd: 22, business_purpose: undefined });
+    expect(cleared?.questions).toEqual(hiredFareUsePrompt(ctx));
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    const offUnstated = analyze(input, { merchant: 'Lyft', amount_usd: 18, business_purpose: 'Ride across town tonight.' });
+    const offBlank = analyze(input, { merchant: 'Lyft', amount_usd: 18, business_purpose: '' });
+    expect(offUnstated?.questions).toEqual([RIDE_QUESTION]);
+    expect(offBlank?.questions).toEqual([RIDE_QUESTION]);
+    expect(offBlank?.questions).not.toContain(HIRED_FARE_USE.overnight);
+    expect(offUnstated?.questions?.[0]).not.toBe(HIRED_FARE_USE.question);
   });
 
   it('leaves Uber Eats on the vehicle review with the switch off, and moves it to meals with it on', () => {
@@ -197,5 +214,94 @@ describe('vehicle copy switch off matches the base review', () => {
     const on = professionContextForModel({ profession: ['Uber driver'] });
     expect(on).toContain('Parking, tolls, and the business share of car loan interest and personal property tax on the car are added on their own.');
     expect(on).not.toContain('only tolls and parking are added');
+  });
+
+  it('hashes a record with no hired fare code the same way as 52f5788d', () => {
+    const record = { trans_id: 'tx', merchant_name: 'Uber', amount: 28, date: '2026-09-15', notes: 'Ride across town', pending: false };
+    expect(analysisInputHash(record)).toBe(baselineInputHash(record));
+    expect(analysisInputHash({ ...record, hired_fare_use: undefined })).toBe(baselineInputHash(record));
+    expect(analysisInputHash({ ...record, hired_fare_use: null })).toBe(baselineInputHash(record));
+    const overnight = analysisInputHash({ ...record, hired_fare_use: 'overnight_trip' });
+    const personal = analysisInputHash({ ...record, hired_fare_use: 'personal' });
+    expect(overnight).not.toBe(baselineInputHash(record));
+    expect(overnight).not.toBe(personal);
+  });
+
+  it('keeps the profile context and hash identical to 52f5788d while the switch is off', () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    const date = '2026-09-15';
+    const profiles = [
+      { profession: 'Designer', state: 'CA', business_entity_type: 'sole_proprietor', vehicle_deduction_method: 'standard_mileage', vehicle_business_use_percentage: 40 },
+      { profession: 'Designer', state: 'CA', business_entity_type: 'sole_proprietor', vehicle_deduction_method: 'actual_expenses', vehicle_business_use_percentage: 60 },
+      { profession: 'Designer', state: 'CA', business_entity_type: 'sole_proprietor', business_vehicle: { business_use_percentage: 25, make: 'Honda' } },
+      { profession: 'Designer', state: 'CA', business_entity_type: 'sole_proprietor', homeOfficeSqft: 150 },
+    ];
+    for (const profile of profiles) {
+      const actual = convertToEnhancedContext(profile, date);
+      const expected = baselineEnhancedContext(profile, date);
+      expect(canonicalJson(actual)).toBe(canonicalJson(expected));
+      expect(analysisProfileHash(profile, date)).toBe(baselineProfileHash(profile, date));
+    }
+    const plain = convertToEnhancedContext(profiles[3], date);
+    expect(plain.vehicle_deduction_method).toBeUndefined();
+    expect(plain.business_vehicle).toBeUndefined();
+    expect(plain.home_office_sqft).toBeUndefined();
+    const expenses = convertToEnhancedContext(profiles[1], date);
+    expect(expenses.vehicle_deduction_method).toBe('actual_expenses');
+    expect(expenses.business_vehicle).toBeUndefined();
+    const nested = convertToEnhancedContext(profiles[2], date);
+    expect(nested.business_vehicle).toEqual({ business_use_percentage: 25, make: 'Honda' });
+  });
+
+  it('uses the main place of business label and counts a numeric square footage string', () => {
+    expect(HIRED_FARE_USE.between).toBe('Between work locations');
+    expect(HIRED_FARE_USE.betweenWithHomeOffice).toBe('Between work locations, or from home to a client if your home is your main place of business');
+    const long = HIRED_FARE_USE.betweenWithHomeOffice;
+    const short = HIRED_FARE_USE.between;
+    expect(hiredFareBetweenLabel({ home_office_sqft: 150 })).toBe(long);
+    expect(hiredFareBetweenLabel({ home_office_sqft: '150' })).toBe(long);
+    expect(hiredFareBetweenLabel({ homeOfficeSqft: ' 80 ' })).toBe(long);
+    expect(hiredFareBetweenLabel({ officeSqFt: '40' })).toBe(long);
+    expect(hiredFareBetweenLabel({ homeOffice: { officeSqFt: '40' } })).toBe(long);
+    expect(hiredFareBetweenLabel({ home_office_details: { exclusive_use: true } })).toBe(long);
+    expect(hiredFareBetweenLabel({ home_office: true })).toBe(long);
+    expect(hiredFareBetweenLabel({ home_office_sqft: 0 })).toBe(short);
+    expect(hiredFareBetweenLabel({ home_office_sqft: '0' })).toBe(short);
+    expect(hiredFareBetweenLabel({ officeSqFt: 0 })).toBe(short);
+    expect(hiredFareBetweenLabel(null)).toBe(short);
+    expect(profileHasHomeOffice({ home_office_sqft: '150' })).toBe(true);
+    expect(profileHasHomeOffice({ home_office_sqft: '0' })).toBe(false);
+  });
+
+  it('keeps the tax wizard home office result identical to 52f5788d while the switch is off', () => {
+    const shapes: Record<string, unknown>[] = [
+      { home_office_sqft: 150 },
+      { home_office_sqft: '150' },
+      { home_office_sqft: ' 150 ' },
+      { home_office_sqft: 0 },
+      { home_office_sqft: '0' },
+      { home_office_sqft: '' },
+      { home_office_details: { exclusive_use: true } },
+      { officeSqFt: 120 },
+      { homeOffice: { officeSqFt: 120 } },
+      { home_office: true },
+      { homeOffice: true },
+      { has_home_office: true },
+      { homeOfficeSqft: 150 },
+      { home_office_method: 'simplified' },
+      {},
+    ];
+    const previous = (profile: Record<string, unknown>) => ((profile.home_office_sqft ?? 0) as number) > 0 || Boolean(profile.home_office_details);
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    for (const shape of shapes) {
+      expect(getInitialAnswers(shape).home_office).toBe(previous(shape));
+    }
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    expect(getInitialAnswers({ home_office_sqft: '150' }).home_office).toBe(true);
+    expect(getInitialAnswers({ home_office: true }).home_office).toBe(true);
+    expect(getInitialAnswers({ officeSqFt: 120 }).home_office).toBe(true);
+    expect(getInitialAnswers({ homeOffice: { officeSqFt: '40' } }).home_office).toBe(true);
+    expect(getInitialAnswers({ home_office_sqft: 0 }).home_office).toBe(false);
+    expect(getInitialAnswers({ home_office_details: { exclusive_use: true } }).home_office).toBe(true);
   });
 });

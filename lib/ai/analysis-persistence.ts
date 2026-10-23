@@ -33,9 +33,14 @@ function canonical(value: unknown): unknown {
   return value ?? null;
 }
 
-/** Classification fields are excluded: AI never owns or writes the user's tax decision. */
+/**
+ * Classification fields are excluded: AI never owns or writes the user's tax decision.
+ * A hired fare code is part of the hash only when one is saved. Null and undefined are
+ * left out so a record from before that field existed keeps its hash.
+ */
 export function analysisInputHash(data: Record<string, unknown>): string {
-  return createHash('sha256').update(JSON.stringify(canonical(Object.fromEntries(INPUT_FIELDS.map(key => [key, data[key]]))))).digest('hex');
+  const hashed = INPUT_FIELDS.filter(key => key !== 'hired_fare_use' || (data.hired_fare_use !== undefined && data.hired_fare_use !== null));
+  return createHash('sha256').update(JSON.stringify(canonical(Object.fromEntries(hashed.map(key => [key, data[key]]))))).digest('hex');
 }
 
 export function createAnalysisLease(data: Record<string, unknown>, now = Date.now()): AnalysisLease {
@@ -132,7 +137,7 @@ export function withheldApprovalGate(input: { category: string | null; deductibl
         return { share: recorded, reason: SEPARATE_VEHICLE_COST_SHARE.reason };
       }
       if (category.value === 'vehicle_expense' && hiredVehicleFare(input.merchantText ?? '')) {
-        return { ...HIRED_FARE_PURPOSE };
+        return { question: HIRED_FARE_USE.question, reason: HIRED_FARE_USE.reason };
       }
       if (fact.status === 'known' && fact.method === 'standard_mileage') {
         return { ...STANDARD_MILEAGE_RUNNING_COST_GATE };
@@ -274,8 +279,8 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
       suggestion.status = 'needs_more_info';
       suggestion.isDeductible = null;
       suggestion.deductiblePercent = null;
-      suggestion.questions = [HIRED_FARE_PURPOSE.question];
-      suggestion.reasoning = HIRED_FARE_PURPOSE.reason;
+      suggestion.questions = hiredFareUsePrompt(profile);
+      suggestion.reasoning = HIRED_FARE_USE.reason;
     } else {
       suggestion.category = null;
       delete suggestion.scheduleCLine;
@@ -320,8 +325,19 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
     } else if (gate) {
       withheld = gate;
       suggestion.status = 'needs_more_info'; suggestion.isDeductible = null; suggestion.deductiblePercent = null;
-      suggestion.questions = [gate.question, ...suggestion.questions.filter(question => question !== gate.question)].slice(0, 3);
+      suggestion.questions = gate.question === HIRED_FARE_USE.question
+        ? hiredFareUsePrompt(profile)
+        : [gate.question, ...suggestion.questions.filter(question => question !== gate.question)].slice(0, 3);
       suggestion.reasoning = gate.reason;
+    }
+  }
+  // A hired fare that still needs an answer shows the four choices, typed purpose or not.
+  if (mileageVehicleCopyEnabled() && canonicalData && hiredVehicleFare(merchantText) && suggestion.category !== 'meals_50' &&
+      suggestion.questions[0] === HIRED_FARE_PURPOSE.question) {
+    suggestion.questions = hiredFareUsePrompt(profile);
+    suggestion.reasoning = HIRED_FARE_USE.reason;
+    if (withheld && withheld.question === HIRED_FARE_PURPOSE.question) {
+      withheld = { question: HIRED_FARE_USE.question, reason: HIRED_FARE_USE.reason };
     }
   }
   const fareReasons: readonly string[] = [HIRED_FARE_PERSONAL.reason, HIRED_FARE_PURPOSE.reason, HIRED_FARE_USE.reason, HIRED_FARE_USE.overnightReason, HIRED_FARE_USE.betweenReason, HIRED_FARE_USE.commuteReason, HIRED_FARE_USE.homeStartReason];

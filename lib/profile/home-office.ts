@@ -1,13 +1,14 @@
 /**
- * Whether this person has a home office.
+ * Whether this person has a home office for the hired fare label.
  *
- * The tax form wizard uses square footage or a saved details record
- * (components/tax-form-wizard-screen.tsx). The same test is used here.
- * home_office_sqft and the onboarding name homeOfficeSqft count when greater
- * than 0. settings/homeOffice stores that square footage as officeSqFt.
- * A present home_office_details object counts on its own.
+ * home_office_sqft, the onboarding name homeOfficeSqft, and settings/homeOffice
+ * officeSqFt count when greater than 0. A numeric string such as "150" counts
+ * the same way. A present home_office_details object counts on its own.
  * Legacy boolean keys are accepted too. A method with no square footage and
  * no details does not count.
+ *
+ * With vehicle copy off, the tax wizard does not use this helper. It keeps
+ * the earlier check: home_office_sqft greater than 0, or home_office_details.
  */
 const LEGACY_HOME_OFFICE_FLAGS = ['home_office', 'homeOffice', 'has_home_office'] as const;
 
@@ -17,7 +18,12 @@ const HOME_OFFICE_KEYS = [
 ] as const;
 
 function positiveAmount(value: unknown): boolean {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0;
+  if (typeof value !== 'string') return false;
+  const text = value.trim();
+  if (!/^\+?(?:\d+(?:\.\d+)?|\.\d+)$/.test(text)) return false;
+  const amount = Number(text);
+  return Number.isFinite(amount) && amount > 0;
 }
 
 export function profileHasHomeOffice(profile: unknown): boolean {

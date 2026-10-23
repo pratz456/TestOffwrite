@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ACTUAL_EXPENSE_BUSINESS_SHARE } from '@/lib/ai/actual-expense-share';
-import { HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
+import { HIRED_FARE_PERSONAL, HIRED_FARE_USE, hiredFareUsePrompt, SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
 import { CATEGORY_EVIDENCE, CATEGORY_SCHEDULE_C_LINE, EXPENSE_CATEGORIES, groundTransactionAnalysis, isStatedSentence, proposedPurposeQuestion,
   transactionTaxPolicyPrompt, transactionTaxYear, TRANSACTION_EVIDENCE_IDS, TRANSACTION_TAX_EVIDENCE, TRANSACTION_TAX_POLICY_VERSION, uncitedReferences,
   userPurposeText } from '@/lib/ai/transaction-tax-policy';
@@ -704,8 +704,14 @@ describe('2026-09-23 source-audit regressions', () => {
     const unstated = analyze({ category: 'vehicle_expense', evidence_ids: ['travel-463'] },
       { merchant: 'TAXI SVC', business_purpose: 'Ride across town tonight.' },
       { ...ctx, vehicle_deduction_method: 'standard_mileage' });
-    expect(unstated).toMatchObject({ status: 'needs_more_info', category: 'travel', missing_fields: ['business_purpose'] });
-    expect(unstated?.questions?.[0]).toBe(HIRED_FARE_PURPOSE.question);
+    expect(unstated).toMatchObject({ status: 'needs_more_info', category: 'travel', missing_fields: ['travel_eligibility'] });
+    expect(unstated?.questions).toEqual(hiredFareUsePrompt({ ...ctx, vehicle_deduction_method: 'standard_mileage' }));
+    expect(unstated?.questions?.[0]).toBe(HIRED_FARE_USE.question);
+    const blankFare = analyze({ category: 'vehicle_expense', evidence_ids: ['travel-463'] },
+      { merchant: 'Lyft', business_purpose: '' },
+      { ...ctx, vehicle_deduction_method: 'standard_mileage' });
+    expect(blankFare?.questions).toEqual(hiredFareUsePrompt({ ...ctx, vehicle_deduction_method: 'standard_mileage' }));
+    expect(blankFare?.questions).toContain(HIRED_FARE_USE.between);
     const meal = analyze({ category: 'vehicle_expense', evidence_ids: ['meals-274'] },
       { merchant: 'Uber Eats', business_purpose: 'Dinner delivered while finishing the client proposal tonight.' });
     expect(meal?.category).toBe('meals_50');

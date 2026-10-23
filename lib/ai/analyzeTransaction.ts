@@ -398,7 +398,16 @@ export function convertToEnhancedContext(userProfile: any, transactionDate: stri
   const income = finiteNonnegative(userProfile.income);
   const yearsInBusiness = calculateYearsInBusiness(userProfile.business_start_date, transactionDate);
   const travel = nonemptyText(userProfile.work_related_travel_pattern)?.toLowerCase();
-  const vehicle = vehicleContextFields(userProfile, transactionDate, vehicleFacts);
+  // Switch off copies the same vehicle fields the profile hash used before vehicle copy.
+  // That keeps actual_expenses and a saved business_vehicle object intact.
+  const vehicleCopy = mileageVehicleCopyEnabled();
+  const vehicle = vehicleCopy
+    ? vehicleContextFields(userProfile, transactionDate, vehicleFacts)
+    : {
+        method: userProfile.vehicle_deduction_method,
+        businessUsePercent: finiteNonnegative(userProfile.vehicle_business_use_percentage),
+        business_vehicle: userProfile.business_vehicle,
+      };
 
   return {
     user_id: userProfile.id || '',
@@ -425,7 +434,9 @@ export function convertToEnhancedContext(userProfile: any, transactionDate: stri
     itemization_status: userProfile.itemization_status,
     business_start_date: userProfile.business_start_date,
     years_in_business: yearsInBusiness,
-    home_office_sqft: finiteNonnegative(userProfile.home_office_sqft ?? userProfile.homeOfficeSqft),
+    home_office_sqft: vehicleCopy
+      ? finiteNonnegative(userProfile.home_office_sqft ?? userProfile.homeOfficeSqft)
+      : finiteNonnegative(userProfile.home_office_sqft),
     total_home_sqft: finiteNonnegative(userProfile.total_home_sqft),
     home_office_method: userProfile.home_office_method,
     vehicle_business_use_percentage: vehicle.businessUsePercent,

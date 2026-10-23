@@ -74,7 +74,7 @@ export const HIRED_FARE_USE = {
   reason: 'Choose what this ride was for before it can count.',
   overnight: 'Part of an overnight work trip away from home',
   between: 'Between work locations',
-  betweenWithHomeOffice: 'Between work locations, or from home to a client if you work from a home office',
+  betweenWithHomeOffice: 'Between work locations, or from home to a client if your home is your main place of business',
   commute: 'Home to my usual workplace',
   personal: 'Personal ride',
   overnightReason: 'This ride was part of an overnight work trip away from home.',

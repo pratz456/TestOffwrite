@@ -1,6 +1,7 @@
 "use client";
 
 import { profileHasHomeOffice } from "@/lib/profile/home-office";
+import { mileageVehicleCopyEnabled } from "@/lib/mileage/vehicle-copy";
 import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -124,7 +125,7 @@ const FORMS = [
   },
 ];
 
-function getInitialAnswers(userProfile?: any): Record<string, boolean> {
+export function getInitialAnswers(userProfile?: any): Record<string, boolean> {
   const defaults: Record<string, boolean> = {
     self_employment: false,
     home_office: false,
@@ -143,7 +144,12 @@ function getInitialAnswers(userProfile?: any): Record<string, boolean> {
   ) {
     defaults.self_employment = true;
   }
-  if (profileHasHomeOffice(userProfile)) {
+  // Switch off keeps the check this screen used before vehicle copy: a positive
+  // home_office_sqft value, including a numeric string, or saved details.
+  const homeOffice = mileageVehicleCopyEnabled()
+    ? profileHasHomeOffice(userProfile)
+    : (userProfile.home_office_sqft ?? 0) > 0 || userProfile.home_office_details;
+  if (homeOffice) {
     defaults.home_office = true;
   }
 

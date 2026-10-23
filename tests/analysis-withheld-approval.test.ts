@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
 import { ACTUAL_EXPENSE_BUSINESS_SHARE } from '@/lib/ai/actual-expense-share';
-import { HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, HIRED_FARE_USE, hiredFareUsePrompt, SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
+import { HIRED_FARE_PERSONAL, HIRED_FARE_USE, hiredFareUsePrompt, SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
 import { analysisSuggestionUpdate, STANDARD_MILEAGE_RUNNING_COST_GATE, VEHICLE_METHOD_GATE, withheldApprovalGate, withheldMissingField } from '@/lib/ai/analysis-persistence';
 import { blankVehicle, saveVehicle } from '@/lib/mileage/vehicles';
 import { convertToEnhancedContext, type OutputType } from '@/lib/ai/analyzeTransaction';
@@ -219,11 +219,19 @@ describe('an engine approval the review path cannot consume is stored as the que
     const unstated = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
       record({ amount: 18, merchant_name: 'Lyft', business_purpose: 'Ride across town tonight' }), undefined, null, facts);
     expect(unstated.deductionStatus).toBe('Needs more information');
-    expect(unstated.ai_suggestion.questions[0]).toBe(HIRED_FARE_PURPOSE.question);
+    expect(unstated.ai_suggestion.questions).toEqual(hiredFareUsePrompt(null));
+    expect(unstated.ai_suggestion.questions[0]).toBe(HIRED_FARE_USE.question);
     expect(unstated.ai_schedule_c_line).toBeNull();
     expect(unstated.ai_suggestion.scheduleCLine).toBeUndefined();
     expect(JSON.stringify(unstated.ai_explanation)).not.toContain('24a');
-    expect(unstated.ai_missing_fields).toEqual(['business_purpose']);
+    expect(unstated.ai_missing_fields).toEqual(['travel_eligibility']);
+    for (const purpose of ['', undefined] as const) {
+      const open = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
+        record({ amount: 18, merchant_name: 'Lyft', business_purpose: purpose, hired_fare_use: null }), undefined, null, facts);
+      expect(open.deductionStatus).toBe('Needs more information');
+      expect(open.ai_suggestion.questions).toEqual(hiredFareUsePrompt(null));
+      expect(open.ai_schedule_c_line).toBeNull();
+    }
     const meal = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
       record({ amount: 24, merchant_name: 'UBER EATS', business_purpose: 'Dinner delivered while finishing a client proposal' }), undefined, null, facts);
     expect(meal.ai_suggestion.category).toBe('meals_50');

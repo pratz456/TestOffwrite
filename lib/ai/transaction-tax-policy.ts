@@ -1,6 +1,6 @@
 import type { OutputType, TransactionInput, UserContext } from './analyzeTransaction';
 import { findMerchantEntry, merchantDescriptor, merchantIntelligence, type MerchantIntelligenceResult } from './merchant-intelligence';
-import { hiredFarePurpose, hiredVehicleFare, HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, SEPARATE_VEHICLE_COST_SHARE, standardMileageSeparateCost } from './vehicle-separate-costs';
+import { hiredFarePurpose, hiredFareUsePrompt, hiredVehicleFare, HIRED_FARE_PERSONAL, HIRED_FARE_USE, SEPARATE_VEHICLE_COST_SHARE, standardMileageSeparateCost } from './vehicle-separate-costs';
 import { ACTUAL_EXPENSE_BUSINESS_SHARE } from './actual-expense-share';
 import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { matchProfessions, professionHint } from './profession-priors';
@@ -706,7 +706,8 @@ export function groundTransactionAnalysis(
     } else if (mileageVehicleCopyEnabled() && result.is_deductible === true && purposeMissing &&
       hiredVehicleFare(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`) && result.category !== 'meals_50') {
       result.category = 'travel';
-      requireInfo(result, 'business_purpose', HIRED_FARE_PURPOSE.question, HIRED_FARE_PURPOSE.reason);
+      requireInfo(result, 'travel_eligibility', HIRED_FARE_USE.question, HIRED_FARE_USE.reason);
+      result.questions = hiredFareUsePrompt(context);
     } else if (result.is_deductible === true && purposeMissing) {
       const generic = 'What did you buy, and how did you use it in your business?';
       if (merchant.disposition === 'transfer_or_deposit') {
@@ -824,7 +825,8 @@ export function groundTransactionAnalysis(
         result.expense_type = 'business';
         result.deductible_percent = 100;
       } else {
-        requireInfo(result, 'business_purpose', HIRED_FARE_PURPOSE.question, HIRED_FARE_PURPOSE.reason);
+        requireInfo(result, 'travel_eligibility', HIRED_FARE_USE.question, HIRED_FARE_USE.reason);
+        result.questions = hiredFareUsePrompt(context);
       }
     } else if (mileageVehicleCopyEnabled() && result.is_deductible === true && separateVehicleCost) {
       // Interest and vehicle personal property tax stay out of the mileage hold, and count only at the recorded share.

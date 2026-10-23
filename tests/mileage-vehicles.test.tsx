@@ -673,7 +673,8 @@ describe('mileage vehicles, trip types, and sorting', () => {
     expect(context.gaps).not.toContain('vehicle_deduction_method');
     const enhanced = convertToEnhancedContext(disagreeing, '2026-08-01', { vehicles: [listed] });
     expect(enhanced.vehicle_deduction_method).toBe('standard_mileage');
-    expect(enhanced.business_vehicle).toMatchObject({ deduction_method: 'standard_mileage', business_use_percentage: 40 });
+    expect(enhanced.vehicle_business_use_percentage).toBe(40);
+    expect(enhanced.business_vehicle).toEqual({ make: 'Ford', model: 'Focus', year: 2014, deduction_method: 'actual_expense', business_use_percentage: 80 });
     expect(assistantProfileFacts(disagreeing, { vehicles: [listed], taxYear: 2026 }).vehicleMethod).toBe('standard_mileage');
     vi.unstubAllEnvs();
   });

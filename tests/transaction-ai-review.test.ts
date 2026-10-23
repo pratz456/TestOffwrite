@@ -12,6 +12,7 @@ vi.mock('@/lib/firebase/admin', () => {
 });
 
 import { analysisProfileHash } from '@/lib/ai/profile-context';
+import { baselineInputHash, baselineProfileHash } from './baseline-analysis-context';
 import { analysisSuggestionUpdate } from '@/lib/ai/analysis-persistence';
 import { POST } from '@/app/api/transactions/[id]/review/route';
 import { hydrateReviewTransaction } from '@/lib/transactions/review';
@@ -114,6 +115,25 @@ describe('saved AI categorization confirmation', () => {
     // The user can still deliberately categorize it without asserting a tax deduction.
     expect((await send(correct())).status).toBe(200);
     expect(record().tax_review_required).toBe(true);
+  });
+  it('confirms a suggestion saved before hired fare codes, with the switch off and on', async () => {
+    const profile = { profession: 'Designer', state: 'CA', business_entity_type: 'sole_proprietor' };
+    const base = { userId: 'owner', account_id: 'bank', trans_id: 'tx', merchant_name: 'Office store', amount: 100,
+      date: '2026-09-15', category: 'UNCLASSIFIED', iso_currency_code: 'USD', pending: false,
+      is_deductible: null, notes: 'Supplies used only for Client A.', analysisLeaseToken: 'private-token' };
+    for (const [flag, fare] of [['0', undefined], ['1', null]] as const) {
+      vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', flag);
+      mocks.docs.set('user_profiles/owner', { ...profile });
+      mocks.docs.set(path, fare === null ? { ...base, hired_fare_use: null } : { ...base });
+      suggest();
+      const data = record();
+      change({ ai_suggestion: { ...data.ai_suggestion, inputHash: baselineInputHash(data), profileHash: baselineProfileHash(profile, data.date) } });
+      const response = await send(confirm());
+      expect(response.status).toBe(200);
+      expect(record().review_status).toBe('confirmed');
+      expect(await response.json()).not.toMatchObject({ code: 'AI_SUGGESTION_CHANGED' });
+    }
+    vi.unstubAllEnvs();
   });
   it('ignores non-tax display and subscription changes in the profile fingerprint', async () => {
     const profilePath = 'user_profiles/owner';
