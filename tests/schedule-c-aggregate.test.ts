@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { ACTUAL_EXPENSE_BUSINESS_SHARE } from '@/lib/ai/actual-expense-share';
 import { SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
+import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { safeTaxYear } from '@/lib/schedule-c/taxDate';
 import { isLegacyConfirmedRecord, isServerConfirmedDeduction, LEGACY_CONFIRMATION_CUTOFF, recordTimestampMs } from '@/lib/transactions/confirmed-deduction';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
@@ -290,6 +292,63 @@ describe('vehicle costs count only a business use percent from 0 through 100', (
       expect(stored).toBe(tx);
       expect(stored.deductionStatus).toBe('Likely Deductible');
       expect(stored.reasoning).toBe('Saved reason');
+    }
+  });
+});
+
+describe('Other expenses year print and energy labels', () => {
+  const confirmed = (fields: Record<string, unknown>) => ({
+    amount: 80,
+    is_deductible: true,
+    review_status: 'confirmed',
+    tax_review_required: false,
+    merchant_name: 'Synthetic payee',
+    ...fields,
+  });
+
+  it('puts eight confirmed energy rows in the review bucket and in no total', () => {
+    const rows = [
+      confirmed({ id: 'dues-179d-2024', date: '2024-06-15', category: 'SERVICE_PROFESSIONAL_DUES', schedule_c_line: '27a (179D)' }),
+      confirmed({ id: 'dues-179d-2025', date: '2025-06-15', category: 'SERVICE_PROFESSIONAL_DUES', schedule_c_line: '27a (179D)' }),
+      confirmed({ id: 'dues-7205-2024', date: '2024-07-15', category: 'SERVICE_PROFESSIONAL_DUES', schedule_c_line: 'Line 27a (Form 7205)' }),
+      confirmed({ id: 'dues-7205-2025', date: '2025-07-15', category: 'SERVICE_PROFESSIONAL_DUES', schedule_c_line: 'Line 27a (Form 7205)' }),
+      confirmed({ id: 'dues-energy-2024', date: '2024-08-15', category: 'SERVICE_PROFESSIONAL_DUES', schedule_c_line: '27a (Energy efficient commercial buildings)' }),
+      confirmed({ id: 'dues-energy-2025', date: '2025-08-15', category: 'SERVICE_PROFESSIONAL_DUES', schedule_c_line: '27a (Energy efficient commercial buildings)' }),
+      confirmed({ id: 'unmapped-179d-2024', date: '2024-09-15', category: 'SYNTHETIC_UNMAPPED', schedule_c_line: '27a (179D)' }),
+      confirmed({ id: 'unmapped-energy-2025', date: '2025-09-15', category: 'SYNTHETIC_UNMAPPED', schedule_c_line: '27a (Energy efficient commercial buildings)' }),
+    ];
+    expect(rows).toHaveLength(8);
+    for (const year of ['2024', '2025']) {
+      const expected = rows.filter(row => String(row.date).startsWith(year));
+      for (const mode of ['confirmed-only', 'default'] as const) {
+        const totals = aggregateScheduleC(expected, year, CATEGORY_MAP, { mode });
+        const review = totals.lineItems.review;
+        expect(review?.lineName).toBe('Needs more information');
+        expect(review?.lineCode).toBe('');
+        expect(review?.deductible).toBe(0);
+        expect(review?.total).toBe(0);
+        expect(review?.transactionCount).toBe(expected.length);
+        expect(review?.transactions.map(tx => tx.id).sort()).toEqual(expected.map(tx => tx.id).sort());
+        expect(totals.totalDeductible).toBe(0);
+        expect(totals.totalExpenses).toBe(0);
+        expect(totals.lineItems['27a']).toBeUndefined();
+        expect(totals.lineItems['27b']).toBeUndefined();
+      }
+    }
+  });
+
+  it('keeps a label-free dues row on summary line 27a and prints 27b for 2025 and 27a for 2024', () => {
+    for (const [year, printed] of [[2024, '27a'], [2025, '27b']] as const) {
+      const row = confirmed({ id: `dues-${year}`, date: `${year}-06-15`, category: 'SERVICE_PROFESSIONAL_DUES', amount: 120 });
+      const totals = aggregateScheduleC([row], String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
+      const summary = totals.lineItems['27a'];
+      expect(summary?.lineCode).toBe('27a');
+      expect(totals.lineItems['27b']).toBeUndefined();
+      expect(totals.totalDeductible).toBe(120);
+      expect(scheduleCExportLine(summary.lineCode, year)).toBe(printed);
+      const csv = generateScheduleCCSV([summary], year);
+      const cells = csv.split('\r\n')[1].split(',');
+      expect(cells[3]).toBe(printed);
     }
   });
 });

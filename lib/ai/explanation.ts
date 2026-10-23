@@ -189,7 +189,7 @@ export function categoryScheduleCLine(value: unknown): string | null {
   return recorded ? CATEGORY_MAP[recorded]?.line ?? null : null;
 }
 
-/** Printed sentence for one internal line. A missing or unusable charge year prints no line. */
+/** Printed sentence for one internal line. otherExpensesYearPrint supplies the code: 27a for 2017 through 2024, 27b for 2025 and later. 2016 and earlier, and a missing or unusable charge year, print no line. */
 function lineSentence(internalLine: string, chargeDate: unknown): string | null {
   const printed = printedScheduleCLine(internalLine, chargeTaxYear(chargeDate));
   if (!printed) return null;

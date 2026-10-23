@@ -26,7 +26,7 @@ function printedLineCell(value: unknown, taxYear: number | null): string {
   if (!/^\d{1,2}[a-z]?$/.test(code)) return value.trim();
   return printedScheduleCLine(code, taxYear) ?? '';
 }
-/** Recorded column follows resolveScheduleCPrint. The audit column keeps the raw saved label. */
+/** Recorded column follows resolveScheduleCPrint. Other expenses prints through otherExpensesYearPrint: 27a for 2017 through 2024, 27b for 2025 and later, and no line for 2016 and earlier. The audit column keeps the raw saved label. */
 function scheduleCCells(record: ExportRecord, taxYear: number | null, categoryLine: string | null): { recorded: string; mapped: string; audit: string; needsMore: boolean } {
   const raw = record.schedule_c_line ?? record.scheduleC_line;
   const audit = typeof raw === 'string' ? raw : '';

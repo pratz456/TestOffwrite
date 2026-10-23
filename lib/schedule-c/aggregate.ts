@@ -297,7 +297,9 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
       addReviewItem(lineItems, tx);
       continue;
     }
-    // Mapped categories keep their internal line. An unmapped or label-only Other expenses row follows the charge year.
+    // Mapped categories keep info.line as the summary key. Other expenses stays 27a there.
+    // scheduleCExportLine prints that key as 27a for 2017 through 2024 and 27b for 2025 and later.
+    // An unmapped or label-only Other expenses row follows the charge year. 2016 and earlier are withheld.
     const lineKey = info ? info.line : otherExpensesLineKey(chargeYear);
     const lineName = info ? info.name : 'Other expenses';
     const otherBucket = decision.kind === 'other-expenses' || lineKey === '27a' || lineKey === '27b';
