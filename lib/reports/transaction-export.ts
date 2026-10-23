@@ -1,5 +1,6 @@
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { printedScheduleCLine } from '@/lib/schedule-c/export-lines';
+import { resolveScheduleCPrint } from '@/lib/schedule-c/line-labels';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 
@@ -19,11 +20,29 @@ export function chargeTaxYear(paidOrPosted: unknown): number | null {
   const year = Number(day.slice(0, 4));
   return Number.isInteger(year) ? year : null;
 }
-function printedLineCell(value: unknown, taxYear: number | null): unknown {
-  if (typeof value !== 'string') return value;
+function printedLineCell(value: unknown, taxYear: number | null): string {
+  if (typeof value !== 'string') return '';
   const code = value.trim();
-  if (!/^\d{1,2}[a-z]?$/.test(code)) return value;
-  return printedScheduleCLine(code, taxYear);
+  if (!/^\d{1,2}[a-z]?$/.test(code)) return value.trim();
+  return printedScheduleCLine(code, taxYear) ?? '';
+}
+/** Recorded column follows resolveScheduleCPrint. The audit column keeps the raw saved label. */
+function scheduleCCells(record: ExportRecord, taxYear: number | null, categoryLine: string | null): { recorded: string; mapped: string; audit: string; needsMore: boolean } {
+  const raw = record.schedule_c_line ?? record.scheduleC_line;
+  const audit = typeof raw === 'string' ? raw : '';
+  const decision = resolveScheduleCPrint({ reviewStatus: record.review_status, categoryLine, label: typeof raw === 'string' ? raw : null });
+  const mapped = categoryLine ? printedScheduleCLine(categoryLine, taxYear) ?? '' : '';
+  if (decision.kind === 'needs-more-information') return { recorded: '', mapped: '', audit, needsMore: true };
+  if (decision.kind === 'other-expenses' || (decision.kind === 'line' && (decision.line === '27a' || decision.line === '27b'))) {
+    const recorded = printedScheduleCLine('27a', taxYear) ?? '';
+    const categoryIsOther = categoryLine === '27a' || categoryLine === '27b';
+    return { recorded, mapped: categoryIsOther ? (recorded || mapped) : mapped, audit, needsMore: !recorded };
+  }
+  if (decision.kind === 'line') {
+    const recorded = printedScheduleCLine(decision.line, taxYear) ?? '';
+    return { recorded, mapped, audit, needsMore: false };
+  }
+  return { recorded: printedLineCell(raw, taxYear), mapped, audit, needsMore: false };
 }
 export function exportDate(value: unknown): string | null {
   try {
@@ -62,7 +81,7 @@ export const TRANSACTION_CSV_HEADERS = [
   'Transaction Reference', 'Account Reference', 'Tax Date', 'Recorded Date',
   'Signed Amount (+ outflow / - inflow)', 'Cash Direction (not tax classification)', 'Recorded Type', 'Currency',
   'Merchant', 'Description', 'Recorded Category', 'Recorded Deductibility (not filing eligibility)', 'Pending',
-  'Recorded Schedule C Line', 'Category Mapping (preparer review)', 'Business Purpose', 'User Review Notes',
+  'Recorded Schedule C Line', 'Category Mapping (preparer review)', 'Saved Schedule C Label (audit)', 'Business Purpose', 'User Review Notes',
   'AI Reason (unverified)', 'AI Confidence (0 to 1)', 'Receipt Filename', 'Private Receipt Path (sign-in required)',
   'Notes', 'Recorded Business-use Fields (not applied)', 'Recorded Deduction Adjustments (not applied)', 'Data Review',
 ];
@@ -77,12 +96,14 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
     if (equipment && typeof equipment === 'object' && 'business_use_percentage' in equipment) businessUse['equipment_details.business_use_percentage'] = equipment.business_use_percentage;
     const adjustments = Object.fromEntries(['deduction_override', 'deductible_amount', 'deduction_amount', 'deductible_amount_override', 'deduction_percentage'].filter(key => record[key] !== undefined).map(key => [key, record[key]]));
     const receiptPath = typeof rawPath === 'string' ? validateReceiptPreviewPath(rawPath) : null;
+    const lines = scheduleCCells(record, lineYear, CATEGORY_MAP[category]?.line ?? null);
     const review = [!date && 'Missing/invalid date', amount === null && 'Missing/invalid amount',
       !record.iso_currency_code && !record.unofficial_currency_code && 'Currency not recorded',
       record.pending === true && 'Pending record; reconcile posted transaction',
       isSupersededRecord(record) && 'Superseded duplicate of an earlier bank record; excluded from WriteOff totals',
       deductible === null && 'Classification unreviewed',
       record.tax_review_required === true && 'Tax treatment unresolved; exclude from confirmed deduction totals',
+      lines.needsMore && 'Needs more information',
       amount !== null && amount > 0 && deductible !== false && !Object.keys(businessUse).length && 'Business-use percentage not recorded; confirm allocation',
       rawPath && !receiptPath && 'Receipt link unavailable in private export',
     ].filter(Boolean).join('; ');
@@ -91,7 +112,7 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
       record.type, record.iso_currency_code ?? record.unofficial_currency_code ?? 'Not recorded', record.merchant_name ?? record.name ?? record.merchant,
       record.description, category, deductible === true ? 'Yes' : deductible === false ? 'No' : 'Unreviewed',
       record.pending === true ? 'Yes' : record.pending === false ? 'No' : 'Not recorded',
-      printedLineCell(record.schedule_c_line ?? record.scheduleC_line, lineYear), printedLineCell(CATEGORY_MAP[category]?.line ?? '', lineYear), record.business_purpose,
+      lines.recorded, lines.mapped, lines.audit, record.business_purpose,
       record.user_classification_reason, record.deductible_reason ?? record.deduction_reason, record.deduction_score ?? record.ai_confidence,
       record.receipt_filename, receiptPath, record.notes, Object.keys(businessUse).length ? businessUse : '', Object.keys(adjustments).length ? adjustments : '', review,
     ].map(csvCell).join(',');

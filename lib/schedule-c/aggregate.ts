@@ -20,6 +20,8 @@
  * PDF generation path: route → getTransactionsServer(uid) → aggregateScheduleC → pdf-lib.
  */
 
+import { otherExpensesYearPrint } from './export-lines';
+import { resolveScheduleCPrint } from './line-labels';
 import { safeTaxYear } from './taxDate';
 import { finiteUsePercent, ACTUAL_EXPENSE_BUSINESS_SHARE, VEHICLE_ACTUAL_EXPENSE_CATEGORY } from '@/lib/ai/actual-expense-share';
 import { SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
@@ -214,6 +216,28 @@ function businessUseShareCents(tx: ScheduleCTransactionLike, cents: number): num
   return Math.round(cents * share / 100);
 }
 
+const NEEDS_MORE_INFORMATION = 'Needs more information';
+
+function savedScheduleCLabel(tx: ScheduleCTransactionLike): string | null {
+  const raw = tx.schedule_c_line ?? tx.scheduleC_line;
+  return typeof raw === 'string' && raw.trim() ? raw : null;
+}
+
+/** Fallback bucket when the category is not in the map. 2018-2024 stay 27a. 2025 and later use 27b. Earlier years keep the internal 27a key and print no line number. */
+function otherExpensesLineKey(year: number | null): string {
+  const print = otherExpensesYearPrint(year);
+  return print.status === 'line' ? print.code : '27a';
+}
+
+function addReviewItem(lineItems: Record<string, LineItemSummary>, tx: ScheduleCTransactionLike) {
+  const key = 'review';
+  if (!lineItems[key]) {
+    lineItems[key] = { lineCode: '', lineName: NEEDS_MORE_INFORMATION, total: 0, deductible: 0, transactionCount: 0, transactions: [] };
+  }
+  lineItems[key].transactionCount += 1;
+  lineItems[key].transactions.push({ ...tx, deductionStatus: NEEDS_MORE_INFORMATION, reasoning: NEEDS_MORE_INFORMATION });
+}
+
 /** Existing analysis status. The reason is the one already shown when this percent is missing. */
 function lineItemTransaction(tx: ScheduleCTransactionLike): ScheduleCTransactionLike {
   if (!BUSINESS_USE_SHARE_CATEGORIES.has(tx.category) || finiteUsePercent(tx.business_use_percentage) !== null) return tx;
@@ -263,9 +287,24 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
   };
 
   for (const tx of deductibleTransactions) {
-    const info = categoryMap[tx.category];
-    const lineKey = info ? info.line : '27a';
+    const rawCategory = typeof tx.category === 'string' ? tx.category.trim() : '';
+    const info = rawCategory ? categoryMap[rawCategory] : undefined;
+    const categoryLine = info ? info.line : rawCategory ? '27a' : null;
+    const chargeYear = safeTaxYear(tx.date);
+    const label = savedScheduleCLabel(tx);
+    const decision = resolveScheduleCPrint({ categoryLine, label });
+    if (decision.kind === 'needs-more-information' || (decision.kind === 'passthrough' && !info && !rawCategory && label)) {
+      addReviewItem(lineItems, tx);
+      continue;
+    }
+    // Mapped categories keep their internal line. An unmapped or label-only Other expenses row follows the charge year.
+    const lineKey = info ? info.line : otherExpensesLineKey(chargeYear);
     const lineName = info ? info.name : 'Other expenses';
+    const otherBucket = decision.kind === 'other-expenses' || lineKey === '27a' || lineKey === '27b';
+    if (otherBucket && otherExpensesYearPrint(chargeYear).status === 'withhold') {
+      addReviewItem(lineItems, tx);
+      continue;
+    }
 
     if (!lineItems[lineKey]) {
       lineItems[lineKey] = {
@@ -298,6 +337,14 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
     }
     lineItems[lineKey].transactionCount += 1;
     lineItems[lineKey].transactions.push(lineItemTransaction(tx));
+  }
+
+  // The year filter above still drops an undated or impossible charge. Surface it so the row is not silent.
+  for (const tx of transactions) {
+    if (isSupersededRecord(tx) || safeTaxYear(tx.date) !== null) continue;
+    const included = mode === 'confirmed-only' ? isConfirmedScheduleCExpense(tx) : isBusinessExpense(tx);
+    if (!included) continue;
+    addReviewItem(lineItems, tx);
   }
 
   const lineItemsArray = Object.values(lineItems).sort((a, b) => {

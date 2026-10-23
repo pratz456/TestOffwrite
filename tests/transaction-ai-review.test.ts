@@ -30,6 +30,8 @@ import { canConfirmAiSuggestion } from '@/lib/transactions/ai-review-contract';
 import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { aggregateScheduleC } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
+import { convertTransactionsToCSV } from '@/lib/reports/transaction-export';
+import { scheduleCLineFor } from '@/lib/ai/explanation';
 import { HIRED_FARE_USE } from '@/lib/ai/vehicle-separate-costs';
 import { reconcileBusinessIncome } from '@/lib/tax-rules/business-income';
 import { TRANSACTION_TAX_POLICY_VERSION } from '@/lib/ai/transaction-tax-policy';
@@ -623,5 +625,32 @@ describe('interest, vehicle property tax, and hired fares', () => {
     const kept = aggregateScheduleC([{ amount: 200, date: '2026-09-15', category: 'VEHICLE_LOAN_INTEREST', is_deductible: true, business_use_percentage: 40, review_status: 'confirmed', tax_review_required: false } as any], '2026', undefined, { mode: 'confirmed-only' });
     expect(kept.lineItems['16b']).toMatchObject({ lineCode: '16b', lineName: 'Interest: other', deductible: 80 });
     vi.unstubAllEnvs();
+  });
+});
+
+describe('correcting an energy-labeled dues row', () => {
+  it.each([
+    ['2024-06-15', '2024', '27a'],
+    ['2025-06-15', '2025', '27b'],
+  ])('A2-102 goes through correct on %s and then prints %s', async (date, year, code) => {
+    change({
+      date, amount: 120, merchant_name: 'AIGA', schedule_c_line: '27a (179D)',
+      category: 'SERVICE_PROFESSIONAL_DUES', is_deductible: true, review_status: 'confirmed', review_source: 'user_corrected',
+    });
+    const before = aggregateScheduleC([record() as any], year, undefined, { mode: 'confirmed-only' });
+    expect(before.totalDeductible).toBe(0);
+    expect(before.totalExpenses).toBe(0);
+    const response = await send(correct({ category: 'dues_and_memberships', isDeductible: true, reason: 'Professional dues' }));
+    expect(response.status).toBe(200);
+    expect(record().schedule_c_line).toBeNull();
+    expect(record().category).toBe('SERVICE_PROFESSIONAL_DUES');
+    expect(convertTransactionsToCSV([record()]).split('\r\n')[1]).toContain(`,${code},${code},`);
+    const after = aggregateScheduleC([record() as any], year, undefined, { mode: 'confirmed-only' });
+    expect(after.totalDeductible).toBe(120);
+    expect(after.lineItems['27a']).toMatchObject({ deductible: 120 });
+    expect(scheduleCLineFor({
+      status: 'ok', transaction_kind: 'expense', category: 'dues_and_memberships', is_deductible: true,
+      schedule_c_line: record().schedule_c_line, sources: [],
+    }, date)).toBe(`Schedule C line ${code} (Other expenses)`);
   });
 });
