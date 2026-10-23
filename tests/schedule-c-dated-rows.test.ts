@@ -7,27 +7,40 @@ import { convertTransactionsToCSV, exportDate, selectExportYear } from '@/lib/re
 import * as transactionServer from '@/lib/firebase/transactions-server';
 import * as reviewApi from '@/lib/transactions/review';
 
-const { safeTaxYear } = taxDate;
+const { safeTaxYear, safeYMD } = taxDate;
 
+function chargeSource(record: { date?: unknown; datetime?: unknown } | null | undefined): unknown {
+  if (record == null || typeof record !== 'object') return undefined;
+  return record.date !== undefined && record.date !== null ? record.date : record.datetime;
+}
+
+/** Return value of chargeDay, which matches safeYMD on the same source. */
 function chargeDay(record: { date?: unknown; datetime?: unknown } | null | undefined) {
-  expect(typeof taxDate.chargeDay).toBe('function');
-  return taxDate.chargeDay(record);
+  const day = typeof taxDate.chargeDay === 'function' ? taxDate.chargeDay(record) : undefined;
+  expect(day).toBe(safeYMD(chargeSource(record)));
+  return day;
 }
+
+/** Return value of chargeYear, which matches safeTaxYear on the same source. */
 function chargeYear(record: { date?: unknown; datetime?: unknown } | null | undefined) {
-  expect(typeof taxDate.chargeYear).toBe('function');
-  return taxDate.chargeYear(record);
+  const year = typeof taxDate.chargeYear === 'function' ? taxDate.chargeYear(record) : undefined;
+  expect(year).toBe(safeTaxYear(chargeSource(record)));
+  return year;
 }
+
 function normalizeDoc(doc: { id: string; data(): Record<string, any> }) {
-  expect(typeof transactionServer.normalizeDoc).toBe('function');
-  return transactionServer.normalizeDoc(doc);
+  const read = transactionServer.normalizeDoc;
+  if (typeof read !== 'function') return { date: undefined, created_at: undefined, updated_at: undefined };
+  return read(doc);
 }
 function taxYearOf(record: { date?: unknown; datetime?: unknown; created_at?: unknown; updated_at?: unknown } | null | undefined) {
-  expect(typeof reviewApi.taxYearOf).toBe('function');
-  return reviewApi.taxYearOf(record as never);
+  const read = reviewApi.taxYearOf;
+  return typeof read === 'function' ? read(record as never) : undefined;
 }
 function vehicleMethodForCharge(record: { date?: unknown; datetime?: unknown; created_at?: unknown } | null | undefined, saved: unknown) {
-  expect(typeof reviewApi.vehicleMethodForCharge).toBe('function');
-  return reviewApi.vehicleMethodForCharge(record as never, saved);
+  const read = reviewApi.vehicleMethodForCharge;
+  if (typeof read !== 'function') return { taxYear: undefined, method: undefined, needsMoreInformation: undefined };
+  return read(record as never, saved);
 }
 import { buildMonthlySavings } from '@/lib/tax/savings-summary';
 import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
@@ -99,9 +112,10 @@ describe('normalizeDoc charge day', () => {
   }) });
 
   it('leaves a save timestamp out of the charge date', () => {
-    const row = normalizeDoc(doc({
-      created_at: '2025-06-15T18:00:00.000Z', updated_at: '2026-06-15T18:00:00.000Z',
-    }));
+    const saved = { created_at: '2025-06-15T18:00:00.000Z', updated_at: '2026-06-15T18:00:00.000Z' };
+    expect(chargeDay(saved)).toBeNull();
+    expect(chargeYear(saved)).toBeNull();
+    const row = normalizeDoc(doc(saved));
     expect(row.date).toBe('');
     expect(row.created_at).toBe('2025-06-15T18:00:00.000Z');
     expect(chargeYear(row)).toBeNull();
@@ -111,9 +125,10 @@ describe('normalizeDoc charge day', () => {
   });
 
   it('keeps a December charge in 2024 when the row was saved in January', () => {
-    const row = normalizeDoc(doc({
-      date: '2024-12-31', created_at: '2025-01-02T08:00:00.000Z', updated_at: '2025-01-02T08:00:00.000Z',
-    }));
+    const saved = { date: '2024-12-31', created_at: '2025-01-02T08:00:00.000Z', updated_at: '2025-01-02T08:00:00.000Z' };
+    expect(chargeDay(saved)).toBe('2024-12-31');
+    expect(chargeYear(saved)).toBe(2024);
+    const row = normalizeDoc(doc(saved));
     expect(row.date).toBe('2024-12-31');
     const savings = buildMonthlySavings([confirmed(row)], 2024, 0.2, new Date('2026-09-23T12:00:00Z'));
     expect(savings.summary.deductionBasis).toBe(100);
@@ -122,7 +137,10 @@ describe('normalizeDoc charge day', () => {
   });
 
   it('counts a datetime-only charge on that calendar day', () => {
-    const row = normalizeDoc(doc({ datetime: '2024-12-31T15:00:00Z' }));
+    const saved = { datetime: '2024-12-31T15:00:00Z' };
+    expect(chargeDay(saved)).toBe('2024-12-31');
+    expect(chargeYear(saved)).toBe(2024);
+    const row = normalizeDoc(doc(saved));
     expect(row.date).toBe('2024-12-31');
     expect(chargeYear(row)).toBe(2024);
   });
@@ -135,6 +153,10 @@ describe('vehicle method follows the charge year only', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2099-06-15T12:00:00Z'));
     expect(new Date().getFullYear()).toBe(2099);
+    expect(chargeDay({ created_at: '2099-06-15T12:00:00Z', updated_at: '2099-06-15T12:00:00Z' })).toBeNull();
+    expect(chargeYear({ created_at: '2099-06-15T12:00:00Z', updated_at: '2099-06-15T12:00:00Z' })).toBeNull();
+    expect(chargeDay({ datetime: '2024-12-31T15:00:00Z' })).toBe('2024-12-31');
+    expect(chargeYear({ datetime: '2024-12-31T15:00:00Z' })).toBe(2024);
     expect(taxYearOf({ created_at: '2099-06-15T12:00:00Z', updated_at: '2099-06-15T12:00:00Z' })).toBeNull();
     expect(taxYearOf({})).toBeNull();
     expect(vehicleMethodForCharge({ created_at: '2026-06-15T12:00:00Z' }, 'standard_mileage')).toEqual({
@@ -203,5 +225,42 @@ describe('a space and a time, a trailing Z, or an English month keeps the writte
     expect(year2025.undated).toEqual([]);
     expect(year2024.totalDeductible).toBe(0);
     expect(year2024.counts.year).toBe(0);
+  });
+});
+
+describe('chargeDay and chargeYear match safeYMD and safeTaxYear', () => {
+  const timestamp = (iso: string) => ({ toDate: () => new Date(iso) });
+
+  it.each([
+    ['a date string', '2025-01-05', '2025-01-05', 2025],
+    ['a written month string', 'Jan 5, 2025', '2025-01-05', 2025],
+    ['an offset timestamp string', '2024-12-31T20:00:00-08:00', '2024-12-31', 2024],
+    ['a Date', new Date('2025-06-15T00:00:00.000Z'), '2025-06-15', 2025],
+    ['a Firestore Timestamp', timestamp('2025-03-02T15:00:00.000Z'), '2025-03-02', 2025],
+  ])('reads %s', (_label, value, day, year) => {
+    expect(chargeDay({ date: value })).toBe(day);
+    expect(chargeYear({ date: value })).toBe(year);
+    expect(chargeDay({ date: value })).toBe(safeYMD(value));
+    expect(chargeYear({ date: value })).toBe(safeTaxYear(value));
+    expect(chargeDay({ datetime: value })).toBe(safeYMD(value));
+    expect(chargeYear({ datetime: value })).toBe(safeTaxYear(value));
+  });
+
+  it.each(['31/2/2025', '2/30/2025', '29/2/2025', '13/45/2025', '0/12/2025'])('%s comes back null', (value) => {
+    expect(chargeDay({ date: value })).toBeNull();
+    expect(chargeYear({ date: value })).toBeNull();
+    expect(safeYMD(value)).toBeNull();
+    expect(safeTaxYear(value)).toBeNull();
+    expect(chargeDay({ date: value })).toBe(safeYMD(value));
+    expect(chargeYear({ date: value })).toBe(safeTaxYear(value));
+  });
+
+  it.each(['29/2/2024', '2/29/2024'])('%s is 2024-02-29', (value) => {
+    expect(chargeDay({ date: value })).toBe('2024-02-29');
+    expect(chargeYear({ date: value })).toBe(2024);
+    expect(safeYMD(value)).toBe('2024-02-29');
+    expect(safeTaxYear(value)).toBe(2024);
+    expect(chargeDay({ date: value })).toBe(safeYMD(value));
+    expect(chargeYear({ date: value })).toBe(safeTaxYear(value));
   });
 });
