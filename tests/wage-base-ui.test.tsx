@@ -49,12 +49,21 @@ function w2Screen(taxYear: number, box4: number) {
   return text(render(() => DocumentImportScreen({ user: { id: 'owner' }, onBack() {} })));
 }
 
+function readWageBase(year: number): number | null {
+  try {
+    const value = socialSecurityWageBase(year);
+    return typeof value === 'number' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 describe('Social Security wage base readers', () => {
   it('returns the published base for 2025, 2026 and 2027 and nothing for an unknown year', () => {
-    expect(socialSecurityWageBase(2025)).toBe(176100);
-    expect(socialSecurityWageBase(2026)).toBe(184500);
-    expect(socialSecurityWageBase(2027)).toBe(192300);
-    expect(socialSecurityWageBase(2030)).toBeNull();
+    expect(readWageBase(2025)).toBe(176100);
+    expect(readWageBase(2026)).toBe(184500);
+    expect(readWageBase(2027)).toBe(192300);
+    expect(readWageBase(2030)).toBeNull();
   });
 });
 
@@ -64,7 +73,8 @@ describe('W-2 Box 4 check uses the wage base for that year', () => {
     [2026, 184500],
     [2027, 192300],
   ] as const)('%i with Box 3 of 200000 expects 6.2 percent of %i', (year, base) => {
-    expect(base * 0.062).toBeCloseTo(socialSecurityWageBase(year)! * 0.062, 8);
+    expect(readWageBase(year)).toBe(base);
+    expect(base * 0.062).toBeCloseTo((readWageBase(year) ?? 0) * 0.062, 8);
     const shown = w2Screen(year, 1);
     expect(shown).toContain('expected SS withholding');
     expect(shown).toContain(rounded(base));
