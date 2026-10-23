@@ -389,9 +389,10 @@ function vehicleContextFields(userProfile: Record<string, any>, transactionDate:
   if (method === undefined && !carsProvided) method = storedMethod;
   // Status none drops the helper percent. With the switch off, a recorded 0 still has to reach the prompt, matching the base field copy.
   const recordedPercent = finiteNonnegative(userProfile.vehicle_business_use_percentage);
+  // A number uses the same 0 through 100 rule as a numeric string. Values outside that range are dropped.
   let businessUsePercent = fact.status === 'unknown' || fact.status === 'none'
     ? (!mileageVehicleCopyEnabled() && fact.status === 'none' ? recordedPercent : undefined)
-    : fact.businessUsePercent ?? undefined;
+    : acceptedUsePercent(fact.businessUsePercent);
   if (businessUsePercent === undefined && !(fact.status === 'unknown' && carsProvided)) {
     const storedPercent = acceptedUsePercent(userProfile.vehicle_business_use_percentage)
       ?? acceptedUsePercent(nestedSource?.business_use_percentage);

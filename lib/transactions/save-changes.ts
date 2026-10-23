@@ -7,6 +7,7 @@ import { analysisProfileHash } from '@/lib/ai/profile-context';
 import { TRANSACTION_TAX_POLICY_VERSION } from '@/lib/ai/transaction-tax-policy';
 import { hiredVehicleFare } from '@/lib/ai/vehicle-separate-costs';
 import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
+import { vehicleFromDocument } from '@/lib/mileage/vehicles';
 import { withHomeOfficeSources } from '@/lib/profile/home-office';
 import { taxDecisionUpdate } from './tax-decision';
 import { hasTransactionFactChange, TRANSACTION_FACT_FIELDS } from './fact-changes';
@@ -45,8 +46,12 @@ export async function saveTransactionChanges(ref: DocumentReference, userId: str
     let fareUpdate: Record<string, unknown> = {};
     if (fareAnswerOnly) {
       const profileRef = adminDb.doc(`${parts[0]}/${parts[1]}`);
-      const [profileSnap, settingsSnap] = await Promise.all([
-        tx.get(profileRef), tx.get(adminDb.doc(`${profileRef.path}/settings/homeOffice`)),
+      const vehicleRead = tx.get(profileRef.collection('vehicles')).then(vehicleSnap => {
+        const docs = (vehicleSnap as { docs?: Array<{ id: string; data: () => Record<string, unknown> }> }).docs;
+        return Array.isArray(docs) ? docs.map(doc => vehicleFromDocument(doc.id, doc.data())) : undefined;
+      }).catch(() => undefined);
+      const [profileSnap, settingsSnap, vehicles] = await Promise.all([
+        tx.get(profileRef), tx.get(adminDb.doc(`${profileRef.path}/settings/homeOffice`)), vehicleRead,
       ]);
       const merged = { ...record, ...changes };
       const profileData = profileSnap.exists ? profileSnap.data() as Record<string, unknown> : null;
@@ -54,12 +59,15 @@ export async function saveTransactionChanges(ref: DocumentReference, userId: str
       const savedHash = typeof existing?.profileHash === 'string' ? existing.profileHash : '';
       const date = typeof record.date === 'string' ? record.date : '';
       const profileHash = savedHash || (profileData ? analysisProfileHash(profileData, date) : '');
+      const vehicleId = typeof merged.vehicleId === 'string' ? merged.vehicleId : typeof merged.vehicle_id === 'string' ? merged.vehicle_id : null;
       fareUpdate = definedFields(analysisSuggestionUpdate({
         status: 'ok', is_deductible: true, expense_type: 'business', category: 'vehicle_expense', deductible_percent: 100,
         confidence: 1, customized_reason: 'Choose what this ride was for before it can count.',
         key_analysis_factor: 'Choose what this ride was for before it can count.', transaction_kind: 'expense',
         policy_version: TRANSACTION_TAX_POLICY_VERSION,
-      }, Date.now(), merged, profileHash, withHomeOfficeSources(profileData, settingsSnap.exists ? settingsSnap.data() : null)));
+      }, Date.now(), merged, profileHash, withHomeOfficeSources(profileData, settingsSnap.exists ? settingsSnap.data() : null), {
+        vehicles, vehicleId, savedProfile: profileData,
+      }));
     }
     const refresh = factsChanged && !fareAnswerOnly ? {
       ...staleAnalysisUpdate(record), deduction_score: null,

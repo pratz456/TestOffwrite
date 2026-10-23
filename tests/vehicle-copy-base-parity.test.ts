@@ -11,6 +11,7 @@ import { groundTransactionAnalysis } from '@/lib/ai/transaction-tax-policy';
 import { HIRED_FARE_USE, hiredFareBetweenLabel, hiredFareUsePrompt, SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
 import { getInitialAnswers } from '@/components/tax-form-wizard-screen';
 import { profileHasHomeOffice } from '@/lib/profile/home-office';
+import { blankVehicle } from '@/lib/mileage/vehicles';
 import { baselineEnhancedContext, baselineInputHash, baselineProfileHash, canonicalJson } from './baseline-analysis-context';
 
 /**
@@ -278,6 +279,18 @@ describe('vehicle copy switch off matches the base review', () => {
     expect(convertToEnhancedContext({ profession: 'Designer', state: 'CA', vehicle_deduction_method: 'standard_mileage', vehicle_business_use_percentage: '0' }, date).vehicle_business_use_percentage).toBe(0);
     expect(convertToEnhancedContext({ profession: 'Designer', state: 'CA', vehicle_deduction_method: 'standard_mileage', vehicle_business_use_percentage: '100' }, date).vehicle_business_use_percentage).toBe(100);
     expect(convertToEnhancedContext({ profession: 'Designer', state: 'CA', vehicle_business_use_percentage: '101' }, date).vehicle_business_use_percentage).toBeUndefined();
+    const car = blankVehicle('car-1', 0);
+    car.method = 'standard_mileage';
+    car.methodByYear = { '2026': 'standard_mileage' };
+    car.legacyBusinessUsePercentage = 150;
+    expect(convertToEnhancedContext({ profession: 'Designer', state: 'CA' }, date, { vehicles: [car], vehicleId: 'car-1' }).vehicle_business_use_percentage).toBeUndefined();
+    car.legacyBusinessUsePercentage = 90;
+    expect(convertToEnhancedContext({ profession: 'Designer', state: 'CA' }, date, { vehicles: [car], vehicleId: 'car-1' }).vehicle_business_use_percentage).toBe(90);
+    car.legacyBusinessUsePercentage = 0;
+    expect(convertToEnhancedContext({ profession: 'Designer', state: 'CA' }, date, { vehicles: [car], vehicleId: 'car-1' }).vehicle_business_use_percentage).toBe(0);
+    const plain = { profession: 'Designer', state: 'CA', business_entity_type: 'sole_proprietor' };
+    expect(analysisProfileHash({ ...plain, homeOfficeSqft: 150 }, date)).toBe(analysisProfileHash(plain, date));
+    expect(analysisProfileHash(plain, date)).toBe(baselineProfileHash(plain, date));
   });
 
   it('uses the main place of business label and counts a numeric square footage string', () => {

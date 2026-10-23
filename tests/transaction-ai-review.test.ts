@@ -4,14 +4,24 @@ import { NextRequest } from 'next/server';
 const mocks = vi.hoisted(() => ({ docs: new Map<string, Record<string, any>>(), uid: 'owner', auth: true }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: mocks.auth ? { uid: mocks.uid } : null }) }));
 vi.mock('@/lib/firebase/admin', () => {
-  const ref = (path: string): any => ({ path, id: path.split('/').at(-1), collection: (name: string) => ({ doc: (id: string) => ref(`${path}/${name}/${id}`) }) });
+  const ref = (path: string): any => ({
+    path, id: path.split('/').at(-1),
+    collection: (name: string) => ({ path: `${path}/${name}`, doc: (id: string) => ref(`${path}/${name}/${id}`) }),
+  });
   return { adminDb: { doc: ref, runTransaction: async (work: (tx: any) => unknown) => work({
-    get: async (value: any) => ({ exists: mocks.docs.has(value.path), data: () => structuredClone(mocks.docs.get(value.path)), ref: value }),
+    get: async (value: any) => {
+      const docPath = typeof value?.path === 'string' ? value.path : '';
+      const docs = [...mocks.docs.keys()]
+        .filter(key => key.startsWith(`${docPath}/`) && !key.slice(docPath.length + 1).includes('/'))
+        .map(key => ({ id: key.split('/').at(-1), data: () => structuredClone(mocks.docs.get(key)) }));
+      return { exists: mocks.docs.has(docPath), docs, data: () => structuredClone(mocks.docs.get(docPath)), ref: value };
+    },
     update: (value: any, data: any) => { mocks.docs.set(value.path, { ...mocks.docs.get(value.path), ...structuredClone(data) }); },
   }) } };
 });
 
 import { analysisProfileHash } from '@/lib/ai/profile-context';
+import { vehicleFromDocument } from '@/lib/mileage/vehicles';
 import { baselineInputHash, baselineProfileHash } from './baseline-analysis-context';
 import { analysisSuggestionUpdate } from '@/lib/ai/analysis-persistence';
 import { POST } from '@/app/api/transactions/[id]/review/route';
@@ -33,7 +43,20 @@ const result = { status: 'ok' as const, transaction_kind: 'expense' as const, ca
 
 function record() { return mocks.docs.get(path)!; }
 function change(values: Record<string, any>) { mocks.docs.set(path, { ...record(), ...values }); }
-function suggest(overrides = {}) { change(analysisSuggestionUpdate({ ...result, ...overrides }, 1770000000000, record(), analysisProfileHash(mocks.docs.get('user_profiles/owner')!, record().date))); }
+function storedVehicles() {
+  const prefix = 'user_profiles/owner/vehicles/';
+  return [...mocks.docs.keys()]
+    .filter(key => key.startsWith(prefix) && !key.slice(prefix.length).includes('/'))
+    .map(key => vehicleFromDocument(key.slice(prefix.length), structuredClone(mocks.docs.get(key)!)));
+}
+function suggest(overrides = {}) {
+  const data = record();
+  const profile = mocks.docs.get('user_profiles/owner')!;
+  const vehicleId = typeof data.vehicleId === 'string' ? data.vehicleId : typeof data.vehicle_id === 'string' ? data.vehicle_id : null;
+  change(analysisSuggestionUpdate({ ...result, ...overrides }, 1770000000000, data, analysisProfileHash(profile, data.date), profile, {
+    vehicles: storedVehicles(), vehicleId, savedProfile: profile,
+  }));
+}
 async function send(body: unknown, id = 'tx') {
   return POST(new NextRequest(`http://localhost/api/transactions/${id}/review`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), { params: Promise.resolve({ id }) });
 }
@@ -172,6 +195,63 @@ describe('saved AI categorization confirmation', () => {
       expect(percentEdit.status).toBe(409);
       expect(await percentEdit.json()).toMatchObject({ code: 'AI_PROFILE_CHANGED' });
     }
+    vi.unstubAllEnvs();
+  });
+  it('rejects a linked car change or camelCase home office added after switch-on analysis, and confirms when that hash is absent', async () => {
+    const date = '2026-09-15';
+    const profile = { profession: 'Designer', state: 'CA', business_entity_type: 'sole_proprietor', vehicle_deduction_method: 'standard_mileage', vehicle_business_use_percentage: 40 };
+    const base = { userId: 'owner', account_id: 'bank', trans_id: 'tx', merchant_name: 'Office store', amount: 100,
+      date, category: 'UNCLASSIFIED', iso_currency_code: 'USD', pending: false,
+      is_deductible: null, notes: 'Supplies used only for Client A.', analysisLeaseToken: 'private-token' };
+    const car = (method: 'standard_mileage' | 'actual_expense', percent: number) => ({
+      method, methodByYear: { '2026': method }, legacyBusinessUsePercentage: percent,
+    });
+    const prepare = (next: Record<string, unknown>, extra: Record<string, unknown> = {}) => {
+      for (const key of [...mocks.docs.keys()]) if (key.startsWith('user_profiles/owner/vehicles/')) mocks.docs.delete(key);
+      mocks.docs.set('user_profiles/owner', next);
+      mocks.docs.set(path, { ...base, ...extra });
+    };
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    prepare(profile, { vehicleId: 'car-1' });
+    mocks.docs.set('user_profiles/owner/vehicles/car-1', car('standard_mileage', 40));
+    suggest();
+    expect(record().ai_suggestion.vehicleContextHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(record().ai_suggestion.profileHash).toBe(baselineProfileHash(profile, date));
+    expect(analysisProfileHash({ ...profile, homeOfficeSqft: 150 }, date)).toBe(baselineProfileHash(profile, date));
+    expect((await send(confirm())).status).toBe(200);
+
+    prepare(profile, { vehicleId: 'car-1' });
+    mocks.docs.set('user_profiles/owner/vehicles/car-1', car('standard_mileage', 40));
+    suggest();
+    mocks.docs.set('user_profiles/owner/vehicles/car-1', car('actual_expense', 90));
+    const carEdit = await send(confirm());
+    expect(carEdit.status).toBe(409);
+    expect(await carEdit.json()).toMatchObject({ code: 'AI_PROFILE_CHANGED' });
+    expect(analysisProfileHash(mocks.docs.get('user_profiles/owner')!, date)).toBe(baselineProfileHash(profile, date));
+
+    prepare(profile);
+    suggest();
+    mocks.docs.set('user_profiles/owner', { ...profile, homeOfficeSqft: 150 });
+    const office = await send(confirm());
+    expect(office.status).toBe(409);
+    expect(await office.json()).toMatchObject({ code: 'AI_PROFILE_CHANGED' });
+    expect(analysisProfileHash(mocks.docs.get('user_profiles/owner')!, date)).toBe(baselineProfileHash(profile, date));
+
+    prepare(profile, { vehicleId: 'car-1' });
+    mocks.docs.set('user_profiles/owner/vehicles/car-1', car('standard_mileage', 40));
+    suggest();
+    const saved = { ...record().ai_suggestion };
+    delete saved.vehicleContextHash;
+    change({ ai_suggestion: saved });
+    expect((await send(confirm())).status).toBe(200);
+
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    prepare(profile, { vehicleId: 'car-1' });
+    mocks.docs.set('user_profiles/owner/vehicles/car-1', car('standard_mileage', 40));
+    suggest();
+    expect(record().ai_suggestion.vehicleContextHash).toBeUndefined();
+    expect(record().ai_suggestion.profileHash).toBe(baselineProfileHash(profile, date));
+    expect((await send(confirm())).status).toBe(200);
     vi.unstubAllEnvs();
   });
   it('ignores non-tax display and subscription changes in the profile fingerprint', async () => {

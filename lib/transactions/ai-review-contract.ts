@@ -44,6 +44,8 @@ export interface AiReviewSuggestion {
   analyzedAt: number;
   inputHash: string;
   profileHash?: string;
+  /** Saved only when analysis ran with vehicle copy on. Confirm recomputes it when present. */
+  vehicleContextHash?: string;
   /** Unsupported year/entity can block tax treatment without blocking a known bookkeeping category. */
   categoryReady?: boolean;
   /**

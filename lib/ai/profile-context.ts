@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
+import { vehicleMethodForTaxYear, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
 import { convertToEnhancedContext } from './analyzeTransaction';
 
 function canonical(value: unknown): unknown {
@@ -36,6 +37,31 @@ function savedVehicleHashInputs(profile: Record<string, unknown>) {
 export function analysisProfileHash(profile: Record<string, unknown>, date: string) {
   const context = { ...convertToEnhancedContext(profile, date), ...savedVehicleHashInputs(profile), user_id: undefined };
   return createHash('sha256').update(JSON.stringify(canonical(context))).digest('hex');
+}
+
+/** A car's business-use percent counts from 0 through 100, the same bounds as a numeric string. */
+function boundedUsePercent(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null;
+}
+
+/**
+ * Extra inputs a switch-on analysis reads beyond the saved profile hash:
+ * the selected car's method, business-use percent and id, and home office
+ * square footage after the camelCase homeOfficeSqft fallback.
+ */
+export function vehicleContextHash(profile: Record<string, unknown>, date: string, facts?: { vehicles?: readonly VehicleRecord[] | null; vehicleId?: string | null }) {
+  const taxYear = /^\d{4}-\d{2}-\d{2}/.test(date) ? Number(date.slice(0, 4)) : new Date().getFullYear();
+  const vehicleId = facts?.vehicleId
+    ?? (typeof profile.vehicleId === 'string' ? profile.vehicleId : typeof profile.vehicle_id === 'string' ? profile.vehicle_id : null);
+  const fact = vehicleMethodForTaxYear({ vehicles: facts?.vehicles, profile: profile as LegacyVehicleProfile, taxYear, vehicleId });
+  const readsCarPercent = fact.status === 'known' || fact.status === 'unset';
+  const payload = {
+    vehicle_id: fact.vehicleId,
+    method: fact.status === 'known' ? fact.method : null,
+    business_use_percent: readsCarPercent ? boundedUsePercent(fact.businessUsePercent) : null,
+    home_office_sqft: finiteNonnegative(profile.home_office_sqft ?? profile.homeOfficeSqft) ?? null,
+  };
+  return createHash('sha256').update(JSON.stringify(canonical(payload))).digest('hex');
 }
 
 /** Analysis needs the full saved context, not the public profile response's display-field subset. */

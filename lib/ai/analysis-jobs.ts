@@ -265,7 +265,7 @@ export async function processAnalysisTask(taskId: string, generation: string): P
     const vehicleId = typeof data?.vehicleId === 'string' ? data.vehicleId : typeof data?.vehicle_id === 'string' ? data.vehicle_id : null;
     const fareProfile = withHomeOfficeSources(claim.context, profile.exists ? profile.data() : null, settingsSnap.exists ? settingsSnap.data() : null);
     if (current && result.success) tx.update(ref.transaction, analysisSuggestionUpdate(result.result, now, data, claim.profileHash, fareProfile, {
-      vehicles, vehicleId, profile: legacyProfile(profile.data()),
+      vehicles, vehicleId, profile: legacyProfile(profile.data()), savedProfile: profile.data(),
     }));
     else if (data?.analysisLeaseToken === claim.lease.token) tx.update(ref.transaction, {
       analysisLeaseToken: null, analysisLeaseExpiresAt: null, analysis_status: retry ? 'pending' : 'failed',

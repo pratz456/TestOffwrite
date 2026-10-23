@@ -10,7 +10,7 @@ import type { OutputType } from './analyzeTransaction';
 import { composeExplanation, type ExplainableResult, type ExplanationProfile } from './explanation';
 import { getOpenAIModel } from '@/lib/openai/client';
 import { reviewCategory, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
-import { analysisProfileHash } from './profile-context';
+import { analysisProfileHash, vehicleContextHash } from './profile-context';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 
 export const ANALYSIS_LEASE_MS = 240_000;
@@ -104,6 +104,8 @@ export async function claimAnalysisLease(ref: DocumentReference) {
 export interface VehicleMethodGateFacts {
   vehicles?: readonly VehicleRecord[] | null;
   profile?: LegacyVehicleProfile | null;
+  /** Raw saved profile. The vehicle context hash reads this, not the enhanced analysis context. */
+  savedProfile?: Record<string, unknown> | null;
   taxYear?: number;
   vehicleId?: string | null;
 }
@@ -211,6 +213,16 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
     ...(proposedPurpose ? { proposedPurpose } : {}),
     ...(scheduleCLine ? { scheduleCLine } : {}),
   };
+  if (mileageVehicleCopyEnabled() && canonicalData) {
+    const savedProfile = vehicleFacts?.savedProfile && typeof vehicleFacts.savedProfile === 'object' && !Array.isArray(vehicleFacts.savedProfile)
+      ? vehicleFacts.savedProfile
+      : profile && typeof profile === 'object' && !Array.isArray(profile) ? profile as Record<string, unknown> : {};
+    const linked = typeof canonicalData.vehicleId === 'string' ? canonicalData.vehicleId
+      : typeof canonicalData.vehicle_id === 'string' ? canonicalData.vehicle_id : vehicleFacts?.vehicleId ?? null;
+    suggestion.vehicleContextHash = vehicleContextHash(savedProfile, typeof canonicalData.date === 'string' ? canonicalData.date : '', {
+      vehicles: vehicleFacts?.vehicles, vehicleId: linked,
+    });
+  }
   // A saved suggestion never approves a credit/zero amount as a new expense or approves an unsupported method.
   if (canonicalData && (transactionKind === 'expense' && !(Number(canonicalData.amount) > 0) ||
       transactionKind === 'income' && !(Number(canonicalData.amount) < 0) ||
@@ -428,6 +440,7 @@ export async function persistAnalysisSuggestion(ref: DocumentReference, result: 
     const update = analysisSuggestionUpdate(result, Date.now(), snap.data()!, profileHash, withHomeOfficeSources(profile, profileData, settings), {
       vehicles,
       vehicleId,
+      savedProfile: profileData,
       profile: {
         vehicle_deduction_method: typeof profileData.vehicle_deduction_method === 'string' ? profileData.vehicle_deduction_method : null,
         vehicle_business_use_percentage: typeof profileData.vehicle_business_use_percentage === 'number' ? profileData.vehicle_business_use_percentage : null,

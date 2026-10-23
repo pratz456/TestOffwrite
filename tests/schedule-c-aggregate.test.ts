@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { ACTUAL_EXPENSE_BUSINESS_SHARE } from '@/lib/ai/actual-expense-share';
+import { SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { safeTaxYear } from '@/lib/schedule-c/taxDate';
 import { isLegacyConfirmedRecord, isServerConfirmedDeduction, LEGACY_CONFIRMATION_CUTOFF, recordTimestampMs } from '@/lib/transactions/confirmed-deduction';
@@ -223,6 +225,70 @@ describe('confirmed-only trusts server-recorded decisions or documented legacy c
     expect(total([confirmed({ is_deductible: false, created_at: beforeCutoff })])).toBe(0);
     expect(total([confirmed({ is_deductible: null, created_at: beforeCutoff })])).toBe(0);
     expect(total([confirmed({ is_deductible: false, review_status: 'confirmed' })])).toBe(0);
+  });
+});
+
+describe('vehicle costs count only a business use percent from 0 through 100', () => {
+  const categories = [
+    ['VEHICLE_ACTUAL_EXPENSE', '9', 100, ACTUAL_EXPENSE_BUSINESS_SHARE.reason],
+    ['VEHICLE_LOAN_INTEREST', '16b', 200, SEPARATE_VEHICLE_COST_SHARE.reason],
+    ['VEHICLE_PROPERTY_TAX', '23', 90, SEPARATE_VEHICLE_COST_SHARE.reason],
+  ] as const;
+  const shares = [
+    ['missing', 'omit', 0, true],
+    ['NaN', 'nan', 0, true],
+    ['75 string', 'string', 0, true],
+    ['0', 'zero', 0, false],
+    ['100', 'full', 1, false],
+    ['150', 'high', 0, true],
+    ['-5', 'negative', 0, true],
+  ] as const;
+
+  function vehicle(category: string, amount: number, share: 'omit' | 'nan' | 'string' | 'zero' | 'full' | 'high' | 'negative'): Tx {
+    const row: Tx = {
+      amount,
+      date: '2026-09-15',
+      category,
+      is_deductible: true,
+      review_status: 'confirmed',
+      tax_review_required: false,
+      deductionStatus: 'Likely Deductible',
+      reasoning: 'Saved reason',
+    };
+    if (share === 'nan') row.business_use_percentage = Number.NaN;
+    if (share === 'string') row.business_use_percentage = '75';
+    if (share === 'zero') row.business_use_percentage = 0;
+    if (share === 'full') row.business_use_percentage = 100;
+    if (share === 'high') row.business_use_percentage = 150;
+    if (share === 'negative') row.business_use_percentage = -5;
+    return row;
+  }
+
+  it.each(categories.flatMap(([category, line, amount, reason]) =>
+    shares.flatMap(([label, share, fraction, needsInfo]) =>
+      (['confirmed-only', 'default'] as const).map(mode => [category, label, mode, line, amount, reason, share, fraction, needsInfo] as const),
+    ),
+  ))('%s with a %s business use percent in %s mode', (category, _label, mode, line, amount, reason, share, fraction, needsInfo) => {
+    const tx = vehicle(category, amount, share);
+    const res = aggregateScheduleC([tx], '2026', CATEGORY_MAP, { mode });
+    const item = res.lineItems[line];
+    expect(item).toBeTruthy();
+    expect(cents(item.total)).toBe(cents(amount));
+    expect(cents(item.deductible)).toBe(cents(amount * fraction));
+    expect(cents(res.totalDeductible)).toBe(cents(amount * fraction));
+    expect(item.transactions).toHaveLength(1);
+    const stored = item.transactions[0];
+    if (needsInfo) {
+      expect(stored).not.toBe(tx);
+      expect(stored.deductionStatus).toBe('Needs more information');
+      expect(stored.reasoning).toBe(reason);
+      expect(tx.deductionStatus).toBe('Likely Deductible');
+      expect(tx.reasoning).toBe('Saved reason');
+    } else {
+      expect(stored).toBe(tx);
+      expect(stored.deductionStatus).toBe('Likely Deductible');
+      expect(stored.reasoning).toBe('Saved reason');
+    }
   });
 });
 

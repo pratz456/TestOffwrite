@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { adminDb } from '@/lib/firebase/admin';
 import { finiteUsePercent, VEHICLE_ACTUAL_EXPENSE_CATEGORY, VEHICLE_LOAN_INTEREST_CATEGORY, VEHICLE_PROPERTY_TAX_CATEGORY } from '@/lib/ai/actual-expense-share';
 import { analysisInputHash } from '@/lib/ai/analysis-persistence';
-import { analysisProfileHash } from '@/lib/ai/profile-context';
+import { analysisProfileHash, vehicleContextHash } from '@/lib/ai/profile-context';
 import { hiredFareChoiceFromRecord, hiredFareStartedAtHome, hiredVehicleFare, HIRED_LOCAL_TRANSPORT_CATEGORY, profileHasHomeOffice, standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
 import { withHomeOfficeSources } from '@/lib/profile/home-office';
 import { invalidateTaxpayerContextCache } from '@/lib/ai/taxpayer-context-server';
@@ -121,6 +121,13 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       }
       if (!profile.exists || !suggestion.profileHash || suggestion.profileHash !== analysisProfileHash(profile.data()!, data.date)) {
         throw new TransactionReviewError('AI_PROFILE_CHANGED', 'Your business profile changed after this analysis. Run AI again or correct the category manually.', 409);
+      }
+      if (typeof suggestion.vehicleContextHash === 'string') {
+        const linked = typeof data.vehicleId === 'string' ? data.vehicleId : typeof data.vehicle_id === 'string' ? data.vehicle_id : null;
+        const savedDate = typeof data.date === 'string' ? data.date : '';
+        if (suggestion.vehicleContextHash !== vehicleContextHash(profile.data()!, savedDate, { vehicles, vehicleId: linked })) {
+          throw new TransactionReviewError('AI_PROFILE_CHANGED', 'Your business profile changed after this analysis. Run AI again or correct the category manually.', 409);
+        }
       }
       if (!canConfirmAiSuggestion(suggestion)) throw new TransactionReviewError('AI_REVIEW_REQUIRED', 'This suggestion needs more information before its category can be confirmed.');
       if (typeof data.is_deductible === 'boolean') throw new TransactionReviewError('CLASSIFICATION_EXISTS', 'This transaction already has a saved tax decision. Use Correct to change it.', 409);

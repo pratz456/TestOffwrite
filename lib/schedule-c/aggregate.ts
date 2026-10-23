@@ -6,6 +6,10 @@
  * - Expenses: outflows only (amount > 0, or type === 'expense' when present). Use Math.abs(amount) for line totals.
  * - Deductible: is_deductible === true OR (is_deductible == null AND category in business list AND amount > 0). Refunds (negative) excluded.
  * - Meals (line 24b): 50% deductible.
+ * - Vehicle actual expenses, loan interest, and vehicle property tax count only at a
+ *   business_use_percentage from 0 through 100. A missing, non-numeric, NaN, or out-of-range
+ *   share adds 0 to the deductible, keeps the bank amount in the line total, and returns that
+ *   stored line-item row to deductionStatus "Needs more information" with the existing reason.
  * - Year filter: transaction date year === selected year.
  * - confirmed-only: posted records whose deduction the server confirmed
  *   (review_status === 'confirmed', or a legacy pre-cutoff decision; see
@@ -17,6 +21,8 @@
  */
 
 import { safeTaxYear } from './taxDate';
+import { finiteUsePercent, ACTUAL_EXPENSE_BUSINESS_SHARE, VEHICLE_ACTUAL_EXPENSE_CATEGORY } from '@/lib/ai/actual-expense-share';
+import { SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
 import { isCountableRecord, isSupersededRecord } from '@/lib/transactions/record-scope';
 
@@ -200,12 +206,21 @@ export interface AggregateScheduleCOptions {
  */
 const BUSINESS_USE_SHARE_CATEGORIES = new Set(['VEHICLE_ACTUAL_EXPENSE', 'VEHICLE_LOAN_INTEREST', 'VEHICLE_PROPERTY_TAX']);
 
-/** Car costs that were saved at a business-use share. The bank amount stays the line total. */
+/** Car costs saved at a business-use share. An unusable share contributes nothing. The bank amount stays the line total. */
 function businessUseShareCents(tx: ScheduleCTransactionLike, cents: number): number {
   if (!BUSINESS_USE_SHARE_CATEGORIES.has(tx.category)) return cents;
-  const share = tx.business_use_percentage;
-  if (typeof share !== 'number' || !Number.isFinite(share)) return cents;
+  const share = finiteUsePercent(tx.business_use_percentage);
+  if (share === null) return 0;
   return Math.round(cents * share / 100);
+}
+
+/** Existing analysis status. The reason is the one already shown when this percent is missing. */
+function lineItemTransaction(tx: ScheduleCTransactionLike): ScheduleCTransactionLike {
+  if (!BUSINESS_USE_SHARE_CATEGORIES.has(tx.category) || finiteUsePercent(tx.business_use_percentage) !== null) return tx;
+  const reason = tx.category === VEHICLE_ACTUAL_EXPENSE_CATEGORY
+    ? ACTUAL_EXPENSE_BUSINESS_SHARE.reason
+    : SEPARATE_VEHICLE_COST_SHARE.reason;
+  return { ...tx, deductionStatus: 'Needs more information', reasoning: reason };
 }
 
 export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
@@ -274,14 +289,15 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
 
       if (lineKey === '24b') {
         lineItems[lineKey].deductible += amount * 0.5;
-      } else if (BUSINESS_USE_SHARE_CATEGORIES.has(tx.category) && typeof tx.business_use_percentage === 'number' && Number.isFinite(tx.business_use_percentage)) {
-        lineItems[lineKey].deductible += amount * tx.business_use_percentage / 100;
+      } else if (BUSINESS_USE_SHARE_CATEGORIES.has(tx.category)) {
+        const share = finiteUsePercent(tx.business_use_percentage);
+        if (share !== null) lineItems[lineKey].deductible += amount * share / 100;
       } else {
         lineItems[lineKey].deductible += amount;
       }
     }
     lineItems[lineKey].transactionCount += 1;
-    lineItems[lineKey].transactions.push(tx);
+    lineItems[lineKey].transactions.push(lineItemTransaction(tx));
   }
 
   const lineItemsArray = Object.values(lineItems).sort((a, b) => {
