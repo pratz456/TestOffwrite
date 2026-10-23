@@ -25,7 +25,7 @@ import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 import { formsConfirmationError, INCOME_SOURCE_KINDS, NOT_BUSINESS_REASONS, PAYMENT_METHOD_HINTS, RECONCILIATION_DECISION_TYPES } from '@/lib/tax-rules/income-reconciliation';
 import { STALE_APP_REFRESH } from '@/lib/tax-rules/income-reconciliation-copy';
 import { isLegacySamePaymentsResave, prepareReconciliationDecision, summarizeIncomeReconciliation } from '@/lib/tax-rules/income-reconciliation-response';
-import { kNotBusinessIncomeEnabled } from '@/lib/tax-rules/reconciliation-feature';
+import { kNotBusinessIncomeEnabled, reconciliationDecisionNeedsKSwitch } from '@/lib/tax-rules/reconciliation-feature';
 
 const NO_STORE = { 'Cache-Control': 'private, no-store' };
 const yearInput = z.union([z.number(), z.string().trim().regex(/^\d{4}$/)]).transform(Number).pipe(z.number().int().min(2000).max(2100));
@@ -51,11 +51,12 @@ const decisionInput = z.object({
   explicitChoice: z.literal(true),
   confirmedFormsTotal: amountInput.optional(),
   correctedFormId: z.string().trim().min(1).max(200).optional(),
+  overlapAmount: amountInput.optional(),
 });
 const updateInput = decisionInput.extend({ id: z.string().trim().min(1).max(200) });
 const invalidBody = () => {
   const types = kNotBusinessIncomeEnabled()
-    ? 'same_payments, separate_income, k_includes_fees, k_not_business_income or corrected_form_replaces'
+    ? 'same_payments, separate_income, k_includes_fees, k_not_business_income, partial_overlap or corrected_form_replaces'
     : 'same_payments, separate_income, k_includes_fees or corrected_form_replaces';
   return `Provide the tax year, a decision type (${types}) and the records it covers with their current amounts.`;
 };
@@ -114,7 +115,7 @@ export async function POST(request: NextRequest) {
   if (stale) return stale;
   const parsed = decisionInput.safeParse(raw);
   if (!parsed.success) return NextResponse.json({ error: invalidBody() }, { status: 400 });
-  if (parsed.data.decision === 'k_not_business_income' && !kNotBusinessIncomeEnabled()) {
+  if (reconciliationDecisionNeedsKSwitch(parsed.data.decision) && !kNotBusinessIncomeEnabled()) {
     return NextResponse.json({ error: invalidBody() }, { status: 400 });
   }
   try {
@@ -142,7 +143,7 @@ export async function PATCH(request: NextRequest) {
   if (stale) return stale;
   const parsed = updateInput.safeParse(raw);
   if (!parsed.success) return NextResponse.json({ error: invalidBody() }, { status: 400 });
-  if (parsed.data.decision === 'k_not_business_income' && !kNotBusinessIncomeEnabled()) {
+  if (reconciliationDecisionNeedsKSwitch(parsed.data.decision) && !kNotBusinessIncomeEnabled()) {
     return NextResponse.json({ error: invalidBody() }, { status: 400 });
   }
   try {

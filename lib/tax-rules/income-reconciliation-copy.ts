@@ -87,6 +87,15 @@ export const LINE_1_COUNTED = 'Counted {amount} on line 1';
 export const LINE_2_AMOUNT = 'Line 2 {amount}';
 export const OUTSIDE_SC_AMOUNT = 'Outside Schedule C, needs review {amount}';
 
+/** A 1099-K and a bank deposit of the same amount, saved as separate income. */
+export const ERR_SEPARATE_K_MATCHES_DEPOSIT = 'A 1099-K and its matching bank deposit can\'t be saved as separate income. That would count {amount} twice. Choose same payments so they count once.';
+
+export const DECISION_LABEL_PARTIAL = 'Part of the 1099-K is also on the 1099-NEC';
+export const DECISION_HELP_PARTIAL = 'Enter the amount that is on both the 1099-K and the 1099-NEC. That shared amount counts once. The rest of each form counts too.';
+export const ERR_PARTIAL_NEEDS_K_AND_NEC = 'Select exactly one 1099-K and one 1099-NEC for the overlapping amount.';
+export const ERR_PARTIAL_OVERLAP = 'Enter an overlapping amount greater than $0 and no more than the smaller form ({smaller}).';
+export const PARTIAL_OVERLAP_PREVIEW = 'The overlapping {overlap} counts once. Total counted: {total}.';
+
 export function fillIncomeCopy(template: string, values: Record<string, string | number>): string {
   return template.replace(/\{([A-Za-z]+)\}/g, (_, key: string) => {
     const value = values[key];

@@ -1,7 +1,8 @@
 import { LATEST_PUBLISHED_TAX_YEAR } from './federal-year-rules';
 
 /**
- * The 1099-K "not business income" decision is off unless this is exactly "1".
+ * The 1099-K "not business income" decision, and a partial overlap between a
+ * 1099-K and a 1099-NEC, are off unless this is exactly "1".
  * Other reconciliation changes (no default choice, the guide question, export
  * guidance, and copy) are not behind this flag. Asking again about a saved
  * decision has its own switch, legacyDecisionReconfirm.
@@ -10,6 +11,11 @@ import { LATEST_PUBLISHED_TAX_YEAR } from './federal-year-rules';
  */
 export function kNotBusinessIncomeEnabled(): boolean {
   return process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME === '1';
+}
+
+/** New saves of these decisions are rejected, and the Reconcile tab hides them, unless the 1099-K switch is on. */
+export function reconciliationDecisionNeedsKSwitch(decision: string): boolean {
+  return decision === 'k_not_business_income' || decision === 'partial_overlap';
 }
 
 /**

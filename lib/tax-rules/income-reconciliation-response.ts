@@ -44,6 +44,8 @@ export interface SavedDecisionView {
   notBusinessParts: NotBusinessPart[];
   paymentMethodHint?: PaymentMethodHint;
   correctedFormId?: string;
+  /** Present on a partial overlap. The shared amount counts once. */
+  overlapAmount?: number;
   note: string;
   /** Schedule C line 1 amount this decision counted when it was saved. */
   countedAmount: number | null;
@@ -100,6 +102,7 @@ function decisionView(record: IncomeRecord, appliedIds: ReadonlySet<string>, war
     notBusinessParts: normalized?.notBusinessParts ?? [],
     ...(normalized?.paymentMethodHint ? { paymentMethodHint: normalized.paymentMethodHint } : {}),
     ...(normalized?.correctedFormId ? { correctedFormId: normalized.correctedFormId } : {}),
+    ...(typeof normalized?.overlapAmount === 'number' ? { overlapAmount: normalized.overlapAmount } : {}),
     note: str(record.note),
     countedAmount: typeof record.countedAmount === 'number' && Number.isFinite(record.countedAmount) ? record.countedAmount : null,
     decidedAt: str(record.decidedAt) || null,
@@ -163,6 +166,7 @@ export interface DecisionRequest {
   notBusinessParts: NotBusinessPart[];
   paymentMethodHint?: PaymentMethodHint;
   correctedFormId?: string;
+  overlapAmount?: number;
   note: string;
 }
 
@@ -174,6 +178,7 @@ export interface PreparedDecision {
   notBusinessParts: NotBusinessPart[];
   paymentMethodHint?: PaymentMethodHint;
   correctedFormId?: string;
+  overlapAmount?: number;
   note: string;
   countedAmount: number;
 }
@@ -233,6 +238,7 @@ export function prepareReconciliationDecision(
       notBusinessParts,
       ...(request.paymentMethodHint ? { paymentMethodHint: request.paymentMethodHint } : {}),
       ...(request.decision === 'corrected_form_replaces' && request.correctedFormId ? { correctedFormId: request.correctedFormId } : {}),
+      ...(request.decision === 'partial_overlap' ? { overlapAmount: toCents(request.overlapAmount ?? 0) / 100 } : {}),
       countedAmount: check.countedCents / 100,
     },
   };

@@ -42,8 +42,8 @@ import { isLegacySamePaymentsResave, prepareReconciliationDecision, summarizeInc
 import {
   COMPARE_DIFF, COMPARE_SAME_AMOUNT, COMPARE_TITLE, CONFIRM_SAME_BACK, CONFIRM_SAME_TITLE, CONFIRM_SAME_YES,
   CORRECTED_ORIGINAL_BADGE, CORRECTED_PICK_QUESTION, CORRECTED_PREVIEW, DECISION_HELP_CORRECTED, DECISION_LABEL_CORRECTED,
-  DECISION_LABEL_NOT_BUSINESS, ERR_REASON_AMOUNT, GUIDE_ANSWER_APP, GUIDE_ANSWER_BANK, GUIDE_HINT_APP, GUIDE_HINT_BANK,
-  GUIDE_QUESTION, LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_TITLE, LEGACY_RECONFIRM_YES, LEGACY_NEC_WARNING, NO_CHOICE_YET, NO_FORM_NO_INCOME, PANEL_FORMS_NOTE,
+  DECISION_LABEL_NOT_BUSINESS, DECISION_LABEL_PARTIAL, ERR_REASON_AMOUNT, GUIDE_ANSWER_APP, GUIDE_ANSWER_BANK, GUIDE_HINT_APP, GUIDE_HINT_BANK,
+  GUIDE_QUESTION, LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_TITLE, LEGACY_RECONFIRM_YES, LEGACY_NEC_WARNING, NO_CHOICE_YET, NO_FORM_NO_INCOME, PANEL_FORMS_NOTE, PARTIAL_OVERLAP_PREVIEW,
   SAME_DISABLED_NEC, fillIncomeCopy,
 } from '../lib/tax-rules/income-reconciliation-copy';
 import { incomeReconciliationPath } from '../lib/tax-rules/income-reconciliation-response';
@@ -99,6 +99,7 @@ function api(url: string, init?: RequestInit): Promise<Response> {
     id, decision: body.decision, sources: body.sources, platformFeeAmount: body.platformFeeAmount ?? 0, note: body.note ?? '',
     notBusinessParts: body.notBusinessParts ?? [], ...(body.paymentMethodHint ? { paymentMethodHint: body.paymentMethodHint } : {}),
     ...(body.correctedFormId ? { correctedFormId: body.correctedFormId } : {}),
+    ...(typeof body.overlapAmount === 'number' ? { overlapAmount: body.overlapAmount } : {}),
   }, { keepLegacySamePayments: isLegacySamePaymentsResave(existing, { decision: body.decision, sources: body.sources ?? [] }) });
   if (!prepared.ok) return Promise.resolve(Response.json({ error: prepared.reason }, { status: prepared.status }));
   const confirmationError = formsConfirmationError(prepared.stored.decision, prepared.stored.sources, body.confirmedFormsTotal);
@@ -111,6 +112,7 @@ beforeEach(() => {
   harness.request.mockImplementation(api);
   delete process.env.legacyNecReopen;
   delete process.env.legacyDecisionReconfirm;
+  delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
   records.transactions = []; records.receipts = [receipt('r1', 12000)]; records.forms = [form('k1', 12000)]; records.decisions = []; nextId = 0;
 });
 
@@ -900,6 +902,99 @@ describe('confirm step, compare and corrected form', () => {
     expect(sent).toHaveLength(1);
     expect(JSON.parse(String(sent[0][1].body))).toMatchObject({ decision: 'corrected_form_replaces', correctedFormId: 'n2' });
     expect(dialog(render(panel))).toBeUndefined();
+  });
+});
+
+describe('reconciliation switches off', () => {
+  const offValues = [undefined, '0', 'true'] as const;
+
+  it('hides the 1099-K decisions while that switch is off', async () => {
+    records.receipts = [];
+    records.forms = [form('k1', 900), form('n1', 600, '1099-NEC', 'Client A')];
+    for (const value of offValues) {
+      harness.slots = [];
+      if (value === undefined) delete process.env[FLAG];
+      else process.env[FLAG] = value;
+      render(panel); await flush();
+      const content = text(render(panel));
+      expect(content, String(value)).not.toContain(DECISION_LABEL_NOT_BUSINESS);
+      expect(content).not.toContain(DECISION_LABEL_PARTIAL);
+      const values = radios(render(panel)).map(node => node.props.value);
+      expect(values).not.toContain('k_not_business_income');
+      expect(values).not.toContain('partial_overlap');
+    }
+    delete process.env[FLAG];
+  });
+
+  it('does not ask again while legacy reconfirm is off', async () => {
+    records.receipts = [];
+    records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
+    records.decisions = [{ id: 'legacy', taxYear: 2026, decision: 'same_payments', platformFeeAmount: null, countedAmount: 12000, decidedAt: '2026-02-01T00:00:00.000Z', version: 1,
+      sources: [{ kind: 'form_1099', id: 'n1', amount: 12000 }, { kind: 'form_1099', id: 'n2', amount: 12000 }] }];
+    for (const value of offValues) {
+      harness.slots = [];
+      if (value === undefined) delete process.env.legacyDecisionReconfirm;
+      else process.env.legacyDecisionReconfirm = value;
+      delete process.env.legacyNecReopen;
+      render(panel); await flush();
+      const content = text(render(panel));
+      expect(content, String(value)).not.toContain(LEGACY_RECONFIRM_TITLE);
+      expect(content).toContain('$12,000.00');
+      expect(content).not.toContain('on hold');
+    }
+    delete process.env.legacyDecisionReconfirm;
+  });
+
+  it('shows the NEC review warning while the reopen switch is off', async () => {
+    records.receipts = [];
+    records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
+    records.decisions = [{ id: 'd1', taxYear: 2026, decision: 'same_payments', version: 1, platformFeeAmount: null, countedAmount: 12000,
+      sources: [{ kind: 'form_1099', id: 'n1', amount: 12000 }, { kind: 'form_1099', id: 'n2', amount: 12000 }] }];
+    for (const value of offValues) {
+      harness.slots = [];
+      if (value === undefined) delete process.env.legacyNecReopen;
+      else process.env.legacyNecReopen = value;
+      render(panel); await flush();
+      const content = text(render(panel));
+      expect(content, String(value)).toContain(LEGACY_NEC_WARNING);
+      expect(content).toContain('Gross receipts for 2026 (Schedule C line 1)');
+      expect(content).toContain('$12,000.00');
+      expect(content).not.toContain('on hold');
+      expect(content).not.toContain('$24,000.00');
+    }
+    delete process.env.legacyNecReopen;
+  });
+});
+
+describe('partial overlap while the 1099-K switch is on', () => {
+  beforeEach(() => { process.env[FLAG] = '1'; });
+  afterEach(() => { delete process.env[FLAG]; });
+
+  it('counts a partial overlap once and rejects an overlap of zero or more than the smaller form', async () => {
+    records.receipts = [];
+    records.forms = [form('k1', 10000), form('n1', 8000, '1099-NEC', 'Client A')];
+    render(panel); await flush();
+    const open = render(panel);
+    expect(text(open)).toContain(DECISION_LABEL_PARTIAL);
+    check(open, '1099-K · Synthetic platform $10,000.00');
+    check(render(panel), '1099-NEC · Client A $8,000.00');
+    radio(render(panel), 'partial_overlap');
+    const missing = render(panel);
+    expect(preview(missing)).toContain('greater than $0');
+    expect(walk(missing).find(node => node.props?.type === 'submit')!.props.disabled).toBe(true);
+    walk(missing).find(node => node.props?.id === 'reconciliation-overlap')!.props.onChange({ target: { value: '8000.01' } });
+    expect(preview(render(panel))).toContain('no more than the smaller form');
+    walk(render(panel)).find(node => node.props?.id === 'reconciliation-overlap')!.props.onChange({ target: { value: '3000' } });
+    const ready = render(panel);
+    expect(preview(ready)).toBe(fillIncomeCopy(PARTIAL_OVERLAP_PREVIEW, { overlap: '$3,000.00', total: '$15,000.00' }));
+    await submit(ready);
+    const [, init] = harness.request.mock.calls.find(([, options]) => options?.method === 'POST')!;
+    expect(JSON.parse(String(init.body))).toMatchObject({ decision: 'partial_overlap', overlapAmount: 3000 });
+    const saved = text(render(panel));
+    expect(saved).toContain('$15,000.00');
+    expect(saved).not.toContain('$18,000.00');
+    expect(saved).not.toContain('on hold');
+    expect(records.decisions[0]).toMatchObject({ overlapAmount: 3000, countedAmount: 15000 });
   });
 });
 

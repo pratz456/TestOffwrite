@@ -35,6 +35,7 @@ export interface StoredDecisionInput {
   notBusinessParts: NotBusinessPart[];
   paymentMethodHint?: PaymentMethodHint;
   correctedFormId?: string;
+  overlapAmount?: number;
   note: string;
   countedAmount: number;
 }
@@ -46,6 +47,7 @@ function decisionData(uid: string, input: StoredDecisionInput, now: Date) {
     notBusinessParts: input.notBusinessParts ?? [],
     ...(input.paymentMethodHint ? { paymentMethodHint: input.paymentMethodHint } : {}),
     ...(input.correctedFormId ? { correctedFormId: input.correctedFormId } : {}),
+    ...(typeof input.overlapAmount === 'number' ? { overlapAmount: input.overlapAmount } : {}),
     decidedBy: uid, decidedAt: now.toISOString(), updatedAt: now,
     version: 2, choiceConfirmedAt: now.toISOString(),
   };

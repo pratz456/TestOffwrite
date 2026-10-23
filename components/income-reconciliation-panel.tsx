@@ -15,16 +15,16 @@ import {
   COMPARE_DIFF, COMPARE_ROW_AMOUNT, COMPARE_ROW_FORM, COMPARE_ROW_PAYER, COMPARE_SAME_AMOUNT, COMPARE_TITLE,
   CONFIRM_SAME_BACK, CONFIRM_SAME_BODY, CONFIRM_SAME_DETAIL, CONFIRM_SAME_TITLE, CONFIRM_SAME_YES,
   CORRECTED_ORIGINAL_BADGE, CORRECTED_PICK_QUESTION, CORRECTED_PREVIEW,
-  DECISION_HELP_CORRECTED, DECISION_HELP_NOT_BUSINESS, DECISION_LABEL_CORRECTED, DECISION_LABEL_NOT_BUSINESS, ERR_REASON_AMOUNT,
+  DECISION_HELP_CORRECTED, DECISION_HELP_NOT_BUSINESS, DECISION_HELP_PARTIAL, DECISION_LABEL_CORRECTED, DECISION_LABEL_NOT_BUSINESS, DECISION_LABEL_PARTIAL, ERR_REASON_AMOUNT,
   GUIDE_ANSWER_APP, GUIDE_ANSWER_BANK, GUIDE_ANSWER_NOT_SURE,
   GUIDE_HINT_APP, GUIDE_HINT_BANK, GUIDE_HINT_NOT_SURE, GUIDE_QUESTION, LEGACY_NEC_WARNING, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_TITLE,
   LEGACY_RECONFIRM_YES, LINE_1_COUNTED, LINE_2_AMOUNT, LIVE_SUM_DIFFER, LIVE_SUM_LINE, LIVE_SUM_MATCH, NO_CHOICE_YET, NO_FORM_NO_INCOME,
-  OUTSIDE_SC_AMOUNT, PANEL_FORMS_NOTE, PANEL_SUMMARY_COUNTED, REASON_PERSONAL, REASON_PERSONAL_HELP, REASON_REFUNDS, REASON_REFUNDS_HELP,
+  OUTSIDE_SC_AMOUNT, PANEL_FORMS_NOTE, PANEL_SUMMARY_COUNTED, PARTIAL_OVERLAP_PREVIEW, REASON_PERSONAL, REASON_PERSONAL_HELP, REASON_REFUNDS, REASON_REFUNDS_HELP,
   SAME_DISABLED_NEC, SEPARATE_MULTI_PREVIEW,
   fillIncomeCopy,
 } from "@/lib/tax-rules/income-reconciliation-copy";
 import type { IncomeReconciliationSummary, SavedDecisionView } from "@/lib/tax-rules/income-reconciliation-response";
-import { kNotBusinessIncomeEnabled } from "@/lib/tax-rules/reconciliation-feature";
+import { kNotBusinessIncomeEnabled, reconciliationDecisionNeedsKSwitch } from "@/lib/tax-rules/reconciliation-feature";
 
 interface IncomeReconciliationPanelProps {
   taxYear: number;
@@ -48,6 +48,7 @@ const DECISION_HELP: Record<ReconciliationDecisionType, string> = {
   separate_income: "No other record reports this income, so it counts in addition to everything else.",
   k_includes_fees: "The 1099-K reports gross amounts and the platform kept fees before depositing. Gross receipts use the 1099-K amount; the fee is listed for your review, not deducted.",
   k_not_business_income: DECISION_HELP_NOT_BUSINESS,
+  partial_overlap: DECISION_HELP_PARTIAL,
   corrected_form_replaces: DECISION_HELP_CORRECTED,
 };
 const LOAD_ERROR = "Could not load income sources. Try again.";
@@ -74,13 +75,14 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
   const [refundsAmount, setRefundsAmount] = useState("");
   const [personalOn, setPersonalOn] = useState(false);
   const [personalAmount, setPersonalAmount] = useState("");
+  const [overlap, setOverlap] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmLegacy, setConfirmLegacy] = useState<SavedDecisionView | null>(null);
   const [correctedFormId, setCorrectedFormId] = useState<string | null>(null);
   const [changeNoticeDismissedAt, setChangeNoticeDismissedAt] = useState<Record<string, string>>({});
   const requestId = useRef(0);
   const confirmTitleRef = useRef<HTMLHeadingElement | null>(null);
-  const decisionChoices = RECONCILIATION_DECISION_TYPES.filter(type => type !== "k_not_business_income" || kNotBusinessIncomeEnabled());
+  const decisionChoices = RECONCILIATION_DECISION_TYPES.filter(type => !reconciliationDecisionNeedsKSwitch(type) || kNotBusinessIncomeEnabled());
 
   const load = useCallback(async () => {
     const current = ++requestId.current;
@@ -100,7 +102,7 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
   const resetForm = useCallback(() => {
     setEditingId(null); setSelected([]); setFee(""); setNote(""); setDecision(null); setFormError(null);
     setPaymentHint(null); setRefundsOn(false); setRefundsAmount(""); setPersonalOn(false); setPersonalAmount("");
-    setConfirmOpen(false); setConfirmLegacy(null); setCorrectedFormId(null);
+    setOverlap(""); setConfirmOpen(false); setConfirmLegacy(null); setCorrectedFormId(null);
   }, []);
 
   useEffect(() => {
@@ -132,12 +134,14 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
   const reasonAmountError = activeDecision === "k_not_business_income" && (refundsOn || personalOn)
     && ((refundsOn && positive(refundsAmount) === null) || (personalOn && positive(personalAmount) === null))
     ? ERR_REASON_AMOUNT : null;
+  const overlapValue = overlap.trim() === "" ? 0 : Number(overlap);
   const draft = {
     id: editingId ?? "pending", taxYear, decision: activeDecision ?? "separate_income",
     platformFeeAmount: Number.isFinite(feeValue) && feeValue >= 0 ? feeValue : 0,
     notBusinessParts,
     sources: selectedCandidates.map(candidate => ({ kind: candidate.kind, id: candidate.id, amount: candidate.amount })),
     ...(activeDecision === "corrected_form_replaces" && correctedFormId ? { correctedFormId } : {}),
+    ...(activeDecision === "partial_overlap" ? { overlapAmount: Number.isFinite(overlapValue) ? overlapValue : 0 } : {}),
   };
   const enginePreview = activeDecision && draft.sources.length && !reasonAmountError
     ? validateReconciliationDecision(draft, byKey, claimedBy) : null;
@@ -179,6 +183,7 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
     setSelected(saved.sources.map(sourceKey).filter(key => byKey.has(key)));
     applySavedParts(saved);
     setCorrectedFormId(saved.correctedFormId ?? null);
+    setOverlap(typeof saved.overlapAmount === "number" ? String(saved.overlapAmount) : "");
     setConfirmOpen(false); setConfirmLegacy(null);
     setFormError(null);
   };
@@ -208,6 +213,7 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
     ...(paymentHint ? { paymentMethodHint: paymentHint } : {}),
     ...(activeDecision === "k_not_business_income" ? { notBusinessParts } : {}),
     ...(activeDecision === "corrected_form_replaces" && correctedFormId ? { correctedFormId } : {}),
+    ...(activeDecision === "partial_overlap" ? { overlapAmount: Number.isFinite(overlapValue) ? overlapValue : 0 } : {}),
     ...(reported !== undefined ? { confirmedFormsTotal: reported } : {}),
   });
   const submit = async (e: React.FormEvent) => {
@@ -275,6 +281,7 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
     : type === "separate_income" ? "This is separate income"
     : type === "k_not_business_income" ? DECISION_LABEL_NOT_BUSINESS
     : type === "corrected_form_replaces" ? DECISION_LABEL_CORRECTED
+    : type === "partial_overlap" ? DECISION_LABEL_PARTIAL
     : `1099-K includes fees${draft.platformFeeAmount > 0 ? ` of ${fmt(draft.platformFeeAmount)}` : ""}`;
   const partAmount = (reason: NotBusinessPart["reason"]) => notBusinessParts.find(part => part.reason === reason)?.amount ?? 0;
   const businessPart = selectedK ? selectedK.amount - partAmount("refunds_credits") - partAmount("personal") - (Number.isFinite(feeValue) ? feeValue : 0) : null;
@@ -524,6 +531,13 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
                     ))}
                   </fieldset>
                 )}
+                {activeDecision === "partial_overlap" && (
+                  <div className="space-y-1">
+                    <Label htmlFor="reconciliation-overlap" className="text-xs text-muted-foreground">Amount on both forms ($)</Label>
+                    <Input id="reconciliation-overlap" type="number" min="0" step="0.01" inputMode="decimal" value={overlap} onChange={event => setOverlap(event.target.value)}
+                      placeholder="0.00" className="min-h-11 bg-background text-base" disabled={busy} />
+                  </div>
+                )}
                 {feeApplies && (
                   <div className="space-y-1">
                     <Label htmlFor="reconciliation-fee" className="text-xs text-muted-foreground">Platform fee amount ($)</Label>
@@ -550,6 +564,8 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
                         corrected: fmt(selectedForms.find(form => form.id === correctedFormId)?.amount ?? 0),
                         original: fmt(selectedForms.find(form => form.id !== correctedFormId)?.amount ?? 0),
                       })
+                    : preview && preview.ok && activeDecision === "partial_overlap"
+                      ? fillIncomeCopy(PARTIAL_OVERLAP_PREVIEW, { overlap: fmt(toCents(Number.isFinite(overlapValue) ? overlapValue : 0) / 100), total: fmt(preview.countedCents / 100) })
                     : preview && preview.ok && activeDecision === "separate_income" && draft.sources.length >= 2
                       ? fillIncomeCopy(SEPARATE_MULTI_PREVIEW, { n: draft.sources.length, total: fmt(preview.countedCents / 100) })
                     : preview && preview.ok ? `Counts ${fmt(preview.countedCents / 100)} once.${projected === null ? "" : ` Gross receipts for ${taxYear} would be ${fmt(projected)} if no other conflicts remain.`}`
