@@ -89,11 +89,16 @@ function dateFromWrittenParts(value: string): string | null {
     const year = slash[3].length === 2 ? 2000 + Number(slash[3]) : Number(slash[3]);
     return calendarDay(year, Number(slash[1]), Number(slash[2]));
   }
-  const named = /^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/.exec(value);
+  const named = /^([A-Za-z]+)(\.)?\s+(\d{1,2}),\s*(\d{4})$/.exec(value);
   if (named) {
-    const month = ENGLISH_MONTHS[named[1].toLowerCase()];
+    const token = named[1].toLowerCase();
+    const dotted = named[2] === '.';
+    // Sept is the four letter September abbreviation. A trailing period is
+    // kept for that form and for the three letter names, which base already read.
+    if (dotted && token !== 'sept' && token.length !== 3) return null;
+    const month = token === 'sept' ? 9 : ENGLISH_MONTHS[token];
     if (!month) return null;
-    return calendarDay(Number(named[3]), month, Number(named[2]));
+    return calendarDay(Number(named[4]), month, Number(named[3]));
   }
   return null;
 }
@@ -257,7 +262,7 @@ export class ReceiptProcessor {
       /\b(\d{4}-\d{1,2}-\d{1,2})\b/g, // YYYY-MM-DD before short hyphenated dates
       /(\d{1,2}\/\d{1,2}\/\d{2,4})/g, // MM/DD/YYYY or MM/DD/YY
       /(\d{1,2}-\d{1,2}-\d{2,4})/g, // MM-DD-YYYY
-      /(\w{3,9}\s+\d{1,2},?\s+\d{2,4})/g, // Month DD, YYYY
+      /(\w{3,9}\.?\s+\d{1,2},?\s+\d{2,4})/g, // Month DD, YYYY, with an optional abbreviation period
     ];
     
     for (const pattern of datePatterns) {
