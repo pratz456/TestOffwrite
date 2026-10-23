@@ -1,6 +1,6 @@
 "use client";
 
-import { currentCalendarYear, decideScheduleCExport, scheduleCExportLine, shouldHoldYear } from '@/lib/schedule-c/export-lines';
+import { currentCalendarYear, decideScheduleCExport, DRAFT_LATEST_EXPORT_UNRECORDED_NOTICE, scheduleCExportLine, shouldHoldYear } from '@/lib/schedule-c/export-lines';
 import { readStoredScheduleCPrior, type ScheduleCExportSnapshot } from '@/lib/schedule-c/held-year-client';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
@@ -95,6 +95,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   const [includeAppendix, setIncludeAppendix] = useState(true);
   const [lineDetails, setLineDetails] = useState<Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }>>({});
   const [prior, setPrior] = useState<ScheduleCExportSnapshot | null>(null);
+  const [latestExportUnrecorded, setLatestExportUnrecorded] = useState(false);
   const confirmedForYear = confirmedVersionForYear(confirmedRulesVersion, Number(selectedYear));
 
 
@@ -105,6 +106,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 
   const heldComparison = useMemo(() => {
     const year = Number(selectedYear);
+    if (latestExportUnrecorded) return null;
     if (!Number.isInteger(year) || year >= currentCalendarYear() || !shouldHoldYear(user.id, year)) return null;
     return decideScheduleCExport({
       uid: user.id,
@@ -120,10 +122,10 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
         review_status: tx.review_status,
         tax_review_required: tx.tax_review_required,
       })),
-      prior,
+      prior: latestExportUnrecorded ? null : prior,
       confirmedRulesVersion: confirmedForYear,
     }).comparison;
-  }, [selectedYear, transactions, user.id, confirmedForYear, prior]);
+  }, [selectedYear, transactions, user.id, confirmedForYear, prior, latestExportUnrecorded]);
 
   // Memoize calculateDeductions to prevent recreation on every render
   const calculateDeductions = useCallback((overrideYearTx?: Transaction[]) => {
@@ -144,7 +146,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
         review_status: tx.review_status,
         tax_review_required: tx.tax_review_required,
       })),
-      prior,
+      prior: latestExportUnrecorded ? null : prior,
       confirmedRulesVersion: confirmedForYear,
     });
 
@@ -175,17 +177,20 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
     setDeductibleCount(deductible);
     setConfirmedCount(deductible);
     setPotentialCount(0);
-  }, [transactions, selectedYear, user.id, confirmedForYear, prior]);
+  }, [transactions, selectedYear, user.id, confirmedForYear, prior, latestExportUnrecorded]);
 
   useEffect(() => {
     const year = Number(selectedYear);
     if (!Number.isInteger(year) || year >= currentCalendarYear() || !shouldHoldYear(user.id, year)) {
       setPrior(null);
+      setLatestExportUnrecorded(false);
       return;
     }
     let cancel = false;
-    readStoredScheduleCPrior(year).then(value => {
-      if (!cancel) setPrior(value);
+    void readStoredScheduleCPrior(year).then(value => {
+      if (cancel) return;
+      setPrior(value.prior);
+      setLatestExportUnrecorded(value.latestExportUnrecorded);
     });
     return () => { cancel = true; };
   }, [selectedYear, user.id]);
@@ -388,7 +393,11 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
             Schedule C Preview - Tax Year {selectedYear}
           </h3>
 
-          {heldComparison ? (
+          {latestExportUnrecorded ? (
+            <div className="mb-4 space-y-1 text-sm text-foreground">
+              <p>{DRAFT_LATEST_EXPORT_UNRECORDED_NOTICE}</p>
+            </div>
+          ) : heldComparison ? (
             <div className="mb-4 space-y-1 text-sm text-foreground">
               {heldComparison.notice.split('\n').map((line, index) => (
                 <p key={`${index}-${line.slice(0, 24)}`}>{line}</p>

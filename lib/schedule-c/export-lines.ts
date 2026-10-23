@@ -4,6 +4,7 @@ export function scheduleCExportLine(internalLine: string, taxYear: number): stri
 }
 
 export {
+  DRAFT_LATEST_EXPORT_UNRECORDED_NOTICE,
   FILED_YEAR_COPY_MARKER,
   NEEDS_MORE_INFORMATION,
   chargeKey,

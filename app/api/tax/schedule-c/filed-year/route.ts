@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { currentCalendarYear } from '@/lib/schedule-c/filed-year';
-import { readLatestExportRecord, readTaxYearConfirmation } from '@/lib/schedule-c/export-record';
+import { readHeldYearExport, readTaxYearConfirmation } from '@/lib/schedule-c/export-record';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,9 +30,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Choose a supported tax year.' }, { status: 400, headers });
     }
     const confirmation = await readTaxYearConfirmation(user.uid, year);
-    const prior = year < currentCalendarYear() ? await readLatestExportRecord(user.uid, year) : null;
+    const recorded = year < currentCalendarYear()
+      ? await readHeldYearExport(user.uid, year)
+      : { prior: null, latestExportUnrecorded: false };
     return NextResponse.json({
-      prior,
+      prior: recorded.prior,
+      latestExportUnrecorded: recorded.latestExportUnrecorded,
       confirmedRulesVersion: confirmation?.rulesVersion ?? null,
     }, { headers });
   } catch {

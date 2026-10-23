@@ -43,16 +43,27 @@ export async function readStoredConfirmedRulesVersions(): Promise<Record<string,
   }
 }
 
+export interface StoredScheduleCPrior {
+  prior: ScheduleCExportSnapshot | null;
+  /** True while a pending export marker is still open. prior is null in that case. */
+  latestExportUnrecorded: boolean;
+}
+
 /** Latest Schedule C CSV or PDF export for one held year, or null when none is saved. */
-export async function readStoredScheduleCPrior(year: number): Promise<ScheduleCExportSnapshot | null> {
+export async function readStoredScheduleCPrior(year: number): Promise<StoredScheduleCPrior> {
+  const empty: StoredScheduleCPrior = { prior: null, latestExportUnrecorded: false };
   try {
     const headers = await authHeader();
-    if (!headers) return null;
+    if (!headers) return empty;
     const response = await fetch(`${SCHEDULE_C_FILED_YEAR_PATH}?year=${year}`, { headers, credentials: 'include' });
-    if (!response.ok) return null;
-    const body = await response.json() as { prior?: unknown };
-    return isScheduleCExportSnapshot(body.prior) ? body.prior : null;
+    if (!response.ok) return empty;
+    const body = await response.json() as { prior?: unknown; latestExportUnrecorded?: unknown };
+    const latestExportUnrecorded = body.latestExportUnrecorded === true;
+    return {
+      prior: latestExportUnrecorded || !isScheduleCExportSnapshot(body.prior) ? null : body.prior,
+      latestExportUnrecorded,
+    };
   } catch {
-    return null;
+    return empty;
   }
 }

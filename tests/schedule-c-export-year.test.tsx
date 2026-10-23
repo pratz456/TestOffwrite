@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { frozenScheduleCRules, setCurrentScheduleCRulesForTests, setScheduleCClockForTests } from '@/lib/schedule-c/filed-year';
+import { DRAFT_LATEST_EXPORT_UNRECORDED_NOTICE, frozenScheduleCRules, setCurrentScheduleCRulesForTests, setScheduleCClockForTests } from '@/lib/schedule-c/filed-year';
 
 // Real component handlers with a minimal hook scheduler; network/downloads are
 // mocked. This verifies selected-year propagation, not browser PDF rendering.
@@ -187,6 +187,25 @@ describe('Schedule C supported-year selection', () => {
     expect(fallback.toLowerCase()).not.toContain('last export');
     expect(fallback.toLowerCase()).not.toContain('since export');
     expect(fallback.toLowerCase()).not.toContain('saved from your');
+  });
+
+  it('shows the draft notice and does not compare an older export while the latest one is unrecorded', async () => {
+    const edited = {
+      ...props,
+      transactions: [{ id: 'ad', merchant_name: 'Synthetic ads', amount: 250, category: 'SERVICE_ADVERTISING', date: '2025-06-01', is_deductible: true, review_status: 'confirmed', tax_review_required: false }],
+    };
+    const saved = { rulesVersion: 'v0', totalDeductible: 100, lineTotals: [{ line: '8', amount: 100 }], charges: [{ id: 'ad', line: '8', amount: 100 }] };
+    harness.fetch.mockImplementation(async (url: string) => {
+      if (String(url).startsWith('/api/tax/schedule-c/filed-year')) {
+        return new Response(JSON.stringify({ prior: saved, latestExportUnrecorded: true }), { headers: { 'content-type': 'application/json' } });
+      }
+      return new Response('synthetic-pdf', { headers: { 'content-type': 'application/pdf' } });
+    });
+    const body = await openYear(edited, '2025');
+    expect(body).toContain(DRAFT_LATEST_EXPORT_UNRECORDED_NOTICE);
+    expect(body).not.toContain('That total was $100.00.');
+    expect(body).not.toContain('last export');
+    expect(body).not.toContain('since export');
   });
 
   async function confirmationFrom(load: () => Promise<{ default: (props?: unknown) => unknown }>) {

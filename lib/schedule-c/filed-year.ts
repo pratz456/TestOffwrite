@@ -24,6 +24,14 @@ export {
 } from './rules-registry';
 
 export const FILED_YEAR_COPY_MARKER = 'draft, awaiting copy approval';
+
+/**
+ * DRAFT notice. Not final customer copy.
+ * Shown while a held year still has a pending export marker, so the screen
+ * does not compare that year with an older export.
+ */
+export const DRAFT_LATEST_EXPORT_UNRECORDED_NOTICE =
+  'DRAFT: The latest export for this year was not recorded, so this view does not compare it with an older export.';
 export const NEEDS_MORE_INFORMATION = 'Needs more information';
 
 export type MoveReason =

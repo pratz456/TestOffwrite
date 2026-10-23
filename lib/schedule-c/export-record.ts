@@ -3,7 +3,7 @@
  * Both collections are server only. Do not deploy these writes until the owner agrees.
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
@@ -20,6 +20,9 @@ export const TAX_YEAR_CONFIRMATIONS = 'user_tax_year_confirmations';
 export const EXPORT_RECORDS = 'user_export_records';
 /** Per user and year counter. Admin SDK only, same as the export records. */
 export const EXPORT_SEQUENCES = 'user_export_sequences';
+/** One document per export id until that export's record commits. Admin SDK only. */
+export const EXPORT_PENDING = 'user_export_pending';
+export const EXPORT_RECORD_WRITE_TIMEOUT_MS = 4000;
 
 /**
  * Only schedule-c-pdf and schedule-c-csv are written. Those are the only
@@ -99,34 +102,68 @@ export function parseExportSnapshot(data: Record<string, unknown> | undefined): 
 }
 
 /**
- * Assigns the next exportSequence for this user and year, then writes the
- * record. Both happen in one transaction, so overlapping exports cannot
- * take the same number.
+ * Writes the pending marker for this export id before the file is served.
+ * A marker write error is logged and does not block the download.
  */
-async function writeExportRecord(record: Omit<ExportRecordDocument, 'exportSequence'>): Promise<void> {
+export async function beginPendingExport(uid: string, taxYear: number): Promise<string> {
+  const exportId = randomUUID();
+  try {
+    await adminDb.collection(EXPORT_PENDING).doc(exportId).set({ uid, taxYear, exportId });
+  } catch (error) {
+    console.error('Pending export marker was not written', exportId, error);
+  }
+  return exportId;
+}
+
+/**
+ * Assigns the next exportSequence for this user and year, writes the record,
+ * and clears that export's pending marker. One transaction, so a late commit
+ * still clears the marker, and overlapping exports cannot share a sequence.
+ */
+async function writeExportRecord(record: Omit<ExportRecordDocument, 'exportSequence'>, exportId: string): Promise<void> {
   const counterRef = adminDb.collection(EXPORT_SEQUENCES).doc(sequenceDocId(record.uid, record.taxYear));
   const recordRef = adminDb.collection(EXPORT_RECORDS).doc();
+  const pendingRef = adminDb.collection(EXPORT_PENDING).doc(exportId);
   await adminDb.runTransaction(async tx => {
     const counter = await tx.get(counterRef);
+    await tx.get(pendingRef);
     const current = counter.exists ? assignedSequence(counter.data()?.next) ?? 0 : 0;
     const exportSequence = current + 1;
     tx.set(counterRef, { uid: record.uid, taxYear: record.taxYear, next: exportSequence });
     tx.set(recordRef, plainDocument({ ...record, exportSequence }));
+    tx.delete(pendingRef);
   });
 }
 
-/** Writing the record must never fail the download. */
-export async function safeWriteExportRecord(record: Omit<ExportRecordDocument, 'exportSequence'>): Promise<void> {
+/**
+ * Waits up to 4 seconds for the record transaction. The download continues
+ * either way. A timeout means the commit is unconfirmed: it may still land
+ * and clear the pending marker. A rejected transaction is logged as failed.
+ */
+export async function safeWriteExportRecord(record: Omit<ExportRecordDocument, 'exportSequence'>, exportId: string): Promise<void> {
+  let timedOut = false;
+  const write = writeExportRecord(record, exportId).then(
+    () => {
+      if (timedOut) console.error('Export record committed after the write timed out and was unconfirmed', exportId);
+    },
+    (error: unknown) => {
+      if (!timedOut) throw error;
+    },
+  );
   try {
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('Export record write timed out')), 4000);
-      writeExportRecord(record).then(
+      const timer = setTimeout(() => {
+        timedOut = true;
+        reject(new Error('Export record write timed out'));
+      }, EXPORT_RECORD_WRITE_TIMEOUT_MS);
+      write.then(
         () => { clearTimeout(timer); resolve(); },
         (error: unknown) => { clearTimeout(timer); reject(error); },
       );
     });
   } catch (error) {
-    console.error('Export record write failed', error);
+    if (timedOut) console.error('Export record write timed out and is unconfirmed', exportId);
+    else console.error('Export record write failed', error);
   }
 }
 
@@ -187,13 +224,24 @@ export async function readLatestExportRecord(uid: string, year: number): Promise
   return latest?.snapshot ?? null;
 }
 
-export async function loadFiledYearState(uid: string, year: number): Promise<{ prior: ScheduleCExportSnapshot | null; confirmedRulesVersion: string | null }> {
-  if (year >= currentCalendarYear()) return { prior: null, confirmedRulesVersion: null };
+/**
+ * A pending marker means the latest export for this year was not recorded.
+ * Callers must not compare that year with an older export while the flag is set.
+ */
+export async function readHeldYearExport(uid: string, year: number): Promise<{ prior: ScheduleCExportSnapshot | null; latestExportUnrecorded: boolean }> {
+  const pending = await adminDb.collection(EXPORT_PENDING).where('uid', '==', uid).where('taxYear', '==', year).limit(1).get();
+  if (!pending.empty) return { prior: null, latestExportUnrecorded: true };
+  return { prior: await readLatestExportRecord(uid, year), latestExportUnrecorded: false };
+}
+
+export async function loadFiledYearState(uid: string, year: number): Promise<{ prior: ScheduleCExportSnapshot | null; confirmedRulesVersion: string | null; latestExportUnrecorded: boolean }> {
+  if (year >= currentCalendarYear()) return { prior: null, confirmedRulesVersion: null, latestExportUnrecorded: false };
   const confirmation = await readTaxYearConfirmation(uid, year);
   const confirmedRulesVersion = confirmation?.rulesVersion ?? null;
   const held = shouldHoldYear(uid, year) && confirmedRulesVersion !== currentScheduleCRules().version;
-  const prior = held ? await readLatestExportRecord(uid, year) : null;
-  return { prior, confirmedRulesVersion };
+  if (!held) return { prior: null, confirmedRulesVersion, latestExportUnrecorded: false };
+  const recorded = await readHeldYearExport(uid, year);
+  return { prior: recorded.prior, confirmedRulesVersion, latestExportUnrecorded: recorded.latestExportUnrecorded };
 }
 
 export async function confirmTaxYear(request: NextRequest): Promise<NextResponse> {
