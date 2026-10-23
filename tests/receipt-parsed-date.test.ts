@@ -25,6 +25,8 @@ import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
 const normalizeDateToISO = (value: unknown) =>
   (receiptProcessor as unknown as { normalizeDateToISO(dateLike: unknown): string | null }).normalizeDateToISO(value);
+const extractDate = (text: string) =>
+  (receiptProcessor as unknown as { extractDate(text: string): string }).extractDate(text);
 
 const owner = 'receipt-parsed-date-owner';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64');
@@ -41,6 +43,57 @@ const KEPT: Array<[string, string]> = [
   ['SEPT. 5, 2026', '2026-09-05'],
   ['sept. 5, 2026', '2026-09-05'],
   ['Jan. 1, 2026', '2026-01-01'],
+  ['Jan 5 2026', '2026-01-05'],
+  ['JAN 5 2026', '2026-01-05'],
+  ['January 5 2026', '2026-01-05'],
+  ['Sep 5 2026', '2026-09-05'],
+  ['Sept 5 2026', '2026-09-05'],
+  ['SEPT 5 2026', '2026-09-05'],
+  ['Jan 5, 26', '2026-01-05'],
+  ['Sept 5, 26', '2026-09-05'],
+  ['5 Jan 2026', '2026-01-05'],
+  ['5 Jan. 2026', '2026-01-05'],
+  ['5 Sept 2026', '2026-09-05'],
+  ['5 Sept. 2026', '2026-09-05'],
+  ['05 January 2026', '2026-01-05'],
+  ['05 January. 2026', '2026-01-05'],
+  ['01-15-2026', '2026-01-15'],
+  ['01-15-26', '2026-01-15'],
+  ['1-5-2026', '2026-01-05'],
+  ['12-31-2026', '2026-12-31'],
+];
+const ISO_TIMESTAMPS: Array<[string, string, string]> = [
+  ['Paid 2026-01-15T10:00:00Z', '2026-01-15T10:00:00Z', '2026-01-15'],
+  ['2012-01-15T09:00:00', '2012-01-15T09:00:00', '2012-01-15'],
+];
+const STREET: Array<[string, string]> = [
+  ['Jan. 5, 2026', '2026-01-05'],
+  ['Jan. 1, 2026', '2026-01-01'],
+  ['Sep. 5, 2026', '2026-09-05'],
+  ['Sept. 5, 2026', '2026-09-05'],
+  ['SEPT. 5, 2026', '2026-09-05'],
+  ['sept. 5, 2026', '2026-09-05'],
+  ['5 Jan. 2026', '2026-01-05'],
+  ['5 Sept. 2026', '2026-09-05'],
+  ['05 January. 2026', '2026-01-05'],
+  ['5 Jan 2026', '2026-01-05'],
+  ['5 Sept 2026', '2026-09-05'],
+  ['05 January 2026', '2026-01-05'],
+  ['Jan 5 2026', '2026-01-05'],
+  ['JAN 5 2026', '2026-01-05'],
+  ['January 5 2026', '2026-01-05'],
+  ['Sep 5 2026', '2026-09-05'],
+  ['Sept 5 2026', '2026-09-05'],
+  ['SEPT 5 2026', '2026-09-05'],
+  ['Sept 5, 2026', '2026-09-05'],
+  ['Jan 5, 26', '2026-01-05'],
+  ['Sept 5, 26', '2026-09-05'],
+  ['01-15-2026', '2026-01-15'],
+  ['01-15-26', '2026-01-15'],
+  ['1-5-2026', '2026-01-05'],
+  ['12-31-2026', '2026-12-31'],
+  ['Paid 2026-01-15T10:00:00Z', '2026-01-15'],
+  ['2012-01-15T09:00:00', '2012-01-15'],
 ];
 const REFUSED = ['02/30/2026', '13/01/2026', 'garbage'];
 
@@ -55,6 +108,9 @@ function reference(path: string): object {
 }
 function receiptText(line: string) {
   return `SYNTHETIC OFFICE STORE\n${line}\nOffice supplies $25.00\nTOTAL $25.00\nTEST RECEIPT - NO PURCHASE`;
+}
+function streetReceipt(input: string) {
+  return `STORE NAME\n123 Main St\nDate: ${input}\nTotal $12.34`;
 }
 function recognized(line: string) {
   worker.recognize.mockResolvedValue({ data: { text: receiptText(line), confidence: 95 } });
@@ -95,12 +151,40 @@ describe('written receipt dates are read by parts', () => {
     expect(normalizeDateToISO(input)).toBe(iso);
   });
 
-  it.each(['02/30/2026', '13/01/2026', 'garbage', '', '2026-01-15abc', '2026-01-15T25:00:00'])('normalizes %s to null', input => {
+  it.each(['02/30/2026', '13/01/2026', 'garbage', '', '2026-01-15abc', '2026-01-15T25:00:00', '02-30-2026'])('normalizes %s to null', input => {
     expect(normalizeDateToISO(input)).toBeNull();
   });
 
   it('keeps the written day of an offset timestamp', () => {
     expect(normalizeDateToISO('2026-01-15T23:30:00-08:00')).toBe('2026-01-15');
+  });
+
+  it('reads a leading four digit year as ISO, not as a hyphen month', () => {
+    expect(normalizeDateToISO('2026-01-15')).toBe('2026-01-15');
+    expect(normalizeDateToISO('2012-01-15')).toBe('2012-01-15');
+    expect(normalizeDateToISO('12-01-15')).toBe('2015-12-01');
+  });
+
+  it('keeps Jan 1, 2026 when a Tokyo Date parse would move it to the previous year', () => {
+    expect(normalizeDateToISO('Jan 1, 2026')).toBe('2026-01-01');
+    if (process.env.TZ === 'Asia/Tokyo') {
+      expect(new Date('Jan 1, 2026').toISOString().slice(0, 10)).toBe('2025-12-31');
+    }
+  });
+
+  it.each(ISO_TIMESTAMPS)('keeps the ISO day for %s', async (line, extracted, iso) => {
+    expect(extractDate(receiptText(line))).toBe(extracted);
+    expect(normalizeDateToISO(extracted)).toBe(iso);
+    recognized(line);
+    const result = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({ merchant: 'SYNTHETIC OFFICE STORE', amount: 25, date: iso });
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({
+      merchant_name: 'SYNTHETIC OFFICE STORE', amount: 25, date: iso,
+    }));
+    expect((await response.json()).transaction.date).toBe(iso);
   });
 
   it.each(KEPT)('reads %s from OCR as %s', async (input, iso) => {
@@ -134,6 +218,20 @@ describe('OCR save uses the printed calendar day', () => {
     expect(response.status).toBe(200);
     expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({
       merchant_name: 'SYNTHETIC OFFICE STORE', amount: 25, date: iso,
+    }));
+    expect((await response.json()).transaction.date).toBe(iso);
+  });
+
+  it.each(STREET)('saves the printed day for %s from a street receipt', async (input, iso) => {
+    const text = streetReceipt(input);
+    const extracted = extractDate(text);
+    expect(text.includes(extracted)).toBe(true);
+    expect(normalizeDateToISO(extracted)).toBe(iso);
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({
+      merchant_name: 'STORE NAME', amount: 12.34, date: iso,
     }));
     expect((await response.json()).transaction.date).toBe(iso);
   });

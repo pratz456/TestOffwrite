@@ -55,6 +55,9 @@ jobs:
       - name: Unit and contract tests
         run: npm test
 
+      - name: Receipt dates in Tokyo and Los Angeles
+        run: npm run test:receipt-tz
+
       - name: Build application without provider access
         env:
           # Build-only demo configuration, based on scripts/local-demo.mjs.

@@ -74,9 +74,22 @@ function clockIsReal(time: string): boolean {
   return true;
 }
 
+/** A two digit year is 20YY. A four digit year is used as written. */
+function writtenYear(raw: string): number {
+  return raw.length === 2 ? 2000 + Number(raw) : Number(raw);
+}
+
+/** English month token, including the four letter September abbreviation Sept. */
+function monthFromName(token: string): number | null {
+  const key = token.toLowerCase();
+  if (key === 'sept') return 9;
+  return ENGLISH_MONTHS[key] ?? null;
+}
+
 /**
- * Read a written date by its parts. Slash dates are US month/day order.
- * A two digit year is 20YY. The result is kept only when it is a real calendar day.
+ * Read a written date by its parts. Slash and hyphen dates are US month/day order.
+ * A leading four digit year stays ISO, including a timestamp. A two digit year is 20YY.
+ * The result is kept only when it is a real calendar day.
  */
 function dateFromWrittenParts(value: string): string | null {
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|T(.*))$/.exec(value);
@@ -86,19 +99,29 @@ function dateFromWrittenParts(value: string): string | null {
   }
   const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})$/.exec(value);
   if (slash) {
-    const year = slash[3].length === 2 ? 2000 + Number(slash[3]) : Number(slash[3]);
-    return calendarDay(year, Number(slash[1]), Number(slash[2]));
+    return calendarDay(writtenYear(slash[3]), Number(slash[1]), Number(slash[2]));
   }
-  const named = /^([A-Za-z]+)(\.)?\s+(\d{1,2}),\s*(\d{4})$/.exec(value);
+  // Month and day are one or two digits, so this cannot match YYYY-MM-DD.
+  const hyphen = /^(\d{1,2})-(\d{1,2})-(\d{4}|\d{2})$/.exec(value);
+  if (hyphen) {
+    return calendarDay(writtenYear(hyphen[3]), Number(hyphen[1]), Number(hyphen[2]));
+  }
+  const named = /^([A-Za-z]+)(\.)?\s+(\d{1,2}),?\s+(\d{4}|\d{2})$/.exec(value);
   if (named) {
     const token = named[1].toLowerCase();
     const dotted = named[2] === '.';
     // Sept is the four letter September abbreviation. A trailing period is
     // kept for that form and for the three letter names, which base already read.
     if (dotted && token !== 'sept' && token.length !== 3) return null;
-    const month = token === 'sept' ? 9 : ENGLISH_MONTHS[token];
+    const month = monthFromName(token);
     if (!month) return null;
-    return calendarDay(Number(named[4]), month, Number(named[3]));
+    return calendarDay(writtenYear(named[4]), month, Number(named[3]));
+  }
+  const dayFirst = /^(\d{1,2})\s+([A-Za-z]+)(\.)?\s+(\d{4}|\d{2})$/.exec(value);
+  if (dayFirst) {
+    const month = monthFromName(dayFirst[2]);
+    if (!month) return null;
+    return calendarDay(writtenYear(dayFirst[4]), month, Number(dayFirst[1]));
   }
   return null;
 }
@@ -257,12 +280,16 @@ export class ReceiptProcessor {
   }
 
   private extractDate(text: string): string {
-    // Look for various date patterns
+    // A full ISO date or timestamp has to be taken before a shorter MM-DD-YY
+    // slice inside it. 2026-01-15T10:00:00Z must not become 26-01-15, and
+    // 2012-01-15T09:00:00 must not become 12-01-15.
     const datePatterns = [
-      /\b(\d{4}-\d{1,2}-\d{1,2})\b/g, // YYYY-MM-DD before short hyphenated dates
-      /(\d{1,2}\/\d{1,2}\/\d{2,4})/g, // MM/DD/YYYY or MM/DD/YY
-      /(\d{1,2}-\d{1,2}-\d{2,4})/g, // MM-DD-YYYY
-      /(\w{3,9}\.?\s+\d{1,2},?\s+\d{2,4})/g, // Month DD, YYYY, with an optional abbreviation period
+      /\d{4}-\d{1,2}-\d{1,2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?/,
+      /\b\d{4}-\d{1,2}-\d{1,2}\b/,
+      /\d{1,2}\/\d{1,2}\/\d{2,4}/,
+      /(?<!\d)\d{1,2}-\d{1,2}-\d{2,4}(?!\d)/,
+      /\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{2,4}/,
+      /[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{2,4}/,
     ];
     
     for (const pattern of datePatterns) {
