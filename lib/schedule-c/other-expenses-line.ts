@@ -34,7 +34,7 @@ export const OTHER_EXPENSES_LINE_TOKEN = 'OTHER_EXPENSES_LINE';
 export function withOtherExpensesLine(text: string, taxYear: number | null | undefined): string {
   const line = typeof taxYear === 'number' && Number.isFinite(taxYear)
     ? otherExpensesLine(taxYear)
-    : `27a for ${OTHER_EXPENSES_27B_FIRST_YEAR - 1} and earlier, or 27b for ${OTHER_EXPENSES_27B_FIRST_YEAR} and later`;
+    : `27a for ${OTHER_EXPENSES_CONFIRMED_FIRST_YEAR} and ${OTHER_EXPENSES_27B_FIRST_YEAR - 1}, or 27b for ${OTHER_EXPENSES_27B_FIRST_YEAR} and later`;
   return text.replaceAll(OTHER_EXPENSES_LINE_TOKEN, line);
 }
 

@@ -98,7 +98,7 @@ describe('for-you paragraph', () => {
 
   it('states the owner\'s numbers, the packet placement and a review action', () => {
     const forYou = composeForYou(context, 'software-subscriptions');
-    expect(forYou?.paragraph).toBe('You have 12 Adobe charges in 2026 totaling $659.88; all are unreviewed. If they are used in your graphic designer work, they belong on Schedule C line 18 (office expense) or line 27a (other expenses).');
+    expect(forYou?.paragraph).toBe('You have 12 Adobe charges in 2026 totaling $659.88; all are unreviewed. If they are used in your graphic designer work, they belong on Schedule C line 18 (office expense) or line 27b (other expenses).');
     expect(forYou?.action).toEqual({ screen: 'transactions', merchantKey: 'adobe systems', count: 12, label: 'Review these 12 charges' });
     expect(composeForYou(context, 'owner-draws')?.paragraph).toContain('Your business is saved as a sole proprietor, which reports on Schedule C.');
   });
