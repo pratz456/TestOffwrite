@@ -8,12 +8,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getFederalTaxRules } from '@/lib/tax-rules/federal-year-rules';
-import { recordedDeductibility, transactionAmount, type ExportRecord } from '@/lib/reports/transaction-export';
 import {
-  chargeKey,
   currentScheduleCRules,
   currentCalendarYear,
-  roundMoney,
   scheduleCNow,
   shouldHoldYear,
   type ScheduleCExportSnapshot,
@@ -23,15 +20,13 @@ export const TAX_YEAR_CONFIRMATIONS = 'user_tax_year_confirmations';
 export const EXPORT_RECORDS = 'user_export_records';
 
 /**
- * Schedule C CSV and PDF are the only kinds read back as a held year's old total.
- * A transactions CSV, a data export, and a planning PDF never use those two kinds.
- * readLatestExportRecord skips every other kind, including when one of those
- * downloads is logged.
+ * Only a Schedule C CSV or PDF is written, and only those kinds are read
+ * back as a held year's old total. A transactions CSV download is not logged.
+ * If a log of another kind is present, readLatestExportRecord skips it.
  */
 export type ExportRecordKind =
   | 'schedule-c-pdf'
   | 'schedule-c-csv'
-  | 'transactions-csv'
   | 'data-export'
   | 'planning-pdf';
 
@@ -150,30 +145,6 @@ export async function loadFiledYearState(uid: string, year: number): Promise<{ p
   const held = shouldHoldYear(uid, year) && confirmedRulesVersion !== currentScheduleCRules().version;
   const prior = held ? await readLatestExportRecord(uid, year) : null;
   return { prior, confirmedRulesVersion };
-}
-
-export function transactionsExportSnapshot(records: ExportRecord[]): ScheduleCExportSnapshot {
-  const rules = currentScheduleCRules();
-  const charges = records.map((record, index) => {
-    const category = typeof record.category === 'string' ? record.category : '';
-    const amount = transactionAmount(record);
-    return { id: chargeKey(record, index), line: rules.categoryMap[category]?.line ?? '', amount: roundMoney(amount ?? 0) };
-  });
-  const totals = new Map<string, number>();
-  let totalDeductible = 0;
-  records.forEach((record, index) => {
-    if (recordedDeductibility(record) !== true || !charges[index].line) return;
-    totals.set(charges[index].line, roundMoney((totals.get(charges[index].line) ?? 0) + charges[index].amount));
-    totalDeductible = roundMoney(totalDeductible + charges[index].amount);
-  });
-  return { rulesVersion: rules.version, lineTotals: [...totals].map(([line, amount]) => ({ line, amount })), totalDeductible, charges };
-}
-
-export async function recordTransactionsDownload(uid: string, taxYear: number | null, csv: string, records: ExportRecord[]): Promise<void> {
-  const snapshot = transactionsExportSnapshot(records);
-  await safeWriteExportRecord({
-    uid, kind: 'transactions-csv', taxYear, exportedAt: scheduleCNow().toISOString(), sha256: sha256Hex(csv), ...snapshot,
-  });
 }
 
 export async function confirmTaxYear(request: NextRequest): Promise<NextResponse> {

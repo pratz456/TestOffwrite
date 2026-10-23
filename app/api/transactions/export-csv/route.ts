@@ -5,7 +5,6 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { readOwnedTransactions } from '@/lib/reports/export-records';
 import { convertTransactionsToCSV, exportYear, selectExportYear, recordedDeductibility, ExportReviewRequiredError } from '@/lib/reports/transaction-export';
-import { recordTransactionsDownload } from '@/lib/schedule-c/export-record';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 export async function GET(request: NextRequest) {
@@ -28,7 +27,6 @@ export async function GET(request: NextRequest) {
     if (filter === 'unreviewed') records = records.filter(tx => recordedDeductibility(tx) === null);
     records.sort((a, b) => String(a.date ?? a.datetime ?? '').localeCompare(String(b.date ?? b.datetime ?? '')));
     const csv = convertTransactionsToCSV(records);
-    await recordTransactionsDownload(user.uid, year ?? null, csv, records);
     return new NextResponse(csv, { headers: {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': `attachment; filename="writeoff-preparer-transactions-${year ?? 'all-years'}-${filter}.csv"`,

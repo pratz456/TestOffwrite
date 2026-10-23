@@ -348,21 +348,18 @@ describe('filed year guard', () => {
     const csvText = await csv.text();
     expect(savedExports()).toHaveLength(2);
     expect(savedExports()[1]).toMatchObject({ kind: 'schedule-c-csv', sha256: hash(csvText), charges: [{ id: 'fee1', line: '10', amount: 30 }] });
+    const beforeTransactions = savedExports().length;
     const transactions = await transactionsCsv(new NextRequest('http://localhost/api/transactions/export-csv?year=2025'));
     expect(transactions.status).toBe(200);
-    const transactionsText = await transactions.text();
-    expect(savedExports()).toHaveLength(3);
-    expect(savedExports()[2]).toMatchObject({
-      uid: 'owner', kind: 'transactions-csv', taxYear: 2025, sha256: hash(transactionsText),
-      charges: [{ id: 'fee1', line: '10', amount: 30 }],
-    });
-    expect(JSON.stringify(savedExports()[2])).not.toContain('Secret Merchant');
+    expect(await transactions.text()).toContain('BANK_FEES_ATM_FEES');
+    expect(savedExports()).toHaveLength(beforeTransactions);
+    expect(savedExports().some(row => row.kind === 'transactions-csv')).toBe(false);
     harness.failWrites = true;
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const failed = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
     expect(failed.status).toBe(200);
     expect(await failed.text()).toContain('BANK_FEES_ATM_FEES');
-    expect(savedExports()).toHaveLength(3);
+    expect(savedExports()).toHaveLength(beforeTransactions);
     expect(error).toHaveBeenCalledWith('Export record write failed', expect.any(Error));
     harness.failWrites = false;
     harness.authed = false;
@@ -537,19 +534,16 @@ describe('filed year guard', () => {
       expect.objectContaining({ kind: 'schedule-c-pdf', taxYear: 2025, totalDeductible: 100 }),
     ]));
     charge.amount = 250;
+    const beforeFiltered = savedExports().map(row => ({ ...row }));
     const filtered = await transactionsCsv(new NextRequest('http://localhost/api/transactions/export-csv?year=2025&filter=non-deductible'));
     expect(filtered.status).toBe(200);
+    expect(savedExports()).toEqual(beforeFiltered);
     const archive = await userDataExport(exportBody({ year: 2025 }));
     expect(archive.status).toBe(200);
     const planning = await planningPdf(new NextRequest('http://localhost/api/reports/profit-loss?format=pdf&year=2025'));
     expect(planning.status).toBe(200);
     expect(planning.headers.get('content-type')).toContain('application/pdf');
-    const loggedSeparately = savedExports().filter(row => row.kind === 'transactions-csv' || row.kind === 'data-export' || row.kind === 'planning-pdf');
-    expect(loggedSeparately.every(row => row.kind !== 'schedule-c-pdf' && row.kind !== 'schedule-c-csv')).toBe(true);
-    expect(loggedSeparately).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'transactions-csv', taxYear: 2025, totalDeductible: 0 }),
-    ]));
-    expect(savedExports().filter(row => row.kind === 'schedule-c-pdf' || row.kind === 'schedule-c-csv').every(row => row.totalDeductible === 100)).toBe(true);
+    expect(savedExports()).toEqual(beforeFiltered);
     await saveExportLog('log-data-export', 'data-export', 0, 'archive', '2026-07-15T15:00:01.000Z');
     await saveExportLog('log-planning-pdf', 'planning-pdf', 0, 'planning', '2026-07-15T15:00:02.000Z');
     const nextPdf = capturePdf();
@@ -560,9 +554,22 @@ describe('filed year guard', () => {
     const scheduleC = savedExports().filter(row => row.kind === 'schedule-c-pdf' || row.kind === 'schedule-c-csv');
     expect(scheduleC.length).toBeGreaterThan(1);
     expect(scheduleC.every(row => row.totalDeductible === 100)).toBe(true);
-    const otherKinds = savedExports().filter(row => row.kind === 'transactions-csv' || row.kind === 'data-export' || row.kind === 'planning-pdf');
-    expect(otherKinds.map(row => row.kind).sort()).toEqual(['data-export', 'planning-pdf', 'transactions-csv']);
+    const otherKinds = savedExports().filter(row => row.kind === 'data-export' || row.kind === 'planning-pdf');
+    expect(otherKinds.map(row => row.kind).sort()).toEqual(['data-export', 'planning-pdf']);
     expect(otherKinds.every(row => row.totalDeductible === 0)).toBe(true);
+  });
+
+  it('a transactions CSV download writes no export record', async () => {
+    harness.csvTransactions = [{
+      id: 'fee1', amount: 30, date: '2025-04-01', category: 'BANK_FEES_ATM_FEES',
+      is_deductible: true, merchant_name: 'Secret Merchant',
+    }];
+    const before = savedExports().map(row => ({ ...row }));
+    const response = await transactionsCsv(new NextRequest('http://localhost/api/transactions/export-csv?year=2025'));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('BANK_FEES_ATM_FEES');
+    expect(savedExports()).toEqual(before);
+    expect(savedExports().some(row => row.kind === 'transactions-csv')).toBe(false);
   });
 
   it('breaks an exportedAt tie by keeping the later Schedule C document', async () => {
