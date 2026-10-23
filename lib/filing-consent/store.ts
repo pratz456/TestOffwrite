@@ -133,6 +133,35 @@ export async function saveDisclosureConsent(input: SaveDisclosureConsentInput): 
   return { ok: true, id: ref.id, record };
 }
 
+export interface InFirmPreparerReassignment {
+  consentRecordId: string;
+  uid: string;
+  firmLegalName: string;
+  preparerName: string;
+}
+
+/**
+ * Preparer change inside the ERO firm already named on the consent.
+ * The consent names that firm, not the individual, so this reads the record
+ * and does not write it. A different firm is not an in firm reassignment.
+ */
+export async function noteInFirmPreparerReassignment(input: InFirmPreparerReassignment): Promise<{ ok: true } | ConsentRefusal> {
+  const preparerName = input.preparerName.trim();
+  if (!preparerName) return refusal('missing_field', 'The preparer name is missing or empty.', 'preparerName');
+  const snap = await adminDb.collection(FILING_DISCLOSURE_CONSENT_COLLECTION).doc(input.consentRecordId).get();
+  if (!snap.exists) return refusal('no_record', 'No disclosure consent record is stored.');
+  const data = snap.data();
+  if (!data || data.uid !== input.uid) return refusal('uid_mismatch', 'The consent record belongs to a different account.');
+  const recipients = Array.isArray(data.recipients) ? data.recipients : [];
+  if (!recipients.includes(input.firmLegalName)) {
+    return refusal('recipient_not_on_list', 'The firm is not the recipient named on the consent.');
+  }
+  if (recipientNotOnLegalNameList([input.firmLegalName])) {
+    return refusal('recipient_not_legal_name', 'The firm must be a legal name from the partner list.');
+  }
+  return { ok: true };
+}
+
 export async function withdrawDisclosureConsent(recordId: string, uid: string, now: Date = new Date()): Promise<{ ok: true } | ConsentRefusal> {
   const ref = adminDb.collection(FILING_DISCLOSURE_CONSENT_COLLECTION).doc(recordId);
   const snap = await ref.get();

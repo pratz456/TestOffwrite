@@ -21,6 +21,7 @@ import {
   createPartnerSendStub,
   expiresAtFor,
   hashSignatureValue,
+  noteInFirmPreparerReassignment,
   runQueuedFilingHandOff,
   saveDisclosureConsent,
   sendFilingHandOff,
@@ -97,6 +98,12 @@ function copyStored(id: string): Record<string, unknown> {
   return { ...data };
 }
 
+function consentBytes(id: string): Buffer {
+  const data = db.records.get(`${FILING_DISCLOSURE_CONSENT_COLLECTION}/${id}`);
+  if (data === undefined) throw new Error(`missing consent ${id}`);
+  return Buffer.from(JSON.stringify(data), 'utf8');
+}
+
 async function plant(record: Record<string, unknown>, id: string): Promise<string> {
   await db.collection(FILING_DISCLOSURE_CONSENT_COLLECTION).doc(id).set(record);
   return id;
@@ -152,6 +159,38 @@ describe('disclosure consent hand off gate', () => {
     const subcontractorResult = await sendFilingHandOff(handOff(saved.id, { recipientLegalName: 'North Review Subcontractor LLC' }), subcontractor, NOW);
     expect(subcontractorResult).toMatchObject({ sent: false, code: 'recipient_not_on_list' });
     expect(subcontractor.deliveries).toEqual([]);
+  });
+
+  it('leaves the consent byte for byte unchanged when a preparer is reassigned inside the named firm, and refuses a different firm, a subcontractor, or a reviewer', async () => {
+    const saved = await saveValid();
+    expect(saved.record.recipients).toEqual([PARTNER]);
+    const before = consentBytes(saved.id);
+
+    const noted = await noteInFirmPreparerReassignment({
+      consentRecordId: saved.id,
+      uid: 'user-1',
+      firmLegalName: PARTNER,
+      preparerName: 'Second Draft Preparer',
+    });
+    expect(noted).toEqual({ ok: true });
+    const afterReassignment = consentBytes(saved.id);
+    expect(afterReassignment.equals(before)).toBe(true);
+    expect(Buffer.compare(afterReassignment, before)).toBe(0);
+
+    const stub = createPartnerSendStub();
+    const sent = await sendFilingHandOff(handOff(saved.id), stub, NOW);
+    expect(sent).toEqual({ sent: true });
+    expect(stub.deliveries).toHaveLength(1);
+    expect(stub.deliveries[0].recipientLegalName).toBe(PARTNER);
+    expect(consentBytes(saved.id).equals(before)).toBe(true);
+
+    for (const recipientLegalName of ['Other Draft Firm LLC', 'North Review Subcontractor LLC', 'Draft Return Reviewer LLC']) {
+      const refusedStub = createPartnerSendStub();
+      const refused = await sendFilingHandOff(handOff(saved.id, { recipientLegalName }), refusedStub, NOW);
+      expect(refused).toMatchObject({ sent: false, code: 'recipient_not_on_list' });
+      expect(refusedStub.deliveries).toEqual([]);
+      expect(consentBytes(saved.id).equals(before)).toBe(true);
+    }
   });
 
   it('refuses a recipient description that is not a legal name on the partner list', async () => {
