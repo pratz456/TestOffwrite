@@ -125,11 +125,39 @@ describe('federal AGI for the state planning estimate', () => {
     expect(after.estimate).toBeCloseTo(75000 * 0.0307, 2);
   });
 
-  it('does not subtract the deduction for Ohio or a no-income-tax state', () => {
-    const input = { taxYear: 2025, scheduleCNetProfit: 50000, w2Wages: 0, otherIncome: 0 };
-    expect(stateUsesFederalAgiIncomeBase('OH', 2025)).toBe(false);
-    expect(federalAgiForStateEstimate({ ...input, stateCode: 'OH' })).toBe(50000);
-    expect(federalAgiForStateEstimate({ ...input, stateCode: 'TX', taxYear: 2026 })).toBe(50000);
+  it('subtracts half of self-employment tax from Ohio federal AGI', () => {
+    expect(stateUsesFederalAgiIncomeBase('OH', 2025)).toBe(true);
+    expect(federalAgiForStateEstimate({
+      stateCode: 'OH', taxYear: 2025, scheduleCNetProfit: 50000, w2Wages: 0, otherIncome: 0,
+    })).toBe(46467.61);
+  });
+
+  it('does not subtract the deduction for a no-income-tax state', () => {
+    const input = { taxYear: 2026, scheduleCNetProfit: 50000, w2Wages: 0, otherIncome: 0 };
+    expect(stateUsesFederalAgiIncomeBase('TX', 2026)).toBe(false);
+    expect(federalAgiForStateEstimate({ ...input, stateCode: 'TX' })).toBe(50000);
+  });
+
+  it('subtracts half of self-employment tax for an Ohio single filer with $50,000 of Schedule C profit and $40,000 of interest in 2026', () => {
+    const taxYear = 2026;
+    const scheduleCNetProfit = 50000;
+    const otherIncome = 40000;
+    const se = calcScheduleSE({ scheduleCNetProfit, taxYear });
+    expect(se.halfSEDeduction).toBe(3532.39);
+    expect(stateUsesFederalAgiIncomeBase('OH', taxYear)).toBe(true);
+    const federalAGI = federalAgiForStateEstimate({
+      stateCode: 'OH', taxYear, scheduleCNetProfit, w2Wages: 0, otherIncome,
+    });
+    expect(federalAGI).toBe(round2(scheduleCNetProfit + otherIncome - se.halfSEDeduction));
+    expect(federalAGI).toBe(86467.61);
+    const result = estimateStateTax({
+      stateCode: 'OH', taxYear, filingStatus: 'single',
+      federalAGI, scheduleCNetProfit, w2Wages: 0, otherIncome,
+    });
+    expect(result.supported).toBe(true);
+    if (!result.supported) return;
+    // ORC 5747.02(A)(3)(c): $332 plus 2.75% of the excess over $26,050.
+    expect(result.estimate).toBe(566.23);
   });
 
   it('lowers the 2026 Georgia estimate for a single filer with $50,000 of Schedule C profit', () => {

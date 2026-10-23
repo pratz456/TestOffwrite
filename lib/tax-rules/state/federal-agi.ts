@@ -7,15 +7,16 @@ const finite = (value: number) => (typeof value === 'number' && Number.isFinite(
 /**
  * True when this state-year starts from federal AGI, so the Schedule 1 line 15
  * deduction belongs in the planning AGI. Flat-rate states declare that with
- * `incomeBase: 'federal_agi'` (Georgia, Illinois, North Carolina). California
- * and New York also start from federal AGI but do not carry that field.
- * Pennsylvania (`pa_income_classes`), Ohio, and no-income-tax states do not.
+ * `incomeBase: 'federal_agi'` (Georgia, Illinois, North Carolina). California,
+ * New York, and Ohio also start from federal AGI but do not carry that field.
+ * Ohio IT 1040 line 1 must match federal AGI (ORC 5747.01(A)). Pennsylvania
+ * (`pa_income_classes`) and no-income-tax states do not.
  */
 export function stateUsesFederalAgiIncomeBase(stateCode: string, taxYear: number): boolean {
   const rules = getStateYearRules(stateCode, taxYear);
   if (!isSupportedStateYear(rules)) return false;
   if (rules.kind === 'flat') return rules.incomeBase === 'federal_agi';
-  return rules.kind === 'california' || rules.kind === 'new_york';
+  return rules.kind === 'california' || rules.kind === 'new_york' || rules.kind === 'ohio';
 }
 
 export interface StatePlanningFederalAgiInput {
