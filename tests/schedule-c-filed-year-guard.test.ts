@@ -726,7 +726,7 @@ describe('filed year guard', () => {
     const failed = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
     expect(failed.status).toBe(200);
     expect(pendingMarkers()).toHaveLength(1);
-    expect(pendingMarkers()[0].createdAt).toBeInstanceOf(Date);
+    const failedMarker = pendingMarkers()[0];
     const blocked = await readFiledYear(new NextRequest('http://localhost/api/tax/schedule-c/filed-year?year=2025'));
     expect(await blocked.json()).toEqual({ prior: null, latestExportUnrecorded: true, confirmedRulesVersion: null });
     expect(await readHeldYearExport('owner', 2025)).toEqual({ prior: null, latestExportUnrecorded: true });
@@ -736,6 +736,7 @@ describe('filed year guard', () => {
     const committed = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
     expect(committed.status).toBe(200);
     expect(pendingMarkers()).toHaveLength(0);
+    expect(failedMarker.createdAt).toBeInstanceOf(Date);
     const recorded = await readHeldYearExport('owner', 2025);
     expect(recorded.latestExportUnrecorded).toBe(false);
     expect(recorded.prior).toEqual({
@@ -765,8 +766,6 @@ describe('filed year guard', () => {
     const newer = scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
     await ready(2);
     const newerMarker = pendingMarkers().find(marker => marker.exportId !== olderMarker.exportId);
-    expect(newerMarker?.createdAt).toBeInstanceOf(Date);
-    expect((olderMarker.createdAt as Date).getTime()).toBeLessThan((newerMarker?.createdAt as Date).getTime());
 
     releases[0]();
     expect((await older).status).toBe(200);
@@ -779,6 +778,9 @@ describe('filed year guard', () => {
     releases[1]();
     expect((await newer).status).toBe(200);
     expect(pendingMarkers()).toHaveLength(0);
+    expect(olderMarker.createdAt).toBeInstanceOf(Date);
+    expect(newerMarker?.createdAt).toBeInstanceOf(Date);
+    expect((olderMarker.createdAt as Date).getTime()).toBeLessThan((newerMarker?.createdAt as Date).getTime());
     const recorded = await readHeldYearExport('owner', 2025);
     expect(recorded.latestExportUnrecorded).toBe(false);
     expect(recorded.prior).toMatchObject({ totalDeductible: 90, charges: [{ id: 'ad1', line: '8', amount: 90 }] });
