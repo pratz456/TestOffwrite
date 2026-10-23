@@ -37,7 +37,7 @@ function walk(node: any): Element[] { return Array.isArray(node) ? node.flatMap(
 function text(node: any): string { return Array.isArray(node) ? node.map(text).join('') : node && typeof node === 'object' ? text(node.props?.children) : typeof node === 'string' || typeof node === 'number' ? String(node) : ''; }
 async function ready() { render(); await new Promise<void>(resolve => setImmediate(resolve)); return render(); }
 const expense = (facts: Record<string, unknown> = {}) => ({ id: 'charge', date: '2026-09-01', amount: 100,
-  iso_currency_code: 'USD', is_deductible: true, review_status: 'confirmed', category: 'office_expense', merchant_name: 'Supplier', ...facts });
+  iso_currency_code: 'USD', is_deductible: true, review_status: 'confirmed', category: 'SERVICE_ADVERTISING', merchant_name: 'Supplier', ...facts });
 function records(rows: Record<string, unknown>[], rate = .2, year = 2026) {
   state.transactions = { transactions: rows };
   state.reports = { data: buildMonthlySavings(rows, year, rate, new Date('2026-09-23T12:00:00Z')) };
@@ -68,8 +68,8 @@ describe('Reports planning labels and confirmed month drilldown', () => {
   });
 
   it('drills into signed, confirmed meal contributions instead of absolute charge amounts', async () => {
-    records([expense({ id: 'meal', category: 'FOOD_AND_DRINK_RESTAURANT', amount: 100 }),
-      expense({ id: 'refund', category: 'FOOD_AND_DRINK_RESTAURANT', amount: -20 }),
+    records([expense({ id: 'meal', category: 'FOOD_AND_DRINK_RESTAURANT', amount: 100, merchant_name: 'Cafe' }),
+      expense({ id: 'refund', category: 'FOOD_AND_DRINK_RESTAURANT', amount: -20, merchant_name: 'Cafe' }),
       expense({ id: 'pending', amount: 9000, pending: true }), expense({ id: 'unreviewed', amount: 8000, review_status: 'pending_review' })]);
     const tree = await ready();
     walk(tree).find(node => node.props?.['aria-label']?.startsWith('Review Sep'))!.props.onClick();

@@ -102,7 +102,7 @@ describe('Form 1040 with a Schedule C loss', () => {
 
   const snapshot = (organizer: Record<string, unknown>, extra: Partial<Parameters<typeof buildFederalTaxSnapshot>[0]> = {}) => buildFederalTaxSnapshot({
     taxYear: 2026, profile: { filing_status: 'Single' }, organizer,
-    transactions: [{ amount: 9000, date: '2026-03-01', category: 'office_expense', is_deductible: true }],
+    transactions: [{ amount: 9000, date: '2026-03-01', category: 'SERVICE_ADVERTISING', is_deductible: true }],
     grossReceipts: [{ amount: 4000 }], forms1099: [],
     w2Entries: [{ box1Wages: 50000, box2FederalWithheld: 0, box3SocialSecurityWages: 50000, box5MedicareWages: 50000 }],
     deductions: {}, assets: [], estimatedPayments: 0, ...extra,

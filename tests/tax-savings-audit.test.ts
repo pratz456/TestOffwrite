@@ -10,8 +10,8 @@ vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async (
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async (uid: string) => { state.owners.push(uid); return { data: state.transactions, error: state.error }; } }));
 import { GET as monthly } from '@/app/api/monthly-deductions/route';
 import { GET as savings } from '@/app/api/tax-savings/route';
-const expense = (facts: Record<string, unknown> = {}) => ({ date: '2026-03-01', amount: 100, category: 'office_expense',
-  iso_currency_code: 'USD', is_deductible: true, review_status: 'confirmed', ...facts });
+const expense = (facts: Record<string, unknown> = {}) => ({ date: '2026-03-01', amount: 100, category: 'SERVICE_ADVERTISING',
+  merchant_name: 'Supplier', iso_currency_code: 'USD', is_deductible: true, review_status: 'confirmed', ...facts });
 const request = (query = '') => new NextRequest(`http://localhost/api/monthly-deductions${query}`);
 const now = new Date('2026-09-23T12:00:00Z');
 
@@ -21,8 +21,8 @@ beforeEach(() => { state.uid = 'savings-owner'; state.error = null; state.owners
 describe('monthly displayed deductions and income-tax planning estimates', () => {
   it('nets refunds and applies the meal limit once, matching signed Schedule C cents', () => {
     const result = buildMonthlySavings([expense(), expense({ amount: -20 }),
-      expense({ category: 'FOOD_AND_DRINK_RESTAURANT', amount: 10.01 }),
-      expense({ category: 'FOOD_AND_DRINK_RESTAURANT', amount: -1.01 })], 2026, .2, now);
+      expense({ category: 'FOOD_AND_DRINK_RESTAURANT', amount: 10.01, merchant_name: 'Cafe' }),
+      expense({ category: 'FOOD_AND_DRINK_RESTAURANT', amount: -1.01, merchant_name: 'Cafe' })], 2026, .2, now);
     expect(result.summary.deductionBasis).toBe(84.5);
     expect(result.summary.yearToDateTotal).toBeCloseTo(16.9);
     expect(result.monthlyData[2]).toMatchObject({ deductionBasis: 84.5, count: 4 });

@@ -60,7 +60,7 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
     pdf.section('Complete confirmed-transaction appendix');
     const rows = data.lineItems.flatMap(item => item.transactions.map(tx => {
       const included = tx.fuelIncludedInSummary === true;
-      const contribution = included ? 0 : aggregateScheduleC([tx], String(data.taxYear), CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible;
+      const contribution = included ? 0 : typeof tx.confirmedContribution === 'number' ? tx.confirmedContribution : aggregateScheduleC([tx], String(data.taxYear), CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible;
       return [tx.date, tx.merchant_name || tx.id || 'Unnamed record', included ? '' : scheduleCExportLine(item.lineCode, data.taxYear), money(tx.amount), money(contribution)];
     }));
     for (const summary of data.fuelSummaries ?? []) {

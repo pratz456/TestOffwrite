@@ -208,6 +208,8 @@ export interface ScheduleCTransactionLike {
   /** Saved Schedule C label. Energy-named 27a/27b labels stay out of totals. */
   schedule_c_line?: string | null;
   scheduleC_line?: string | null;
+  /** Signed deductible dollars for this row after meals, fuel share, and a tied refund. */
+  confirmedContribution?: number;
   [key: string]: unknown;
 }
 
@@ -369,12 +371,6 @@ function savedScheduleCLabel(tx: ScheduleCTransactionLike): string | null {
   return typeof raw === 'string' && raw.trim() ? raw : null;
 }
 
-/** Fallback bucket when the category is not in the map. 2017-2024 stay 27a. 2025 and later use 27b. 2016 and earlier are withheld. */
-function otherExpensesLineKey(year: number | null): string {
-  const print = otherExpensesYearPrint(year);
-  return print.status === 'line' ? print.code : '27a';
-}
-
 /** Withheld rows sit beside the line totals. They are not a Schedule C line and add nothing to a total. */
 function addReviewItem(needsMoreInformation: ScheduleCTransactionLike[], tx: ScheduleCTransactionLike) {
   needsMoreInformation.push({ ...tx, deductionStatus: NEEDS_MORE_INFORMATION, reasoning: NEEDS_MORE_INFORMATION });
@@ -484,7 +480,10 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
     line.total += cents / 100;
     line.deductible += deductibleCents / 100;
     line.transactionCount += 1;
-    line.transactions.push(lineItemTransaction(tx));
+    tx.confirmedContribution = deductibleCents / 100;
+    const shown = lineItemTransaction(tx);
+    if (shown !== tx) shown.confirmedContribution = tx.confirmedContribution;
+    line.transactions.push(shown);
     if (note) exportNotes.add(note);
     const placed: OpenCharge = {
       tx, id: typeof tx.id === 'string' ? tx.id : '', merchant: merchantKey(tx), day: dayNumber(tx.date),
@@ -569,11 +568,12 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
       continue;
     }
     if (!rawCategory) {
+      // A missing category is not an unknown live value. It stays Other expenses by charge year.
+      // A saved label that is not Other expenses is withheld, the same as before the alias head.
       const label = savedScheduleCLabel(tx);
       const decision = resolveScheduleCPrint({ categoryLine: null, label });
-      if (decision.kind === 'other-expenses') placeOnLine(tx, otherExpensesLineKey(safeTaxYear(tx.date)), 'Other expenses', cents);
-      else if (decision.kind === 'line' && decision.line) placeOnLine(tx, decision.line, 'Other expenses', cents);
-      else if (label) addReviewItem(needsMoreInformation, tx);
+      if (decision.kind === 'needs-more-information' || (decision.kind === 'passthrough' && label)) addReviewItem(needsMoreInformation, tx);
+      else placeOnLine(tx, '27a', 'Other expenses', cents);
       continue;
     }
     if (info) {
@@ -602,10 +602,12 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
         continue;
       }
       const take = Math.min(refundCents, match.remainingGross);
+      const dedTake = take === match.remainingGross ? match.remainingDeductible : Math.round(match.remainingDeductible * take / match.remainingGross);
+      refund.confirmedContribution = -(dedTake / 100);
       if (match.lineKey && lineItems[match.lineKey]) {
-        const dedTake = take === match.remainingGross ? match.remainingDeductible : Math.round(match.remainingDeductible * take / match.remainingGross);
         lineItems[match.lineKey].total -= take / 100;
         lineItems[match.lineKey].deductible -= dedTake / 100;
+        lineItems[match.lineKey].transactions.push({ ...refund, confirmedContribution: refund.confirmedContribution });
         match.remainingGross -= take;
         match.remainingDeductible -= dedTake;
       } else {
@@ -643,11 +645,16 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
       const line = ensureLine('9', 'Car and truck expenses');
       line.total += businessShareCents / 100;
       line.deductible += businessShareCents / 100;
-      for (const charge of group.charges) {
-        const marked = { ...charge.tx, fuelIncludedInSummary: true };
-        line.transactions.push(marked);
+      const gross = group.charges.reduce((sum, charge) => sum + Math.max(0, charge.remainingGross), 0);
+      let remainingShare = businessShareCents;
+      group.charges.forEach((charge, index) => {
+        const last = index === group.charges.length - 1;
+        const share = gross <= 0 ? 0 : last ? remainingShare : Math.round(businessShareCents * Math.max(0, charge.remainingGross) / gross);
+        remainingShare -= share;
+        charge.tx.confirmedContribution = share / 100;
+        line.transactions.push({ ...charge.tx, fuelIncludedInSummary: true, confirmedContribution: 0 });
         line.transactionCount += 1;
-      }
+      });
     }
   }
 

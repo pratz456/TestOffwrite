@@ -14,6 +14,7 @@ export function summarizeConfirmedDeductions<T extends object>(records: readonly
   const transactions: T[] = [];
   const contributions = new Map<T, number>();
   const seen = new Set<string>();
+  const ready: { original: T; normalized: ScheduleCTransactionLike }[] = [];
   let deductionCents = 0;
   let recordedCents = 0;
   let reviewMessage: string | null = null;
@@ -58,11 +59,27 @@ export function summarizeConfirmedDeductions<T extends object>(records: readonly
       ...record, amount, date, category: typeof record.category === 'string' ? record.category : '',
       schedule_c_line: record.schedule_c_line, scheduleC_line: record.scheduleC_line,
     } as ScheduleCTransactionLike;
-    const contribution = aggregateScheduleC([normalized], date.slice(0, 4), CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible;
-    contributions.set(original, contribution);
-    deductionCents += Math.round(contribution * 100);
+    ready.push({ original, normalized });
     recordedCents += Math.round(amount * 100);
-    if (!Number.isSafeInteger(deductionCents) || !Number.isSafeInteger(recordedCents)) reviewMessage = 'Review transaction amounts before showing confirmed deduction totals.';
+    if (!Number.isSafeInteger(recordedCents)) reviewMessage = 'Review transaction amounts before showing confirmed deduction totals.';
+  }
+  if (!reviewMessage) {
+    const byYear = new Map<string, { original: T; normalized: ScheduleCTransactionLike }[]>();
+    for (const row of ready) {
+      const year = row.normalized.date.slice(0, 4);
+      const group = byYear.get(year) ?? [];
+      group.push(row);
+      byYear.set(year, group);
+    }
+    for (const [year, group] of byYear) {
+      aggregateScheduleC(group.map(row => row.normalized), year, CATEGORY_MAP, { mode: 'confirmed-only' });
+      for (const row of group) {
+        const contribution = typeof row.normalized.confirmedContribution === 'number' ? row.normalized.confirmedContribution : 0;
+        contributions.set(row.original, contribution);
+        deductionCents += Math.round(contribution * 100);
+      }
+    }
+    if (!Number.isSafeInteger(deductionCents)) reviewMessage = 'Review transaction amounts before showing confirmed deduction totals.';
   }
   return {
     transactions,

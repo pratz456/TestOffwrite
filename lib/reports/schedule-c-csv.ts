@@ -13,7 +13,7 @@ export function generateScheduleCCSV(lines: LineItemSummary[], taxYear: number, 
   const headers = ['Tax date', 'Merchant', 'Recorded category', 'Schedule C planning reference', 'Signed amount', 'Confirmed contribution', 'Scope', 'Description'];
   const rows = lines.flatMap(line => line.transactions.map(tx => {
     const included = tx.fuelIncludedInSummary === true;
-    const contribution = included ? 0 : aggregateScheduleC([tx], String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible;
+    const contribution = included ? 0 : typeof tx.confirmedContribution === 'number' ? tx.confirmedContribution : aggregateScheduleC([tx], String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible;
     const scope = included
       ? 'Included in the fuel summary. Confirmed in app - preparer review required; not a complete Schedule C'
       : 'Confirmed in app - preparer review required; not a complete Schedule C';
