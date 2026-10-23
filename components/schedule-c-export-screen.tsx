@@ -10,7 +10,7 @@ import { Download, FileText, Calendar, Lock } from 'lucide-react';
 import { useSubscription } from '@/lib/hooks/use-subscription';
 import { PremiumFeatureGate, subscriptionGateDestination } from '@/components/premium-feature-gate';
 import { useRouter } from 'next/navigation';
-import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 
 interface Transaction {
@@ -40,6 +40,12 @@ interface ScheduleCExportScreenProps {
   };
   onBack: () => void;
   transactions: Transaction[];
+  /**
+   * Rules version this user confirmed for the selected year.
+   * A match with the current rules shows that total and hides the hold notice.
+   * Nothing in the app calls the confirm route yet, and this screen has no confirm control.
+   */
+  confirmedRulesVersion?: string | null;
 }
 
 interface CategorySummary {
@@ -53,7 +59,8 @@ interface CategorySummary {
 export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   user,
   onBack,
-  transactions: transactionsProp
+  transactions: transactionsProp,
+  confirmedRulesVersion = null,
 }) => {
   // Ensure transactions is always an array
   const transactions = Array.isArray(transactionsProp) ? transactionsProp : [];
@@ -100,19 +107,35 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
         tax_review_required: tx.tax_review_required,
       })),
       prior: null,
-      confirmedRulesVersion: null,
+      confirmedRulesVersion,
     }).comparison;
-  }, [selectedYear, transactions, user.id]);
+  }, [selectedYear, transactions, user.id, confirmedRulesVersion]);
 
   // Memoize calculateDeductions to prevent recreation on every render
   const calculateDeductions = useCallback((overrideYearTx?: Transaction[]) => {
-    // Use shared CPA-grade Schedule C aggregation logic.
-    // confirmed-only excludes is_deductible === null/undefined and nets credits/refunds via signed totals.
+    // The preview matches the export decision. A confirmation for the current
+    // rules version shows that new total. A held year keeps the old total.
     const sourceTx = Array.isArray(overrideYearTx) ? overrideYearTx : (Array.isArray(transactions) ? transactions : []);
-    const aggregation = aggregateScheduleC(sourceTx as any[], selectedYear, CATEGORY_MAP, { mode: 'confirmed-only' });
+    const decision = decideScheduleCExport({
+      uid: user.id,
+      year: Number(selectedYear),
+      transactions: sourceTx.map(tx => ({
+        id: tx.id,
+        amount: tx.amount,
+        date: tx.date,
+        category: tx.category,
+        is_deductible: tx.is_deductible,
+        pending: tx.pending,
+        merchant_name: tx.merchant_name,
+        review_status: tx.review_status,
+        tax_review_required: tx.tax_review_required,
+      })),
+      prior: null,
+      confirmedRulesVersion,
+    });
 
     const nextLineDetails: Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }> = {};
-    aggregation.lineItemsArray.forEach((item) => {
+    decision.lineItems.forEach((item) => {
       nextLineDetails[item.lineName] = {
         confirmed: item.transactionCount,
         potential: 0,
@@ -122,7 +145,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
     });
     setLineDetails(nextLineDetails);
 
-    const summaries: CategorySummary[] = aggregation.lineItemsArray
+    const summaries: CategorySummary[] = decision.lineItems
       .map((item) => ({
         category: item.lineName,
         lineCode: item.lineCode,
@@ -130,15 +153,15 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
         amount: item.deductible,
         transactionCount: item.transactionCount,
       }))
-      // UI currently sorts by descending magnitude.
       .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
 
     setCategorySummaries(summaries);
-    setTotalDeductible(aggregation.totalDeductible);
-    setDeductibleCount(aggregation.counts.deductible);
-    setConfirmedCount(aggregation.counts.deductible);
+    setTotalDeductible(decision.totalDeductible);
+    const deductible = decision.lineItems.reduce((sum, item) => sum + item.transactionCount, 0);
+    setDeductibleCount(deductible);
+    setConfirmedCount(deductible);
     setPotentialCount(0);
-  }, [transactions, selectedYear]);
+  }, [transactions, selectedYear, user.id, confirmedRulesVersion]);
 
   useEffect(() => {
     calculateDeductions();

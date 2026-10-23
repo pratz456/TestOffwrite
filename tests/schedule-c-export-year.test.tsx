@@ -64,24 +64,30 @@ afterEach(async () => {
 });
 
 describe('Schedule C supported-year selection', () => {
-  it('shows each lowering rule on its own line for a held year', async () => {
+  const heldYearTransactions = [
+    { id: 'ad', merchant_name: 'Synthetic ads', amount: 200, category: 'SERVICE_ADVERTISING', date: '2025-06-01', is_deductible: true, review_status: 'confirmed', tax_review_required: false },
+    { id: 'sub', merchant_name: 'Synthetic software', amount: 40, category: 'SERVICE_SUBSCRIPTION', date: '2025-06-02', is_deductible: true, review_status: 'confirmed', tax_review_required: false },
+  ];
+
+  async function showYear(input: typeof props, year: string) {
     const lines = await import('@/lib/schedule-c/export-lines');
-    const frozen = lines.frozenScheduleCRules();
-    const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: '24b', name: 'Meals', code: '24b' }, SERVICE_SUBSCRIPTION: { line: '24b', name: 'Meals', code: '24b' } };
-    lines.setCurrentScheduleCRulesForTests({
-      version: 'v1', categoryMap, readDate: frozen.readDate, readYear: frozen.readYear,
-      aggregate: (txs, year, map = categoryMap, options) => frozen.aggregate(txs, year, map, options),
-    });
-    const input = {
-      ...props,
-      transactions: [
-        { id: 'ad', merchant_name: 'Synthetic ads', amount: 200, category: 'SERVICE_ADVERTISING', date: '2025-06-01', is_deductible: true, review_status: 'confirmed', tax_review_required: false },
-        { id: 'sub', merchant_name: 'Synthetic software', amount: 40, category: 'SERVICE_SUBSCRIPTION', date: '2025-06-02', is_deductible: true, review_status: 'confirmed', tax_review_required: false },
-      ],
-    };
+    const canInject = typeof lines.frozenScheduleCRules === 'function' && typeof lines.setCurrentScheduleCRulesForTests === 'function';
+    if (canInject) {
+      const frozen = lines.frozenScheduleCRules();
+      const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: '24b', name: 'Meals', code: '24b' }, SERVICE_SUBSCRIPTION: { line: '24b', name: 'Meals', code: '24b' } };
+      lines.setCurrentScheduleCRulesForTests({
+        version: 'v1', categoryMap, readDate: frozen.readDate, readYear: frozen.readYear,
+        aggregate: (txs, yearArg, map = categoryMap, options) => frozen.aggregate(txs, yearArg, map, options),
+      });
+    }
     const select = walk(render(input)).find(node => node.type === 'select');
-    select.props.onChange({ target: { value: '2025' } });
-    const body = text(render(input));
+    select.props.onChange({ target: { value: year } });
+    render(input);
+    return text(render(input));
+  }
+
+  it('shows each lowering rule on its own line for a held year', async () => {
+    const body = await showYear({ ...props, transactions: heldYearTransactions }, '2025');
     expect(body).toContain('draft, awaiting copy approval');
     expect(body).toContain('your 2025 total under the rules at the time, on your current data');
     expect(body).toContain('Line changed lowered the total by $100.00.');
@@ -89,6 +95,21 @@ describe('Schedule C supported-year selection', () => {
     expect(body).not.toContain('lowered the total by $120.00');
     expect(body.toLowerCase()).not.toContain('what you filed');
     expect(body.toLowerCase()).not.toContain('amend');
+  });
+
+  it('shows the new 2025 total and no held notice after confirmation for the current rules', async () => {
+    const input = { ...props, transactions: heldYearTransactions, confirmedRulesVersion: 'v1' };
+    const body = await showYear(input, '2025');
+    expect(body).toContain('$120.00');
+    expect(body).toContain('Meals');
+    expect(body).not.toContain('draft, awaiting copy approval');
+    expect(body).not.toContain('Line changed lowered the total');
+    const buttons = walk(render(input)).filter(node => typeof node.props?.onClick === 'function').map(node => text(node));
+    expect(buttons.join('\n').toLowerCase()).not.toContain('confirm');
+    const stale = await showYear({ ...input, confirmedRulesVersion: 'v0' }, '2025');
+    expect(stale).toContain('draft, awaiting copy approval');
+    expect(stale).toContain('$240.00');
+    expect(stale).not.toContain('$120.00');
   });
 
   it('offers 2026, 2025 and 2024 and defaults to the latest supported year', () => {

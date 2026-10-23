@@ -22,7 +22,18 @@ import {
 export const TAX_YEAR_CONFIRMATIONS = 'user_tax_year_confirmations';
 export const EXPORT_RECORDS = 'user_export_records';
 
-export type ExportRecordKind = 'schedule-c-pdf' | 'schedule-c-csv' | 'transactions-csv';
+/**
+ * Schedule C CSV and PDF are the only kinds read back as a held year's old total.
+ * A transactions CSV, a data export, and a planning PDF never use those two kinds.
+ * readLatestExportRecord skips every other kind, including when one of those
+ * downloads is logged.
+ */
+export type ExportRecordKind =
+  | 'schedule-c-pdf'
+  | 'schedule-c-csv'
+  | 'transactions-csv'
+  | 'data-export'
+  | 'planning-pdf';
 
 export interface ExportRecordDocument extends ScheduleCExportSnapshot {
   uid: string;
@@ -103,13 +114,25 @@ export async function readTaxYearConfirmation(uid: string, year: number): Promis
   return { uid, year, rulesVersion: data.rulesVersion, confirmedAt: typeof data.confirmedAt === 'string' ? data.confirmedAt : '' };
 }
 
+/** Kinds that may serve as the held year's old total. Every other logged download is ignored. */
+const SCHEDULE_C_EXPORT_KINDS = new Set<ExportRecordKind>(['schedule-c-pdf', 'schedule-c-csv']);
+
 export async function readLatestExportRecord(uid: string, year: number): Promise<ScheduleCExportSnapshot | null> {
   const snap = await adminDb.collection(EXPORT_RECORDS).where('uid', '==', uid).where('taxYear', '==', year).get();
   let latest: (ScheduleCExportSnapshot & { exportedAt: string }) | null = null;
+  let latestId = '';
   for (const doc of snap.docs) {
-    const parsed = parseExportSnapshot(doc.data());
+    const data = doc.data();
+    if (typeof data.kind !== 'string' || !SCHEDULE_C_EXPORT_KINDS.has(data.kind as ExportRecordKind)) continue;
+    const parsed = parseExportSnapshot(data);
     if (!parsed) continue;
-    if (!latest || parsed.exportedAt > latest.exportedAt) latest = parsed;
+    const id = typeof doc.id === 'string' ? doc.id : '';
+    const laterTime = !latest || parsed.exportedAt > latest.exportedAt;
+    const sameTimeLaterDoc = !!latest && parsed.exportedAt === latest.exportedAt && id > latestId;
+    if (laterTime || sameTimeLaterDoc) {
+      latest = parsed;
+      latestId = id;
+    }
   }
   if (!latest) return null;
   return {

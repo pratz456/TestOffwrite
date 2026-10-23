@@ -1,24 +1,12 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 
-/** pdf-lib stamps ModDate from `new Date()` during save. Pin both dates to one instant. */
-async function savePdfAt(doc: PDFDocument, generatedAt: Date): Promise<Uint8Array> {
-  const RealDate = Date;
-  const fixed = generatedAt.getTime();
-  function FrozenDate(this: unknown, ...args: unknown[]): Date | string {
-    if (new.target) return Reflect.construct(RealDate, args.length === 0 ? [fixed] : args) as Date;
-    return RealDate();
-  }
-  const Frozen = FrozenDate as unknown as DateConstructor;
-  Object.defineProperty(Frozen, 'prototype', { value: RealDate.prototype, writable: true });
-  Frozen.now = () => fixed;
-  Frozen.parse = RealDate.parse;
-  Frozen.UTC = RealDate.UTC;
-  globalThis.Date = Frozen;
-  try {
-    return await doc.save();
-  } finally {
-    globalThis.Date = RealDate;
-  }
+/** pdf-lib date strings are fixed width, so replacing them keeps the xref offsets valid. */
+function pinPdfDates(bytes: Uint8Array, generatedAt: Date): Uint8Array {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const stamp = `D:${generatedAt.getUTCFullYear()}${pad(generatedAt.getUTCMonth() + 1)}${pad(generatedAt.getUTCDate())}${pad(generatedAt.getUTCHours())}${pad(generatedAt.getUTCMinutes())}${pad(generatedAt.getUTCSeconds())}Z`;
+  const text = Buffer.from(bytes).toString('latin1');
+  const pinned = text.replace(/\/(CreationDate|ModDate)\s*\(D:[^)]*\)/g, (_match, key: string) => `/${key} (${stamp})`);
+  return Uint8Array.from(Buffer.from(pinned, 'latin1'));
 }
 
 /** Readable preparer records, deliberately distinct from a fileable IRS form. */
@@ -109,7 +97,7 @@ export async function createPlanningPDF(title: string, taxYear: number) {
       if (!generatedAt) return doc.save();
       doc.setCreationDate(generatedAt);
       doc.setModificationDate(generatedAt);
-      return savePdfAt(doc, generatedAt);
+      return pinPdfDates(await doc.save({ updateFieldAppearances: false }), generatedAt);
     },
   };
 }
