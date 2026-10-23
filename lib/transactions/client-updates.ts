@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { HIRED_FARE_USE_CODES } from '@/lib/ai/vehicle-separate-costs';
 
 const text = z.string().max(5000).nullable().transform(value => value ?? '').optional();
 export const transactionIdInput = z.string().min(1).max(256).regex(/^[^/\\\x00-\x1f\x7f]+$/);
@@ -8,7 +9,8 @@ export const transactionUpdatesInput = z.object({
   notes: text, user_classification_reason: text, receipt_url: text, receipt_filename: text,
   is_deductible: z.boolean().nullable().optional(), expense_type: z.enum(['business', 'personal']).nullable().optional(),
   deduction_score: z.number().finite().min(0).max(1).optional(), deductible_reason: text,
-  business_purpose: text, attendees: z.array(z.string().max(300)).max(100).optional(), travel_destination: text,
+  business_purpose: text, hired_fare_use: z.enum(HIRED_FARE_USE_CODES).nullable().optional(),
+  attendees: z.array(z.string().max(300)).max(100).optional(), travel_destination: text,
   client_project: text, documentation_status: z.enum(['complete', 'partial', 'missing']).optional(), meeting_notes: text,
   equipment_details: z.object({ make: text, model: text, year: z.number().int().min(1900).max(2200).optional(),
     business_use_percentage: z.number().finite().min(0).max(100).optional(),

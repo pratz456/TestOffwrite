@@ -23,7 +23,8 @@ import { analysisRecordState } from '@/lib/ai/analysis-state';
 import type { AiReviewSuggestion } from '@/lib/transactions/ai-review-contract';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { Transaction as StoredTransaction } from '@/lib/firebase/transactions';
-import { bulkOfferFor, canOfferPurposeConfirmation, confirmPurposeUpdates, firstOpenQuestion, proposedBusinessPurpose, rejectProposalUpdates,
+import { hiredFareAnswerChoices, HIRED_FARE_HOME_OFFICE_POINTER, HIRED_FARE_HOME_OFFICE_UNCONFIRMED, HIRED_FARE_USE, type HiredFareUseCode } from '@/lib/ai/vehicle-separate-costs';
+import { bulkOfferFor, canOfferPurposeConfirmation, confirmPurposeUpdates, firstOpenQuestion, proposedBusinessPurpose, rejectProposalUpdates, TAX_SETTINGS_HREF,
   type AiExplanation, type BulkConfirmRequest } from '@/lib/transactions/review-proposals';
 import { auth } from '@/lib/firebase/client';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
@@ -85,6 +86,7 @@ interface TransactionDetailScreenProps {
     
     // Transaction-Specific Context Fields
     business_purpose?: string; // Why this expense was necessary for business
+    hired_fare_use?: HiredFareUseCode | null;
     attendees?: string[]; // For meal expenses - who attended
     travel_destination?: string; // For travel expenses - where and why
     equipment_details?: {
@@ -196,6 +198,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
   );
   const [additionalContext, setAdditionalContext] = useState(transaction.notes || '');
   const [businessPurpose, setBusinessPurpose] = useState(transaction.business_purpose || '');
+  const [hiredFareUse, setHiredFareUse] = useState<HiredFareUseCode | null>(transaction.hired_fare_use ?? null);
   const [clientProject, setClientProject] = useState(transaction.client_project || '');
   const [documentationStatus, setDocumentationStatus] = useState<'complete' | 'partial' | 'missing'>(
     transaction.documentation_status || 'missing'
@@ -308,6 +311,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
     setClassification(draft => syncDraft(draft, getInitialClassification(previous), getInitialClassification(), localClassificationDraft.current !== null));
     setAdditionalContext(draft => syncDraft(draft, previous.notes || '', transaction.notes || '', 'notes' in localContextDrafts.current));
     setBusinessPurpose(draft => syncDraft(draft, previous.business_purpose || '', transaction.business_purpose || '', 'business_purpose' in localContextDrafts.current));
+    setHiredFareUse(draft => syncDraft(draft, previous.hired_fare_use ?? null, transaction.hired_fare_use ?? null, 'hired_fare_use' in localContextDrafts.current));
     setClientProject(draft => syncDraft(draft, previous.client_project || '', transaction.client_project || '', 'client_project' in localContextDrafts.current));
     setDocumentationStatus(draft => syncDraft(draft, previous.documentation_status || 'missing', transaction.documentation_status || 'missing', 'documentation_status' in localContextDrafts.current));
     setMeetingNotes(draft => syncDraft(draft, previous.meeting_notes || '', transaction.meeting_notes || '', 'meeting_notes' in localContextDrafts.current));
@@ -364,6 +368,17 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
       }
     }, 500);
   }, [userId, saveContext, showError, analysisContext, onSave, transaction]);
+
+  const saveFareAnswer = useCallback((code: HiredFareUseCode | null) => {
+    setHiredFareUse(code);
+    localContextDrafts.current = { ...localContextDrafts.current, hired_fare_use: code ?? '' };
+    return saveContext({ hired_fare_use: code }).then(saved => {
+      if (localContextDrafts.current.hired_fare_use === (code ?? '')) delete localContextDrafts.current.hired_fare_use;
+      if (activeAnalysisContext.current === analysisContext) onSave({ ...transaction, ...saved });
+    }).catch(() => {
+      showError('Answer not saved', 'Your choice is still here. Tap it again to retry.');
+    });
+  }, [saveContext, analysisContext, onSave, transaction, showError]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -901,7 +916,21 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
               {transaction.ai_suggestion?.questions?.length ? <details className="group rounded-lg bg-muted/60">
                 <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-3 text-sm font-medium [&::-webkit-details-marker]:hidden"><span>{transaction.ai_suggestion.questions.length} questions from AI</span><ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 group-open:rotate-180" /></summary>
-                <ul className="list-disc space-y-2 px-4 pb-3 pl-7 text-sm">{transaction.ai_suggestion.questions.map(question => <li key={question}>{question}</li>)}</ul>
+                {(() => {
+                  const fareChoices = hiredFareAnswerChoices(transaction.ai_suggestion?.questions);
+                  const listed = fareChoices ? transaction.ai_suggestion!.questions.slice(5) : transaction.ai_suggestion!.questions;
+                  const homeOfficeHeld = transaction.ai_suggestion?.reasoning === HIRED_FARE_USE.homeStartReason || transaction.ai_customized_reason === HIRED_FARE_USE.homeStartReason;
+                  return <>
+                    {fareChoices ? <div className="space-y-2 px-4 pb-3">
+                      <p className="text-sm font-medium">{HIRED_FARE_USE.question}</p>
+                      <div role="group" aria-label={HIRED_FARE_USE.question} className="grid gap-2">
+                        {fareChoices.map(choice => <Button key={choice.code} type="button" variant={hiredFareUse === choice.code ? 'default' : 'outline'} aria-pressed={hiredFareUse === choice.code} className="h-auto min-h-11 whitespace-normal px-3 py-2 text-left" onClick={() => saveFareAnswer(hiredFareUse === choice.code ? null : choice.code)}>{choice.label}</Button>)}
+                      </div>
+                      {homeOfficeHeld ? <p className="text-sm">{HIRED_FARE_HOME_OFFICE_UNCONFIRMED} <button type="button" className="underline" onClick={() => navigateFromTransaction(TAX_SETTINGS_HREF)}>{HIRED_FARE_HOME_OFFICE_POINTER}</button></p> : null}
+                    </div> : null}
+                    {listed.length ? <ul className="list-disc space-y-2 px-4 pb-3 pl-7 text-sm">{listed.map(question => <li key={question}>{question}</li>)}</ul> : null}
+                  </>;
+                })()}
               </details> : null}
               <div><label htmlFor="business-purpose" className="mb-1 block text-sm font-medium">Business Purpose</label><Textarea id="business-purpose" placeholder="Why was this expense necessary for your business?" value={businessPurpose} onChange={e => { const next = e.target.value; setBusinessPurpose(next); debouncedSave({ business_purpose: next }); }} className="min-h-20 rounded-lg bg-background" maxLength={500} /></div>
               <EvidenceImportDialog key={`calendar-${analysisContext}`} kind="calendar" transactionId={getTransactionId(transaction)} transactionDate={transaction.date} merchant={transaction.merchant_name} onAttachReceipt={attachEvidenceReceipt} onConfirmPurpose={confirmCalendarPurpose} />

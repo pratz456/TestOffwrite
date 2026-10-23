@@ -21,6 +21,7 @@ export interface TransactionUpdate {
   
   // Transaction-Specific Context Fields
   business_purpose?: string;
+  hired_fare_use?: 'overnight_trip' | 'between_work_locations' | 'home_to_workplace' | 'personal' | null;
   attendees?: string[];
   travel_destination?: string;
   equipment_details?: {

@@ -390,7 +390,7 @@ describe('interest, vehicle property tax, and hired fares', () => {
     try {
       vehicleProfile('actual_expense', 40);
       const profile = mocks.docs.get('user_profiles/owner')!;
-      change({ merchant_name: 'Uber', amount: 28, business_purpose: HIRED_FARE_USE.overnight, date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED' });
+      change({ merchant_name: 'Uber', amount: 28, business_purpose: 'Ride to the client meeting', hired_fare_use: 'overnight_trip', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED' });
       change(analysisSuggestionUpdate({
         ...result, category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9',
         customized_reason: HIRED_FARE_USE.overnightReason,
@@ -412,7 +412,7 @@ describe('interest, vehicle property tax, and hired fares', () => {
     try {
       vehicleProfile('actual_expense', 40);
       const profile = mocks.docs.get('user_profiles/owner')!;
-      change({ merchant_name: 'Uber', amount: 28, business_purpose: HIRED_FARE_USE.between, date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED', mileage_details: { start_location: 'Client office', end_location: 'Second workplace' } });
+      change({ merchant_name: 'Uber', amount: 28, business_purpose: 'Ride to the client meeting', hired_fare_use: 'between_work_locations', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED', mileage_details: { start_location: 'Client office', end_location: 'Second workplace' } });
       change(analysisSuggestionUpdate({
         ...result, category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9',
         customized_reason: 'Ride between work locations.',
@@ -439,7 +439,7 @@ describe('interest, vehicle property tax, and hired fares', () => {
       const profilePath = 'user_profiles/owner';
       mocks.docs.set(profilePath, { ...mocks.docs.get(profilePath), home_office_sqft: 150, home_office_method: 'simplified' });
       const profile = mocks.docs.get(profilePath)!;
-      change({ merchant_name: 'Uber', amount: 28, business_purpose: HIRED_FARE_USE.betweenWithHomeOffice, date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED', mileage_details: { start_location: 'Home', end_location: 'Client office' } });
+      change({ merchant_name: 'Uber', amount: 28, business_purpose: 'Ride to the client meeting', hired_fare_use: 'between_work_locations', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED', mileage_details: { start_location: 'Home', end_location: 'Client office' } });
       change(analysisSuggestionUpdate({
         ...result, category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9',
       }, 1770000000000, record(), analysisProfileHash(profile, record().date), profile, { profile, taxYear: 2026 }));
@@ -458,7 +458,7 @@ describe('interest, vehicle property tax, and hired fares', () => {
       mocks.docs.set(`${profilePath}/settings/homeOffice`, { officeSqFt: 120, method: 'simplified' });
       const profile = mocks.docs.get(profilePath)!;
       const savedProfile = { ...profile, officeSqFt: 120 };
-      change({ merchant_name: 'Lyft', amount: 28, business_purpose: HIRED_FARE_USE.betweenWithHomeOffice, date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED', mileage_details: { start_location: 'Home', end_location: 'Client office' } });
+      change({ merchant_name: 'Lyft', amount: 28, business_purpose: 'Ride to the client meeting', hired_fare_use: 'between_work_locations', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED', mileage_details: { start_location: 'Home', end_location: 'Client office' } });
       change(analysisSuggestionUpdate({
         ...result, category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9',
       }, 1770000000000, record(), analysisProfileHash(profile, record().date), savedProfile, { profile, taxYear: 2026 }));

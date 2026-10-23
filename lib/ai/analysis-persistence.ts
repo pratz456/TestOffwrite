@@ -3,7 +3,7 @@ import type { DocumentReference } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { vehicleFromDocument, vehicleMethodForTaxYear, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
-import { hiredFareChoiceFromRecord, hiredFarePurpose, hiredFarePurposeText, hiredFareStartedAtHome, hiredFareUsePrompt, hiredVehicleFare, HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, HIRED_FARE_USE, profileHasHomeOffice, SEPARATE_VEHICLE_COST_SHARE, standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
+import { hiredFareAnswerLabel, hiredFareChoiceFromRecord, hiredFarePurpose, hiredFarePurposeText, hiredFareStartedAtHome, hiredFareUsePrompt, hiredVehicleFare, HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, HIRED_FARE_USE, profileHasHomeOffice, SEPARATE_VEHICLE_COST_SHARE, standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
 import { withHomeOfficeSources } from '@/lib/profile/home-office';
 import { ACTUAL_EXPENSE_BUSINESS_SHARE, finiteUsePercent } from '@/lib/ai/actual-expense-share';
 import type { OutputType } from './analyzeTransaction';
@@ -18,7 +18,7 @@ export interface AnalysisLease { token: string; inputHash: string; expiresAt: nu
 const INPUT_FIELDS = [
   'trans_id', 'merchant_name', 'name', 'amount', 'date', 'datetime', 'category', 'bank_category', 'description', 'notes', 'note',
   'account_id', 'pending', 'business_purpose', 'attendees', 'travel_destination', 'equipment_details',
-  'client_project', 'documentation_status', 'meeting_notes', 'mileage_details', 'location', 'city', 'state',
+  'client_project', 'documentation_status', 'meeting_notes', 'mileage_details', 'hired_fare_use', 'location', 'city', 'state',
   'receipt_url', 'receipt_filename', 'ocr_data',
   'merchant_category_code', 'mcc', 'payment_channel', 'authorized_date', 'iso_currency_code',
   'unofficial_currency_code', 'personal_finance_category', 'counterparties', 'merchant_entity_id',
@@ -231,6 +231,9 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
     const choice = hiredFareChoiceFromRecord(canonicalData);
     const startedAtHome = hiredFareStartedAtHome(canonicalData);
     const homeOffice = profileHasHomeOffice(profile);
+    const typedPurpose = typeof canonicalData.business_purpose === 'string' ? canonicalData.business_purpose : '';
+    // An exact answer label typed into the purpose is not a choice, even when notes repeat it.
+    const exactLabel = hiredFareAnswerLabel(typedPurpose) || hiredFareAnswerLabel(purposeText);
     const clearLine = () => { suggestion.category = 'travel'; delete suggestion.scheduleCLine; scheduleLine = null; };
     if (choice === 'overnight') {
       suggestion.category = 'travel';
@@ -238,7 +241,7 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
       suggestion.deductiblePercent = 100;
       suggestion.isDeductible = true;
       suggestion.status = 'ok';
-      suggestion.questions = [];
+      suggestion.questions = hiredFareUsePrompt(profile);
       suggestion.reasoning = HIRED_FARE_USE.overnightReason;
       scheduleLine = '24a';
     } else if (choice === 'between' && startedAtHome === true && !homeOffice) {
@@ -256,17 +259,17 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
       suggestion.deductiblePercent = 100;
       suggestion.isDeductible = true;
       suggestion.status = 'ok';
-      suggestion.questions = [];
+      suggestion.questions = hiredFareUsePrompt(profile);
       suggestion.reasoning = HIRED_FARE_USE.betweenReason;
       scheduleLine = '27a';
-    } else if (choice === 'commute' || choice === 'personal' || hiredFarePurpose(purposeText) === 'personal') {
+    } else if (choice === 'commute' || choice === 'personal' || (!exactLabel && hiredFarePurpose(purposeText) === 'personal')) {
       clearLine();
       suggestion.isDeductible = false;
       suggestion.deductiblePercent = 0;
       suggestion.status = 'ok';
-      suggestion.questions = [];
+      suggestion.questions = hiredFareUsePrompt(profile);
       suggestion.reasoning = choice === 'commute' ? HIRED_FARE_USE.commuteReason : HIRED_FARE_PERSONAL.reason;
-    } else if (hiredFarePurpose(purposeText) === 'unstated') {
+    } else if (!exactLabel && hiredFarePurpose(purposeText) === 'unstated') {
       clearLine();
       suggestion.status = 'needs_more_info';
       suggestion.isDeductible = null;

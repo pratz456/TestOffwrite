@@ -99,6 +99,7 @@ export function reviewHydrationFields(record: Record<string, any>) {
     iso_currency_code: record.iso_currency_code,
     unofficial_currency_code: record.unofficial_currency_code,
     business_purpose: record.business_purpose,
+    hired_fare_use: record.hired_fare_use ?? null,
     attendees: record.attendees,
     equipment_details: record.equipment_details,
     documentation_status: record.documentation_status,

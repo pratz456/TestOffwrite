@@ -111,6 +111,34 @@ describe('saved facts automatically refresh durable AI review', () => {
     expect(mocks.analyze).not.toHaveBeenCalled();
   });
 
+  it('recalculates a hired fare line from the saved answer code and ignores that code when the switch is off', async () => {
+    change(path, { merchant_name: 'Uber', amount: 28, business_purpose: 'Ride to the client meeting', date: '2026-09-15',
+      mileage_details: { start_location: 'Client office', end_location: 'Second workplace' }, ai_suggestion: { status: 'needs_more_info', questions: ['What was this ride for?'] } });
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    const ignored = await saveTransactionChanges(adminDb.doc(path), address.userId, { hired_fare_use: 'overnight_trip' });
+    expect(ignored.hired_fare_use).toBeUndefined();
+    expect(mocks.docs.get(path)!.hired_fare_use).toBeUndefined();
+    expect(ignored.analysisStatus).toBe('pending');
+    expect(ignored.ai_schedule_c_line).toBeUndefined();
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    const overnight = await saveTransactionChanges(adminDb.doc(path), address.userId, { hired_fare_use: 'overnight_trip' });
+    expect(overnight.hired_fare_use).toBe('overnight_trip');
+    expect(overnight.ai_suggestion).toMatchObject({ scheduleCLine: '24a', status: 'ok', deductiblePercent: 100, category: 'travel' });
+    expect(overnight.ai_schedule_c_line).toBe('24a');
+    expect(overnight.deductionStatus).toBe('Likely Deductible');
+    const changed = await saveTransactionChanges(adminDb.doc(path), address.userId, { hired_fare_use: 'between_work_locations' });
+    expect(changed.ai_suggestion).toMatchObject({ scheduleCLine: '27a', status: 'ok', deductiblePercent: 100 });
+    expect(changed.ai_schedule_c_line).toBe('27a');
+    expect(changed.ai_suggestion.scheduleCLine).not.toBe('24a');
+    const cleared = await saveTransactionChanges(adminDb.doc(path), address.userId, { hired_fare_use: null });
+    expect(cleared.hired_fare_use).toBeNull();
+    expect(cleared.deductionStatus).toBe('Needs more information');
+    expect(cleared.ai_schedule_c_line).toBeNull();
+    expect(cleared.ai_suggestion.scheduleCLine).toBeUndefined();
+    expect(cleared.ai_suggestion.questions[0]).toBe('What was this ride for?');
+    vi.unstubAllEnvs();
+  });
+
   it('defers pending bank records and rejects a foreign document path', async () => {
     change(path, { pending: true });
     const saved = await saveTransactionChanges(adminDb.doc(path), address.userId, { meeting_notes: 'Discussed the client project' });

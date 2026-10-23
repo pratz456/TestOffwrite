@@ -52,6 +52,8 @@ vi.mock('@/lib/hooks/use-ai-availability', () => ({ useAiAvailability: () => ({ 
   model: 'synthetic-model', message: harness.availability === 'configured' ? 'AI is configured. Each analysis still depends on provider availability and usage limits.' : 'AI analysis is not configured for this environment.', refresh: harness.refreshAi }) }));
 vi.mock('@/lib/firebase/mutations', () => ({ useUpdateTransaction: () => ({ mutateAsync: harness.mutate, isPending: false }) }));
 vi.mock('@/components/ui/toast', () => ({ useToasts: () => ({ showSuccess: harness.success, showError: harness.error }) }));
+import { hiredFareAnswerChoices, hiredFareUsePrompt, HIRED_FARE_HOME_OFFICE_POINTER, HIRED_FARE_USE } from '../lib/ai/vehicle-separate-costs';
+import { profileHasHomeOffice } from '../lib/profile/home-office';
 import TransactionsPage from '../app/protected/transactions/page';
 import { AddManualTransactionScreen } from '../components/add-manual-transaction-screen';
 import { SyncStatusIndicator } from '../components/sync-status-indicator';
@@ -804,5 +806,52 @@ describe('transaction detail preserves manual work without guessed tax impact or
     expect(harness.save).toHaveBeenCalledWith(expect.objectContaining({ reasoning: 'Review the meal business purpose.', is_deductible: true }));
     expect(harness.error).not.toHaveBeenCalled();
     expect(action(detail(), 'Run AI Analysis').props.disabled).toBe(false);
+  });
+
+  it('offers each hired fare answer as a tap, then a change and a clear, and hides the picker when the switch is off', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    const office = { home_office_sqft: 150 };
+    expect(profileHasHomeOffice(office)).toBe(true);
+    const longQuestions = hiredFareUsePrompt(office);
+    const shortQuestions = hiredFareUsePrompt(null);
+    expect(longQuestions[2]).toBe(HIRED_FARE_USE.betweenWithHomeOffice);
+    expect(shortQuestions[2]).toBe(HIRED_FARE_USE.between);
+    const suggestion = { ...categorySuggestion, questions: longQuestions, reasoning: HIRED_FARE_USE.reason };
+    const choiceButton = (page: Element, label: string) => walk(page).find(node => text(node) === label && node.props['aria-pressed'] !== undefined);
+    for (const choice of hiredFareAnswerChoices(longQuestions)!) {
+      harness.slots = [];
+      const page = detail({ merchant_name: 'Uber', ai_suggestion: suggestion });
+      expect(walk(page).find(node => node.props.role === 'group')?.props['aria-label']).toBe(HIRED_FARE_USE.question);
+      const button = choiceButton(page, choice.label);
+      expect(button?.props['aria-pressed']).toBe(false);
+      await button!.props.onClick!();
+      expect(harness.mutate).toHaveBeenLastCalledWith({ transactionId: 'detail-id', userId: 'new-accountless-user', updates: { hired_fare_use: choice.code } });
+    }
+    harness.slots = [];
+    const overnight = HIRED_FARE_USE.overnight;
+    await choiceButton(detail({ merchant_name: 'Uber', ai_suggestion: suggestion }), overnight)!.props.onClick!();
+    const changed = detail({ merchant_name: 'Uber', ai_suggestion: suggestion });
+    expect(choiceButton(changed, overnight)?.props['aria-pressed']).toBe(true);
+    await choiceButton(changed, HIRED_FARE_USE.betweenWithHomeOffice)!.props.onClick!();
+    expect(harness.mutate).toHaveBeenLastCalledWith({ transactionId: 'detail-id', userId: 'new-accountless-user', updates: { hired_fare_use: 'between_work_locations' } });
+    const selected = detail({ merchant_name: 'Uber', ai_suggestion: suggestion });
+    expect(choiceButton(selected, HIRED_FARE_USE.betweenWithHomeOffice)?.props['aria-pressed']).toBe(true);
+    await choiceButton(selected, HIRED_FARE_USE.betweenWithHomeOffice)!.props.onClick!();
+    expect(harness.mutate).toHaveBeenLastCalledWith({ transactionId: 'detail-id', userId: 'new-accountless-user', updates: { hired_fare_use: null } });
+    harness.slots = [];
+    const held = detail({ merchant_name: 'Uber', ai_suggestion: { ...suggestion, questions: shortQuestions, reasoning: HIRED_FARE_USE.homeStartReason }, ai_customized_reason: HIRED_FARE_USE.homeStartReason });
+    expect(text(held)).toContain("We couldn't confirm a home office on your profile.");
+    expect(choiceButton(held, HIRED_FARE_USE.between)?.props['aria-pressed']).toBe(false);
+    await walk(held).find(node => text(node) === HIRED_FARE_HOME_OFFICE_POINTER)!.props.onClick!();
+    expect(harness.push).toHaveBeenCalledWith('/protected/settings?tab=tax');
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    harness.slots = [];
+    const off = detail({ merchant_name: 'Uber', ai_suggestion: { ...categorySuggestion, questions: shortQuestions, reasoning: HIRED_FARE_USE.reason } });
+    expect(hiredFareAnswerChoices(shortQuestions)).toBeNull();
+    expect(walk(off).some(node => node.props.role === 'group')).toBe(false);
+    expect(choiceButton(off, HIRED_FARE_USE.overnight)).toBeUndefined();
+    expect(text(off)).toContain(HIRED_FARE_USE.question);
+    expect(text(off)).toContain(HIRED_FARE_USE.between);
+    vi.unstubAllEnvs();
   });
 });

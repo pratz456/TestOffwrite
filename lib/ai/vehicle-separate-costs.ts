@@ -4,6 +4,7 @@
  * only add-on that counts in full. Interest and vehicle personal property tax never
  * default to 100%.
  */
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { tripStartsAtHome } from '@/lib/mileage/vehicles';
 import { profileHasHomeOffice } from '@/lib/profile/home-office';
 import { ACTUAL_EXPENSE_BUSINESS_SHARE } from './actual-expense-share';
@@ -51,7 +52,23 @@ export const HIRED_FARE_PURPOSE = {
   reason: 'A rideshare or taxi fare follows the trip, not the method for your own car. Say where this ride went before it can count.',
 } as const;
 
-/** One question. The answer is the saved purpose, matched to these labels exactly. */
+/** Shown when a between-work answer cannot count because the ride started at home and no home office is on file. */
+export const HIRED_FARE_HOME_OFFICE_UNCONFIRMED = "We couldn't confirm a home office on your profile.";
+/** Settings, Tax tab, Home Office Deduction. That section is HomeOfficeFactsSection at /protected/settings?tab=tax. */
+export const HIRED_FARE_HOME_OFFICE_POINTER = 'Add home office facts in Settings on the Tax tab, under Home Office Deduction.';
+
+/** Saved on the transaction. Line 24a, 27a, 0%, or Needs more information follows this code, never the label text. */
+export const HIRED_FARE_USE_CODES = ['overnight_trip', 'between_work_locations', 'home_to_workplace', 'personal'] as const;
+export type HiredFareUseCode = typeof HIRED_FARE_USE_CODES[number];
+
+const HIRED_FARE_CHOICE_BY_CODE: Record<HiredFareUseCode, 'overnight' | 'between' | 'commute' | 'personal'> = {
+  overnight_trip: 'overnight',
+  between_work_locations: 'between',
+  home_to_workplace: 'commute',
+  personal: 'personal',
+};
+
+/** One question. The chosen answer is a saved code. The labels stay display text. */
 export const HIRED_FARE_USE = {
   question: 'What was this ride for?',
   reason: 'Choose what this ride was for before it can count.',
@@ -63,8 +80,12 @@ export const HIRED_FARE_USE = {
   overnightReason: 'This ride was part of an overnight work trip away from home.',
   betweenReason: 'This ride was between work locations.',
   commuteReason: 'A ride from home to your usual workplace is commuting, so the fare stays out of business deductions.',
-  homeStartReason: 'This ride started at home and the profile has no home office, so this answer stays open.',
+  homeStartReason: `${HIRED_FARE_HOME_OFFICE_UNCONFIRMED} ${HIRED_FARE_HOME_OFFICE_POINTER}`,
 } as const;
+
+const HIRED_FARE_ANSWER_LABELS = new Set<string>([
+  HIRED_FARE_USE.overnight, HIRED_FARE_USE.between, HIRED_FARE_USE.betweenWithHomeOffice, HIRED_FARE_USE.commute, HIRED_FARE_USE.personal,
+]);
 
 /** Recorded category for a local hired fare. It uses the other expenses line. */
 export const HIRED_LOCAL_TRANSPORT_CATEGORY = 'HIRED_LOCAL_TRANSPORT';
@@ -83,20 +104,33 @@ export function hiredFarePurposeText(data: Record<string, unknown> | null | unde
   return ['business_purpose', 'notes', 'note'].map(key => typeof data[key] === 'string' ? data[key] as string : '').filter(Boolean).join(' ').trim();
 }
 
-export function hiredFareChoice(purpose: string): 'overnight' | 'between' | 'commute' | 'personal' | null {
-  const text = purpose.trim();
-  if (text === HIRED_FARE_USE.overnight) return 'overnight';
-  if (text === HIRED_FARE_USE.between || text === HIRED_FARE_USE.betweenWithHomeOffice) return 'between';
-  if (text === HIRED_FARE_USE.commute) return 'commute';
-  if (text === HIRED_FARE_USE.personal) return 'personal';
-  return null;
+/** True when typed purpose text is exactly one of the four answer labels, including the long between label. */
+export function hiredFareAnswerLabel(text: string): boolean {
+  return HIRED_FARE_ANSWER_LABELS.has(text.trim());
 }
 
-/** The saved purpose wins. Other notes do not change an exact answer. */
+/** The saved code is the answer. Label text, including an exact match, is not an answer. */
 export function hiredFareChoiceFromRecord(data: Record<string, unknown> | null | undefined): 'overnight' | 'between' | 'commute' | 'personal' | null {
-  if (!data) return null;
-  const purpose = typeof data.business_purpose === 'string' ? hiredFareChoice(data.business_purpose) : null;
-  return purpose ?? hiredFareChoice(hiredFarePurposeText(data));
+  const code = data?.hired_fare_use;
+  if (typeof code !== 'string' || !Object.prototype.hasOwnProperty.call(HIRED_FARE_CHOICE_BY_CODE, code)) return null;
+  return HIRED_FARE_CHOICE_BY_CODE[code as HiredFareUseCode];
+}
+
+/**
+ * Tappable choices for the fare question. Answer 2 keeps whichever label hiredFareBetweenLabel stored.
+ * The picker is absent when the vehicle copy switch is off.
+ */
+export function hiredFareAnswerChoices(questions: readonly string[] | null | undefined): { code: HiredFareUseCode; label: string }[] | null {
+  if (!mileageVehicleCopyEnabled() || !questions || questions[0] !== HIRED_FARE_USE.question || questions.length < 5) return null;
+  const [overnight, between, commute, personal] = [questions[1], questions[2], questions[3], questions[4]];
+  if (overnight !== HIRED_FARE_USE.overnight || (between !== HIRED_FARE_USE.between && between !== HIRED_FARE_USE.betweenWithHomeOffice)) return null;
+  if (commute !== HIRED_FARE_USE.commute || personal !== HIRED_FARE_USE.personal) return null;
+  return [
+    { code: 'overnight_trip', label: overnight },
+    { code: 'between_work_locations', label: between },
+    { code: 'home_to_workplace', label: commute },
+    { code: 'personal', label: personal },
+  ];
 }
 
 /**

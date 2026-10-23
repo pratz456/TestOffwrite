@@ -55,6 +55,8 @@ export interface Transaction {
 
   // Transaction-Specific Context Fields
   business_purpose?: string; // Why this expense was necessary for business
+  /** Hired-fare answer code. Line treatment follows this value, not the purpose text. */
+  hired_fare_use?: 'overnight_trip' | 'between_work_locations' | 'home_to_workplace' | 'personal' | null;
   attendees?: string[]; // For meal expenses - who attended
   travel_destination?: string; // For travel expenses - where and why
   equipment_details?: {
