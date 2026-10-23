@@ -10,7 +10,7 @@ import { Download, FileText, Calendar, Lock } from 'lucide-react';
 import { useSubscription } from '@/lib/hooks/use-subscription';
 import { PremiumFeatureGate, subscriptionGateDestination } from '@/components/premium-feature-gate';
 import { useRouter } from 'next/navigation';
-import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { aggregateScheduleC, categoryMapForTaxYear } from '@/lib/schedule-c/aggregate';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 
 interface Transaction {
@@ -85,7 +85,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
     // Use shared CPA-grade Schedule C aggregation logic.
     // confirmed-only excludes is_deductible === null/undefined and nets credits/refunds via signed totals.
     const sourceTx = Array.isArray(overrideYearTx) ? overrideYearTx : (Array.isArray(transactions) ? transactions : []);
-    const aggregation = aggregateScheduleC(sourceTx as any[], selectedYear, CATEGORY_MAP, { mode: 'confirmed-only' });
+    const aggregation = aggregateScheduleC(sourceTx as any[], selectedYear, categoryMapForTaxYear(Number(selectedYear)), { mode: 'confirmed-only' });
 
     const nextLineDetails: Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }> = {};
     aggregation.lineItemsArray.forEach((item) => {
@@ -124,11 +124,11 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 
   const lineNameToLineCode = useMemo(() => {
     const map: Record<string, string> = {};
-    for (const entry of Object.values(CATEGORY_MAP)) {
+    for (const entry of Object.values(categoryMapForTaxYear(Number(selectedYear)))) {
       map[entry.name] = entry.line;
     }
     return map;
-  }, []);
+  }, [selectedYear]);
 
   const getScheduleCLineNumber = (lineItem: string): string => {
     return scheduleCExportLine(lineNameToLineCode[lineItem] || '27a', Number(selectedYear));

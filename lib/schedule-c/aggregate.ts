@@ -16,23 +16,27 @@
  * PDF generation path: route → getTransactionsServer(uid) → aggregateScheduleC → pdf-lib.
  */
 
-import { safeTaxYear } from './taxDate';
-import { otherExpensesLine } from './other-expenses-line';
+import { otherExpensesLine, resolveOtherExpensesYear } from './other-expenses-line';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
 import { isCountableRecord, isSupersededRecord } from '@/lib/transactions/record-scope';
 
 export type CategoryMapEntry = { line: string; name: string; code: string };
 
-/**
- * Internal other-expenses marker. 27a and 27b both mean other expenses.
- * aggregateScheduleC publishes otherExpensesLine(year) so the amount never lands on Form 7205.
- */
-const OTHER_EXPENSES: CategoryMapEntry = {
-  line: '27a',
-  name: 'Other expenses',
-  code: '27a',
-};
+/** Legacy food, restaurant, and coffee labels. Sync stores the first Plaid label. Statement import can store "Food & Drink". */
+export const LEGACY_FOOD_CATEGORY_VALUES = [
+  'Food and Drink',
+  'Food & Drink',
+  'Restaurants',
+  'Fast Food',
+  'Food Truck',
+  'Seafood',
+  'Coffee Shop',
+  'Cafe',
+  'Internet Cafes',
+  'Jazz and Blues Cafe',
+] as const;
 
+/** Category lines for a tax year before CATEGORY_MAP_EFFECTIVE_YEAR. */
 export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   // ── Line 8: Advertising ──────────────────────────────────────────────
   'SERVICE_ADVERTISING': { line: '8', name: 'Advertising', code: '8' },
@@ -55,7 +59,6 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'BANK_FEES_FOREIGN_TRANSACTION': { line: '10', name: 'Commissions and fees', code: '10' },
   'BANK_FEES_OVERDRAFT': { line: '10', name: 'Commissions and fees', code: '10' },
   'BANK_FEES_OTHER_BANK_FEES': { line: '10', name: 'Commissions and fees', code: '10' },
-  'SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS': { line: '10', name: 'Commissions and fees', code: '10' },
 
   // ── Line 11: Contract labor ──────────────────────────────────────────
   'SERVICE_FREELANCE_SERVICES': { line: '11', name: 'Contract labor', code: '11' },
@@ -126,24 +129,249 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'SERVICE_GAS': { line: '25', name: 'Utilities', code: '25' },
   'SERVICE_WATER': { line: '25', name: 'Utilities', code: '25' },
 
-  // ── Other expenses (published with otherExpensesLine for the tax year) ─
-  'ENTERTAINMENT_SPORTS_AND_OUTDOORS': OTHER_EXPENSES,
-  'ENTERTAINMENT_ARTS': OTHER_EXPENSES,
-  'ENTERTAINMENT_THEATER': OTHER_EXPENSES,
-  'ENTERTAINMENT_MUSIC': OTHER_EXPENSES,
-  'ENTERTAINMENT_MOVIES_AND_DVDS': OTHER_EXPENSES,
-  'GENERAL_MERCHANDISE_SPORTING_GOODS': OTHER_EXPENSES,
-  'PERSONAL_CARE_GYMS_AND_FITNESS_CENTERS': OTHER_EXPENSES,
-  'COMMUNITY_CHARITY': OTHER_EXPENSES,
-  'COMMUNITY_EDUCATION': OTHER_EXPENSES,
-  'COMMUNITY_RELIGIOUS': OTHER_EXPENSES,
-  'SERVICE_CLEANING_AND_MAINTENANCE': OTHER_EXPENSES,
-  'SERVICE_PROFESSIONAL_DUES': OTHER_EXPENSES,
-  'SERVICE_MEMBERSHIPS': OTHER_EXPENSES,
-  'SERVICE_EDUCATION': OTHER_EXPENSES,
+  // ── Line 27a: Other expenses ─────────────────────────────────────────
+  'ENTERTAINMENT_SPORTS_AND_OUTDOORS': { line: '27a', name: 'Other expenses', code: '27a' },
+  'ENTERTAINMENT_ARTS': { line: '27a', name: 'Other expenses', code: '27a' },
+  'ENTERTAINMENT_THEATER': { line: '27a', name: 'Other expenses', code: '27a' },
+  'ENTERTAINMENT_MUSIC': { line: '27a', name: 'Other expenses', code: '27a' },
+  'ENTERTAINMENT_MOVIES_AND_DVDS': { line: '27a', name: 'Other expenses', code: '27a' },
+  'GENERAL_MERCHANDISE_SPORTING_GOODS': { line: '27a', name: 'Other expenses', code: '27a' },
+  'PERSONAL_CARE_GYMS_AND_FITNESS_CENTERS': { line: '27a', name: 'Other expenses', code: '27a' },
+  'COMMUNITY_CHARITY': { line: '27a', name: 'Other expenses', code: '27a' },
+  'COMMUNITY_EDUCATION': { line: '27a', name: 'Other expenses', code: '27a' },
+  'COMMUNITY_RELIGIOUS': { line: '27a', name: 'Other expenses', code: '27a' },
+  'SERVICE_CLEANING_AND_MAINTENANCE': { line: '27a', name: 'Other expenses', code: '27a' },
+  'SERVICE_PROFESSIONAL_DUES': { line: '27a', name: 'Other expenses', code: '27a' },
+  'SERVICE_MEMBERSHIPS': { line: '27a', name: 'Other expenses', code: '27a' },
 };
 
-const BUSINESS_CATEGORY_KEYS = new Set(Object.keys(CATEGORY_MAP));
+/**
+ * Real Plaid detailed codes with no Schedule C line until the user picks one.
+ * isAwaitingScheduleCLine reads this set. These codes are not map keys.
+ */
+export const REVIEW_REQUIRED_PLAID_CODES: ReadonlySet<string> = new Set([
+  // Loan principal is never deductible. v2 adds buy now pay later, cash advances, and earned wage access.
+  'LOAN_PAYMENTS_CAR_PAYMENT',
+  'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT',
+  'LOAN_PAYMENTS_PERSONAL_LOAN_PAYMENT',
+  'LOAN_PAYMENTS_MORTGAGE_PAYMENT',
+  'LOAN_PAYMENTS_STUDENT_LOAN_PAYMENT',
+  'LOAN_PAYMENTS_OTHER_PAYMENT',
+  'LOAN_PAYMENTS_BNPL',
+  'LOAN_PAYMENTS_CASH_ADVANCES',
+  'LOAN_PAYMENTS_EWA',
+  // Line 9 applies only under actual vehicle expenses and would double count the standard mileage rate.
+  'TRANSPORTATION_GAS',
+  // Line 9 applies only under actual vehicle expenses and would double count the standard mileage rate.
+  'GENERAL_SERVICES_AUTOMOTIVE',
+  // Home rent belongs on the home office flow, Form 8829.
+  'RENT_AND_UTILITIES_RENT',
+  // Home utilities belong on the home office flow, Form 8829.
+  'RENT_AND_UTILITIES_GAS_AND_ELECTRICITY',
+  // Home utilities belong on the home office flow, Form 8829.
+  'RENT_AND_UTILITIES_SEWAGE_AND_WASTE_MANAGEMENT',
+  // Home utilities belong on the home office flow, Form 8829.
+  'RENT_AND_UTILITIES_WATER',
+  // Home utilities belong on the home office flow, Form 8829.
+  'RENT_AND_UTILITIES_OTHER_UTILITIES',
+  // Cell phone and telephone charges need a business use percent, and the first home landline is never deductible.
+  'RENT_AND_UTILITIES_TELEPHONE',
+  // Internet and cable need a business use percent.
+  'RENT_AND_UTILITIES_INTERNET_AND_CABLE',
+  // Only licenses are deductible. Fines and taxes are not.
+  'GOVERNMENT_AND_NON_PROFIT_GOVERNMENT_DEPARTMENTS_AND_AGENCIES',
+  // Only licenses are deductible. Fines and taxes are not.
+  'GOVERNMENT_AND_NON_PROFIT_OTHER_GOVERNMENT_AND_NON_PROFIT',
+  // Tax payments are not assigned a line here.
+  'GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT',
+  // Bank interest is personal unless the charge is on a business card.
+  'BANK_FEES_INTEREST_CHARGE',
+  // Department store purchases are not assigned a line here.
+  'GENERAL_MERCHANDISE_DEPARTMENT_STORES',
+  // Discount store purchases are not assigned a line here.
+  'GENERAL_MERCHANDISE_DISCOUNT_STORES',
+  // Superstore purchases are not assigned a line here.
+  'GENERAL_MERCHANDISE_SUPERSTORES',
+  // Groceries are personal by default.
+  'FOOD_AND_DRINK_GROCERIES',
+  // Electronics may need the $2,500 safe harbor before a line is chosen.
+  'GENERAL_MERCHANDISE_ELECTRONICS',
+  // Furniture may need the $2,500 safe harbor before a line is chosen.
+  'HOME_IMPROVEMENT_FURNITURE',
+  // Business gifts are limited to $25 per recipient.
+  'GENERAL_MERCHANDISE_GIFTS_AND_NOVELTIES',
+  // Rental cars depend on travel away from home.
+  'TRAVEL_RENTAL_CARS',
+  // Rideshare and taxi charges depend on travel away from home.
+  'TRANSPORTATION_TAXIS_AND_RIDE_SHARES',
+  // Bikes and scooters depend on travel away from home.
+  'TRANSPORTATION_BIKES_AND_SCOOTERS',
+  // Hardware store purchases can be supplies, repairs, or personal home projects.
+  'HOME_IMPROVEMENT_HARDWARE',
+  // Other transportation can be commuting or a business trip.
+  'TRANSPORTATION_OTHER_TRANSPORTATION',
+  // Convenience stores mix fuel, food, and personal items.
+  'GENERAL_MERCHANDISE_CONVENIENCE_STORES',
+  // Other home improvement includes pool installation and pest control.
+  'HOME_IMPROVEMENT_OTHER_HOME_IMPROVEMENT',
+  // Insurance stays on SERVICE_INSURANCE and TRANSPORTATION_AUTO_INSURANCE.
+  'GENERAL_SERVICES_INSURANCE',
+  // Legacy financial planning has no line until the user picks one.
+  'SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS',
+  // Bank fees stay on the keys already in CATEGORY_MAP.
+  'BANK_FEES_FOREIGN_TRANSACTION_FEES',
+  'BANK_FEES_INSUFFICIENT_FUNDS',
+  'BANK_FEES_OVERDRAFT_FEES',
+  'BANK_FEES_LATE_FEES',
+  'BANK_FEES_CASH_ADVANCE',
+  // Parking, professional services, postage, storage, repairs, education, and security stay on the keys already in CATEGORY_MAP.
+  'TRANSPORTATION_PARKING',
+  'GENERAL_SERVICES_ACCOUNTING_AND_FINANCIAL_PLANNING',
+  'GENERAL_SERVICES_CONSULTING_AND_LEGAL',
+  'GENERAL_SERVICES_POSTAGE_AND_SHIPPING',
+  'GENERAL_SERVICES_STORAGE',
+  'HOME_IMPROVEMENT_REPAIR_AND_MAINTENANCE',
+  'GENERAL_SERVICES_EDUCATION',
+  'GENERAL_SERVICES_OTHER_GENERAL_SERVICES',
+  'HOME_IMPROVEMENT_SECURITY',
+]);
+
+/**
+ * Real Plaid detailed codes that are not business expenses.
+ * Aggregation does not read this set. Income, transfers, and personal spending stay off both maps.
+ * v1 and v2 names of the three renamed codes are both listed.
+ */
+export const PERSONAL_PLAID_CODES: ReadonlySet<string> = new Set([
+  'INCOME_CHILD_SUPPORT',
+  'INCOME_CONTRACTOR',
+  'INCOME_DIVIDENDS',
+  'INCOME_GIG_ECONOMY',
+  'INCOME_INTEREST_EARNED',
+  'INCOME_LONG_TERM_DISABILITY',
+  'INCOME_MILITARY',
+  'INCOME_OTHER',
+  'INCOME_OTHER_INCOME',
+  'INCOME_RENTAL',
+  'INCOME_RETIREMENT_PENSION',
+  'INCOME_SALARY',
+  'INCOME_TAX_REFUND',
+  'INCOME_UNEMPLOYMENT',
+  'INCOME_WAGES',
+  'LOAN_DISBURSEMENTS_AUTO',
+  'LOAN_DISBURSEMENTS_CASH_ADVANCES',
+  'LOAN_DISBURSEMENTS_EWA',
+  'LOAN_DISBURSEMENTS_MORTGAGE',
+  'LOAN_DISBURSEMENTS_OTHER_DISBURSEMENT',
+  'LOAN_DISBURSEMENTS_PERSONAL',
+  'LOAN_DISBURSEMENTS_STUDENT',
+  'TRANSFER_IN_CASH_ADVANCES_AND_LOANS',
+  'TRANSFER_IN_ACCOUNT_TRANSFER',
+  'TRANSFER_IN_DEPOSIT',
+  'TRANSFER_IN_INVESTMENT_AND_RETIREMENT_FUNDS',
+  'TRANSFER_IN_OTHER_TRANSFER_IN',
+  'TRANSFER_IN_SAVINGS',
+  'TRANSFER_IN_TRANSFER_IN_FROM_APPS',
+  'TRANSFER_IN_WIRE',
+  'TRANSFER_OUT_ACCOUNT_TRANSFER',
+  'TRANSFER_OUT_CRYPTO',
+  'TRANSFER_OUT_INVESTMENT_AND_RETIREMENT_FUNDS',
+  'TRANSFER_OUT_OTHER_TRANSFER_OUT',
+  'TRANSFER_OUT_SAVINGS',
+  'TRANSFER_OUT_TRANSFER_OUT_FROM_APPS',
+  'TRANSFER_OUT_WIRE',
+  'TRANSFER_OUT_WITHDRAWAL',
+  'ENTERTAINMENT_CASINOS_AND_GAMBLING',
+  'ENTERTAINMENT_MUSIC_AND_AUDIO',
+  'ENTERTAINMENT_OTHER_ENTERTAINMENT',
+  'ENTERTAINMENT_SPORTING_EVENTS_AMUSEMENT_PARKS_AND_MUSEUMS',
+  'ENTERTAINMENT_TV_AND_MOVIES',
+  'ENTERTAINMENT_VIDEO_GAMES',
+  'MEDICAL_DENTAL_CARE',
+  'MEDICAL_EYE_CARE',
+  'MEDICAL_NURSING_CARE',
+  'MEDICAL_OTHER_MEDICAL',
+  'MEDICAL_PHARMACIES_AND_SUPPLEMENTS',
+  'MEDICAL_PRIMARY_CARE',
+  'MEDICAL_VETERINARY_SERVICES',
+  'PERSONAL_CARE_HAIR_AND_BEAUTY',
+  'PERSONAL_CARE_LAUNDRY_AND_DRY_CLEANING',
+  'PERSONAL_CARE_OTHER_PERSONAL_CARE',
+  'GENERAL_MERCHANDISE_CLOTHING_AND_ACCESSORIES',
+  'GENERAL_MERCHANDISE_PET_SUPPLIES',
+  'GENERAL_MERCHANDISE_TOBACCO_AND_VAPE',
+  'GENERAL_SERVICES_CHILDCARE',
+  'FOOD_AND_DRINK_BEER_WINE_AND_LIQUOR',
+  'GOVERNMENT_AND_NON_PROFIT_DONATIONS',
+  'OTHER_OTHER',
+]);
+
+/** First tax year that uses the added category lines. 2027 and later use that map too. */
+export const CATEGORY_MAP_EFFECTIVE_YEAR = 2026;
+
+const MEALS_LINE: CategoryMapEntry = { line: '24b', name: 'Meals', code: '24b' };
+
+/** Unconfirmed meals use line 24b at 50% from this year. The year is the transaction date, not the clock. */
+export const UNCONFIRMED_MEALS_50_FIRST_YEAR = 2023;
+
+/** Confirmed meals use line 24b at 50% from CATEGORY_MAP_EFFECTIVE_YEAR. 2023, 2024, and 2025 keep the current amount. */
+export const CONFIRMED_MEALS_50_FIRST_YEAR = CATEGORY_MAP_EFFECTIVE_YEAR;
+
+/** Meal categories. Coffee and the generic Food and Drink label are not on CATEGORY_MAP. */
+export const CONFIRMED_MEAL_CATEGORIES: ReadonlySet<string> = new Set([
+  'FOOD_AND_DRINK_COFFEE',
+  'FOOD_AND_DRINK_RESTAURANT',
+  'FOOD_AND_DRINK_FAST_FOOD',
+  'FOOD_AND_DRINK_VENDING_MACHINES',
+  'Food and Drink',
+]);
+
+export function isMealAt50Percent(category: string, taxYear: number | null, confirmed: boolean): boolean {
+  if (taxYear == null || !CONFIRMED_MEAL_CATEGORIES.has(category)) return false;
+  return taxYear >= (confirmed ? CONFIRMED_MEALS_50_FIRST_YEAR : UNCONFIRMED_MEALS_50_FIRST_YEAR);
+}
+
+/** Restaurant meals in 2021 and 2022 stay fully deductible. 2023 and later use the meals limit. */
+export function isRestaurantMealAt100Percent(category: string, taxYear: number | null): boolean {
+  return category === 'FOOD_AND_DRINK_RESTAURANT' && (taxYear === 2021 || taxYear === 2022);
+}
+
+/** Moved off the map into review. SERVICE_EDUCATION is not a Plaid code, so it is not in REVIEW_REQUIRED_PLAID_CODES. */
+const MOVED_AWAITING_SCHEDULE_C_LINE = new Set([
+  'SERVICE_EDUCATION',
+  'SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS',
+]);
+
+/** Review codes and the two moved categories have no Schedule C line until the user picks one. */
+export function isAwaitingScheduleCLine(category: string): boolean {
+  return REVIEW_REQUIRED_PLAID_CODES.has(category) || MOVED_AWAITING_SCHEDULE_C_LINE.has(category);
+}
+
+/**
+ * Real Plaid meal codes for tax year CATEGORY_MAP_EFFECTIVE_YEAR and later.
+ * Keys are v1 and v2 detailed codes. Sync does not request personal_finance_category_version
+ * (lib/plaid/sync-helper.ts), so either list can arrive.
+ * Restaurant, fast food, and vending machines are already on CATEGORY_MAP at this same line.
+ * Every other category keeps the key and line it already has.
+ */
+export const PLAID_BANK_SYNC_MAP: Record<string, CategoryMapEntry> = {
+  'FOOD_AND_DRINK_COFFEE': MEALS_LINE,
+  'FOOD_AND_DRINK_FAST_FOOD': MEALS_LINE,
+  'FOOD_AND_DRINK_RESTAURANT': MEALS_LINE,
+  'FOOD_AND_DRINK_VENDING_MACHINES': MEALS_LINE,
+};
+
+/** Category lines for tax year CATEGORY_MAP_EFFECTIVE_YEAR and later. Earlier years keep CATEGORY_MAP. */
+export const CATEGORY_MAP_FROM_2026: Record<string, CategoryMapEntry> = {
+  ...CATEGORY_MAP,
+  ...PLAID_BANK_SYNC_MAP,
+  ...Object.fromEntries(LEGACY_FOOD_CATEGORY_VALUES.map(value => [value, MEALS_LINE])),
+};
+
+/** Map for a tax year taken from the transaction date. A missing year keeps the earlier map. */
+export function categoryMapForTaxYear(year: number | null | undefined): Record<string, CategoryMapEntry> {
+  if (typeof year === 'number' && Number.isFinite(year) && year >= CATEGORY_MAP_EFFECTIVE_YEAR) return CATEGORY_MAP_FROM_2026;
+  return CATEGORY_MAP;
+}
 
 export interface ScheduleCTransactionLike {
   amount: number;
@@ -166,14 +394,18 @@ export function normalizeAmount(tx: ScheduleCTransactionLike): number {
 
 /** True if transaction counts as a business/deductible expense: confirmed or potential (business category + positive amount). */
 export function isBusinessExpense(tx: ScheduleCTransactionLike): boolean {
+  if (isAwaitingScheduleCLine(tx.category)) return false;
   if (tx.is_deductible === true) return true;
-  if (tx.is_deductible == null && BUSINESS_CATEGORY_KEYS.has(tx.category) && tx.amount > 0) return true;
+  const taxYear = resolveOtherExpensesYear(tx);
+  const onMap = isMealAt50Percent(tx.category, taxYear, false) || Object.hasOwn(categoryMapForTaxYear(taxYear), tx.category);
+  if (tx.is_deductible == null && onMap && tx.amount > 0) return true;
   return false;
 }
 
 /** confirmed-only filter: countable (posted, not superseded), server-confirmed, and not a tax-method placeholder category. */
 export function isConfirmedScheduleCExpense(tx: ScheduleCTransactionLike): boolean {
   return isCountableRecord(tx)
+    && !isAwaitingScheduleCLine(tx.category)
     && !(typeof tx.category === 'string' && tx.category.endsWith('_REVIEW_REQUIRED'))
     && isServerConfirmedDeduction(tx);
 }
@@ -217,7 +449,7 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
   // Superseded duplicates of an earlier reviewed record never reach either mode.
   const yearTransactions = transactions.filter((t) => {
     if (isSupersededRecord(t)) return false;
-    const y = safeTaxYear(t.date);
+    const y = resolveOtherExpensesYear(t);
     return y !== null && y.toString() === yearStr;
   });
 
@@ -243,11 +475,19 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
   };
 
   for (const tx of deductibleTransactions) {
-    const info = categoryMap[tx.category];
-    const rawLine = info ? info.line : otherExpensesLine(Number(yearStr));
-    const otherExpenses = rawLine === '27a' || rawLine === '27b';
-    const lineKey = otherExpenses ? otherExpensesLine(Number(yearStr)) : rawLine;
-    const lineName = otherExpenses || !info ? 'Other expenses' : info.name;
+    // Callers pass a year map. The transaction date still selects the line.
+    const recordYear = resolveOtherExpensesYear(tx);
+    if (recordYear == null || isAwaitingScheduleCLine(tx.category)) continue;
+    const fromDate = categoryMapForTaxYear(recordYear);
+    const activeMap = categoryMap === fromDate ? categoryMap : fromDate;
+    const meal = isMealAt50Percent(tx.category, recordYear, isServerConfirmedDeduction(tx)) ? MEALS_LINE : undefined;
+    const info = meal ?? activeMap[tx.category];
+    // A missing category is other expenses. 27a and 27b in the map are the same line.
+    // The transaction date selects the published code. From 2025 on that code is 27b. Line 27a is Form 7205.
+    const rawLine = info ? info.line : '27a';
+    const otherExpenses = !meal && (rawLine === '27a' || rawLine === '27b');
+    const lineKey = otherExpenses ? otherExpensesLine(recordYear) : rawLine;
+    const lineName = info && !otherExpenses ? info.name : 'Other expenses';
 
     if (!lineItems[lineKey]) {
       lineItems[lineKey] = {
@@ -262,14 +502,16 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
 
     if (mode === 'confirmed-only') {
       const cents = Math.round((tx.amount ?? 0) * 100); // signed cents
-      const deductibleCents = lineKey === '24b' ? halfCentsAwayFromZero(cents) : cents;
+      const deductibleCents = lineKey === '24b' && !isRestaurantMealAt100Percent(tx.category, recordYear)
+        ? halfCentsAwayFromZero(cents)
+        : cents;
       lineItems[lineKey].total += cents / 100;
       lineItems[lineKey].deductible += deductibleCents / 100;
     } else {
       const amount = normalizeAmount(tx);
       lineItems[lineKey].total += amount;
 
-      if (lineKey === '24b') {
+      if (lineKey === '24b' && !isRestaurantMealAt100Percent(tx.category, recordYear)) {
         lineItems[lineKey].deductible += amount * 0.5;
       } else {
         lineItems[lineKey].deductible += amount;

@@ -1,7 +1,7 @@
 import { readBankHistoryReviewSummary, type BankHistoryReviewSummary } from '@/lib/plaid/reconnect-summary';
 import { adminDb } from '@/lib/firebase/admin';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
-import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { CATEGORY_MAP, categoryMapForTaxYear } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { publishedOtherExpensesLine, resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
 import { BUSINESS_STANDARD_MILEAGE_RATES, businessMileageRateForDate, summarizeBusinessMileage } from '@/lib/tax-rules/mileage-rates';
@@ -219,8 +219,8 @@ export function buildEvidenceRecord(record: ExportRecord, context: { uid: string
     if (businessUse !== null && businessUse !== 100) advisories.push(`Mixed-use allocation of ${businessUse}% recorded. Keep the basis for the allocation.`);
   }
   const source: ReviewSource = record.review_source === 'ai_confirmed' || record.review_source === 'user_corrected' ? record.review_source : 'unknown';
-  const mappedLine = CATEGORY_MAP[category]?.line ?? null;
   const lineYear = resolveOtherExpensesYear(record);
+  const mappedLine = categoryMapForTaxYear(lineYear)[category]?.line ?? null;
   const publishedLine = typeof mappedLine === 'string' ? publishedOtherExpensesLine(mappedLine, lineYear) : null;
   const scheduleCLine = publishedLine && (publishedLine.needsReview || publishedLine.line !== mappedLine)
     ? publishedLine.line

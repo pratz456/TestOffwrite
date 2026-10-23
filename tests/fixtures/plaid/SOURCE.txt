@@ -1,0 +1,23 @@
+Plaid personal finance category taxonomy
+Retrieved: 2026-10-23
+
+v1 list, 104 detailed codes:
+https://plaid.com/documents/transactions-personal-finance-category-taxonomy.csv
+File: transactions-personal-finance-category-taxonomy.csv
+
+v2 list, 127 detailed codes:
+https://plaid.com/documents/pfc-taxonomy-all.csv
+File: pfc-taxonomy-all.csv
+
+Documentation:
+https://plaid.com/docs/api/products/transactions/
+
+The v2 file is the combined taxonomy. Its first data row is a note, not a category.
+Three detailed codes were renamed from v1 to v2:
+INCOME_WAGES to INCOME_SALARY
+INCOME_OTHER_INCOME to INCOME_OTHER
+TRANSFER_IN_CASH_ADVANCES_AND_LOANS to LOAN_DISBURSEMENTS_OTHER_DISBURSEMENT
+
+The v2 row OTHER_OTHER lists a v1 detailed cell of
+TRANSFER_IN_OTHER_TRANSFER_IN / TRANSFER_OUT_OTHER_TRANSFER_OUT.
+That slash string is not a category code. Both transfer codes remain their own rows.

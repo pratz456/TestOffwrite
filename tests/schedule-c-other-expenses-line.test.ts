@@ -40,7 +40,7 @@ function confirmed(year: number, category: string, amount: number, merchant: str
 
 function aggregated(year: number) {
   return aggregateScheduleC([
-    confirmed(year, 'SERVICE_EDUCATION', OTHER_EXPENSE_AMOUNT, 'OTHER-EXPENSE-MERCHANT'),
+    confirmed(year, 'SERVICE_MEMBERSHIPS', OTHER_EXPENSE_AMOUNT, 'OTHER-EXPENSE-MERCHANT'),
     confirmed(year, 'TRANSPORTATION_FUEL', FUEL_AMOUNT, 'FUEL-MERCHANT'),
     confirmed(year, 'FOOD_AND_DRINK_RESTAURANT', MEAL_AMOUNT, 'MEAL-MERCHANT'),
   ], String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
@@ -83,7 +83,7 @@ describe('Schedule C other expenses line follows the tax year', () => {
     expect(SUPPORTED_TAX_YEARS).toEqual([2024, 2025, 2026]);
     const record = {
       amount: OTHER_EXPENSE_AMOUNT,
-      category: 'SERVICE_EDUCATION',
+      category: 'SERVICE_MEMBERSHIPS',
       is_deductible: true as const,
       merchant_name: 'SAME-RECORD',
       id: 'same-record',
@@ -107,7 +107,7 @@ describe('Schedule C other expenses line follows the tax year', () => {
     for (const item of shown) {
       expect(item.other?.lineCode).toBe(expectedLine[item.year]);
       expect(item.form7205).toBeUndefined();
-      expect(item.csv).toContain(`SAME-RECORD,SERVICE_EDUCATION,${expectedLine[item.year]},${OTHER_EXPENSE_AMOUNT},`);
+      expect(item.csv).toContain(`SAME-RECORD,SERVICE_MEMBERSHIPS,${expectedLine[item.year]},${OTHER_EXPENSE_AMOUNT},`);
     }
     expect(shown[0].other?.deductible).toBe(shown[1].other?.deductible);
     expect(shown[1].other?.deductible).toBe(shown[2].other?.deductible);
@@ -130,7 +130,7 @@ describe('Schedule C other expenses line follows the tax year', () => {
       expect(meals).toMatchObject({ lineCode: '24b', lineName: 'Meals', deductible: MEAL_DEDUCTIBLE, total: MEAL_AMOUNT });
       expect(result.totalDeductible).toBeCloseTo(TOTAL, 2);
       const csv = generateScheduleCCSV(result.lineItemsArray, year);
-      expect(csv).toContain(`OTHER-EXPENSE-MERCHANT,SERVICE_EDUCATION,${line},${OTHER_EXPENSE_AMOUNT},`);
+      expect(csv).toContain(`OTHER-EXPENSE-MERCHANT,SERVICE_MEMBERSHIPS,${line},${OTHER_EXPENSE_AMOUNT},`);
       expect(csv).toContain(`FUEL-MERCHANT,TRANSPORTATION_FUEL,9,${FUEL_AMOUNT},`);
       expect(csv).toContain(`MEAL-MERCHANT,FOOD_AND_DRINK_RESTAURANT,24b,${MEAL_AMOUNT},`);
       expect(csv).not.toContain(`,${form7205},${OTHER_EXPENSE_AMOUNT},`);
@@ -179,14 +179,14 @@ describe('Schedule C other expenses line follows the tax year', () => {
       transactions: [{
         userId: 'owner', trans_id: 'edu', id: 'edu', exportReference: 'transaction-edu',
         date: `${year}-06-01`, amount: OTHER_EXPENSE_AMOUNT, iso_currency_code: 'USD',
-        merchant_name: 'OTHER-EXPENSE-MERCHANT', category: 'SERVICE_EDUCATION',
+        merchant_name: 'OTHER-EXPENSE-MERCHANT', category: 'SERVICE_MEMBERSHIPS',
         is_deductible: true, review_status: 'confirmed', review_source: 'user_corrected',
         reviewed_at: `${year}-06-02T00:00:00.000Z`, user_classification_reason: 'Course for the current business.',
       }],
       trips: [], receipts: [],
     }, new Date('2026-01-01T00:00:00.000Z'));
     expect(packet.deductions).toHaveLength(1);
-    expect(packet.deductions[0]).toMatchObject({ scheduleCLine: line, amount: OTHER_EXPENSE_AMOUNT, category: 'SERVICE_EDUCATION' });
+    expect(packet.deductions[0]).toMatchObject({ scheduleCLine: line, amount: OTHER_EXPENSE_AMOUNT, category: 'SERVICE_MEMBERSHIPS' });
     const csv = auditSupportPacketCSV(packet);
     expect(csv).toContain(line);
     expect(csv).toContain('80.25');
@@ -258,7 +258,7 @@ describe('Schedule C other expenses line follows the tax year', () => {
     const record = {
       id: 'missing-date',
       amount: OTHER_EXPENSE_AMOUNT,
-      category: 'SERVICE_EDUCATION',
+      category: 'SERVICE_MEMBERSHIPS',
       merchant_name: 'OTHER-EXPENSE-MERCHANT',
       schedule_c_line: '27a',
       ai_suggestion: { schedule_c_line: '27a', scheduleCLine: '27a' },
@@ -285,7 +285,7 @@ describe('Schedule C other expenses line follows the tax year', () => {
       id: `year-${year}`,
       amount: OTHER_EXPENSE_AMOUNT,
       date: `${year}-06-01`,
-      category: 'SERVICE_EDUCATION',
+      category: 'SERVICE_MEMBERSHIPS',
       merchant_name: 'YEAR-MERCHANT',
       schedule_c_line: '27a',
       is_deductible: true as const,
@@ -329,7 +329,7 @@ describe('Schedule C other expenses line follows the tax year', () => {
     const record = (date: string) => ({
       amount: OTHER_EXPENSE_AMOUNT,
       date,
-      category: 'SERVICE_EDUCATION',
+      category: 'SERVICE_MEMBERSHIPS',
       is_deductible: true as const,
       merchant_name: 'BOUNDARY',
       id: date,
@@ -351,7 +351,7 @@ describe('Schedule C other expenses line follows the tax year', () => {
       date: '2025-06-01',
       tax_year: 2024,
       taxYear: 2024,
-      category: 'SERVICE_EDUCATION',
+      category: 'SERVICE_MEMBERSHIPS',
       is_deductible: true as const,
       merchant_name: 'DATE-WINS',
       id: 'date-wins',
@@ -371,7 +371,7 @@ describe('Schedule C other expenses line follows the tax year', () => {
         id: `csv-${year}`,
         amount: OTHER_EXPENSE_AMOUNT,
         date: `${year}-06-01`,
-        category: 'SERVICE_EDUCATION',
+        category: 'SERVICE_MEMBERSHIPS',
         merchant_name: 'CSV-MERCHANT',
         schedule_c_line: '27a',
       });
@@ -409,7 +409,7 @@ describe('Schedule C other expenses line follows the tax year', () => {
   });
 
   it('hides the category other-expenses line when the explanation has no year', () => {
-    expect(scheduleCLineFor(education, null)).toBeNull();
+    expect(scheduleCLineFor({ category: 'dues_and_memberships', transaction_kind: 'expense', status: 'ok' } as never, null)).toBeNull();
   });
 
   it('hides a stored other-expenses label when the saved explanation has no year', () => {
@@ -422,14 +422,15 @@ describe('Schedule C other expenses line follows the tax year', () => {
   });
 
   it('shows 27b for a 2025 category line, so a year-blind shown line fails this check', () => {
-    expect(scheduleCLineFor(education, 2025)).toBe('Schedule C line 27b (Other expenses)');
+    expect(scheduleCLineFor({ category: 'dues_and_memberships', transaction_kind: 'expense', status: 'ok' } as never, 2025)).toBe('Schedule C line 27b (Other expenses)');
+    expect(scheduleCLineFor(education, 2025)).toBeNull();
   });
 
   it('a record with no date and tax_year 2025 is blank and flagged on every path', () => {
     const record = {
       id: 'tax-year-only',
       amount: OTHER_EXPENSE_AMOUNT,
-      category: 'SERVICE_EDUCATION',
+      category: 'SERVICE_MEMBERSHIPS',
       merchant_name: 'TAX-YEAR-ONLY',
       schedule_c_line: '27a',
       tax_year: 2025,
@@ -507,7 +508,7 @@ describe('Schedule C other expenses line follows the tax year', () => {
       id: `invalid-${date}`,
       amount: OTHER_EXPENSE_AMOUNT,
       date,
-      category: 'SERVICE_EDUCATION',
+      category: 'SERVICE_MEMBERSHIPS',
       merchant_name: 'INVALID-DATE',
       schedule_c_line: '27a',
       is_deductible: true as const,
@@ -532,7 +533,7 @@ describe('Schedule C other expenses line follows the tax year', () => {
     expect(record.schedule_c_line).toBe('27a');
   }
 
-  it('keeps safeYMD and tax year grouping when the line reader rejects the date', () => {
+  it('keeps safeYMD and leaves an invalid transaction date out of the tax year group', () => {
     expect(safeYMD('2024-13-45')).toBe('2024-13-45');
     expect(safeYMD('2024-06-01')).toBe('2024-06-01');
     expect(safeTaxYear('2024-13-45')).toBe(2024);
@@ -543,7 +544,7 @@ describe('Schedule C other expenses line follows the tax year', () => {
     const invalid = {
       amount: OTHER_EXPENSE_AMOUNT,
       date: '2024-13-45',
-      category: 'SERVICE_EDUCATION',
+      category: 'SERVICE_MEMBERSHIPS',
       is_deductible: true as const,
       review_status: 'confirmed' as const,
       merchant_name: 'INVALID-GROUP',
@@ -551,21 +552,20 @@ describe('Schedule C other expenses line follows the tax year', () => {
     };
     expect(resolveOtherExpensesYear(invalid)).toBeNull();
     const grouped = aggregateScheduleC([invalid], '2024', CATEGORY_MAP, { mode: 'confirmed-only' });
-    expect(grouped.lineItems['27a']).toMatchObject({ lineCode: '27a', deductible: OTHER_EXPENSE_AMOUNT });
+    expect(grouped.lineItems['27a']).toBeUndefined();
     expect(grouped.lineItems['27b']).toBeUndefined();
-    expect(grouped.totalDeductible).toBe(OTHER_EXPENSE_AMOUNT);
+    expect(grouped.totalDeductible).toBe(0);
     const valid = aggregateScheduleC([{ ...invalid, date: '2024-06-01', id: 'valid-group' }], '2024', CATEGORY_MAP, { mode: 'confirmed-only' });
     expect(valid.lineItems['27a']).toMatchObject({ lineCode: '27a', deductible: OTHER_EXPENSE_AMOUNT });
     expect(valid.totalDeductible).toBe(OTHER_EXPENSE_AMOUNT);
-    expect(generateScheduleCCSV(grouped.lineItemsArray, 2024)).toContain(',27a,80.25,');
+    expect(generateScheduleCCSV(grouped.lineItemsArray, 2024)).not.toContain(',27a,80.25,');
     expect(generateScheduleCCSV(valid.lineItemsArray, 2024)).toContain(',27a,80.25,');
     const taxDate = readFileSync('lib/schedule-c/taxDate.ts', 'utf8');
     const aggregate = readFileSync('lib/schedule-c/aggregate.ts', 'utf8');
     expect(taxDate).toContain('return s.slice(0, 10);');
     expect(taxDate).not.toContain('strictOtherExpensesDateYear');
-    expect(aggregate).toContain('safeTaxYear(t.date)');
-    expect(aggregate).not.toContain('strictOtherExpensesDateYear');
-    expect(aggregate).not.toContain('resolveOtherExpensesYear');
+    expect(aggregate).toContain('resolveOtherExpensesYear(t)');
+    expect(aggregate).not.toContain('safeTaxYear');
     expectBlankFlag('2024-13-45');
   });
 

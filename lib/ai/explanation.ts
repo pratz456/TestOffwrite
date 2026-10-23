@@ -6,7 +6,7 @@
  * the model never writes an amount, a rule or a tax figure the user sees.
  */
 import type { OutputType } from './analyzeTransaction';
-import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { CATEGORY_MAP, categoryMapForTaxYear } from '@/lib/schedule-c/aggregate';
 import { publishedOtherExpensesLine, readStoredScheduleCLineText, resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { reviewCategory } from '@/lib/transactions/ai-review-contract';
@@ -197,7 +197,7 @@ export function scheduleCLineFor(result: ExplainableResult, taxYear?: number | n
   const kind = result.transaction_kind ?? 'expense';
   if (kind !== 'expense' && kind !== 'unknown' || result.is_deductible === false) return null;
   const recorded = reviewCategory(result.category)?.recordedCategory;
-  const entry = recorded ? CATEGORY_MAP[recorded] : undefined;
+  const entry = recorded ? categoryMapForTaxYear(year)[recorded] : undefined;
   if (!entry) return null;
   const shown = shownLine(entry.line, year);
   if (!shown) return null;

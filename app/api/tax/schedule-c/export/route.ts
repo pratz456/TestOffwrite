@@ -9,7 +9,7 @@ import { maskOrganizerIdentifier } from '@/lib/tax-organizer/identifiers';
 import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
 import { reconcileBusinessIncome, IncomeReconciliationRequiredError } from '@/lib/tax-rules/business-income';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
-import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { aggregateScheduleC, categoryMapForTaxYear } from '@/lib/schedule-c/aggregate';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     if (profile.error) return NextResponse.json({ error: 'Could not load all export records. Please retry.' }, { status: 503 });
     const transactions = tx;
     const receipts = reconcileBusinessIncome(year, transactions.map(row => ({ ...row })), gross.docs.map(doc => ({ ...doc.data(), id: doc.id })), forms.docs.map(doc => ({ ...doc.data(), id: doc.id })), decisions);
-    const aggregate = aggregateScheduleC(transactions, String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
+    const aggregate = aggregateScheduleC(transactions, String(year), categoryMapForTaxYear(year), { mode: 'confirmed-only' });
     if (body.format === 'csv') return new NextResponse(generateScheduleCCSV(aggregate.lineItemsArray, year), {
       headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="Schedule_C_${year}_WriteOff.csv"`, 'Cache-Control': 'private, no-store' },
     });

@@ -1,4 +1,4 @@
-import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { categoryMapForTaxYear } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { publishedOtherExpensesLine, resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
@@ -74,7 +74,7 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
       return year != null ? scheduleCExportLine(line, year) : line;
     };
     const recordedLine = shownLine(record.schedule_c_line ?? record.scheduleC_line);
-    const mappedLine = shownLine(CATEGORY_MAP[category]?.line ?? '');
+    const mappedLine = shownLine(categoryMapForTaxYear(year)[category]?.line ?? '');
     const review = [!date && 'Missing/invalid date', amount === null && 'Missing/invalid amount',
       !record.iso_currency_code && !record.unofficial_currency_code && 'Currency not recorded',
       record.pending === true && 'Pending record; reconcile posted transaction',

@@ -1,5 +1,6 @@
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
-import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { categoryMapForTaxYear, isAwaitingScheduleCLine, isMealAt50Percent, isRestaurantMealAt100Percent } from '@/lib/schedule-c/aggregate';
+import { resolveOtherExpensesYear } from '@/lib/schedule-c/other-expenses-line';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { QuarterlyReviewRequiredError, QUARTERLY_REVIEW_MESSAGE } from './regular-estimated-payments';
 
@@ -33,7 +34,8 @@ export type QuarterlyTransactionLike = {
   is_deductible?: boolean | null; // confirmed true, or null/undefined for needs review, false for non-deductible
 };
 
-const BUSINESS_CATEGORIES = new Set(Object.keys(CATEGORY_MAP));
+const businessCategory = (category: string, taxYear: number | null, confirmed: boolean) =>
+  isMealAt50Percent(category, taxYear, confirmed) || Object.hasOwn(categoryMapForTaxYear(taxYear), category);
 
 const pad2 = (n: number): string => String(n).padStart(2, '0');
 
@@ -209,8 +211,9 @@ export function sumIncomeForQuarter(
   return { grossIncomeCents, grossIncome: grossIncomeCents / 100 };
 }
 
-function getScheduleCLineCodeFromCategory(category: string): string | null {
-  const entry = CATEGORY_MAP[category];
+function getScheduleCLineCodeFromCategory(category: string, taxYear: number | null, confirmed: boolean): string | null {
+  if (isMealAt50Percent(category, taxYear, confirmed)) return '24b';
+  const entry = categoryMapForTaxYear(taxYear)[category];
   return entry ? entry.line : null;
 }
 
@@ -226,24 +229,26 @@ function sumExpensesLikeForQuarter(
   let totalCents = 0;
   for (const tx of deduped) {
     if (!isPosted(tx)) continue;
-    if (!BUSINESS_CATEGORIES.has(tx.category)) continue;
-
     const localDate = getLocalTransactionDate(tx, userTimezone);
     if (!localDate) continue;
     if (getTaxYear(localDate) !== year) continue;
     if (getTaxQuarter(localDate) !== quarter) continue;
-
+    const taxYear = resolveOtherExpensesYear(tx);
+    if (isAwaitingScheduleCLine(tx.category)) continue;
     const isConfirmed = tx.is_deductible === true && !transactionNeedsTaxReview(tx);
     const isPotential = transactionNeedsTaxReview(tx);
 
     if (mode === 'confirmed' && !isConfirmed) continue;
     if (mode === 'potential' && !isPotential) continue;
+    if (!businessCategory(tx.category, taxYear, isConfirmed)) continue;
 
-    const lineCode = getScheduleCLineCodeFromCategory(tx.category);
+    const lineCode = getScheduleCLineCodeFromCategory(tx.category, taxYear, isConfirmed);
     if (!lineCode) continue;
 
     const signedCents = toCents(tx.amount ?? 0); // keep sign for credits/refunds offsets
-    const contributionCents = lineCode === '24b' ? halfCentsAwayFromZero(signedCents) : signedCents;
+    const contributionCents = lineCode === '24b' && !isRestaurantMealAt100Percent(tx.category, taxYear)
+      ? halfCentsAwayFromZero(signedCents)
+      : signedCents;
     totalCents += contributionCents;
   }
 
