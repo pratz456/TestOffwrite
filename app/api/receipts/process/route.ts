@@ -16,6 +16,8 @@ import {
   receiptBucket, receiptFormData, receiptMimeType, ReceiptRequestError,
   receiptSignatureMatches, safeReceiptName,
 } from '@/lib/firebase/receipt-security';
+import { placeReceiptDate } from '@/lib/receipts/receipt-date';
+import { safeYMD } from '@/lib/schedule-c/taxDate';
 import { transactionIdInput, transactionUpdatesInput } from '@/lib/transactions/client-updates';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
@@ -25,7 +27,10 @@ export const dynamic = 'force-dynamic';
 const manualReceiptInput = z.object({
   merchant: z.string().trim().min(1).max(500),
   amount: z.number().finite().positive(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value),
+  date: z.string().refine(value => {
+    const trimmed = value.trim();
+    return trimmed === '' || safeYMD(trimmed) === trimmed;
+  }),
   category: z.string().trim().max(200).default('other'),
   iso_currency_code: z.literal('USD').optional(),
 }).strict();
@@ -204,9 +209,8 @@ export async function POST(request: NextRequest) {
     if (attachTransactionId === null && (!Number.isFinite(receiptAmountAbs) || receiptAmountAbs <= 0)) {
       throw new ReceiptRequestError('Enter a positive receipt amount before saving', 422);
     }
-    if (attachTransactionId === null && !/^\d{4}-\d{2}-\d{2}$/.test(receiptData.date || '')) {
-      throw new ReceiptRequestError('Enter the receipt date before saving', 422);
-    }
+    // An unreadable scan stays unset. Do not refuse the save and do not invent a day.
+    const placedDate = placeReceiptDate(receiptData.date);
     const signedAmount = receiptType === 'income' ? -receiptAmountAbs : receiptAmountAbs; // app expects expenses positive
 
     const ocr_data = {
@@ -250,7 +254,8 @@ export async function POST(request: NextRequest) {
       amount: signedAmount,
       ...(manualReceipt?.iso_currency_code ? { iso_currency_code: manualReceipt.iso_currency_code } : {}),
       category: receiptType === 'income' ? 'income' : receiptData.category || 'other',
-      date: receiptData.date,
+      date: placedDate.date,
+      ...(placedDate.status ? { deductionStatus: placedDate.status } : {}),
       description: `Receipt: ${receiptData.merchant}`,
       notes: manualReceipt ? 'Receipt details confirmed manually.' : `Receipt created from OCR. OCR confidence: ${Math.round(receiptData.confidence * 100)}%.`,
       is_deductible: null,

@@ -45,6 +45,22 @@ describe('printed calendar days ignore the process time zone', () => {
     expect(safeYMD(printed)).toBeNull();
   });
 
+  it('keeps a date only for the one way cases in the listed set', () => {
+    const listed: [string, string | null][] = [
+      ['1/31/2025', '2025-01-31'],
+      ['31/12/2025', '2025-12-31'],
+      ['12/31/2025', '2025-12-31'],
+      ['2025-1-5', '2025-01-05'],
+      ['12/1/2025', null],
+      ['1/12/2025', null],
+      ['11/3/2026', null],
+      ['1/5/2025', null],
+      ['01/05/2025', null],
+      ['2025/13/01', null],
+    ];
+    for (const [printed, stored] of listed) expect(safeYMD(printed)).toBe(stored);
+  });
+
   it('reads a Date or epoch millisecond as the UTC calendar day of that instant', () => {
     const midnight = Date.UTC(2026, 0, 1);
     const justBefore = midnight - 1;

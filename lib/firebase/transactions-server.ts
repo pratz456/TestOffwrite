@@ -63,6 +63,7 @@ export interface Transaction {
   accountId?: string;
   user_id?: string;
   userId?: string;
+  deductionStatus?: 'Likely Deductible' | 'Possibly Deductible' | 'Non-Deductible' | 'Needs more information';
   analyzed?: boolean;
   analysis_status?: 'pending' | 'running' | 'completed' | 'failed';
   analysisStatus?: 'pending' | 'running' | 'completed' | 'failed';
@@ -134,7 +135,10 @@ function stripUndefinedDeep<T>(value: T): T {
 /** Normalize a single Firestore doc into Transaction shape */
 function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction {
   const data: any = doc.data();
-  const dateIso = parseDateToISO(data.date ?? data.created_at ?? data.updated_at);
+  // A blank receipt date stays blank. created_at is the upload time, not the tax day.
+  const dateIso = typeof data.date === 'string'
+    ? (data.date.trim() === '' ? '' : parseDateToISO(data.date))
+    : parseDateToISO(data.date ?? data.created_at ?? data.updated_at);
   const amount = typeof data.amount === 'number' ? data.amount : Number(data.amount) || 0;
 
   return {
@@ -410,7 +414,7 @@ export async function updateTransactionServerWithUserId(
     analysisCompletedAt?: Date;
 
     // New AI Analysis Fields
-    deductionStatus?: 'Likely Deductible' | 'Possibly Deductible' | 'Non-Deductible';
+    deductionStatus?: 'Likely Deductible' | 'Possibly Deductible' | 'Non-Deductible' | 'Needs more information';
     confidence?: number;
     reasoning?: string;
     irsPublication?: string;

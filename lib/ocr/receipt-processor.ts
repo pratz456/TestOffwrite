@@ -205,9 +205,9 @@ export class ReceiptProcessor {
         return match[0];
       }
     }
-    
-    // Default to today's date if no date found
-    return new Date().toISOString().split('T')[0];
+
+    // No printed day. Leave it unset; do not substitute today or the upload time.
+    return '';
   }
 
   private extractCategory(merchant: string, text: string): string {

@@ -27,8 +27,11 @@ describe('receipt review and manual recovery', () => {
   it.each(['', '0', '-1', 'NaN', 'Infinity'])('does not submit invalid amount %s', amount => {
     expect(() => reviewedReceiptData({ ...draft, amount })).toThrow('amount greater than zero');
   });
-  it.each(['', '2026-02-30', '2026-13-01', '2026-2-1', '2026-09-15T12:00:00Z'])('does not submit invalid date %s', date => {
+  it.each(['2026-02-30', '2026-13-01', '2026-2-1', '2026-09-15T12:00:00Z'])('does not submit invalid date %s', date => {
     expect(() => reviewedReceiptData({ ...draft, date })).toThrow('valid receipt date');
+  });
+  it('submits a blank date as unset', () => {
+    expect(reviewedReceiptData({ ...draft, date: ' ' }).date).toBe('');
   });
   it('requires a merchant and enforces the server text limits', () => {
     expect(() => reviewedReceiptData({ ...draft, merchant: ' ' })).toThrow('merchant');

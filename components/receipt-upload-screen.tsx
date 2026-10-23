@@ -101,9 +101,8 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
   const editManually = () => {
     if (!selectedFile || operationRef.current) return;
     if (!extractedData) {
-      const date = new Date().toISOString().slice(0, 10);
-      setDraft({ merchant: '', amount: '', date, category: 'other' });
-      setExtractedData({ merchant: '', amount: 0, date, category: 'other', confidence: 0, items: [], matchCandidates: [], suggestedReceiptType: 'expense', suggestedReceiptConfidence: 0 });
+      setDraft({ merchant: '', amount: '', date: '', category: 'other' });
+      setExtractedData({ merchant: '', amount: 0, date: '', category: 'other', confidence: 0, items: [], matchCandidates: [], suggestedReceiptType: 'expense', suggestedReceiptConfidence: 0 });
       setAttachmentChoice('create');
     }
     setIsEditing(true);
@@ -376,7 +375,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                       </div>
                       <div className="space-y-1">
                         <Label htmlFor="receipt-date">Date</Label>
-                        <Input id="receipt-date" type="date" value={draft.date} required
+                        <Input id="receipt-date" type="date" value={draft.date}
                           onChange={event => setDraft(value => ({ ...value, date: event.target.value }))} />
                       </div>
                     </div>
