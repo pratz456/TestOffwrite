@@ -359,6 +359,37 @@ describe('mileage vehicles, trip types, and sorting', () => {
     expect(fifthStandard.ok).toBe(false);
   });
 
+  it('five cars used one after another is allowed', () => {
+    let fleet: VehicleRecord[] = [];
+    for (let index = 0; index < 4; index += 1) {
+      const id = `past-${index}`;
+      fleet = [...fleet, blankVehicle(id, fleet.length)];
+      fleet = mustSave(fleet, id, { ownership: 'owned', method: 'standard_mileage', dateDisposed: '2019-12-31' });
+    }
+    fleet = [...fleet, blankVehicle('current', fleet.length)];
+    const saved = saveVehicle(fleet, 'current', { ownership: 'owned', method: 'standard_mileage', datePlacedInService: '2020-01-01' });
+    expect(saved.ok).toBe(true);
+    if (saved.ok) expect(saved.vehicles.find(vehicle => vehicle.id === 'current')?.method).toBe('standard_mileage');
+  });
+
+  it('five cars in service at the same time is refused', () => {
+    const open = Array.from({ length: 5 }, (_, index) => blankVehicle(`open-${index}`, index));
+    const undated = saveVehicle(open, 'open-4', { ownership: 'owned', method: 'standard_mileage' });
+    expect(undated.ok).toBe(false);
+    if (!undated.ok) expect(undated.reason).toBe(copy.fiveVehicles);
+
+    let dated: VehicleRecord[] = [];
+    for (let index = 0; index < 4; index += 1) {
+      const id = `dated-${index}`;
+      dated = [...dated, blankVehicle(id, dated.length)];
+      dated = mustSave(dated, id, { ownership: 'owned', method: 'standard_mileage', datePlacedInService: '2024-01-01' });
+    }
+    dated = [...dated, blankVehicle('dated-4', dated.length)];
+    const overlap = saveVehicle(dated, 'dated-4', { ownership: 'owned', method: 'standard_mileage', datePlacedInService: '2024-06-01' });
+    expect(overlap.ok).toBe(false);
+    if (!overlap.ok) expect(overlap.reason).toBe(copy.fiveVehicles);
+  });
+
   it('untyped and commute count zero, and home to a temporary work location typed business counts', () => {
     const home = trip({ id: 'home', startLocation: 'Home', endLocation: 'Site', miles: 12, vehicleId: 'v1', tripType: 'commute' });
     expect(countedMiles(trip({ id: 'open', businessPurpose: 'client meeting' }))).toBe(0);

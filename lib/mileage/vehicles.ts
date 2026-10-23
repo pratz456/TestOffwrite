@@ -308,14 +308,38 @@ export function vehicleInBusinessUse(vehicle: VehicleRecord): boolean {
   return vehicle.method !== 'unset' || vehicle.datePlacedInService !== '';
 }
 
-function businessUseCount(vehicles: readonly VehicleRecord[]): number {
-  return vehicles.filter(vehicleInBusinessUse).length;
+/** In service from datePlacedInService through dateDisposed. A missing start stays open, and overlaps, unless the car is disposed. */
+function serviceInterval(vehicle: Pick<VehicleRecord, 'datePlacedInService' | 'dateDisposed'>): { start: string | null; end: string | null } {
+  const start = vehicle.datePlacedInService || null;
+  const end = vehicle.dateDisposed || null;
+  if (!start && end) return { start: end, end };
+  return { start, end };
+}
+
+function servicePeriodsOverlap(
+  left: Pick<VehicleRecord, 'datePlacedInService' | 'dateDisposed'>,
+  right: Pick<VehicleRecord, 'datePlacedInService' | 'dateDisposed'>,
+): boolean {
+  const a = serviceInterval(left);
+  const b = serviceInterval(right);
+  if (a.end && b.start && a.end < b.start) return false;
+  if (b.end && a.start && b.end < a.start) return false;
+  return true;
+}
+
+function carsOverlapping(vehicles: readonly VehicleRecord[], subject: VehicleRecord): VehicleRecord[] {
+  return vehicles.filter(vehicle => servicePeriodsOverlap(vehicle, subject));
+}
+
+function businessUseCount(vehicles: readonly VehicleRecord[], subject: VehicleRecord): number {
+  return carsOverlapping(vehicles, subject).length;
 }
 
 function methodRuleReason(current: VehicleRecord, next: VehicleRecord, fleet: readonly VehicleRecord[]): string | null {
   const startedOnActual = current.firstBusinessMethod === 'actual_expense' || current.depreciationMethod === 'macrs';
+  const simultaneous = carsOverlapping(fleet, next);
   if (next.method === 'standard_mileage') {
-    if (businessUseCount(fleet) >= SIMULTANEOUS_STANDARD_MILEAGE_LIMIT) return MILEAGE_VEHICLE_COPY.fiveVehicles;
+    if (simultaneous.length >= SIMULTANEOUS_STANDARD_MILEAGE_LIMIT) return MILEAGE_VEHICLE_COPY.fiveVehicles;
     if (next.ownership === 'leased' && startedOnActual) return MILEAGE_VEHICLE_COPY.leaseWhole;
     // Actual expenses in the first business year include MACRS, section 179, and bonus depreciation.
     if (next.ownership !== 'leased' && startedOnActual) return MILEAGE_VEHICLE_COPY.macrsLock;
@@ -324,7 +348,7 @@ function methodRuleReason(current: VehicleRecord, next: VehicleRecord, fleet: re
     return MILEAGE_VEHICLE_COPY.leaseStay;
   }
   const enteredBusinessUse = !vehicleInBusinessUse(current) && vehicleInBusinessUse(next);
-  if (enteredBusinessUse && businessUseCount(fleet) >= SIMULTANEOUS_STANDARD_MILEAGE_LIMIT && fleet.some(vehicle => vehicle.method === 'standard_mileage')) {
+  if (enteredBusinessUse && businessUseCount(fleet, next) >= SIMULTANEOUS_STANDARD_MILEAGE_LIMIT && simultaneous.some(vehicle => vehicle.method === 'standard_mileage')) {
     return MILEAGE_VEHICLE_COPY.fiveVehicles;
   }
   return null;
