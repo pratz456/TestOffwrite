@@ -1,4 +1,5 @@
 import { Home, CreditCard, Eye, Sparkles, TrendingUp, Minus, FolderOpen, ClipboardCheck, Briefcase, PenLine, BarChart3, Calculator, ListChecks, CalendarDays, Settings, type LucideIcon } from 'lucide-react';
+import { filingNavName, PREPARER_NAV_RENAME } from '../copy/preparer-copy';
 
 export interface AppNavigationItem { name: string; href: string; icon: LucideIcon; description: string }
 
@@ -13,7 +14,7 @@ export const RECORD_NAVIGATION: AppNavigationItem[] = [
   { name: 'Income', href: '/protected?screen=income-tracking', icon: TrendingUp, description: 'Business income and 1099 records' },
   { name: 'Deductions', href: '/protected?screen=deductions-entry', icon: Minus, description: 'Health insurance, retirement and HSA' },
   { name: 'Categories', href: '/protected?screen=categories', icon: FolderOpen, description: 'Expense categories and rules' },
-  { name: 'Filing & exports', href: '/protected?screen=tax-filing-hub', icon: ClipboardCheck, description: 'Get your records ready and export them for your tax preparer' },
+  { name: filingNavName(PREPARER_NAV_RENAME), href: '/protected?screen=tax-filing-hub', icon: ClipboardCheck, description: 'Get your records ready and export them for your tax preparer' },
 ];
 
 export const TAX_TOOL_NAVIGATION: AppNavigationItem[] = [
