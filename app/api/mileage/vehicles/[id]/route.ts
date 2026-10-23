@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { saveUserVehicle } from '@/lib/firebase/vehicle-server';
-import { MILEAGE_VEHICLE_COPY } from '@/lib/mileage/vehicle-copy';
+import { MILEAGE_VEHICLE_COPY, mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import type { VehiclePatch } from '@/lib/mileage/vehicles';
 
 const yesNo = z.enum(['yes', 'no']).nullable();
@@ -33,6 +33,7 @@ export async function PATCH(
   try {
     const { user, error: authError } = await getAuthenticatedUser(request);
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!mileageVehicleCopyEnabled()) return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     const { id } = await params;
     if (!id) return NextResponse.json({ error: 'Vehicle id required' }, { status: 400 });
     const parsed = patchInput.safeParse(await request.json().catch(() => null));

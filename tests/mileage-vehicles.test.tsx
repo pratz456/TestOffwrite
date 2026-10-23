@@ -429,12 +429,14 @@ describe('mileage vehicles, trip types, and sorting', () => {
   });
 
   it('banner hides only when no trip is unsorted', () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
     expect(text(MileageUnsortedBanner({ copyEnabled: true, unsortedCount: 3 }))).toBe(copy.banner(3));
     expect(MileageUnsortedBanner({ copyEnabled: true, unsortedCount: 0 })).toBeNull();
     expect(MileageUnsortedBanner({ copyEnabled: false, unsortedCount: 4 })).toBeNull();
     const hidden = MileageUnsortedBanner({ copyEnabled: false, unsortedCount: 4 });
     expect(text(hidden)).toBe('');
     expect(text(hidden)).not.toContain('trips to sort');
+    vi.unstubAllEnvs();
   });
 
   it('new strings are hidden when the copy flag is off and shown when it is on', () => {
@@ -448,6 +450,7 @@ describe('mileage vehicles, trip types, and sorting', () => {
     vehicle.reviewItems = [{ id: 'legacy_method_disagreement', message: copy.methodDisagree }];
     const props = { vehicles: [vehicle], taxYear: 2026, onChange: vi.fn(), onAdd: vi.fn() };
     expect(text(VehicleCards({ copyEnabled: false, ...props }))).toBe('');
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
     const shown = VehicleCards({ copyEnabled: true, ...props });
     const shownText = text(shown);
     for (const sentence of [copy.yourCars, copy.addCar, copy.vehicleName, copy.deductionMethod, copy.ownedOrLeased, copy.dateFirstUsed, copy.dateSold, copy.odometerJan1, copy.odometerDec31, copy.partIVOffDuty, copy.partIVOtherCar, copy.partIVEvidence, copy.partIVWritten, copy.methodDisagree, copy.odometerReview, copy.legacyPercentage, copy.review]) {
@@ -468,6 +471,9 @@ describe('mileage vehicles, trip types, and sorting', () => {
       onTripVehicle: vi.fn(), onTripType: vi.fn(), onTripHomeChoice: vi.fn(),
     };
     expect(text(TripSortScreen({ copyEnabled: false, ...sortProps }))).toBe('');
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    expect(text(TripSortScreen({ copyEnabled: true, ...sortProps }))).toBe('');
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
     const sortText = text(TripSortScreen({ copyEnabled: true, ...sortProps }));
     for (const sentence of [copy.sortTitle, copy.pickTripType, copy.progress(0, 3), copy.repeatedTrips, copy.oneOffTrips, copy.business, copy.commute, copy.personal, copy.notSure, copy.homePrompt]) {
       expect(sortText).toContain(sentence);
@@ -475,6 +481,7 @@ describe('mileage vehicles, trip types, and sorting', () => {
     const pressed = walk(TripSortScreen({ copyEnabled: true, ...sortProps })).filter(node => node.props['aria-pressed'] === true);
     expect(pressed).toHaveLength(0);
     expect(mileageVehicleCopyCatalog(true).length).toBeGreaterThan(20);
+    vi.unstubAllEnvs();
   });
 
   it('11a five readers use the vehicle list for the tax year', () => {

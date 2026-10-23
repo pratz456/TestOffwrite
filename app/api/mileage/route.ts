@@ -5,6 +5,7 @@ import {
   getMileageTrips,
   createMileageTrip,
 } from '@/lib/firebase/mileage-server';
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 
 const mileageInput = z.object({
   userId: z.string().min(1),
@@ -82,9 +83,10 @@ export async function POST(request: NextRequest) {
     });
 
     if (error) {
+      const copyOn = mileageVehicleCopyEnabled() && error.status === 400 && Boolean(error.message);
       return NextResponse.json(
-        { error: error.status === 400 && error.message ? error.message : 'Failed to create mileage trip' },
-        { status: error.status === 400 ? 400 : 500 }
+        { error: copyOn ? error.message : 'Failed to create mileage trip' },
+        { status: copyOn ? 400 : 500 }
       );
     }
 

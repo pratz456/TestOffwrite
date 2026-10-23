@@ -1,5 +1,5 @@
 import React from 'react';
-import { MILEAGE_VEHICLE_COPY } from '@/lib/mileage/vehicle-copy';
+import { MILEAGE_VEHICLE_COPY, mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import type { HomeDestination, MileageTripFields, TripGroupView, TripType, VehiclePatch, VehicleRecord } from '@/lib/mileage/vehicles';
 import { VehicleCards } from './vehicle-cards';
 
@@ -128,7 +128,7 @@ export function MileageUnsortedBanner({
   unsortedCount: number;
   onSort?: () => void;
 }) {
-  if (!copyEnabled || unsortedCount < 1) return null;
+  if (!copyEnabled || !mileageVehicleCopyEnabled() || unsortedCount < 1) return null;
   const label = MILEAGE_VEHICLE_COPY.banner(unsortedCount);
   if (!onSort) return <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-foreground">{label}</p>;
   return (
@@ -187,7 +187,7 @@ export function TripSortScreen({
   onTripType: (tripId: string, tripType: TripType | 'unsure') => void;
   onTripHomeChoice: (tripId: string, choice: HomeDestination) => void;
 }) {
-  if (!copyEnabled) return null;
+  if (!copyEnabled || !mileageVehicleCopyEnabled()) return null;
   const copy = MILEAGE_VEHICLE_COPY;
   const renderGroup = (group: TripGroupView) => (
     <GroupCard

@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
+process.env.NEXT_PUBLIC_MILEAGE_VEHICLE_COPY = '1';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { VehicleCards } from '../components/mileage/vehicle-cards';

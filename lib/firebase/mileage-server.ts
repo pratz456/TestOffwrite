@@ -1,4 +1,4 @@
-import { MILEAGE_VEHICLE_COPY } from '@/lib/mileage/vehicle-copy';
+import { MILEAGE_VEHICLE_COPY, mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import {
   assignTrips,
   normalizeStoredTrip,
@@ -93,9 +93,10 @@ export async function createMileageTrip(
     const collectionRef = tripsCollection(input.userId);
     const existingSnap = await collectionRef.get();
     const existing = existingSnap.docs.map(doc => normalizeStoredTrip({ id: doc.id, ...doc.data() }));
-    const decision = tripCreateRecord(input, existing);
-    if (!decision.ok) return { data: null, error: { status: 400, message: decision.reason } };
-    if (decision.trip.vehicleId) {
+    const copyOn = mileageVehicleCopyEnabled();
+    const decision = tripCreateRecord(input, copyOn ? existing : []);
+    if (!decision.ok) return { data: null, error: { status: 400, message: copyOn ? decision.reason : 'Failed to create mileage trip' } };
+    if (copyOn && decision.trip.vehicleId) {
       const vehicle = await adminDb.collection('user_profiles').doc(input.userId).collection('vehicles').doc(decision.trip.vehicleId).get();
       if (!vehicle.exists) return { data: null, error: { status: 400, message: MILEAGE_VEHICLE_COPY.vehicleMissing } };
     }

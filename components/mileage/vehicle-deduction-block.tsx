@@ -3,10 +3,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { VehicleCards } from '@/components/mileage/vehicle-cards';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
-import { MILEAGE_VEHICLE_COPY } from '@/lib/mileage/vehicle-copy';
+import { MILEAGE_VEHICLE_COPY, mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import type { VehiclePatch, VehicleRecord } from '@/lib/mileage/vehicles';
 
 export function VehicleDeductionBlock({ userId, taxYear }: { userId: string; taxYear: number }) {
+  const copyEnabled = mileageVehicleCopyEnabled();
   const [vehicles, setVehicles] = useState<VehicleRecord[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState('');
@@ -23,7 +24,7 @@ export function VehicleDeductionBlock({ userId, taxYear }: { userId: string; tax
     }
   }, [userId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (copyEnabled) void load(); }, [copyEnabled, load]);
 
   const onChange = async (vehicleId: string, patch: VehiclePatch) => {
     const response = await makeAuthenticatedRequest(`/api/mileage/vehicles/${encodeURIComponent(vehicleId)}`, {
@@ -52,10 +53,11 @@ export function VehicleDeductionBlock({ userId, taxYear }: { userId: string; tax
     setVehicles(current => [...current, body.vehicle as VehicleRecord]);
   };
 
+  if (!copyEnabled) return null;
   return (
     <div className="space-y-2">
       {loadError ? <p role="alert" className="text-sm text-destructive">{loadError}</p> : null}
-      <VehicleCards copyEnabled vehicles={vehicles} taxYear={taxYear} errors={errors} onChange={onChange} onAdd={onAdd} />
+      <VehicleCards copyEnabled={copyEnabled} vehicles={vehicles} taxYear={taxYear} errors={errors} onChange={onChange} onAdd={onAdd} />
     </div>
   );
 }

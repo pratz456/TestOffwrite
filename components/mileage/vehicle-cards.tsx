@@ -1,5 +1,5 @@
 import React from 'react';
-import { MILEAGE_VEHICLE_COPY } from '@/lib/mileage/vehicle-copy';
+import { MILEAGE_VEHICLE_COPY, mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import {
   methodForYear,
   odometerForYear,
@@ -37,7 +37,7 @@ export function VehicleCards({
   onChange: (vehicleId: string, patch: VehiclePatch) => void;
   onAdd: () => void;
 }) {
-  if (!copyEnabled) return null;
+  if (!copyEnabled || !mileageVehicleCopyEnabled()) return null;
   const copy = MILEAGE_VEHICLE_COPY;
   return (
     <section className="space-y-3 rounded-xl border border-border bg-card p-4">
