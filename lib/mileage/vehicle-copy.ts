@@ -57,7 +57,7 @@ export const MILEAGE_VEHICLE_COPY = {
   sortFailed: 'Could not sort these trips.',
   invalidVehicleUpdate: 'Provide a valid car update.',
   invalidSort: 'Provide a valid trip sort.',
-  macrsLock: 'This car started with actual expenses and MACRS depreciation, so it cannot switch to the standard mileage rate.',
+  macrsLock: 'This car used actual expenses in its first business year, so it can\'t switch to the standard mileage rate.',
   ownedFirstYear: 'An owned car can use the standard mileage rate only when that rate was used in the first year the car was used for business.',
   leaseStay: 'A leased car on the standard mileage rate has to stay on it for the whole lease, including renewals.',
   leaseWhole: 'A leased car can use the standard mileage rate only when that rate is used for the whole lease, including renewals.',

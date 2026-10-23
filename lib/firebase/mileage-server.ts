@@ -128,6 +128,7 @@ export async function createMileageTrip(
 export async function assignMileageTrips(
   userId: string,
   updates: Array<{ tripId: string; vehicleId: string | null; tripType: TripType | null; homeDestination?: HomeDestination | null }>,
+  homeOffice?: { qualifyingUse?: string | null } | null,
 ): Promise<{ data: MileageTrip[] | null; error: MileageWriteError | null }> {
   try {
     if (updates.length < 1 || updates.length > 200) return { data: null, error: { status: 400, message: MILEAGE_VEHICLE_COPY.sortFailed } };
@@ -142,7 +143,7 @@ export async function assignMileageTrips(
     }
     let trips = snaps.map(snap => normalizeStoredTrip({ id: snap.id, ...snap.data() }));
     for (const update of updates) {
-      trips = assignTrips(trips, [update.tripId], update);
+      trips = assignTrips(trips, [update.tripId], update, homeOffice);
     }
     const batch = adminDb.batch();
     const updatedAt = new Date();

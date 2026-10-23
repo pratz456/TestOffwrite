@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { assignMileageTrips } from '@/lib/firebase/mileage-server';
+import { getHomeOfficeSettings } from '@/lib/firebase/settings-server';
 import { MILEAGE_VEHICLE_COPY, mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 
 const assignmentInput = z.object({
@@ -22,7 +23,8 @@ export async function POST(request: NextRequest) {
     const parsed = assignmentInput.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return NextResponse.json({ error: MILEAGE_VEHICLE_COPY.invalidSort }, { status: 400 });
     if (parsed.data.userId !== user.uid) return NextResponse.json({ error: 'Invalid or unauthorized userId' }, { status: 403 });
-    const { data, error } = await assignMileageTrips(parsed.data.userId, parsed.data.updates);
+    const { data: homeOffice } = await getHomeOfficeSettings(parsed.data.userId);
+    const { data, error } = await assignMileageTrips(parsed.data.userId, parsed.data.updates, homeOffice);
     if (error || !data) return NextResponse.json({ error: error?.message || MILEAGE_VEHICLE_COPY.sortFailed }, { status: error?.status || 500 });
     return NextResponse.json({ trips: data });
   } catch (error) {

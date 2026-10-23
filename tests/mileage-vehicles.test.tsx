@@ -255,6 +255,17 @@ describe('mileage vehicles, trip types, and sorting', () => {
     expect(started[0].methodByYear['2026']).toBeUndefined();
   });
 
+  it('actual expenses in the first business year block standard mileage even without MACRS', () => {
+    const started = mustSave([blankVehicle('car', 0)], 'car', { ownership: 'owned', method: 'actual_expense', taxYear: 2026 });
+    const section179OrBonus = [{ ...started[0], depreciationMethod: null }];
+    const blocked = saveVehicle(section179OrBonus, 'car', { method: 'standard_mileage', taxYear: 2027 });
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) expect(blocked.reason).toBe("This car used actual expenses in its first business year, so it can't switch to the standard mileage rate.");
+    expect(section179OrBonus[0].firstBusinessMethod).toBe('actual_expense');
+    expect(section179OrBonus[0].methodByYear['2026']).toBe('actual_expense');
+    expect(section179OrBonus[0].methodByYear['2027']).toBeUndefined();
+  });
+
   it('a car placed in service on July 1 stores that start reading date', () => {
     const placed = mustSave([blankVehicle('car', 0)], 'car', {
       datePlacedInService: '2026-07-01', taxYear: 2026, odometerStart: 41000, odometerEnd: 46000,
@@ -359,6 +370,26 @@ describe('mileage vehicles, trip types, and sorting', () => {
     expect(countedMiles(temporary)).toBe(12);
     expect(countedMiles(applyHomeDestination(home, 'regular_work'))).toBe(0);
     expect(countedMiles(applyHomeDestination(home, 'second_work'))).toBe(0);
+  });
+
+  it('a home to regular work trip stays commute when the home office is not the principal place of business', () => {
+    const home = trip({ id: 'home', startLocation: 'Home', endLocation: 'Office', miles: 8, vehicleId: 'v1' });
+    const assignment = { vehicleId: 'v1', tripType: 'commute' as const, homeDestination: 'regular_work' as const };
+    for (const qualifyingUse of [undefined, null, 'none', 'meet_clients', 'separate_structure'] as const) {
+      const [sorted] = assignTrips([home], [home.id], assignment, { qualifyingUse });
+      expect(sorted.tripType).toBe('commute');
+      expect(sorted.homeDestination).toBe('regular_work');
+      expect(countedMiles(sorted)).toBe(0);
+    }
+  });
+
+  it('a home to regular work trip stays unsorted when the home office is the principal place of business', () => {
+    const home = trip({ id: 'home', startLocation: 'Home', endLocation: 'Office', miles: 8, vehicleId: 'v1', tripType: 'commute' });
+    const [reviewed] = assignTrips([home], [home.id], { vehicleId: 'v1', tripType: 'commute', homeDestination: 'regular_work' }, { qualifyingUse: 'principal_place_of_business' });
+    expect(reviewed.tripType).toBeNull();
+    expect(reviewed.homeDestination).toBeNull();
+    expect(countedMiles(reviewed)).toBe(0);
+    expect(sortProgress([reviewed])).toMatchObject({ unsorted: 1, done: 0 });
   });
 
   it('type is never set from businessPurpose', () => {

@@ -317,8 +317,8 @@ function methodRuleReason(current: VehicleRecord, next: VehicleRecord, fleet: re
   if (next.method === 'standard_mileage') {
     if (businessUseCount(fleet) >= SIMULTANEOUS_STANDARD_MILEAGE_LIMIT) return MILEAGE_VEHICLE_COPY.fiveVehicles;
     if (next.ownership === 'leased' && startedOnActual) return MILEAGE_VEHICLE_COPY.leaseWhole;
-    if (next.ownership !== 'leased' && current.depreciationMethod === 'macrs') return MILEAGE_VEHICLE_COPY.macrsLock;
-    if (next.ownership !== 'leased' && current.firstBusinessMethod === 'actual_expense') return MILEAGE_VEHICLE_COPY.ownedFirstYear;
+    // Actual expenses in the first business year include MACRS, section 179, and bonus depreciation.
+    if (next.ownership !== 'leased' && startedOnActual) return MILEAGE_VEHICLE_COPY.macrsLock;
   }
   if (next.method === 'actual_expense' && (current.leasedStandardLock || (next.ownership === 'leased' && current.standardMileageSelected))) {
     return MILEAGE_VEHICLE_COPY.leaseStay;
@@ -533,8 +533,18 @@ export function tripStartsAtHome(startLocation: string): boolean {
   return value === 'home' || value.startsWith('home ') || value.startsWith('home,');
 }
 
-export function applyHomeDestination(trip: MileageTripFields, choice: HomeDestination): MileageTripFields {
+/** HomeOfficeFacts.qualifyingUse. Principal place of business is Rev. Rul. 99-7, holding 3. */
+export function homeOfficeIsPrincipalPlace(homeOffice: { qualifyingUse?: string | null } | null | undefined): boolean {
+  return homeOffice?.qualifyingUse === 'principal_place_of_business';
+}
+
+export function applyHomeDestination(
+  trip: MileageTripFields,
+  choice: HomeDestination,
+  homeOffice?: { qualifyingUse?: string | null } | null,
+): MileageTripFields {
   if (choice === 'temporary_work') return { ...trip, tripType: 'business', homeDestination: choice };
+  if (choice === 'regular_work' && homeOfficeIsPrincipalPlace(homeOffice)) return { ...trip, tripType: null, homeDestination: null };
   return { ...trip, tripType: 'commute', homeDestination: choice };
 }
 
@@ -548,12 +558,17 @@ export interface TripAssignment {
   homeDestination?: HomeDestination | null;
 }
 
-export function assignTrips(trips: readonly MileageTripFields[], tripIds: readonly string[], assignment: TripAssignment): MileageTripFields[] {
+export function assignTrips(
+  trips: readonly MileageTripFields[],
+  tripIds: readonly string[],
+  assignment: TripAssignment,
+  homeOffice?: { qualifyingUse?: string | null } | null,
+): MileageTripFields[] {
   const ids = new Set(tripIds);
   return trips.map(trip => {
     if (!ids.has(trip.id)) return trip;
     if (assignment.homeDestination) {
-      return { ...applyHomeDestination(trip, assignment.homeDestination), vehicleId: assignment.vehicleId };
+      return { ...applyHomeDestination(trip, assignment.homeDestination, homeOffice), vehicleId: assignment.vehicleId };
     }
     return {
       ...trip,
