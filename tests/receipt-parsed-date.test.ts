@@ -193,6 +193,9 @@ const TIERS: Array<[string, string, string]> = [
 ];
 const NO_DATE = [
   'Invoice date 12/15/2025\nDue 01/14/2026\nBalance due $400',
+  'Date: 12/31/2025\nSale 01/02/2026\nTotal $12.34',
+  'Sale ends 01/02/2026\n12/31/2025\nTotal $12.34',
+  'Ticket 1/2\nTotal $12.34',
   'Invoice Date 01/10/2026\nPayment Due 02/01/2026\nTotal $12.34',
   'Invoice Date 01/10/2026\nPayment Method: Visa\nDue 02/01/2026\nTotal $12.34',
   'Invoice date Jan 15, 2026\nPayment due Feb 14, 2026\nTotal $12.34',
@@ -242,7 +245,7 @@ const VERIFIED: Array<[string, string, string]> = [
   ['Order Date 12/29/2025\nDelivered on 01/05/2026\nTotal $12.34', '12/29/2025', '2025-12-29'],
   ['Delivered on 01/05/2026\nTotal $12.34', '01/05/2026', '2026-01-05'],
   ['Purchased 12/20/2025\nTicket Date 01/10/2026\nTotal $12.34', '12/20/2025', '2025-12-20'],
-  ['Date: 12/31/2025\nSale 01/02/2026\nTotal $12.34', '12/31/2025', '2025-12-31'],
+  ['Date: 12/31/2025\n01/02/2026\nTotal $12.34', '12/31/2025', '2025-12-31'],
   ['Ticket 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
   ['Ref 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
   ['Invoice # 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],

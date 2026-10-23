@@ -99,9 +99,10 @@ function allowsMonthPeriod(token: string, dotted: boolean): boolean {
  * date or directly after it. The gap may be spaces and : # , . - only. Phrases
  * in BRIDGE_SKIP_PHRASES may also have one bridge word before the date: Date,
  * on, by, until, or thru. Every other skip phrase keeps the strict gap.
- * Delivered, delivery, ticket, ref, and invoice # drop a date only when
- * another date remains. A non-bridge skip phrase followed only by the word
- * Date does the same, unless a real label such as "order date" sits on it.
+ * Delivered and delivery drop a date only when another date remains. Ticket,
+ * ref, and invoice # do that only when the date has a four-digit year; a short
+ * year stays a hard skip. A non-bridge skip phrase followed only by the word
+ * Date is also a fallback, unless a real label such as "order date" sits on it.
  */
 /** Only these skip phrases may bridge across Date, on, by, until, or thru. */
 const BRIDGE_SKIP_PHRASES = new Set([
@@ -125,8 +126,10 @@ const BRIDGE_SKIP_PHRASES = new Set([
   'delivered',
   'delivery',
 ]);
-/** These skips drop a date only when some other date is still left. A lone one stays. Table stays a hard skip. */
-const FALLBACK_SKIP_PHRASES = new Set(['delivered', 'delivery', 'ticket', 'ref', 'invoice #']);
+/** These skips drop a date only when some other date is still left. A lone one stays. */
+const ALWAYS_FALLBACK_SKIP_PHRASES = new Set(['delivered', 'delivery']);
+/** Fallback only beside a four-digit year. Ticket 4/5/26 and Ticket 1/2 stay hard skips. Table and offer stay hard skips. */
+const FOUR_DIGIT_FALLBACK_SKIP_PHRASES = new Set(['ticket', 'ref', 'invoice #']);
 const SKIP_PHRASES = [
   'returns accepted until',
   'estimated delivery date',
@@ -245,14 +248,26 @@ function phraseSkipsDate(line: string, dateStart: number, dateEnd: number, phras
   return adjacentMatchLength(line, dateStart, dateEnd, phrase, BRIDGE_SKIP_PHRASES.has(phrase)) > 0;
 }
 
+/** 01/15/2026 and Jan 15, 2026 count. 4/5/26 and 1/2 do not. */
+function dateHasFourDigitYear(raw: string): boolean {
+  return /^\d{4}\b/.test(raw) || /\b\d{4}$/.test(raw);
+}
+
+function phraseIsFallback(phrase: string, raw: string): boolean {
+  if (ALWAYS_FALLBACK_SKIP_PHRASES.has(phrase)) return true;
+  return FOUR_DIGIT_FALLBACK_SKIP_PHRASES.has(phrase) && dateHasFourDigitYear(raw);
+}
+
 /** A hard skip always drops the date. Fallback phrases match only when no hard skip does. */
 function dateIsHardSkipped(line: string, dateStart: number, dateEnd: number): boolean {
-  return SKIP_PHRASES.some(phrase => !FALLBACK_SKIP_PHRASES.has(phrase) && phraseSkipsDate(line, dateStart, dateEnd, phrase));
+  const raw = line.slice(dateStart, dateEnd);
+  return SKIP_PHRASES.some(phrase => !phraseIsFallback(phrase, raw) && phraseSkipsDate(line, dateStart, dateEnd, phrase));
 }
 
 function dateIsFallbackSkipped(line: string, dateStart: number, dateEnd: number): boolean {
-  return !dateIsHardSkipped(line, dateStart, dateEnd)
-    && SKIP_PHRASES.some(phrase => FALLBACK_SKIP_PHRASES.has(phrase) && phraseSkipsDate(line, dateStart, dateEnd, phrase));
+  if (dateIsHardSkipped(line, dateStart, dateEnd)) return false;
+  const raw = line.slice(dateStart, dateEnd);
+  return SKIP_PHRASES.some(phrase => phraseIsFallback(phrase, raw) && phraseSkipsDate(line, dateStart, dateEnd, phrase));
 }
 
 /** The word Date sitting directly in front of the numeric date, if the gap is only allowed characters. */
@@ -358,31 +373,9 @@ function dropUnpaidInvoice(text: string, candidates: TieredDate[], allCandidates
   return candidates;
 }
 
-/** Bare "Date:" is a stronger tier-2 mark than a word such as "Sale". */
-function bareDateWithColon(candidate: TieredDate): boolean {
-  const dateStart = candidate.line.indexOf(candidate.raw);
-  if (dateStart < 0) return false;
-  const dateEnd = dateStart + candidate.raw.length;
-  let winning = '';
-  let length = 0;
-  for (const label of LABEL_PHRASES) {
-    const size = adjacentMatchLength(candidate.line, dateStart, dateEnd, label.text);
-    if (size > length) {
-      length = size;
-      winning = label.text;
-    }
-  }
-  if (winning !== 'date') return false;
-  const wordStart = dateWordBefore(candidate.line, dateStart);
-  if (wordStart === null) return false;
-  return candidate.line.slice(wordStart + 'date'.length, dateStart).includes(':');
-}
-
 function datesInOneYear(candidates: TieredDate[]): TieredDate[] {
   const years = new Set(candidates.map(candidate => candidate.iso.slice(0, 4)));
-  if (years.size <= 1) return candidates;
-  const dated = candidates.filter(bareDateWithColon);
-  return dated.length === 1 ? dated : [];
+  return years.size > 1 ? [] : candidates;
 }
 
 function monthToken(raw: string): string | null {
