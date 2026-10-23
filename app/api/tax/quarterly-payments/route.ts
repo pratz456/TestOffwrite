@@ -3,7 +3,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb, FieldValue } from '@/lib/firebase/admin';
 import { getRecordedQuarterlyPayments } from '@/lib/firebase/quarterly-payments-server';
 import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
-import { getInstallmentDueDates } from '@/lib/tax-provider/quarterly-planner';
+import { assignInstallmentPeriod, getInstallmentDueDates } from '@/lib/tax-provider/quarterly-planner';
 import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 
 const QUARTER_DEADLINES: { quarter: number; month: number; day: number; nextYear?: boolean }[] = [
@@ -283,9 +283,12 @@ export async function POST(request: NextRequest) {
         }
         const priorPaid = !legacyRef && snapshot.exists ? roundMoney(Number(snapshot.data()?.paidAmount) || 0) : 0;
         const paidAmount = legacyRef ? roundMoney(amount) : roundMoney(priorPaid + amount);
+        const paidOn = effectiveDateFor(taxYearFor);
+        // The installment follows the payment date inside the tax year the payment is for.
+        const quarterForDate = assignInstallmentPeriod(paidOn, taxYearFor).quarter;
         const record = {
-          ...createDefaultPayment(q, taxYearFor),
-          quarter: q, year: taxYearFor, paidAmount, paidDate: effectiveDateFor(taxYearFor),
+          ...createDefaultPayment(quarterForDate, taxYearFor),
+          quarter: quarterForDate, year: taxYearFor, paidAmount, paidDate: paidOn,
           designatedTaxYear: storedDesignation,
           paymentType: applied ? 'prior_year_overpayment' as const : null,
           confirmationNumber: typeof confirmationNumber === 'string' ? confirmationNumber.slice(0, 200) : null,
