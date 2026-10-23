@@ -87,6 +87,14 @@ function monthFromName(token: string): number | null {
 }
 
 /**
+ * A trailing period is kept for Sept and for three letter names.
+ * A full name with a period is rejected in both orders.
+ */
+function allowsMonthPeriod(token: string, dotted: boolean): boolean {
+  return !dotted || token === 'sept' || token.length === 3;
+}
+
+/**
  * Read a written date by its parts. Slash and hyphen dates are US month/day order.
  * A leading four digit year stays ISO, including a timestamp. A two digit year is 20YY.
  * The result is kept only when it is a real calendar day.
@@ -109,17 +117,16 @@ function dateFromWrittenParts(value: string): string | null {
   const named = /^([A-Za-z]+)(\.)?\s+(\d{1,2}),?\s+(\d{4}|\d{2})$/.exec(value);
   if (named) {
     const token = named[1].toLowerCase();
-    const dotted = named[2] === '.';
-    // Sept is the four letter September abbreviation. A trailing period is
-    // kept for that form and for the three letter names, which base already read.
-    if (dotted && token !== 'sept' && token.length !== 3) return null;
+    if (!allowsMonthPeriod(token, named[2] === '.')) return null;
     const month = monthFromName(token);
     if (!month) return null;
     return calendarDay(writtenYear(named[4]), month, Number(named[3]));
   }
   const dayFirst = /^(\d{1,2})\s+([A-Za-z]+)(\.)?\s+(\d{4}|\d{2})$/.exec(value);
   if (dayFirst) {
-    const month = monthFromName(dayFirst[2]);
+    const token = dayFirst[2].toLowerCase();
+    if (!allowsMonthPeriod(token, dayFirst[3] === '.')) return null;
+    const month = monthFromName(token);
     if (!month) return null;
     return calendarDay(writtenYear(dayFirst[4]), month, Number(dayFirst[1]));
   }
@@ -284,12 +291,12 @@ export class ReceiptProcessor {
     // slice inside it. 2026-01-15T10:00:00Z must not become 26-01-15, and
     // 2012-01-15T09:00:00 must not become 12-01-15.
     const datePatterns = [
-      /\d{4}-\d{1,2}-\d{1,2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?/,
-      /\b\d{4}-\d{1,2}-\d{1,2}\b/,
-      /\d{1,2}\/\d{1,2}\/\d{2,4}/,
+      /(?<!\d)\d{4}-\d{1,2}-\d{1,2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?(?!\d)/,
+      /(?<!\d)\d{4}-\d{1,2}-\d{1,2}(?!\d)/,
+      /(?<!\d)\d{1,2}\/\d{1,2}\/\d{2,4}(?!\d)/,
       /(?<!\d)\d{1,2}-\d{1,2}-\d{2,4}(?!\d)/,
-      /\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{2,4}/,
-      /[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{2,4}/,
+      /(?<!\d)\d{1,2}[ \t]+[A-Za-z]{3,9}\.?[ \t]+\d{2,4}(?!\d)/,
+      /[A-Za-z]{3,9}\.?[ \t]+(?<!\d)\d{1,2},?[ \t]+\d{2,4}(?!\d)/,
     ];
     
     for (const pattern of datePatterns) {

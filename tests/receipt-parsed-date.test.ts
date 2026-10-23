@@ -56,7 +56,6 @@ const KEPT: Array<[string, string]> = [
   ['5 Sept 2026', '2026-09-05'],
   ['5 Sept. 2026', '2026-09-05'],
   ['05 January 2026', '2026-01-05'],
-  ['05 January. 2026', '2026-01-05'],
   ['01-15-2026', '2026-01-15'],
   ['01-15-26', '2026-01-15'],
   ['1-5-2026', '2026-01-05'],
@@ -75,7 +74,6 @@ const STREET: Array<[string, string]> = [
   ['sept. 5, 2026', '2026-09-05'],
   ['5 Jan. 2026', '2026-01-05'],
   ['5 Sept. 2026', '2026-09-05'],
-  ['05 January. 2026', '2026-01-05'],
   ['5 Jan 2026', '2026-01-05'],
   ['5 Sept 2026', '2026-09-05'],
   ['05 January 2026', '2026-01-05'],
@@ -95,7 +93,17 @@ const STREET: Array<[string, string]> = [
   ['Paid 2026-01-15T10:00:00Z', '2026-01-15'],
   ['2012-01-15T09:00:00', '2012-01-15'],
 ];
-const REFUSED = ['02/30/2026', '13/01/2026', 'garbage'];
+const REFUSED = ['02/30/2026', '13/01/2026', 'garbage', '05 January. 2026'];
+const NEIGHBORS: Array<[string, string]> = [
+  ['STORE\nDate: Jan 5, 2026\nJun 30 return deadline\nTotal $1', '2026-01-05'],
+  ['STORE\nDate: Jan 5, 2026\nDec 25 holiday hours\nTotal $1', '2026-01-05'],
+  ['STORE\nDate: Jan 5, 2026\nMar 12 2026 offer\nTotal $1', '2026-01-05'],
+  ['Date: Jan 5, 2026\nTotal 12.34', '2026-01-05'],
+  ['Date: Jan 5, 2026\nSubtotal 10.00', '2026-01-05'],
+  ['Jan 5, 2026 Store 12\nTotal $12.34', '2026-01-05'],
+  ['Sept 5, 2026 Reg 03\nTotal $12.34', '2026-09-05'],
+  ['Note 6\nJan 2026 sale\nDate: 5 Jan 2026\n12 items\nTotal $1', '2026-01-05'],
+];
 
 function reference(path: string): object {
   return {
@@ -151,7 +159,7 @@ describe('written receipt dates are read by parts', () => {
     expect(normalizeDateToISO(input)).toBe(iso);
   });
 
-  it.each(['02/30/2026', '13/01/2026', 'garbage', '', '2026-01-15abc', '2026-01-15T25:00:00', '02-30-2026'])('normalizes %s to null', input => {
+  it.each(['02/30/2026', '13/01/2026', 'garbage', '', '2026-01-15abc', '2026-01-15T25:00:00', '02-30-2026', '05 January. 2026', 'January. 5, 2026'])('normalizes %s to null', input => {
     expect(normalizeDateToISO(input)).toBeNull();
   });
 
@@ -219,6 +227,17 @@ describe('OCR save uses the printed calendar day', () => {
     expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({
       merchant_name: 'SYNTHETIC OFFICE STORE', amount: 25, date: iso,
     }));
+    expect((await response.json()).transaction.date).toBe(iso);
+  });
+
+  it.each(NEIGHBORS)('saves the printed day from OCR text %j', async (text, iso) => {
+    const extracted = extractDate(text);
+    expect(text.includes(extracted)).toBe(true);
+    expect(normalizeDateToISO(extracted)).toBe(iso);
+    worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({ date: iso }));
     expect((await response.json()).transaction.date).toBe(iso);
   });
 
