@@ -54,7 +54,12 @@ const decisionInput = z.object({
   overlapAmount: amountInput.optional(),
 });
 const updateInput = decisionInput.extend({ id: z.string().trim().min(1).max(200) });
-const englishOr = (items: string[]) => items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
+const englishOr = (items: string[]) => {
+  if (items.length < 2) return items.join('');
+  // The choice after "or" continues one sentence, so "A client" is not a new sentence.
+  const tail = items[items.length - 1].replace(/^A /, 'a ');
+  return `${items.slice(0, -1).join(', ')} or ${tail}`;
+};
 const invalidBody = () => {
   if (!guidedReconciliationV1Enabled()) return INVALID_DECISION_BODY;
   const types = [DECISION_LABELS.same_payments, DECISION_LABELS.separate_income, DECISION_LABELS.k_includes_fees];
