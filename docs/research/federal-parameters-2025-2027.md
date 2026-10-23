@@ -254,7 +254,7 @@ Derived from the formula (COMPUTED): 2025 cap fully phased down to $10,000 at MA
 
 | Item | 2025 | 2026 | 2027 | Source |
 |---|---|---|---|---|
-| OASDI contribution & benefit base (wage base) | $176,100 | $184,500 | **$192,300** — announced October 14, 2026. https://www.ssa.gov/oact/cola/cbb.html | SSA-CBB — VERIFIED |
+| OASDI contribution & benefit base (wage base) | $176,100 | $184,500 | **$192,300** — "For earnings in 2027, this base is $192,300." https://www.ssa.gov/oact/cola/cbb.html | SSA-CBB — VERIFIED |
 | OASDI rate employee / employer / SE | 6.2% / 6.2% / 12.4% | same | same (statutory) | SSA-CBB; USC §1401(a) — VERIFIED |
 | Max OASDI tax, employee | $10,918.20 (COMPUTED) | $11,439.00 | **$11,922.60** — SSA: wages at or above $192,300 contribute $11,922.60. https://www.ssa.gov/oact/cola/cbb.html | SSA-CBB — VERIFIED; 2025 computed 6.2% × $176,100 |
 | Medicare (HI) rate employee / employer / SE | 1.45% / 1.45% / 2.9% on all earnings (no cap) | same | same | USC §3101(b)(1), §1401(b)(1); SSA-CBB — VERIFIED |

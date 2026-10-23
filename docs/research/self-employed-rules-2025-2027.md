@@ -254,7 +254,7 @@ Computation:
 
 | Item | 2025 | 2026 | 2027 |
 |---|---|---|---|
-| Social Security wage base | **$176,100** | **$184,500** | **$192,300** — SSA contribution and benefit base, announced October 14, 2026. https://www.ssa.gov/oact/cola/cbb.html — VERIFIED |
+| Social Security wage base | **$176,100** | **$184,500** | **$192,300** — SSA contribution and benefit base. "For earnings in 2027, this base is $192,300." https://www.ssa.gov/oact/cola/cbb.html — VERIFIED |
 | Max OASDI on SE income (12.4%) | $21,836.40 | $22,878.00 | $23,845.20 (12.4% × $192,300) |
 | Medicare 2.9% | no cap | no cap | no cap |
 | Quarter of coverage | $1,810 | $1,890 | **$1,970** — https://www.ssa.gov/oact/COLA/QC.html — VERIFIED |
@@ -387,4 +387,4 @@ Sources: 2026 Form 1040-ES "What's New" (above); IRS Tax Topic 506 (referenced b
 | 2027 estimated-tax due dates | 2027 Form 1040-ES | Jan 2027 (rule-based dates computed above) |
 | 2026 Q3/Q4 and 2027 underpayment interest rates | Rev. Rul. (quarterly) | quarterly |
 
-Items **already published** for 2027: HSA/HDHP limits (Rev. Proc. 2026-24); Social Security wage base $192,300 (SSA contribution and benefit base, https://www.ssa.gov/oact/cola/cbb.html, announced October 14, 2026); quarter of coverage $1,970 (https://www.ssa.gov/oact/COLA/QC.html); GSA FY2027 CONUS per diem (standard lodging $113, M&IE $68); tips/car-loan/senior deductions remain in force through 2028 by statute; QBI, §179, bonus, standard deduction changes are permanent.
+Items **already published** for 2027: HSA/HDHP limits (Rev. Proc. 2026-24); Social Security wage base $192,300 (SSA contribution and benefit base, https://www.ssa.gov/oact/cola/cbb.html, "For earnings in 2027, this base is $192,300."); quarter of coverage $1,970 (https://www.ssa.gov/oact/COLA/QC.html); GSA FY2027 CONUS per diem (standard lodging $113, M&IE $68); tips/car-loan/senior deductions remain in force through 2028 by statute; QBI, §179, bonus, standard deduction changes are permanent.
