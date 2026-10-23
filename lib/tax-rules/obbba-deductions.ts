@@ -62,6 +62,11 @@ export const QUALIFIED_OVERTIME_LIMIT = 12500;
 export const QUALIFIED_OVERTIME_LIMIT_JOINT = 25000;
 /** §163(h)(4)(C)/(D): $10,000 interest limit; $200 per $1,000 (or fraction) of MAGI over $100,000 ($200,000 joint). */
 export const VEHICLE_LOAN_INTEREST_LIMIT = 10000;
+/**
+ * Schedule 1-A requires personal use above this percent. Exactly this percent is not enough.
+ * Primary source is pending confirmation.
+ */
+export const VEHICLE_SCHEDULE_1A_PERSONAL_USE_THRESHOLD = 50;
 export const VEHICLE_LOAN_PHASEOUT_THRESHOLD = 100000;
 export const VEHICLE_LOAN_PHASEOUT_THRESHOLD_JOINT = 200000;
 export const VEHICLE_LOAN_PHASEOUT_PER_THOUSAND = 200;
@@ -164,6 +169,7 @@ export const VEHICLE_BUSINESS_SHARE_NOTE = `${DRAFT_COPY}. Enter the vehicle bus
 /** Treas. Reg. 1.163-16(f)(1). Only a missing answer. An answer of no is $0 with no entry here. */
 export const VEHICLE_EXPECTED_PERSONAL_USE_NOTE = `${DRAFT_COPY}. This interest qualifies for Schedule 1-A only if the buyer expected more than 50% personal use on the loan date. WriteOff puts the business share on Schedule C. The same dollar is never counted in both places.`;
 const VEHICLE_EXPECTED_PERSONAL_USE_NO_REASON = `${DRAFT_COPY}. An answer of no leaves this interest off Schedule 1-A. WriteOff puts the business share on Schedule C line 16b. The same dollar is never counted in both places.`;
+const VEHICLE_ACTUAL_PERSONAL_USE_REASON = `${DRAFT_COPY}. Schedule 1-A requires personal use above ${VEHICLE_SCHEDULE_1A_PERSONAL_USE_THRESHOLD} percent. WriteOff puts the business share on Schedule C line 16b. The same dollar is never counted in both places.`;
 
 function readVehicleBusinessPercent(value: unknown): { state: 'unset' } | { state: 'invalid' } | { state: 'set'; value: number } {
   if (value === undefined || value === null || value === '') return { state: 'unset' };
@@ -381,8 +387,12 @@ export function calculateOBBBADeductions(input: OBBBADeductionInput): OBBBADeduc
       const personalShare = personalShareWithinInterest(lenderInterest, businessShare, roundedPercentShare(lenderInterest, 100 - businessPercent));
       result.scheduleCLine16b = businessShare;
       if (businessShare !== 0) lineItems.push({ line: '16b', amount: businessShare });
+      const personalPercent = 100 - businessPercent;
       const expectation = facts.vehicleExpectedPersonalUseOver50AtPurchase;
-      if (expectation === 'no') {
+      if (personalPercent <= VEHICLE_SCHEDULE_1A_PERSONAL_USE_THRESHOLD) {
+        // Actual personal use must be more than half. Line 16b already has the business share. Never throw.
+        result.vehicleLoanInterest = { ...none(VEHICLE_ACTUAL_PERSONAL_USE_REASON), amountReported: 0 };
+      } else if (expectation === 'no') {
         // A no is final: $0 on Schedule 1-A and no needs-more-information entry. Never throw.
         result.vehicleLoanInterest = { ...none(VEHICLE_EXPECTED_PERSONAL_USE_NO_REASON), amountReported: personalShare };
       } else if (expectation !== 'yes') {
