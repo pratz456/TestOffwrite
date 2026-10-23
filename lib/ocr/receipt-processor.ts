@@ -99,9 +99,9 @@ function allowsMonthPeriod(token: string, dotted: boolean): boolean {
  * date or directly after it. The gap may be spaces and : # , . - only. Phrases
  * in BRIDGE_SKIP_PHRASES may also have one bridge word before the date: Date,
  * on, by, until, or thru. Every other skip phrase keeps the strict gap.
- * Delivered and delivery drop a date only when another date remains.
- * A non-bridge skip phrase followed only by the word Date does the same,
- * unless a real label such as "order date" sits on that date.
+ * Delivered, delivery, ticket, ref, and invoice # drop a date only when
+ * another date remains. A non-bridge skip phrase followed only by the word
+ * Date does the same, unless a real label such as "order date" sits on it.
  */
 /** Only these skip phrases may bridge across Date, on, by, until, or thru. */
 const BRIDGE_SKIP_PHRASES = new Set([
@@ -125,8 +125,8 @@ const BRIDGE_SKIP_PHRASES = new Set([
   'delivered',
   'delivery',
 ]);
-/** These skips drop a date only when some other date is still left. A lone delivered or delivery date stays. */
-const FALLBACK_SKIP_PHRASES = new Set(['delivered', 'delivery']);
+/** These skips drop a date only when some other date is still left. A lone one stays. Table stays a hard skip. */
+const FALLBACK_SKIP_PHRASES = new Set(['delivered', 'delivery', 'ticket', 'ref', 'invoice #']);
 const SKIP_PHRASES = [
   'returns accepted until',
   'estimated delivery date',
@@ -245,12 +245,12 @@ function phraseSkipsDate(line: string, dateStart: number, dateEnd: number, phras
   return adjacentMatchLength(line, dateStart, dateEnd, phrase, BRIDGE_SKIP_PHRASES.has(phrase)) > 0;
 }
 
-/** A hard skip always drops the date. Delivered and delivery match only when no hard skip does. */
+/** A hard skip always drops the date. Fallback phrases match only when no hard skip does. */
 function dateIsHardSkipped(line: string, dateStart: number, dateEnd: number): boolean {
   return SKIP_PHRASES.some(phrase => !FALLBACK_SKIP_PHRASES.has(phrase) && phraseSkipsDate(line, dateStart, dateEnd, phrase));
 }
 
-function dateIsDeliverySkipped(line: string, dateStart: number, dateEnd: number): boolean {
+function dateIsFallbackSkipped(line: string, dateStart: number, dateEnd: number): boolean {
   return !dateIsHardSkipped(line, dateStart, dateEnd)
     && SKIP_PHRASES.some(phrase => FALLBACK_SKIP_PHRASES.has(phrase) && phraseSkipsDate(line, dateStart, dateEnd, phrase));
 }
@@ -309,7 +309,7 @@ function withoutAdjacentSkips(text: string, candidates: ReceiptDateCandidate[]):
     const { dateStart, dateEnd } = spanOf(text, candidate);
     if (dateIsHardSkipped(candidate.line, dateStart, dateEnd)) continue;
     const tiered = { ...candidate, tier: labelTier(candidate.line, dateStart, dateEnd) };
-    if (dateIsDeliverySkipped(candidate.line, dateStart, dateEnd) || dateIsSkipWordDate(candidate.line, dateStart, dateEnd)) deliveryOnly.push(tiered);
+    if (dateIsFallbackSkipped(candidate.line, dateStart, dateEnd) || dateIsSkipWordDate(candidate.line, dateStart, dateEnd)) deliveryOnly.push(tiered);
     else kept.push(tiered);
   }
   return kept.length > 0 ? kept : deliveryOnly;
@@ -358,9 +358,31 @@ function dropUnpaidInvoice(text: string, candidates: TieredDate[], allCandidates
   return candidates;
 }
 
+/** Bare "Date:" is a stronger tier-2 mark than a word such as "Sale". */
+function bareDateWithColon(candidate: TieredDate): boolean {
+  const dateStart = candidate.line.indexOf(candidate.raw);
+  if (dateStart < 0) return false;
+  const dateEnd = dateStart + candidate.raw.length;
+  let winning = '';
+  let length = 0;
+  for (const label of LABEL_PHRASES) {
+    const size = adjacentMatchLength(candidate.line, dateStart, dateEnd, label.text);
+    if (size > length) {
+      length = size;
+      winning = label.text;
+    }
+  }
+  if (winning !== 'date') return false;
+  const wordStart = dateWordBefore(candidate.line, dateStart);
+  if (wordStart === null) return false;
+  return candidate.line.slice(wordStart + 'date'.length, dateStart).includes(':');
+}
+
 function datesInOneYear(candidates: TieredDate[]): TieredDate[] {
   const years = new Set(candidates.map(candidate => candidate.iso.slice(0, 4)));
-  return years.size > 1 ? [] : candidates;
+  if (years.size <= 1) return candidates;
+  const dated = candidates.filter(bareDateWithColon);
+  return dated.length === 1 ? dated : [];
 }
 
 function monthToken(raw: string): string | null {
