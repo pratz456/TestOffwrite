@@ -9,7 +9,7 @@ export const EDITABLE_PROFILE_FIELDS = new Set([
   'sep_ira_contribution', 'solo_401k_contribution', 'hsa_contribution', 'simple_ira_contribution', 'business_income',
   'other_income', 'tax_bracket', 'professional_licenses', 'prior_year_tax', 'mailing_address',
   'prior_year_deductions', 'audit_history', 'tax_professional', 'documentation_habits',
-  'business_seasonality', 'multiple_locations', 'international_business', 'business_vehicle',
+  'business_seasonality', 'multiple_locations', 'international_business', 'business_vehicle', 'vehicles',
   'home_office_details', 'income_breakdown', 'businessEntityType', 'primaryWorkLocation',
   'workRelatedTravelPattern', 'annualIncomeRange',
   // Sign-up acknowledgments; the route validates the shape with parseConsentRecord

@@ -40,6 +40,8 @@ export interface VehicleRecord {
   ownership: VehicleOwnership;
   datePlacedInService: string;
   dateDisposed: string;
+  /** Date a personal car was converted to business use. Empty until that date is saved. */
+  dateConvertedToBusiness: string;
   odometerByYear: Record<string, OdometerReadings>;
   partIVByYear: Record<string, PartIVAnswers>;
   legacyBusinessUsePercentage: number | null;
@@ -82,6 +84,7 @@ export interface VehiclePatch {
   ownership?: VehicleOwnership;
   datePlacedInService?: string;
   dateDisposed?: string;
+  dateConvertedToBusiness?: string;
   /** When set after the year's start, the method is not stored. The year keeps one method. */
   methodEffectiveDate?: string;
   taxYear?: number;
@@ -109,6 +112,7 @@ export function blankVehicle(id: string, existingCount: number): VehicleRecord {
     ownership: 'not_answered',
     datePlacedInService: '',
     dateDisposed: '',
+    dateConvertedToBusiness: '',
     odometerByYear: {},
     partIVByYear: {},
     legacyBusinessUsePercentage: null,
@@ -121,15 +125,35 @@ export function blankVehicle(id: string, existingCount: number): VehicleRecord {
   };
 }
 
-export function odometerReadingDates(vehicle: Pick<VehicleRecord, 'datePlacedInService' | 'dateDisposed'>, taxYear: number): { startDate: string; endDate: string } {
+export function odometerReadingDates(
+  vehicle: Pick<VehicleRecord, 'datePlacedInService' | 'dateDisposed'> & { dateConvertedToBusiness?: string },
+  taxYear: number,
+): { startDate: string; endDate: string } {
   const jan1 = `${taxYear}-01-01`;
   const dec31 = `${taxYear}-12-31`;
   const placed = vehicle.datePlacedInService;
+  const converted = vehicle.dateConvertedToBusiness ?? '';
+  let startDate = jan1;
+  if (placed && placed > startDate) startDate = placed;
+  if (converted && converted > startDate) startDate = converted;
   const disposed = vehicle.dateDisposed;
   return {
-    startDate: placed && placed > jan1 ? placed : jan1,
+    startDate,
     endDate: disposed && disposed < dec31 ? disposed : dec31,
   };
+}
+
+/** Business miles divided by miles driven between the stored reading points. Months in service are not applied. */
+export function businessMilesShare(readings: Pick<OdometerReadings, 'start' | 'end'>, businessMiles: number): number | null {
+  if (readings.start === null || readings.end === null || readings.end <= readings.start) return null;
+  if (!Number.isFinite(businessMiles) || businessMiles < 0) return null;
+  return businessMiles / (readings.end - readings.start);
+}
+
+/** Operating cost times the mileage share. Months in service are not applied. */
+export function operatingCostBusinessPortion(operatingCost: number, share: number): number | null {
+  if (!Number.isFinite(operatingCost) || operatingCost < 0 || !Number.isFinite(share) || share < 0) return null;
+  return operatingCost * share;
 }
 
 export function methodForYear(vehicle: VehicleRecord, taxYear: number): DeductionMethod {
@@ -241,6 +265,7 @@ function validatePatch(patch: VehiclePatch): string | null {
   if (patch.ownership !== undefined && !OWNERSHIP.has(patch.ownership)) return MILEAGE_VEHICLE_COPY.invalidOwnership;
   if (patch.datePlacedInService !== undefined && !validDate(patch.datePlacedInService)) return MILEAGE_VEHICLE_COPY.invalidDate;
   if (patch.dateDisposed !== undefined && !validDate(patch.dateDisposed)) return MILEAGE_VEHICLE_COPY.invalidDate;
+  if (patch.dateConvertedToBusiness !== undefined && !validDate(patch.dateConvertedToBusiness)) return MILEAGE_VEHICLE_COPY.invalidDate;
   if (patch.methodEffectiveDate !== undefined && !validDate(patch.methodEffectiveDate)) return MILEAGE_VEHICLE_COPY.invalidMethodDate;
   if (patch.odometerStart !== undefined) {
     const reason = reading(patch.odometerStart);
@@ -274,6 +299,7 @@ function applyPatch(current: VehicleRecord, patch: VehiclePatch): VehicleRecord 
   if (patch.ownership !== undefined) next.ownership = patch.ownership;
   if (patch.datePlacedInService !== undefined) next.datePlacedInService = patch.datePlacedInService;
   if (patch.dateDisposed !== undefined) next.dateDisposed = patch.dateDisposed;
+  if (patch.dateConvertedToBusiness !== undefined) next.dateConvertedToBusiness = patch.dateConvertedToBusiness;
   const year = patch.taxYear === undefined ? null : String(patch.taxYear);
   if (year && (patch.odometerStart !== undefined || patch.odometerEnd !== undefined)) {
     const previous = next.odometerByYear[year] ?? { start: null, end: null, startDate: null, endDate: null };
@@ -282,7 +308,7 @@ function applyPatch(current: VehicleRecord, patch: VehiclePatch): VehicleRecord 
       end: patch.odometerEnd !== undefined ? patch.odometerEnd : previous.end,
     });
   }
-  if (patch.datePlacedInService !== undefined || patch.dateDisposed !== undefined) {
+  if (patch.datePlacedInService !== undefined || patch.dateDisposed !== undefined || patch.dateConvertedToBusiness !== undefined) {
     for (const [storedYear, readings] of Object.entries(next.odometerByYear)) {
       next.odometerByYear[storedYear] = stampReading(next, Number(storedYear), readings);
     }
@@ -299,7 +325,7 @@ function applyPatch(current: VehicleRecord, patch: VehiclePatch): VehicleRecord 
 }
 
 export function vehicleInBusinessUse(vehicle: VehicleRecord): boolean {
-  return vehicle.method !== 'unset' || vehicle.datePlacedInService !== '';
+  return vehicle.method !== 'unset' || vehicle.datePlacedInService !== '' || vehicle.dateConvertedToBusiness !== '';
 }
 
 function businessUseCount(vehicles: readonly VehicleRecord[]): number {
@@ -345,7 +371,11 @@ function withMethodHistory(current: VehicleRecord, next: VehicleRecord): Vehicle
   return result;
 }
 
-function stampReading(vehicle: Pick<VehicleRecord, 'datePlacedInService' | 'dateDisposed'>, taxYear: number, readings: Pick<OdometerReadings, 'start' | 'end'>): OdometerReadings {
+function stampReading(
+  vehicle: Pick<VehicleRecord, 'datePlacedInService' | 'dateDisposed'> & { dateConvertedToBusiness?: string },
+  taxYear: number,
+  readings: Pick<OdometerReadings, 'start' | 'end'>,
+): OdometerReadings {
   const dates = odometerReadingDates(vehicle, taxYear);
   return {
     start: readings.start,
@@ -366,7 +396,7 @@ export function saveVehicle(vehicles: readonly VehicleRecord[], vehicleId: strin
   if (invalid) return { ok: false, reason: invalid };
   const patched = applyPatch(current, patch);
   if (patch.method === undefined) {
-    const touchesRules = patch.ownership !== undefined || patch.datePlacedInService !== undefined;
+    const touchesRules = patch.ownership !== undefined || patch.datePlacedInService !== undefined || patch.dateConvertedToBusiness !== undefined;
     if (touchesRules) {
       const fleet = replaceVehicle(vehicles, patched);
       const reason = methodRuleReason(current, patched, fleet);
@@ -626,6 +656,7 @@ export function vehicleToDocument(vehicle: VehicleRecord): Record<string, unknow
     ownership: vehicle.ownership,
     datePlacedInService: vehicle.datePlacedInService,
     dateDisposed: vehicle.dateDisposed,
+    dateConvertedToBusiness: vehicle.dateConvertedToBusiness,
     odometerByYear: vehicle.odometerByYear,
     partIVByYear: vehicle.partIVByYear,
     legacyBusinessUsePercentage: vehicle.legacyBusinessUsePercentage,
@@ -700,6 +731,7 @@ export function vehicleFromDocument(id: string, data: Record<string, unknown> | 
     ownership,
     datePlacedInService: validDate(text(data.datePlacedInService)) ? text(data.datePlacedInService) : '',
     dateDisposed: validDate(text(data.dateDisposed)) ? text(data.dateDisposed) : '',
+    dateConvertedToBusiness: validDate(text(data.dateConvertedToBusiness)) ? text(data.dateConvertedToBusiness) : '',
     odometerByYear,
     partIVByYear,
     legacyBusinessUsePercentage: finiteNumber(data.legacyBusinessUsePercentage),

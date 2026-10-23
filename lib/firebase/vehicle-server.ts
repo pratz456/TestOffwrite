@@ -1,4 +1,4 @@
-import { MILEAGE_VEHICLE_COPY } from '@/lib/mileage/vehicle-copy';
+import { MILEAGE_VEHICLE_COPY, mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import {
   blankVehicle,
   planLegacyVehicle,
@@ -31,7 +31,7 @@ export async function readUserVehicleRecords(userId: string): Promise<VehicleRec
   }
 }
 
-/** Reads legacy profile fields and inserts vehicle 1 when needed. Never writes those fields. */
+/** Builds vehicle 1 from old profile fields for this read. Stored data is left unchanged. */
 export async function ensureUserVehicles(userId: string): Promise<{ data: VehicleRecord[]; error: { message: string } | null }> {
   try {
     const profileRef = adminDb.collection('user_profiles').doc(userId);
@@ -40,9 +40,7 @@ export async function ensureUserVehicles(userId: string): Promise<{ data: Vehicl
       const profileSnap = await tx.get(profileRef);
       const vehicleSnap = await tx.get(vehiclesRef);
       const existing = vehicleSnap.docs.map(doc => vehicleFromDocument(doc.id, doc.data()));
-      const plan = planLegacyVehicle(profileFrom(profileSnap.data()), existing);
-      if (plan.inserted) tx.set(vehiclesRef.doc(plan.inserted.id), vehicleToDocument(plan.inserted));
-      return plan.vehicles;
+      return planLegacyVehicle(profileFrom(profileSnap.data()), existing).vehicles;
     });
     return { data: vehicles, error: null };
   } catch (error) {
@@ -52,6 +50,7 @@ export async function ensureUserVehicles(userId: string): Promise<{ data: Vehicl
 }
 
 export async function addUserVehicle(userId: string): Promise<{ data: VehicleRecord | null; error: { message: string; status: number } | null }> {
+  if (!mileageVehicleCopyEnabled()) return { data: null, error: { message: MILEAGE_VEHICLE_COPY.addFailed, status: 403 } };
   try {
     const profileRef = adminDb.collection('user_profiles').doc(userId);
     const vehiclesRef = profileRef.collection('vehicles');
@@ -78,6 +77,7 @@ export async function saveUserVehicle(
   vehicleId: string,
   patch: VehiclePatch,
 ): Promise<{ data: VehicleRecord | null; error: { message: string; status: number } | null }> {
+  if (!mileageVehicleCopyEnabled()) return { data: null, error: { message: MILEAGE_VEHICLE_COPY.saveFailed, status: 403 } };
   try {
     const profileRef = adminDb.collection('user_profiles').doc(userId);
     const vehiclesRef = profileRef.collection('vehicles');
