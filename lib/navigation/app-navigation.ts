@@ -13,7 +13,7 @@ export const RECORD_NAVIGATION: AppNavigationItem[] = [
   { name: 'Income', href: '/protected?screen=income-tracking', icon: TrendingUp, description: 'Business income and 1099 records' },
   { name: 'Deductions', href: '/protected?screen=deductions-entry', icon: Minus, description: 'Health insurance, retirement and HSA' },
   { name: 'Categories', href: '/protected?screen=categories', icon: FolderOpen, description: 'Expense categories and rules' },
-  { name: 'Filing & exports', href: '/protected?screen=tax-filing-hub', icon: ClipboardCheck, description: 'Prepare and export for filing' },
+  { name: 'Filing & exports', href: '/protected?screen=tax-filing-hub', icon: ClipboardCheck, description: 'Get your records ready and export them for your tax preparer' },
 ];
 
 export const TAX_TOOL_NAVIGATION: AppNavigationItem[] = [
