@@ -23,7 +23,7 @@ vi.mock('firebase/firestore', () => ({
 }));
 vi.mock('@/lib/firebase/client', () => ({ db: { kind: 'synthetic' } }));
 
-import { createTransaction, updateTransaction } from '@/lib/firebase/transactions';
+import { updateTransaction } from '@/lib/firebase/transactions';
 
 beforeEach(() => {
   firestore.stored = null;
@@ -36,26 +36,6 @@ beforeEach(() => {
     data: () => firestore.stored,
   }));
   firestore.updateDoc.mockReset();
-});
-
-describe('client transaction create stores a calendar day', () => {
-  it.each([
-    ['1/31/2025', '2025-01-31'],
-    ['2025-1-5', '2025-01-05'],
-    ['Jan 1, 2026', '2026-01-01'],
-    ['2026-01-01', '2026-01-01'],
-  ])('writes %s as %s', async (printed, stored) => {
-    const result = await createTransaction('synthetic-owner', 'manual', {
-      merchant_name: 'Synthetic Cafe',
-      amount: 18.5,
-      date: printed,
-      trans_id: 'synthetic-tx',
-    });
-    expect(result.error).toBeNull();
-    expect(firestore.setDoc).toHaveBeenCalledTimes(1);
-    expect(firestore.stored?.date).toBe(stored);
-    expect(result.data?.date).toBe(stored);
-  });
 });
 
 describe('client transaction update does not write a date', () => {

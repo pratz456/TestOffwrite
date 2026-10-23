@@ -92,6 +92,25 @@ describe('editing a receipt preserves the chosen bank attachment', () => {
     expect(JSON.parse(String(commits[0].get('receiptData'))).amount).toBe(125.5);
     expect(commits[0].get('uploadTimeZone')).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
   });
+  it('shows that a USD numeric date was read as month then day', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = init?.body as FormData;
+      if (body.get('mode') === 'commit') {
+        commits.push(body);
+        return Response.json({ transaction: { id: 'saved', amount: 10 }, receiptUrl: '/api/receipts/private' });
+      }
+      return Response.json({ ocrResult: { merchant: 'Cafe', amount: 10, date: '2026-05-01', category: 'other', confidence: 0.9, dateOrderAssumed: 'month_day' }, matchCandidates: [] });
+    }));
+    selectImage();
+    await button(render(), 'Process Receipt').props.onClick();
+    expect(text(render())).toContain('month then day');
+    button(render(), 'Edit Manually').props.onClick();
+    expect(text(render())).toContain('month then day');
+    await button(render(), 'Confirm & Save').props.onClick();
+    const saved = JSON.parse(String(commits.at(-1)?.get('receiptData')));
+    expect(saved.dateOrderAssumed).toBe('month_day');
+    expect(saved.date).toBe('2026-05-01');
+  });
   it('sends the browser time zone with the receipt scan', async () => {
     const scans: FormData[] = [];
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {

@@ -1,4 +1,3 @@
-import { safeYMD } from '@/lib/schedule-c/taxDate';
 import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { AiExplanation } from '@/lib/transactions/review-proposals';
@@ -455,12 +454,8 @@ export async function createTransaction(
     const transId = transactionData.trans_id || `trans_${Date.now()}`;
     const docRef = doc(db, "user_profiles", userId, "accounts", accountId, "transactions", transId);
 
-    const rawDate = transactionData.date;
-    const parsed = typeof rawDate === 'string' && rawDate.trim() !== '' ? safeYMD(rawDate) : null;
-    const normalized = parsed ? { ...transactionData, date: parsed } : transactionData;
-
     const newTransaction = {
-      ...normalized,
+      ...transactionData,
       trans_id: transId,
       userId: userId,
       account_id: accountId,

@@ -8,7 +8,7 @@ import { auth } from '@/lib/firebase/client';
 import type { ReceiptMatchCandidate } from '@/lib/ocr/receipt-processor';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { browserUploadTimeZone, receiptCommitForm, type ReceiptDraft } from '@/lib/receipts/receipt-review';
+import { browserUploadTimeZone, receiptCommitForm, type DateOrderAssumed, type ReceiptDraft } from '@/lib/receipts/receipt-review';
 
 interface ReceiptUploadScreenProps {
   user: {
@@ -38,6 +38,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
     merchant: string;
     amount: number; // positive only (sign decided at commit time)
     date: string;
+    dateOrderAssumed?: DateOrderAssumed;
     category: string;
     confidence: number;
     items: any[];
@@ -153,13 +154,15 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
       setReceiptType(suggestedReceiptType);
       setAttachmentChoice(shouldAttach ? 'attach' : 'create');
       setSelectedCandidateTransId(shouldAttach && topCandidate ? topCandidate.trans_id : null);
-      setDraft({ merchant: String(ocr.merchant || ''), amount: String(ocr.amount ?? ''), date: String(ocr.date || ''), category: String(ocr.category || 'other') });
+      const dateOrderAssumed: DateOrderAssumed | undefined = ocr.dateOrderAssumed === 'month_day' ? 'month_day' : undefined;
+      setDraft({ merchant: String(ocr.merchant || ''), amount: String(ocr.amount ?? ''), date: String(ocr.date || ''), category: String(ocr.category || 'other'), dateOrderAssumed });
       setIsEditing(false);
 
       setExtractedData({
         merchant: ocr.merchant || 'Unknown Merchant',
         amount: Number(ocr.amount || 0),
         date: ocr.date || '',
+        dateOrderAssumed,
         category: ocr.category || 'other',
         confidence: Number(ocr.confidence || 0),
         items: ocr.items || [],
@@ -378,7 +381,8 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                       <div className="space-y-1">
                         <Label htmlFor="receipt-date">Date</Label>
                         <Input id="receipt-date" type="date" value={draft.date} required
-                          onChange={event => setDraft(value => ({ ...value, date: event.target.value }))} />
+                          onChange={event => setDraft(value => ({ ...value, date: event.target.value, dateOrderAssumed: undefined }))} />
+                        {draft.dateOrderAssumed === 'month_day' ? <p className="text-xs text-muted-foreground">This date was read as month then day. Check it against the receipt.</p> : null}
                       </div>
                     </div>
                     <div className="space-y-1">
@@ -390,7 +394,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                     <div><span className="text-sm font-medium text-foreground">Merchant</span><p className="text-foreground font-medium">{draft.merchant || 'Needs review'}</p></div>
                     <div className="grid grid-cols-2 gap-4">
                       <div><span className="text-sm font-medium text-foreground">Amount (USD)</span><p className="text-foreground font-medium">${draft.amount || '0'}</p></div>
-                      <div><span className="text-sm font-medium text-foreground">Date</span><p className="text-foreground font-medium">{draft.date}</p></div>
+                      <div><span className="text-sm font-medium text-foreground">Date</span><p className="text-foreground font-medium">{draft.date}</p>{draft.dateOrderAssumed === 'month_day' ? <p className="text-xs text-muted-foreground">This date was read as month then day. Check it against the receipt.</p> : null}</div>
                     </div>
                     <div><span className="text-sm font-medium text-foreground">Category</span><p className="text-foreground font-medium">{draft.category}</p></div>
                   </>}

@@ -17,6 +17,7 @@ export interface Transaction {
   tax_review_required?: boolean;
   deductionStatus?: string;
   uploadTimeZone?: string;
+  dateOrderAssumed?: 'month_day';
   id: string;
   trans_id: string;
   merchant_name: string;

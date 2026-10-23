@@ -28,6 +28,7 @@ const manualReceiptInput = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value),
   category: z.string().trim().max(200).default('other'),
   iso_currency_code: z.literal('USD').optional(),
+  dateOrderAssumed: z.literal('month_day').optional(),
 }).strict();
 
 function receiptResponse(body: unknown, status = 200) {
@@ -208,6 +209,7 @@ export async function POST(request: NextRequest) {
           merchant: receiptData.merchant,
           amount: receiptData.amount, // positive only; sign decided at commit time
           date: receiptData.date,
+          ...(receiptData.dateOrderAssumed === 'month_day' ? { dateOrderAssumed: 'month_day' as const } : {}),
           category: receiptData.category || 'other',
           confidence: receiptData.confidence,
           items: receiptData.items || [],
@@ -278,6 +280,7 @@ export async function POST(request: NextRequest) {
       notes: manualReceipt ? 'Receipt details confirmed manually.' : `Receipt created from OCR. OCR confidence: ${Math.round(receiptData.confidence * 100)}%.`,
       is_deductible: null,
       ...(undated ? { deductionStatus: 'Needs more information', tax_review_required: true } : {}),
+      ...(!undated && receiptData.dateOrderAssumed === 'month_day' ? { dateOrderAssumed: 'month_day' as const } : {}),
       ...(uploadTimeZone ? { uploadTimeZone } : {}),
       analysis_status: 'pending',
       source: 'receipt',

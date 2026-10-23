@@ -4,6 +4,8 @@ export interface ReceiptData {
   merchant: string;
   amount: number;
   date: string;
+  /** Set when a USD or US receipt used month/day for a numeric date whose two parts are both 12 or under. */
+  dateOrderAssumed?: 'month_day';
   category?: string;
   confidence: number;
   rawText: string;
@@ -483,6 +485,28 @@ function dateFromWrittenParts(value: string): string | null {
   return null;
 }
 
+/** Slash or hyphen day with both parts from 1 through 12. The year in the token is the receipt year. */
+function ambiguousNumericDate(value: string): boolean {
+  const match = /^(\d{1,2})[/-](\d{1,2})[/-](\d{2}|\d{4})$/.exec(value);
+  if (!match) return false;
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  return month >= 1 && month <= 12 && day >= 1 && day <= 12;
+}
+
+function usReceiptSignals(text: string): boolean {
+  return /\$/.test(text) || /\bUSD\b/i.test(text) || /\bUSA\b/.test(text) || /United States/i.test(text);
+}
+
+function nonUsReceiptSignals(text: string): boolean {
+  return /[€£¥]|\b(?:EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|TRY|RUB|AED|SAR|ILS)\b/i.test(text);
+}
+
+/** A non US receipt is one with a foreign currency signal and no USD or US signal. */
+function nonUsReceipt(text: string): boolean {
+  return !usReceiptSignals(text) && nonUsReceiptSignals(text);
+}
+
 export class ReceiptProcessor {
   private static instance: ReceiptProcessor;
   private worker: Tesseract.Worker | null = null;
@@ -535,6 +559,11 @@ export class ReceiptProcessor {
       
       const processingTime = Date.now() - startTime;
       
+      const rawPrinted = receiptData.date;
+      const isoDate = this.normalizeDateToISO(rawPrinted, userTimeZone) || '';
+      const dateOrderAssumed = typeof rawPrinted === 'string' && isoDate && usReceiptSignals(text) && ambiguousNumericDate(rawPrinted)
+        ? 'month_day' as const
+        : undefined;
       return {
         success: true,
         data: {
@@ -542,7 +571,8 @@ export class ReceiptProcessor {
           amount: receiptData.amount || 0,
           // An unreadable date stays blank. A Date or a timestamp uses the upload zone,
           // then the shared day in Pacific/Pago_Pago and America/St_Thomas.
-          date: this.normalizeDateToISO(receiptData.date, userTimeZone) || '',
+          date: isoDate,
+          ...(dateOrderAssumed ? { dateOrderAssumed } : {}),
           category: receiptData.category,
           items: receiptData.items,
           confidence: confidence / 100,
@@ -671,6 +701,8 @@ export class ReceiptProcessor {
     for (const hit of longest.values()) {
       const month = monthToken(hit.raw);
       if (month !== null && monthFromName(month) === null) continue;
+      // A non US receipt does not guess month/day when both numeric parts are 12 or under.
+      if (nonUsReceipt(text) && ambiguousNumericDate(hit.raw)) continue;
       const iso = this.normalizeDateToISO(hit.raw);
       if (!iso || !purchaseYearAllowed(iso)) continue;
       candidates.push({ raw: hit.raw, index: hit.index, iso, line: lineAt(text, hit.index) });
