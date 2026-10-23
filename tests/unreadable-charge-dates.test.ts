@@ -21,7 +21,10 @@ function needsMoreInformationCount(rows: readonly { date?: unknown; datetime?: u
 
 const formats = [
   ['a slash date that can be read two ways', '01/05/2025'],
-  ['a single digit slash date that can be read two ways', '1/5/2025'],
+  ['a slash date 1/5/2025 that can be read two ways', '1/5/2025'],
+  ['a slash date 12/1/2025 that can be read two ways', '12/1/2025'],
+  ['a slash date 1/12/2025 that can be read two ways', '1/12/2025'],
+  ['a slash date 11/3/2026 that can be read two ways', '11/3/2026'],
   ['an epoch number', Date.UTC(2025, 0, 5)],
   ['an impossible date', '2025-02-30'],
   ['an impossible day with a time', '2025-02-30 10:00:00'],

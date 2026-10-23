@@ -109,10 +109,7 @@ const counted: Sample[] = [
   { input: '02/29/2024', day: '2024-02-29' },
   { input: '29/02/2024', day: '2024-02-29' },
   { input: '1/31/2025', day: '2025-01-31' },
-  { input: '12/1/2025', day: '2025-12-01' },
-  { input: '1/12/2025', day: '2025-01-12' },
-  { input: '1/05/2025', day: '2025-01-05' },
-  { input: '05/1/2025', day: '2025-05-01' },
+  { input: '31/1/2025', day: '2025-01-31' },
   { input: '2025-1-5', day: '2025-01-05' },
   { input: '1/1/2025', day: '2025-01-01' },
   { input: '1/1/2026', day: '2026-01-01' },
@@ -138,6 +135,11 @@ const counted: Sample[] = [
 const dropped: Array<{ label: string; input: unknown }> = [
   { label: 'two way slash 01/05/2025', input: '01/05/2025' },
   { label: 'two way slash 1/5/2025', input: '1/5/2025' },
+  { label: 'two way slash 12/1/2025', input: '12/1/2025' },
+  { label: 'two way slash 1/12/2025', input: '1/12/2025' },
+  { label: 'two way slash 11/3/2026', input: '11/3/2026' },
+  { label: 'two way slash 1/05/2025', input: '1/05/2025' },
+  { label: 'two way slash 05/1/2025', input: '05/1/2025' },
   { label: 'two way slash 01/02/2026', input: '01/02/2026' },
   { label: 'two way slash 11/12/2025', input: '11/12/2025' },
   { label: 'two way slash 12/11/2025', input: '12/11/2025' },
@@ -153,7 +155,7 @@ const dropped: Array<{ label: string; input: unknown }> = [
   { label: 'impossible year first leap day', input: '2025/02/29' },
   { label: 'impossible written leap day', input: 'Feb 29, 2025' },
   { label: 'impossible leap day', input: '2025-02-29' },
-  { label: 'impossible single digit slash day', input: '2/29/2025' },
+  { label: 'impossible numeric slash 2/29/2025', input: '2/29/2025' },
   { label: 'impossible unpadded iso day', input: '2025-2-30' },
   { label: 'missing date', input: undefined },
 ];
@@ -207,14 +209,15 @@ describe('numeric slash dates on the year boundary', () => {
     ['01/01/2026', '2026-01-01', 2026],
     ['31/12/2025', '2025-12-31', 2025],
     ['1/31/2025', '2025-01-31', 2025],
-    ['12/1/2025', '2025-12-01', 2025],
+    ['31/1/2025', '2025-01-31', 2025],
+    ['1/1/2026', '2026-01-01', 2026],
     ['2025-1-5', '2025-01-05', 2025],
   ])('%s counts in %i', (input, day, year) => {
     expectReadersAgree(input, day, year);
     countedIn(input, year);
   });
 
-  it.each(['01/02/2026', '01/05/2025', '1/5/2025', '2025/13/01'])('%s goes to Needs more information', (input) => {
+  it.each(['01/02/2026', '01/05/2025', '1/5/2025', '12/1/2025', '1/12/2025', '11/3/2026', '2025/13/01'])('%s goes to Needs more information', (input) => {
     expectReadersAgree(input, null, null);
     for (const year of ['2024', '2025', '2026']) {
       const totals = aggregateScheduleC([row(input)], year, CATEGORY_MAP, { mode: 'confirmed-only' });
