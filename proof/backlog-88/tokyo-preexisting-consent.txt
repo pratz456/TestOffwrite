@@ -1,0 +1,7 @@
+Tokyo full suite has one failure that is not part of this change.
+tests/document-image-consent.test.tsx expects Date: September 19, 2026.
+formatDate uses toLocaleDateString without a time zone.
+2026-09-19T15:00:00.000Z is September 20 in Asia/Tokyo.
+components/document-image-consent.tsx is unchanged from 52f5788d36114cb3a9e611dd2f551672b80edb9c.
+Los Angeles full suite exit 0.
+Tokyo counts: Test Files 1 failed | 244 passed | 6 skipped (251). Tests 1 failed | 6230 passed | 49 skipped (6280).

@@ -1,0 +1,26 @@
+lib/firebase/transactions.ts:1
+lib/firebase/transactions.ts:458-468
+lib/firebase/transactions.ts:470
+lib/ocr/receipt-processor.ts:2
+lib/ocr/receipt-processor.ts:194-195
+lib/ocr/receipt-processor.ts:199
+lib/ocr/receipt-processor.ts:358
+lib/ocr/receipt-processor.ts:360-362
+lib/schedule-c/taxDate.ts:5-95
+lib/schedule-c/taxDate.ts:97-98
+lib/schedule-c/taxDate.ts:100-104
+lib/schedule-c/taxDate.ts: deletion before 108
+lib/schedule-c/taxDate.ts:113
+tests/receipt-calendar-day.test.ts:1-56
+tests/receipt-ocr-date.test.ts:11
+tests/receipt-ocr-date.test.ts:25-66
+tests/transaction-date-write.test.ts:1-99
+proof/backlog-88/diffstat.txt:1-9
+proof/backlog-88/file-lines.txt:1-26
+proof/backlog-88/revert-America-Los_Angeles.txt:1-509
+proof/backlog-88/revert-Asia-Tokyo.txt:1-776
+proof/backlog-88/suite-america-los-angeles.txt:1-1616
+proof/backlog-88/suite-asia-tokyo.txt:1-1655
+proof/backlog-88/test-merge.txt:1-5
+proof/backlog-88/tokyo-preexisting-consent.txt:1-7
+proof/backlog-88/tsc.txt:1-2

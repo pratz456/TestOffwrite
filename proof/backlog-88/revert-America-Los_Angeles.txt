@@ -1,0 +1,509 @@
+HEAD fa199337897d0d39f403a2ace9793ed86dc80724
+TZ America/Los_Angeles
+SOURCE 52f5788d36114cb3a9e611dd2f551672b80edb9c
+DATE 2026-10-23T19:43:14Z
+HEAD fa199337897d0d39f403a2ace9793ed86dc80724
+SOURCE restored to 52f5788d36114cb3a9e611dd2f551672b80edb9c
+TESTS kept from fa199337897d0d39f403a2ace9793ed86dc80724
+ lib/firebase/transactions.ts |  14 +----
+ lib/ocr/receipt-processor.ts |  21 +++++---
+ lib/schedule-c/taxDate.ts    | 118 +++++++------------------------------------
+ 3 files changed, 33 insertions(+), 120 deletions(-)
+
+ RUN  v3.2.4 /workspace
+
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 01/01/2026 as 2026-01-01 1ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 12/31/2025 as 2025-12-31 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads Jan 1, 2026 as 2026-01-01 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads January 1 2026 as 2026-01-01 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 1 Jan 2026 as 2026-01-01 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 2026-01-01 as 2026-01-01 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 2026-01-01T00:00:00.000Z as 2026-01-01 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 2026-01-01T00:00:00+14:00 as 2026-01-01 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 2025-1-5 as 2025-01-05 0ms
+ × tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 2025-1-5T00:00:00 as 2025-01-05 5ms
+   → expected null to be '2025-01-05' // Object.is equality
+ × tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 31/12/2025 as 2025-12-31 1ms
+   → expected null to be '2025-12-31' // Object.is equality
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 1/31/2025 as 2025-01-31 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 12/1/2025 as 2025-12-01 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 12-31-2025 as 2025-12-31 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 2025/1/5 as 2025-01-05 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 2025/12/31 as 2025-12-31 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 11/11/2025 as 2025-11-11 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 1/12/2025 as 2025-01-12 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 2024-02-29 as 2024-02-29 0ms
+ × tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 01/05/2025 unset 0ms
+   → expected '2025-01-05' to be null
+ × tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 1/5/2025 unset 0ms
+   → expected '2025-01-05' to be null
+ × tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 09/02/2026 unset 0ms
+   → expected '2026-09-02' to be null
+ × tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 12/01/2025 unset 0ms
+   → expected '2025-12-01' to be null
+ × tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 02/30/2025 unset 0ms
+   → expected '2025-03-02' to be null
+ × tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 2025-02-30 unset 0ms
+   → expected '2025-02-30' to be null
+ × tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 2025-13-01 unset 0ms
+   → expected '2025-13-01' to be null
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 2025/13/01 unset 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 2025/31/12 unset 0ms
+ × tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 2025/02/30 unset 0ms
+   → expected '2025-03-02' to be null
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves  unset 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves not-a-date unset 0ms
+ ✓ tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads a Date or epoch millisecond as the UTC calendar day of that instant 0ms
+ ✓ tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > converts Sep 2, 2026 to the reviewed receipt API date 4ms
+ ✓ tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > converts 2026-09-02 to the reviewed receipt API date 1ms
+ ✓ tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 01/01/2026 0ms
+ ✓ tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 12/31/2025 0ms
+ ✓ tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for Jan 1, 2026 0ms
+ ✓ tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for January 1 2026 0ms
+ × tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 1 Jan 2026 5ms
+   → expected '2026-10-23' to be '2026-01-01' // Object.is equality
+ ✓ tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 2026-01-01 0ms
+ × tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 2026-01-01T15:30:00+09:00 1ms
+   → expected '' to be '2026-01-01' // Object.is equality
+ ✓ tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 2025-1-5 0ms
+ × tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 31/12/2025 1ms
+   → expected '' to be '2025-12-31' // Object.is equality
+ ✓ tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 1/31/2025 0ms
+ ✓ tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 12/1/2025 0ms
+ × tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 01/05/2025 0ms
+   → expected '2025-01-05' to be '' // Object.is equality
+ × tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 1/5/2025 0ms
+   → expected '2025-01-05' to be '' // Object.is equality
+ × tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 02/30/2025 0ms
+   → expected '2025-03-02' to be '' // Object.is equality
+ × tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 09/02/2026 0ms
+   → expected '2026-09-02' to be '' // Object.is equality
+ × tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 2025-13-01 0ms
+   → expected '2025-13-01' to be '' // Object.is equality
+ ✓ tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 2025/13/01 0ms
+ ✓ tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 2025/31/12 0ms
+ ✓ tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > matches a January 1 receipt to the January 1 transaction for Jan 1, 2026 1ms
+ ✓ tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > matches a January 1 receipt to the January 1 transaction for 01/01/2026 0ms
+ ✓ tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > matches a January 1 receipt to the January 1 transaction for 1 Jan 2026 0ms
+ ✓ tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > matches a January 1 receipt to the January 1 transaction for 2026-01-01 0ms
+stdout | tests/transaction-date-write.test.ts > client transaction update does not write a date > drops a date before the client write
+🔄 [UPDATE→DB] Updating transaction: synthetic-tx { notes: 'kept', date: '1/31/2025' }
+
+stdout | tests/transaction-date-write.test.ts > client transaction update does not write a date > drops a date before the client write
+✅ [READBACK←DB] Update verified: {
+  trans_id: 'synthetic-tx',
+  is_deductible: undefined,
+  deductible_reason: undefined,
+  deduction_score: undefined
+}
+
+ × tests/transaction-date-write.test.ts > client transaction create stores a calendar day > writes 1/31/2025 as 2025-01-31 7ms
+   → expected '1/31/2025' to be '2025-01-31' // Object.is equality
+ × tests/transaction-date-write.test.ts > client transaction create stores a calendar day > writes 12/1/2025 as 2025-12-01 1ms
+   → expected '12/1/2025' to be '2025-12-01' // Object.is equality
+ × tests/transaction-date-write.test.ts > client transaction create stores a calendar day > writes 2025-1-5 as 2025-01-05 1ms
+   → expected '2025-1-5' to be '2025-01-05' // Object.is equality
+ × tests/transaction-date-write.test.ts > client transaction create stores a calendar day > writes Jan 1, 2026 as 2026-01-01 1ms
+   → expected 'Jan 1, 2026' to be '2026-01-01' // Object.is equality
+ ✓ tests/transaction-date-write.test.ts > client transaction create stores a calendar day > writes 2026-01-01 as 2026-01-01 0ms
+ × tests/transaction-date-write.test.ts > client transaction create stores a calendar day > does not write an unreadable date 1/5/2025 2ms
+   → expected { id: 'synthetic-tx', …(15) } to be null
+ × tests/transaction-date-write.test.ts > client transaction create stores a calendar day > does not write an unreadable date 01/05/2025 1ms
+   → expected { id: 'synthetic-tx', …(15) } to be null
+ × tests/transaction-date-write.test.ts > client transaction create stores a calendar day > does not write an unreadable date 02/30/2025 0ms
+   → expected { id: 'synthetic-tx', …(15) } to be null
+ × tests/transaction-date-write.test.ts > client transaction create stores a calendar day > does not write an unreadable date 2025/13/01 1ms
+   → expected { id: 'synthetic-tx', …(15) } to be null
+ ✓ tests/transaction-date-write.test.ts > client transaction update does not write a date > drops a date before the client write 4ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 26 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 2025-1-5T00:00:00 as 2025-01-05
+AssertionError: expected null to be '2025-01-05' // Object.is equality
+
+- Expected: 
+"2025-01-05"
+
++ Received: 
+null
+
+ ❯ tests/receipt-calendar-day.test.ts:27:30
+     25|     ['2024-02-29', '2024-02-29'],
+     26|   ])('reads %s as %s', (printed, stored) => {
+     27|     expect(safeYMD(printed)).toBe(stored);
+       |                              ^
+     28|   });
+     29| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/26]⎯
+
+ FAIL  tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > reads 31/12/2025 as 2025-12-31
+AssertionError: expected null to be '2025-12-31' // Object.is equality
+
+- Expected: 
+"2025-12-31"
+
++ Received: 
+null
+
+ ❯ tests/receipt-calendar-day.test.ts:27:30
+     25|     ['2024-02-29', '2024-02-29'],
+     26|   ])('reads %s as %s', (printed, stored) => {
+     27|     expect(safeYMD(printed)).toBe(stored);
+       |                              ^
+     28|   });
+     29| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/26]⎯
+
+ FAIL  tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 01/05/2025 unset
+ FAIL  tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 1/5/2025 unset
+AssertionError: expected '2025-01-05' to be null
+
+- Expected: 
+null
+
++ Received: 
+"2025-01-05"
+
+ ❯ tests/receipt-calendar-day.test.ts:44:30
+     42|     'not-a-date',
+     43|   ])('leaves %s unset', (printed) => {
+     44|     expect(safeYMD(printed)).toBeNull();
+       |                              ^
+     45|   });
+     46| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/26]⎯
+
+ FAIL  tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 09/02/2026 unset
+AssertionError: expected '2026-09-02' to be null
+
+- Expected: 
+null
+
++ Received: 
+"2026-09-02"
+
+ ❯ tests/receipt-calendar-day.test.ts:44:30
+     42|     'not-a-date',
+     43|   ])('leaves %s unset', (printed) => {
+     44|     expect(safeYMD(printed)).toBeNull();
+       |                              ^
+     45|   });
+     46| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/26]⎯
+
+ FAIL  tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 12/01/2025 unset
+AssertionError: expected '2025-12-01' to be null
+
+- Expected: 
+null
+
++ Received: 
+"2025-12-01"
+
+ ❯ tests/receipt-calendar-day.test.ts:44:30
+     42|     'not-a-date',
+     43|   ])('leaves %s unset', (printed) => {
+     44|     expect(safeYMD(printed)).toBeNull();
+       |                              ^
+     45|   });
+     46| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/26]⎯
+
+ FAIL  tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 02/30/2025 unset
+ FAIL  tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 2025/02/30 unset
+AssertionError: expected '2025-03-02' to be null
+
+- Expected: 
+null
+
++ Received: 
+"2025-03-02"
+
+ ❯ tests/receipt-calendar-day.test.ts:44:30
+     42|     'not-a-date',
+     43|   ])('leaves %s unset', (printed) => {
+     44|     expect(safeYMD(printed)).toBeNull();
+       |                              ^
+     45|   });
+     46| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/26]⎯
+
+ FAIL  tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 2025-02-30 unset
+AssertionError: expected '2025-02-30' to be null
+
+- Expected: 
+null
+
++ Received: 
+"2025-02-30"
+
+ ❯ tests/receipt-calendar-day.test.ts:44:30
+     42|     'not-a-date',
+     43|   ])('leaves %s unset', (printed) => {
+     44|     expect(safeYMD(printed)).toBeNull();
+       |                              ^
+     45|   });
+     46| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/26]⎯
+
+ FAIL  tests/receipt-calendar-day.test.ts > printed calendar days ignore the process time zone > leaves 2025-13-01 unset
+AssertionError: expected '2025-13-01' to be null
+
+- Expected: 
+null
+
++ Received: 
+"2025-13-01"
+
+ ❯ tests/receipt-calendar-day.test.ts:44:30
+     42|     'not-a-date',
+     43|   ])('leaves %s unset', (printed) => {
+     44|     expect(safeYMD(printed)).toBeNull();
+       |                              ^
+     45|   });
+     46| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/26]⎯
+
+ FAIL  tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 1 Jan 2026
+AssertionError: expected '2026-10-23' to be '2026-01-01' // Object.is equality
+
+Expected: "2026-01-01"
+Received: "2026-10-23"
+
+ ❯ tests/receipt-ocr-date.test.ts:52:31
+     50|     const result = await receiptProcessor.processReceipt(Buffer.from('…
+     51|     expect(result.success).toBe(true);
+     52|     expect(result.data?.date).toBe(stored);
+       |                               ^
+     53|   });
+     54| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/26]⎯
+
+ FAIL  tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 2026-01-01T15:30:00+09:00
+AssertionError: expected '' to be '2026-01-01' // Object.is equality
+
+- Expected
++ Received
+
+- 2026-01-01
+
+ ❯ tests/receipt-ocr-date.test.ts:52:31
+     50|     const result = await receiptProcessor.processReceipt(Buffer.from('…
+     51|     expect(result.success).toBe(true);
+     52|     expect(result.data?.date).toBe(stored);
+       |                               ^
+     53|   });
+     54| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/26]⎯
+
+ FAIL  tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 31/12/2025
+AssertionError: expected '' to be '2025-12-31' // Object.is equality
+
+- Expected
++ Received
+
+- 2025-12-31
+
+ ❯ tests/receipt-ocr-date.test.ts:52:31
+     50|     const result = await receiptProcessor.processReceipt(Buffer.from('…
+     51|     expect(result.success).toBe(true);
+     52|     expect(result.data?.date).toBe(stored);
+       |                               ^
+     53|   });
+     54| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/26]⎯
+
+ FAIL  tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 01/05/2025
+ FAIL  tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 1/5/2025
+AssertionError: expected '2025-01-05' to be '' // Object.is equality
+
+- Expected
++ Received
+
++ 2025-01-05
+
+ ❯ tests/receipt-ocr-date.test.ts:52:31
+     50|     const result = await receiptProcessor.processReceipt(Buffer.from('…
+     51|     expect(result.success).toBe(true);
+     52|     expect(result.data?.date).toBe(stored);
+       |                               ^
+     53|   });
+     54| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/26]⎯
+
+ FAIL  tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 02/30/2025
+AssertionError: expected '2025-03-02' to be '' // Object.is equality
+
+- Expected
++ Received
+
++ 2025-03-02
+
+ ❯ tests/receipt-ocr-date.test.ts:52:31
+     50|     const result = await receiptProcessor.processReceipt(Buffer.from('…
+     51|     expect(result.success).toBe(true);
+     52|     expect(result.data?.date).toBe(stored);
+       |                               ^
+     53|   });
+     54| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/26]⎯
+
+ FAIL  tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 09/02/2026
+AssertionError: expected '2026-09-02' to be '' // Object.is equality
+
+- Expected
++ Received
+
++ 2026-09-02
+
+ ❯ tests/receipt-ocr-date.test.ts:52:31
+     50|     const result = await receiptProcessor.processReceipt(Buffer.from('…
+     51|     expect(result.success).toBe(true);
+     52|     expect(result.data?.date).toBe(stored);
+       |                               ^
+     53|   });
+     54| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/26]⎯
+
+ FAIL  tests/receipt-ocr-date.test.ts > recognized receipt date can be confirmed without manual reformatting > keeps the printed day for 2025-13-01
+AssertionError: expected '2025-13-01' to be '' // Object.is equality
+
+- Expected
++ Received
+
++ 2025-13-01
+
+ ❯ tests/receipt-ocr-date.test.ts:52:31
+     50|     const result = await receiptProcessor.processReceipt(Buffer.from('…
+     51|     expect(result.success).toBe(true);
+     52|     expect(result.data?.date).toBe(stored);
+       |                               ^
+     53|   });
+     54| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/26]⎯
+
+ FAIL  tests/transaction-date-write.test.ts > client transaction create stores a calendar day > writes 1/31/2025 as 2025-01-31
+AssertionError: expected '1/31/2025' to be '2025-01-31' // Object.is equality
+
+Expected: "2025-01-31"
+Received: "1/31/2025"
+
+ ❯ tests/transaction-date-write.test.ts:57:36
+     55|     expect(result.error).toBeNull();
+     56|     expect(firestore.setDoc).toHaveBeenCalledTimes(1);
+     57|     expect(firestore.stored?.date).toBe(stored);
+       |                                    ^
+     58|     expect(result.data?.date).toBe(stored);
+     59|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/26]⎯
+
+ FAIL  tests/transaction-date-write.test.ts > client transaction create stores a calendar day > writes 12/1/2025 as 2025-12-01
+AssertionError: expected '12/1/2025' to be '2025-12-01' // Object.is equality
+
+Expected: "2025-12-01"
+Received: "12/1/2025"
+
+ ❯ tests/transaction-date-write.test.ts:57:36
+     55|     expect(result.error).toBeNull();
+     56|     expect(firestore.setDoc).toHaveBeenCalledTimes(1);
+     57|     expect(firestore.stored?.date).toBe(stored);
+       |                                    ^
+     58|     expect(result.data?.date).toBe(stored);
+     59|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/26]⎯
+
+ FAIL  tests/transaction-date-write.test.ts > client transaction create stores a calendar day > writes 2025-1-5 as 2025-01-05
+AssertionError: expected '2025-1-5' to be '2025-01-05' // Object.is equality
+
+Expected: "2025-01-05"
+Received: "2025-1-5"
+
+ ❯ tests/transaction-date-write.test.ts:57:36
+     55|     expect(result.error).toBeNull();
+     56|     expect(firestore.setDoc).toHaveBeenCalledTimes(1);
+     57|     expect(firestore.stored?.date).toBe(stored);
+       |                                    ^
+     58|     expect(result.data?.date).toBe(stored);
+     59|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/26]⎯
+
+ FAIL  tests/transaction-date-write.test.ts > client transaction create stores a calendar day > writes Jan 1, 2026 as 2026-01-01
+AssertionError: expected 'Jan 1, 2026' to be '2026-01-01' // Object.is equality
+
+Expected: "2026-01-01"
+Received: "Jan 1, 2026"
+
+ ❯ tests/transaction-date-write.test.ts:57:36
+     55|     expect(result.error).toBeNull();
+     56|     expect(firestore.setDoc).toHaveBeenCalledTimes(1);
+     57|     expect(firestore.stored?.date).toBe(stored);
+       |                                    ^
+     58|     expect(result.data?.date).toBe(stored);
+     59|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/26]⎯
+
+ FAIL  tests/transaction-date-write.test.ts > client transaction create stores a calendar day > does not write an unreadable date 1/5/2025
+ FAIL  tests/transaction-date-write.test.ts > client transaction create stores a calendar day > does not write an unreadable date 01/05/2025
+ FAIL  tests/transaction-date-write.test.ts > client transaction create stores a calendar day > does not write an unreadable date 02/30/2025
+ FAIL  tests/transaction-date-write.test.ts > client transaction create stores a calendar day > does not write an unreadable date 2025/13/01
+AssertionError: expected { id: 'synthetic-tx', …(15) } to be null
+
+- Expected: 
+null
+
++ Received: 
+{
+  "account_id": "manual",
+  "amount": 18.5,
+  "category": "",
+  "created_at": "synthetic-server-timestamp",
+  "date": "1/5/2025",
+  "deductible_reason": undefined,
+  "deduction_score": undefined,
+  "description": undefined,
+  "id": "synthetic-tx",
+  "is_deductible": undefined,
+  "merchant_name": "Synthetic Cafe",
+  "notes": undefined,
+  "trans_id": "synthetic-tx",
+  "type": "expense",
+  "updated_at": "synthetic-server-timestamp",
+  "userId": "synthetic-owner",
+}
+
+ ❯ tests/transaction-date-write.test.ts:68:25
+     66|       trans_id: 'synthetic-tx',
+     67|     });
+     68|     expect(result.data).toBeNull();
+       |                         ^
+     69|     expect(result.error).toBeTruthy();
+     70|     expect(firestore.setDoc).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/26]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  26 failed | 40 passed (66)
+   Start at  12:43:15
+   Duration  422ms (transform 173ms, setup 0ms, collect 258ms, tests 48ms, environment 1ms, prepare 343ms)
+
+EXIT:1
