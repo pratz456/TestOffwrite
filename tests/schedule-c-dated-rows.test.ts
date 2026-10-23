@@ -1,9 +1,34 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
-import { chargeDay, chargeYear, safeTaxYear } from '@/lib/schedule-c/taxDate';
+import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
+import * as taxDate from '@/lib/schedule-c/taxDate';
+import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { convertTransactionsToCSV, exportDate, selectExportYear } from '@/lib/reports/transaction-export';
-import { normalizeDoc } from '@/lib/firebase/transactions-server';
-import { taxYearOf, vehicleMethodForCharge } from '@/lib/transactions/review';
+import * as transactionServer from '@/lib/firebase/transactions-server';
+import * as reviewApi from '@/lib/transactions/review';
+
+const { safeTaxYear } = taxDate;
+
+function chargeDay(record: { date?: unknown; datetime?: unknown } | null | undefined) {
+  expect(typeof taxDate.chargeDay).toBe('function');
+  return taxDate.chargeDay(record);
+}
+function chargeYear(record: { date?: unknown; datetime?: unknown } | null | undefined) {
+  expect(typeof taxDate.chargeYear).toBe('function');
+  return taxDate.chargeYear(record);
+}
+function normalizeDoc(doc: { id: string; data(): Record<string, any> }) {
+  expect(typeof transactionServer.normalizeDoc).toBe('function');
+  return transactionServer.normalizeDoc(doc);
+}
+function taxYearOf(record: { date?: unknown; datetime?: unknown; created_at?: unknown; updated_at?: unknown } | null | undefined) {
+  expect(typeof reviewApi.taxYearOf).toBe('function');
+  return reviewApi.taxYearOf(record as never);
+}
+function vehicleMethodForCharge(record: { date?: unknown; datetime?: unknown; created_at?: unknown } | null | undefined, saved: unknown) {
+  expect(typeof reviewApi.vehicleMethodForCharge).toBe('function');
+  return reviewApi.vehicleMethodForCharge(record as never, saved);
+}
 import { buildMonthlySavings } from '@/lib/tax/savings-summary';
 import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
 
@@ -123,5 +148,60 @@ describe('vehicle method follows the charge year only', () => {
     });
     expect(vehicleMethodForCharge({ date: '2024-06-01' }, 'not-a-method').method).toBeNull();
     expect(vehicleMethodForCharge({ date: '2024-06-01' }, 'not-a-method').needsMoreInformation).toBe(true);
+  });
+});
+
+describe('offset timestamps keep the date written in the string', () => {
+  it('lands 2024-12-31T20:00:00-08:00 in tax year 2024 and prints 27a (Other expenses)', () => {
+    const row = confirmed({ id: 'offset', date: '2024-12-31T20:00:00-08:00', category: 'SERVICE_MEMBERSHIPS', amount: 80 });
+    expect(chargeDay(row)).toBe('2024-12-31');
+    expect(chargeYear(row)).toBe(2024);
+    const year2024 = aggregateScheduleC([row], '2024', CATEGORY_MAP, { mode: 'confirmed-only' });
+    const year2025 = aggregateScheduleC([row], '2025', CATEGORY_MAP, { mode: 'confirmed-only' });
+    expect(year2024.totalDeductible).toBe(80);
+    expect(year2024.needsMoreInformation).toBe(0);
+    expect(year2025.totalDeductible).toBe(0);
+    expect(year2025.counts.year).toBe(0);
+    const line = year2024.lineItems['27a'];
+    expect(line).toMatchObject({ lineCode: '27a', lineName: 'Other expenses', transactionCount: 1 });
+    expect(`${scheduleCExportLine(line.lineCode, chargeYear(row)!)} (${line.lineName})`).toBe('27a (Other expenses)');
+    const csv = generateScheduleCCSV(year2024.lineItemsArray, 2024);
+    expect(csv).toContain('27a');
+    expect(csv).not.toContain('27b');
+    expect(selectExportYear([row], 2024)).toHaveLength(1);
+    expect(selectExportYear([row], 2025)).toHaveLength(0);
+  });
+});
+
+describe('a space and a time, a trailing Z, or an English month keeps the written day', () => {
+  it.each([
+    '2025-01-05 10:00:00',
+    '2025-01-05 10:00',
+    '2025-01-05Z',
+    'Jan 5, 2025',
+    'January 5, 2025',
+    'jan 5 2025',
+    'JANUARY 5, 2025',
+    '5 January 2025',
+    'Sun Jan 05 2025',
+    'Sept 5, 2025',
+    'Sept. 5, 2025',
+    'Jan 5, 2025 10:00 AM',
+    'January 5 2025 10:00',
+    ' 2025-01-05',
+    '2025-01-05 ',
+    '2025/01/05',
+  ])('counts %s on the written day in the 2025 total', (date) => {
+    const row = confirmed({ id: 'written-day', date, amount: 55 });
+    const written = date.includes('Sept') ? '2025-09-05' : '2025-01-05';
+    expect(chargeDay(row)).toBe(written);
+    expect(chargeYear(row)).toBe(2025);
+    const year2025 = aggregateScheduleC([row], '2025', CATEGORY_MAP, { mode: 'confirmed-only' });
+    const year2024 = aggregateScheduleC([row], '2024', CATEGORY_MAP, { mode: 'confirmed-only' });
+    expect(year2025.totalDeductible).toBe(55);
+    expect(year2025.needsMoreInformation).toBe(0);
+    expect(year2025.undated).toEqual([]);
+    expect(year2024.totalDeductible).toBe(0);
+    expect(year2024.counts.year).toBe(0);
   });
 });

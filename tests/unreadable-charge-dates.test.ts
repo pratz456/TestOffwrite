@@ -1,16 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { summarizeDashboardRecords } from '@/lib/dashboard/record-summary';
-import { convertTransactionsToCSV, needsMoreInformationCount as exportNeedsMoreInformationCount, selectExportYear } from '@/lib/reports/transaction-export';
+import * as transactionExport from '@/lib/reports/transaction-export';
 import { accountResultSchema } from '@/lib/tax-assistant/account-contract';
 import { transactionAccountResult } from '@/lib/tax-assistant/account-tools';
-import { assistantProfileFacts, composeForYou, mentionedMerchantFacts, needsMoreInformationCount } from '@/lib/tax-assistant/context';
+import * as assistantContext from '@/lib/tax-assistant/context';
+
+const { convertTransactionsToCSV, selectExportYear } = transactionExport;
+const { assistantProfileFacts, composeForYou, mentionedMerchantFacts } = assistantContext;
+
+function exportNeedsMoreInformationCount(rows: readonly Record<string, unknown>[]) {
+  expect(typeof transactionExport.needsMoreInformationCount).toBe('function');
+  return transactionExport.needsMoreInformationCount(rows);
+}
+
+function needsMoreInformationCount(rows: readonly { date?: unknown; datetime?: unknown; userId?: unknown; user_id?: unknown }[], uid?: string) {
+  expect(typeof assistantContext.needsMoreInformationCount).toBe('function');
+  return assistantContext.needsMoreInformationCount(rows, uid);
+}
 
 const formats = [
   ['slash date', '01/05/2025'],
-  ['written date', 'Jan 5, 2025'],
   ['epoch number', Date.UTC(2025, 0, 5)],
   ['impossible date', '2025-02-30'],
+  ['impossible day with a time', '2025-02-30 10:00:00'],
+  ['impossible written day', 'Feb 30, 2025'],
+  ['impossible year first slash day', '2025/02/30'],
+  ['impossible year first slash month', '2025/13/01'],
   ['missing date', undefined],
 ] as const;
 
