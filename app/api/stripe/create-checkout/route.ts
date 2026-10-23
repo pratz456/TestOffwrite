@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { beginCheckoutOperation, finishCheckoutOperation, retainCheckoutRecovery, CheckoutOperationError } from '@/lib/stripe/checkout-operations';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 import { ExistingCheckoutSubscriptionError, getOrCreateCheckoutSession } from '@/lib/stripe/checkout-session';
+import { readJsonBody } from '@/lib/http/json-body';
 
 const checkoutRequest = z.object({ interval: z.enum(['monthly', 'yearly']).default('monthly') }).strict();
 
@@ -20,8 +21,8 @@ export async function POST(req: Request) {
   let uid: string;
   try { ({ uid } = await getUserFromReqOrThrow(req)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
-  let raw: unknown;
-  try { raw = await req.json(); } catch { return NextResponse.json({ error: 'Invalid request' }, { status: 400 }); }
+  const raw = await readJsonBody(req);
+  if (raw instanceof NextResponse) return raw.status === 413 ? raw : NextResponse.json({ error: 'Invalid request' }, { status: 400 });
   const parsed = checkoutRequest.safeParse(raw);
   if (!parsed.success) return NextResponse.json({ error: 'Choose monthly or yearly billing' }, { status: 400 });
   const { interval } = parsed.data;

@@ -20,6 +20,7 @@ export async function POST(req: Request) {
   let saved = false;
   let recoverySaved = false;
   const body = await readJsonObject(req);
+  if (body instanceof NextResponse) return body;
   if (!body) return invalidJsonResponse();
   const { public_token } = body;
   if (typeof public_token !== 'string' || !public_token || public_token.length > 2048) return NextResponse.json({ error: 'Missing public_token' }, { status: 400 });

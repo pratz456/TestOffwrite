@@ -2,15 +2,15 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { adminAuth } from '@/lib/firebase/admin';
 import { isSameOriginRequest } from '@/lib/firebase/api-auth';
 import { anonymousRateLimitKey, enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { readJsonBody } from '@/lib/http/json-body';
 
 export async function POST(request: NextRequest) {
   if (!isSameOriginRequest(request)) {
     return NextResponse.json({ error: 'Cross-site session creation is not allowed' }, { status: 403 });
   }
-  let body;
-  try { body = await request.json(); }
-  catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }); }
-  const idToken = body?.idToken;
+  const body = await readJsonBody(request);
+  if (body instanceof NextResponse) return body;
+  const idToken = body && typeof body === 'object' ? (body as { idToken?: unknown }).idToken : undefined;
   if (typeof idToken !== 'string' || !idToken.trim()) {
     return NextResponse.json({ error: 'Missing idToken' }, { status: 400 });
   }

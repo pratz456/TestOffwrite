@@ -6,6 +6,10 @@ import { EDITABLE_PROFILE_FIELDS, publicProfile } from '@/lib/firebase/profile-f
 import { parseConsentRecord, storedDocumentImportSignature } from '@/lib/onboarding/consents';
 import { encryptSensitive } from '@/lib/security/utils';
 import { isLocalAccountPreview } from '@/lib/firebase/local-account-preview';
+import { readJsonBody } from '@/lib/http/json-body';
+
+/** A saved profile is limited to 32,768 characters. UTF-8 text can use more than one byte per character. */
+const PROFILE_MAX_BYTES = 256 * 1024;
 
 class ProfileInputError extends Error {}
 
@@ -75,9 +79,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const { user } = await getAuthenticatedUser(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  let parsedBody;
-  try { parsedBody = await request.json(); }
-  catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }); }
+  const parsedBody = await readJsonBody(request, PROFILE_MAX_BYTES);
+  if (parsedBody instanceof NextResponse) return parsedBody;
   if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
     return NextResponse.json({ error: 'A profile object is required' }, { status: 400 });
   }

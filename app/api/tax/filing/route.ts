@@ -8,6 +8,7 @@ import { getAuthenticatedUser, type AuthenticatedUser } from '@/lib/firebase/api
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { filingSandboxConfig, isFilingSandboxIdentity } from '@/lib/tax-filing/config';
 import { initializeColumnFiling, getColumnTaxReturn, validateColumnMetadata } from '@/lib/tax-filing/column-client';
+import { readJsonBody } from '@/lib/http/json-body';
 const headers = { 'Cache-Control': 'private, no-store' };
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers });
 const identifier = (uid: string) => createHash('sha256').update(`writeoff-production-testing:column:sandbox:${uid}`).digest('hex');
@@ -53,8 +54,9 @@ export async function POST(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return json({ error: 'Unauthorized' }, 401);
   const denied = await requireFeatureAccess(user.uid, 'exports'); if (denied) return denied;
-  let body: Record<string, unknown>;
-  try { body = await request.json(); } catch { return json({ error: 'Invalid request.' }, 400); }
+  const raw = await readJsonBody(request);
+  if (raw instanceof NextResponse) return raw.status === 413 ? raw : json({ error: 'Invalid request.' }, 400);
+  const body = raw as Record<string, unknown>;
   if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['taxYear', 'consent'].includes(key))
     || !yearValue(body.taxYear) || body.consent !== true) return json({ error: 'Choose a supported year and confirm the stated data sharing.', code: 'FILING_CONSENT_REQUIRED' }, 400);
   const config = filingSandboxConfig();

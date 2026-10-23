@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+import { readJsonBody } from '@/lib/http/json-body';
 import {
   getMileageTrips,
   createMileageTrip,
 } from '@/lib/firebase/mileage-server';
 
 const mileageInput = z.object({
-  userId: z.string().min(1),
+  userId: z.string().min(1).max(128),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value),
   startLocation: z.string().trim().min(1).max(500), endLocation: z.string().trim().min(1).max(500),
-  miles: z.union([z.number(), z.string().trim().min(1)]).transform(Number).pipe(z.number().finite().positive()),
+  miles: z.union([z.number(), z.string().trim().min(1).max(32)]).transform(Number).pipe(z.number().finite().positive()),
   businessPurpose: z.string().trim().max(2000).default(''), roundTrip: z.boolean().default(false),
 });
 
@@ -60,7 +61,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const parsed = mileageInput.safeParse(await request.json().catch(() => null));
+    const raw = await readJsonBody(request);
+    if (raw instanceof NextResponse) return raw.status === 413 ? raw : NextResponse.json({ error: 'Provide valid locations, a date (YYYY-MM-DD), and positive finite miles.' }, { status: 400 });
+    const parsed = mileageInput.safeParse(raw);
     if (!parsed.success) return NextResponse.json({ error: 'Provide valid locations, a date (YYYY-MM-DD), and positive finite miles.' }, { status: 400 });
     const { userId, date, startLocation, endLocation, miles, businessPurpose, roundTrip } = parsed.data;
     if (userId !== user.uid) return NextResponse.json({ error: 'Invalid or unauthorized userId' }, { status: 403 });

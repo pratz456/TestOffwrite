@@ -346,6 +346,7 @@ export async function POST(request: NextRequest) {
     if (denied) return denied;
 
     const body = await readJsonObject(request);
+    if (body instanceof NextResponse) return body;
     if (!body) return invalidJsonResponse();
     const { year } = body;
     if (!year || (typeof year !== 'number' && typeof year !== 'string')) return NextResponse.json({ error: 'Year required' }, { status: 400 });

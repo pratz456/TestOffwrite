@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 export { GET } from '@/app/api/database/profiles/route';
 import { adminDb } from '@/lib/firebase/admin';
+import { readJsonBody } from '@/lib/http/json-body';
 
 function clean<T extends Record<string, any>>(obj: T) {
   // remove undefined / null (Firestore rejects undefined)
@@ -25,12 +26,9 @@ export async function POST(req: Request) {
     const uid = user.uid;
 
     // 2) parse & validate JSON
-    let body: any;
-    try {
-      body = await req.json();
-    } catch {
-      return err('invalid_json_body', 400);
-    }
+    const body = await readJsonBody(req);
+    if (body instanceof NextResponse) return body.status === 413 ? body : err('invalid_json_body', 400);
+    const record = body && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : {};
 
     // whitelist only the fields we expect from the form
     const {
@@ -38,7 +36,7 @@ export async function POST(req: Request) {
       primaryWorkLocation,
       workRelatedTravelPattern,
       annualIncomeRange,
-    } = body ?? {};
+    } = record;
 
     if (
       !businessEntityType ||

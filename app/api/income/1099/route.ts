@@ -93,6 +93,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await readJsonObject(request);
+    if (body instanceof NextResponse) return body;
     if (!body) return invalidJsonResponse();
     const formType = typeof body.formType === 'string' && body.formType ? body.formType : '1099-NEC';
     const payerName = typeof body.payerName === 'string' ? body.payerName.trim().slice(0, 200) : '';

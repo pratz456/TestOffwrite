@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { transactionIdInput } from '@/lib/transactions/client-updates';
 import { reviewTransaction, transactionReviewInput, TransactionReviewError } from '@/lib/transactions/review';
+import { readJsonBody } from '@/lib/http/json-body';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await params;
-  const parsed = transactionReviewInput.safeParse(await request.json().catch(() => null));
+  const raw = await readJsonBody(request);
+  if (raw instanceof NextResponse && raw.status === 413) return raw;
+  const parsed = transactionReviewInput.safeParse(raw instanceof NextResponse ? null : raw);
   if (!transactionIdInput.safeParse(id).success || !parsed.success) {
     return NextResponse.json({ error: 'Provide a valid review action, account and category.' }, { status: 400 });
   }

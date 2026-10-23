@@ -11,11 +11,12 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+import { readJsonBody } from '@/lib/http/json-body';
 
 const MANUAL_ACCOUNT_ID = 'manual';
 const manualInput = z.object({
   merchant_name: z.string().trim().min(1).max(500),
-  amount: z.union([z.number(), z.string().trim().min(1)]).transform(Number).pipe(z.number().finite().positive()),
+  amount: z.union([z.number(), z.string().trim().min(1).max(32)]).transform(Number).pipe(z.number().finite().positive()),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value),
   iso_currency_code: z.literal('USD').optional(),
   category: z.string().trim().max(200).optional(),
@@ -29,7 +30,9 @@ export async function POST(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const parsed = manualInput.safeParse(await request.json().catch(() => null));
+  const raw = await readJsonBody(request);
+  if (raw instanceof NextResponse) return raw.status === 413 ? raw : NextResponse.json({ error: 'Provide a merchant, positive finite amount, valid date (YYYY-MM-DD), and valid transaction fields.' }, { status: 400 });
+  const parsed = manualInput.safeParse(raw);
   if (!parsed.success) return NextResponse.json({ error: 'Provide a merchant, positive finite amount, valid date (YYYY-MM-DD), and valid transaction fields.' }, { status: 400 });
   const { merchant_name, amount, date, category, notes, type, is_deductible, business_purpose, iso_currency_code } = parsed.data;
 

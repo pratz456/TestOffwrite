@@ -3,6 +3,7 @@ import { syncUserTransactions, syncUserTransactionsIncremental } from '../../../
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { adminDb } from '@/lib/firebase/admin';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { readJsonBody } from '@/lib/http/json-body';
 
 export async function POST(req: Request) {
   try {
@@ -14,8 +15,10 @@ export async function POST(req: Request) {
     catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
     console.log('✅ [Plaid Sync] User authenticated:', uid);
 
-    const parsed: unknown = await req.json().catch(() => ({}));
-    const body: Record<string, unknown> = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+    const parsed = await readJsonBody(req);
+    if (parsed instanceof NextResponse && parsed.status === 413) return parsed;
+    const value = parsed instanceof NextResponse ? {} : parsed;
+    const body: Record<string, unknown> = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
     // import_timeframe is display-only; the server plan determines the history window.
     const { userId = uid, import_timeframe = '2years', incremental = false, itemId } = body;
 

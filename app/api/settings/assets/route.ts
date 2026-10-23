@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
     console.log('✅ [Assets Settings API] User authenticated:', user.uid);
 
     const body = await readJsonObject(request);
+    if (body instanceof NextResponse) return body;
     if (!body) return invalidJsonResponse();
     const { assets } = body;
 
@@ -144,6 +145,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const body = await readJsonObject(request);
+    if (body instanceof NextResponse) return body;
     if (!body) return invalidJsonResponse();
     const { assetId } = body;
 

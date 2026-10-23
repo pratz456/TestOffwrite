@@ -39,6 +39,7 @@ function validateBody(body: unknown): body is ContactRequestBody {
 export async function POST(request: Request) {
   try {
     const body = await readJsonObject(request);
+    if (body instanceof NextResponse) return body;
     if (!validateBody(body)) {
       return NextResponse.json(
         { error: "Invalid or missing fields: name, email, subject, category, message are required." },

@@ -148,6 +148,59 @@ describe('transaction analysis availability', () => {
     expect(console.error).not.toHaveBeenCalled();
   });
 
+  it('returns 413 for a body over the size limit without parsing JSON', async () => {
+    const parse = vi.spyOn(JSON, 'parse');
+    parse.mockClear();
+    const payload = 'x'.repeat(1024 * 1024);
+    const response = await POST(new NextRequest('http://localhost/api/ai/analyze-transaction', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': String(payload.length) },
+      body: payload,
+    }));
+    expect(response.status).toBe(413);
+    const parsed = parse.mock.calls
+      .map((call) => (typeof call[0] === 'string' ? call[0] : ''))
+      .filter((text) => text.length > 0 && !text.includes('"mappings"'));
+    expect(parsed).toEqual([]);
+    expectNoAnalysisWork();
+    parse.mockRestore();
+  });
+
+  it('checks the request limit before reading the body', async () => {
+    const order: string[] = [];
+    mocks.authenticate.mockImplementation(async () => {
+      order.push('auth');
+      return { user: { uid }, error: null };
+    });
+    const rateLimit = await import('@/lib/security/rate-limit');
+    const limit = vi.spyOn(rateLimit, 'enforceRateLimit').mockImplementation(async () => {
+      order.push('limit');
+      return { allowed: false, limit: 60, remaining: 0, retryAfterSeconds: 30, resetAt: Date.now() + 30_000, source: 'firestore', unavailable: false };
+    });
+    const parse = vi.spyOn(JSON, 'parse');
+    parse.mockClear();
+    const response = await POST(request());
+    expect(response.status).toBe(429);
+    expect(order).toEqual(['auth', 'limit']);
+    const parsed = parse.mock.calls
+      .map((call) => (typeof call[0] === 'string' ? call[0] : ''))
+      .filter((text) => text.length > 0 && !text.includes('"mappings"'));
+    expect(parsed).toEqual([]);
+    expectNoAnalysisWork();
+    limit.mockRestore();
+    parse.mockRestore();
+  });
+
+  it('refuses a list longer than the field cap', async () => {
+    const response = await POST(request({
+      ...body,
+      transaction: { ...body.transaction, attendees: Array.from({ length: 101 }, () => 'guest') },
+    }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe('Invalid request data');
+    expectNoAnalysisWork();
+  });
+
   it('keeps configured-provider request validation before profile or analysis work', async () => {
     const response = await POST(request({ transactionId: body.transactionId, transaction: { amount: 35 } }));
     expect(response.status).toBe(400);

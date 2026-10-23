@@ -82,6 +82,7 @@ export async function POST(request: NextRequest) {
     console.log('✅ [Database Accounts API] User authenticated:', user.uid);
 
     const accountData = await readJsonObject(request)
+    if (accountData instanceof NextResponse) return accountData;
     if (!accountData) return invalidJsonResponse()
 
     if (!isAccountId(accountData.account_id)) {
@@ -137,6 +138,7 @@ export async function PUT(request: NextRequest) {
     console.log('✅ [Database Accounts API] User authenticated:', user.uid);
 
     const body = await readJsonObject(request)
+    if (body instanceof NextResponse) return body;
     if (!body) return invalidJsonResponse()
     const { accountId, updates } = body
 
@@ -188,6 +190,7 @@ export async function DELETE(request: NextRequest) {
     console.log('✅ [Database Accounts API] User authenticated:', user.uid);
 
     const body = await readJsonObject(request);
+    if (body instanceof NextResponse) return body;
     if (!body) return invalidJsonResponse();
     const { accountId } = body;
 

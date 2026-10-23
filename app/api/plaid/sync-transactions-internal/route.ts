@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await readJsonObject(req);
+    if (body instanceof NextResponse) return body;
     if (!body) return invalidJsonResponse();
     const { userId, import_timeframe = '6months' } = body;
 

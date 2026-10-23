@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getHomeOfficeSettings, saveHomeOfficeSettings } from '@/lib/firebase/settings-server';
 import { validateHomeOfficePayload } from '@/lib/settings/home-office-payload';
+import { readJsonBody } from '@/lib/http/json-body';
 
 export async function GET(request: NextRequest) {
   try {
@@ -35,8 +36,8 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ [Home Office Settings API] User authenticated:', user.uid);
 
-    let body: unknown;
-    try { body = await request.json(); } catch { return NextResponse.json({ error: 'Send the home office settings as JSON.' }, { status: 400 }); }
+    const body = await readJsonBody(request);
+    if (body instanceof NextResponse) return body.status === 413 ? body : NextResponse.json({ error: 'Send the home office settings as JSON.' }, { status: 400 });
     const { settings, errors } = validateHomeOfficePayload(body);
     if (errors.length) return NextResponse.json({ error: errors.join(' '), code: 'INVALID_HOME_OFFICE_INPUT' }, { status: 400 });
     if (!Object.keys(settings).length) return NextResponse.json({ error: 'Provide at least one home office setting to save.' }, { status: 400 });

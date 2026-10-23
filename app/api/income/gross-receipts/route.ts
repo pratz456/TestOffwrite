@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
     if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await readJsonObject(request);
+    if (body instanceof NextResponse) return body;
     if (!body) return invalidJsonResponse();
     const { amount, source, description, date, type, taxYear } = body;
 

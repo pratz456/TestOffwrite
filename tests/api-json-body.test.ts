@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { NextResponse } from 'next/server';
 import { invalidJsonResponse, readJsonObject } from '../app/api/_lib/body';
 
 const post = (body?: string, contentType = 'application/json') =>
@@ -23,6 +24,13 @@ describe('readJsonObject', () => {
 
   it('does not depend on the content-type header', async () => {
     await expect(readJsonObject(post('{"a":1}', 'text/plain'))).resolves.toEqual({ a: 1 });
+  });
+
+  it('returns 413 when the body is over the size limit', async () => {
+    const result = await readJsonObject(post('x'.repeat(70 * 1024)));
+    expect(result).toBeInstanceOf(NextResponse);
+    expect((result as NextResponse).status).toBe(413);
+    await expect((result as NextResponse).json()).resolves.toEqual({ error: 'Request body is too large' });
   });
 });
 

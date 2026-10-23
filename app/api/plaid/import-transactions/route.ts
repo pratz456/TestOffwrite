@@ -11,6 +11,7 @@ export async function POST(req: Request) {
   try { ({ uid } = await getUserFromReqOrThrow(req)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
   const body = await readJsonObject(req);
+  if (body instanceof NextResponse) return body;
   if (!body) return invalidJsonResponse();
   try {
     // Credentials are never accepted from a browser, including legacy requests.

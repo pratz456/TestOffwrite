@@ -12,6 +12,7 @@ export async function POST(request: NextRequest) {
     const { user } = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const body = await readJsonObject(request);
+    if (body instanceof NextResponse) return body;
     if (!body) return invalidJsonResponse();
     const { userId, transactionId, merchantName, amount, date, category, question } = body;
 

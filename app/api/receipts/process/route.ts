@@ -18,6 +18,7 @@ import {
 } from '@/lib/firebase/receipt-security';
 import { transactionIdInput, transactionUpdatesInput } from '@/lib/transactions/client-updates';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { readJsonBody } from '@/lib/http/json-body';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -300,7 +301,9 @@ export async function PUT(request: NextRequest) {
     }
 
     assertReceiptUploadOrigin(request);
-    const body = await request.json().catch(() => null);
+    const raw = await readJsonBody(request);
+    if (raw instanceof NextResponse && raw.status === 413) return raw;
+    const body = raw instanceof NextResponse ? null : raw as { transactionId?: unknown; updates?: unknown } | null;
     const transactionId = transactionIdInput.safeParse(body?.transactionId);
     const updates = transactionUpdatesInput.safeParse(body?.updates);
     if (!transactionId.success || !updates.success) return receiptResponse({ error: 'Provide a valid transaction and editable fields.' }, 400);
