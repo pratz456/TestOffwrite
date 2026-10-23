@@ -51,6 +51,7 @@ export interface ReceiptOcrResult {
 export async function scanReceipt(fileUri: string, mimeType: string): Promise<ReceiptOcrResult> {
   const form = new FormData();
   form.append('mode', 'ocr');
+  form.append('uploadTimeZone', Intl.DateTimeFormat().resolvedOptions().timeZone);
   // React Native's FormData accepts a file descriptor object for local URIs.
   form.append('file', { uri: fileUri, name: 'receipt.jpg', type: mimeType } as unknown as Blob);
   return apiRequest<ReceiptOcrResult>('/api/receipts/process', { method: 'POST', body: form });
@@ -68,6 +69,7 @@ export async function commitReceipt(fileUri: string, mimeType: string, input: Re
   const form = new FormData();
   form.append('mode', 'commit');
   form.append('receiptType', input.receiptType);
+  form.append('uploadTimeZone', Intl.DateTimeFormat().resolvedOptions().timeZone);
   form.append('receiptData', JSON.stringify({ merchant: input.merchant, amount: input.amount, date: input.date, category: input.category }));
   form.append('file', { uri: fileUri, name: 'receipt.jpg', type: mimeType } as unknown as Blob);
   return apiRequest<{ success: boolean; transaction: { trans_id: string } }>('/api/receipts/process', { method: 'POST', body: form });

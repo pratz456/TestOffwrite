@@ -8,7 +8,7 @@ import { auth } from '@/lib/firebase/client';
 import type { ReceiptMatchCandidate } from '@/lib/ocr/receipt-processor';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { receiptCommitForm, type ReceiptDraft } from '@/lib/receipts/receipt-review';
+import { browserUploadTimeZone, receiptCommitForm, type ReceiptDraft } from '@/lib/receipts/receipt-review';
 
 interface ReceiptUploadScreenProps {
   user: {
@@ -127,6 +127,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
       const formData = new FormData();
       formData.append('file', selectedFile);
       formData.append('mode', 'ocr');
+      formData.append('uploadTimeZone', browserUploadTimeZone());
 
       const response = await fetch('/api/receipts/process', {
         method: 'POST',
