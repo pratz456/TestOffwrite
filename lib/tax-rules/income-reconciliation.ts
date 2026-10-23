@@ -17,8 +17,9 @@ import {
   DECISION_LABEL_CORRECTED, DECISION_LABEL_NOT_BUSINESS, ERR_CORRECTED_NEEDS_TWO_NEC, ERR_CORRECTED_PICK,
   ERR_CORRECTED_SAME_PAYER, ERR_CORRECTED_SUM, ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED,
   ERR_SAME_NEEDS_K, ERR_SELECT_BUSINESS_RECORDS, ERR_SUM_MISMATCH, fillIncomeCopy,
+  LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON,
 } from './income-reconciliation-copy';
-import { legacyNecSamePaymentsReopenEnabled } from './reconciliation-feature';
+import { legacyNecSamePaymentsReopenEnabled, reconciliationYearMayAlreadyBeFiled } from './reconciliation-feature';
 
 export const INCOME_SOURCE_KINDS = ['form_1099', 'gross_receipt', 'transaction'] as const;
 export type IncomeSourceKind = (typeof INCOME_SOURCE_KINDS)[number];
@@ -168,8 +169,9 @@ const okCheck = (
 export interface ReconciliationValidateOptions {
   /**
    * New saves always reject a same-payments decision made of only 1099-NECs.
-   * A stored decision is rejected only when the R10.5 flag is on. Pass false to
-   * keep counting a decision that was saved before that rule.
+   * A stored decision for the current year is rejected only when the R10.5 flag
+   * is on. Pass false to keep counting a decision that was saved before that rule,
+   * including a prior year that may already be filed.
    */
   rejectNecOnlySamePayments?: boolean;
 }
@@ -301,6 +303,18 @@ export function validateReconciliationDecision(
   return okCheck(gross, feeCents, kinds, resolved);
 }
 
+/** Two or more 1099-NEC forms and no other records. One NEC plus its deposits is not this case. */
+function necOnlySamePayments(decision: IncomeReconciliationDecision, candidates: ReadonlyMap<string, IncomeSourceCandidate>): boolean {
+  if (decision.decision !== 'same_payments' || decision.sources.length < 2) return false;
+  const forms: IncomeSourceCandidate[] = [];
+  for (const ref of decision.sources) {
+    const candidate = candidates.get(sourceKey(ref));
+    if (!candidate || candidate.kind !== 'form_1099') return false;
+    forms.push(candidate);
+  }
+  return forms.every(form => form.formType === '1099-NEC');
+}
+
 function mismatchReason(kind: string, selected: number, gross: number, refunds: number, personal: number, fee: number): string {
   return fillIncomeCopy(ERR_SUM_MISMATCH, {
     gross: dollars(gross), kind, selected: dollars(selected), refunds: dollars(refunds), personal: dollars(personal), fee: dollars(fee),
@@ -322,6 +336,8 @@ export interface IncomeReconciliationResolution {
   /** Original 1099-NEC forms kept on file and counted at $0 because a corrected form was chosen. */
   replacedForms: ReplacedForm[];
   conflicts: IncomeReconciliationConflict[];
+  /** Non-blocking notes. A prior-year NEC-only same-payments flag lives here and does not change the total. */
+  notices: string[];
 }
 
 /**
@@ -335,10 +351,12 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
   const feeExpenseCandidates: FeeExpenseCandidate[] = [];
   const outsideScheduleC: OutsideScheduleCItem[] = [];
   const replacedForms: ReplacedForm[] = [];
+  const notices: string[] = [];
   const groups: Array<{ decisionId: string; kinds: Set<IncomeSourceKind> }> = [];
   const appliedDecisionIds: string[] = [];
   let reconciledCents = 0;
   let returnsCents = 0;
+  const reopenNecOnly = legacyNecSamePaymentsReopenEnabled();
   for (const record of decisions) {
     const decision = normalizeReconciliationDecision(record);
     const decisionId = typeof record.id === 'string' ? record.id : 'unknown';
@@ -346,14 +364,21 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
       conflicts.push({ reason: 'stale_decision', decisionId, message: 'A saved reconciliation decision is malformed or belongs to another tax year. Remove it and record the decision again.', sources: [] });
       continue;
     }
+    const necOnly = necOnlySamePayments(decision, byKey);
+    const filedYear = reconciliationYearMayAlreadyBeFiled(decision.taxYear);
     const check = validateReconciliationDecision(decision, byKey, claimedBy, {
-      rejectNecOnlySamePayments: legacyNecSamePaymentsReopenEnabled(),
+      rejectNecOnlySamePayments: reopenNecOnly && !(necOnly && filedYear),
     });
     if (!check.ok) {
-      conflicts.push({ reason: 'stale_decision', decisionId, message: `A saved reconciliation decision no longer matches your records: ${check.reason}`,
-        sources: decision.sources.map(ref => ({ ...ref, label: byKey.get(sourceKey(ref))?.label ?? `${SOURCE_KIND_LABELS[ref.kind]} (record removed)` })) });
+      const reopenedNow = reopenNecOnly && necOnly && !filedYear && check.reason === ERR_SAME_NEEDS_K;
+      conflicts.push({
+        reason: 'stale_decision', decisionId,
+        message: reopenedNow ? LEGACY_NEC_REOPEN_REASON : `A saved reconciliation decision no longer matches your records: ${check.reason}`,
+        sources: decision.sources.map(ref => ({ ...ref, label: byKey.get(sourceKey(ref))?.label ?? `${SOURCE_KIND_LABELS[ref.kind]} (record removed)` })),
+      });
       continue;
     }
+    if (reopenNecOnly && necOnly && filedYear) notices.push(LEGACY_NEC_PRIOR_YEAR_NOTE);
     check.sources.forEach(source => claimedBy.set(sourceKey(source), decision.id));
     reconciledCents += check.countedCents;
     returnsCents += check.returnsCents;
@@ -396,5 +421,5 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
       message: `Unreconciled ${uncovered.map(kind => SOURCE_KIND_LABELS[kind]).join(' and ')} may belong to payments already reconciled in a saved decision that has no ${uncovered.map(kind => SOURCE_KIND_LABELS[kind]).join(' or ')} record. Add those records to that decision or mark them as separate income.`,
       sources: unclaimed.filter(candidate => uncovered.includes(candidate.kind)).map(publicRef) });
   }
-  return { reconciledCents, returnsCents, unclaimedCents, claimedBy, appliedDecisionIds, feeExpenseCandidates, outsideScheduleC, replacedForms, conflicts };
+  return { reconciledCents, returnsCents, unclaimedCents, claimedBy, appliedDecisionIds, feeExpenseCandidates, outsideScheduleC, replacedForms, conflicts, notices };
 }

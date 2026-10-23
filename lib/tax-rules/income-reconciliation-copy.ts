@@ -60,6 +60,10 @@ export const COMPARE_ROW_AMOUNT = 'Amount';
 export const COMPARE_DIFF = 'These forms differ by {diff}.';
 export const COMPARE_SAME_AMOUNT = 'These forms show the same amount. That alone doesn\'t mean they report the same payments.';
 export const ERR_SAME_NEEDS_K = 'Two 1099-NECs can\'t report the same payments. Mark each one as separate income, or record a corrected form.';
+/** Shown when R10.5 reopens a current-year NEC-only same-payments decision. PENDING PRATHAM OK. */
+export const LEGACY_NEC_REOPEN_REASON = 'Two 1099-NECs are separate income, so both count.';
+/** Shown when R10.5 flags a prior-year NEC-only same-payments decision without changing its total. PENDING PRATHAM OK. */
+export const LEGACY_NEC_PRIOR_YEAR_NOTE = 'If this was on a return you already filed, the IRS explains how to correct it at irs.gov/form1040x.';
 export const SAME_DISABLED_NEC = 'Not available for 1099-NECs only. Each 1099-NEC reports different payments.';
 export const DECISION_LABEL_CORRECTED = 'A corrected 1099-NEC replaces the original';
 export const DECISION_HELP_CORRECTED = 'Use this when a client sent you a corrected 1099-NEC. We count the corrected form and keep the original in your records without counting it.';

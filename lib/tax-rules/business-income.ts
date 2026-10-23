@@ -135,6 +135,7 @@ export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyA
   for (const item of resolution.outsideScheduleC) {
     warnings.push(`${OUTSIDE_SC_NOTE} Amount: $${item.amount.toFixed(2)}.`);
   }
+  warnings.push(...resolution.notices);
   const unclaimedTotal = unclaimedCents.transaction + unclaimedCents.gross_receipt + unclaimedCents.form_1099;
   const grossCents = resolution.reconciledCents + unclaimedTotal;
   const grossReceipts = grossCents / 100;

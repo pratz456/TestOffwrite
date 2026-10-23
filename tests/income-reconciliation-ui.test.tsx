@@ -42,7 +42,7 @@ import {
   COMPARE_DIFF, COMPARE_SAME_AMOUNT, COMPARE_TITLE, CONFIRM_FORMS_REQUIRED, CONFIRM_SAME_BACK, CONFIRM_SAME_TITLE, CONFIRM_SAME_YES,
   CORRECTED_ORIGINAL_BADGE, CORRECTED_PICK_QUESTION, CORRECTED_PREVIEW, DECISION_HELP_CORRECTED, DECISION_LABEL_CORRECTED,
   DECISION_LABEL_NOT_BUSINESS, ERR_REASON_AMOUNT, GUIDE_ANSWER_APP, GUIDE_ANSWER_BANK, GUIDE_HINT_APP, GUIDE_HINT_BANK,
-  GUIDE_QUESTION, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_YES, NO_CHOICE_YET, NO_FORM_NO_INCOME, PANEL_FORMS_NOTE,
+  GUIDE_QUESTION, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_YES, NO_CHOICE_YET, NO_FORM_NO_INCOME, PANEL_FORMS_NOTE,
   SAME_DISABLED_NEC, fillIncomeCopy,
 } from '../lib/tax-rules/income-reconciliation-copy';
 import { incomeReconciliationPath } from '../lib/tax-rules/income-reconciliation-response';
@@ -58,6 +58,7 @@ function render(component: () => unknown): Element {
   return tree;
 }
 const panel = () => IncomeReconciliationPanel({ taxYear: 2026, onChanged: harness.changed });
+const panelFor = (taxYear: number) => () => IncomeReconciliationPanel({ taxYear, onChanged: harness.changed });
 function walk(node: any): Element[] {
   if (Array.isArray(node)) return node.flatMap(walk);
   return node && typeof node === 'object' ? [node, ...walk(node.props?.children)] : [];
@@ -82,7 +83,10 @@ let nextId = 0;
 function api(url: string, init?: RequestInit): Promise<Response> {
   const method = init?.method ?? 'GET';
   const body = init?.body ? JSON.parse(String(init.body)) : {};
-  if (method === 'GET') return Promise.resolve(Response.json(summarizeIncomeReconciliation(2026, records)));
+  if (method === 'GET') {
+    const year = Number(new URL(url, 'http://localhost').searchParams.get('year'));
+    return Promise.resolve(Response.json(summarizeIncomeReconciliation(Number.isInteger(year) ? year : 2026, records)));
+  }
   if (method === 'DELETE') {
     const id = new URL(url, 'http://localhost').searchParams.get('id');
     records.decisions = records.decisions.filter(decision => decision.id !== id);
@@ -108,6 +112,7 @@ function api(url: string, init?: RequestInit): Promise<Response> {
 beforeEach(() => {
   harness.slots = []; harness.cursor = 0; harness.effects = []; harness.request.mockReset(); harness.navigate.mockReset(); harness.changed.mockReset();
   harness.request.mockImplementation(api);
+  delete process.env.NEXT_PUBLIC_RECONCILIATION_R10_5_LEGACY_NEC_REOPEN;
   records.transactions = []; records.receipts = [receipt('r1', 12000)]; records.forms = [form('k1', 12000)]; records.decisions = []; nextId = 0;
 });
 
@@ -655,6 +660,52 @@ describe('v1.1 confirm step, compare and corrected form', () => {
     expect(text(strip)).toContain('Second platform');
     expect(text(strip)).toContain('$500.00');
     expect(radios(strip).some(node => node.props.checked)).toBe(false);
+  });
+
+  it('lets one 1099-NEC and its bank deposit stay on same payments', async () => {
+    process.env.NEXT_PUBLIC_RECONCILIATION_R10_5_LEGACY_NEC_REOPEN = '1';
+    records.receipts = [];
+    records.transactions = [deposit('t1', 10000)];
+    records.forms = [form('n1', 10000, '1099-NEC', 'Client A')];
+    render(panel); await flush();
+    check(render(panel), '1099-NEC · Client A $10,000.00');
+    check(render(panel), 'Bank income · Synthetic platform payout $10,000.00');
+    const ready = render(panel);
+    expect(radios(ready).find(node => node.props.value === 'same_payments')!.props.disabled).toBe(false);
+    expect(text(ready)).not.toContain(SAME_DISABLED_NEC);
+    radio(ready, 'same_payments');
+    await submit(render(panel));
+    expect(text(render(panel))).toContain('Gross receipts for 2026 (Schedule C line 1)');
+    expect(text(render(panel))).toContain('$10,000.00');
+    expect(text(render(panel))).not.toContain('$20,000.00');
+  });
+
+  it('shows the current-year reopen reason and the prior-year filing note', async () => {
+    const forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
+    const sources = [{ kind: 'form_1099', id: 'n1', amount: 12000 }, { kind: 'form_1099', id: 'n2', amount: 12000 }];
+    records.receipts = [];
+    records.forms = forms;
+    records.decisions = [{ id: 'd1', taxYear: 2026, decision: 'same_payments', version: 1, platformFeeAmount: null, countedAmount: 12000, sources }];
+    process.env.NEXT_PUBLIC_RECONCILIATION_R10_5_LEGACY_NEC_REOPEN = '1';
+    render(panel); await flush();
+    const current = text(render(panel));
+    expect(current).toContain(LEGACY_NEC_REOPEN_REASON);
+    expect(current).toContain('Tax totals for 2026 are on hold');
+    expect(current).not.toContain(LEGACY_NEC_PRIOR_YEAR_NOTE);
+    expect(current).not.toContain('no longer matches your records');
+
+    harness.slots = [];
+    records.decisions = [{ id: 'd1', taxYear: 2025, decision: 'same_payments', version: 1, platformFeeAmount: null, countedAmount: 12000, sources }];
+    const before = JSON.stringify(records.decisions);
+    render(panelFor(2025)); await flush();
+    const prior = text(render(panelFor(2025)));
+    expect(prior).toContain(LEGACY_NEC_PRIOR_YEAR_NOTE);
+    expect(prior).toContain('Gross receipts for 2025 (Schedule C line 1)');
+    expect(prior).toContain('$12,000.00');
+    expect(prior).not.toContain('$24,000.00');
+    expect(prior).not.toContain('on hold');
+    expect(prior).not.toContain(LEGACY_NEC_REOPEN_REASON);
+    expect(JSON.stringify(records.decisions)).toBe(before);
   });
 
   it('R-58 disables same payments for two 1099-NECs from one payer or two', async () => {

@@ -72,6 +72,8 @@ export interface IncomeReconciliationSummary {
   outsideScheduleC: OutsideScheduleCItem[];
   /** Set when a saved record needs review outside this workflow (e.g. a 1099-MISC or rental receipt). */
   unsupported: string | null;
+  /** Non-blocking notes, including a prior-year NEC-only same-payments flag. */
+  notices: string[];
   policy: string;
 }
 
@@ -103,7 +105,7 @@ function decisionView(record: IncomeRecord, appliedIds: ReadonlySet<string>): Sa
 
 /** The owner-facing state of one tax year: what can be reconciled, what was decided, what still blocks a total. */
 export function summarizeIncomeReconciliation(taxYear: number, records: IncomeSourceRecords): IncomeReconciliationSummary {
-  const base = { taxYear, feeExpenseCandidates: [] as FeeExpenseCandidate[], outsideScheduleC: [] as OutsideScheduleCItem[], policy: INCOME_RECONCILIATION_POLICY };
+  const base = { taxYear, feeExpenseCandidates: [] as FeeExpenseCandidate[], outsideScheduleC: [] as OutsideScheduleCItem[], notices: [] as string[], policy: INCOME_RECONCILIATION_POLICY };
   let candidates: IncomeSourceCandidate[];
   try {
     candidates = listIncomeSourceCandidates(taxYear, records.transactions, records.receipts, records.forms).candidates;
@@ -134,6 +136,7 @@ export function summarizeIncomeReconciliation(taxYear: number, records: IncomeSo
     unclaimedAmount: unclaimed / 100,
     feeExpenseCandidates: resolution.feeExpenseCandidates,
     outsideScheduleC: resolution.outsideScheduleC,
+    notices: resolution.notices,
     unsupported: null,
   };
 }

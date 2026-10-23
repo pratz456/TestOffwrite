@@ -299,6 +299,13 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
         </div>
       ) : (
         <>
+          {(summary.notices ?? []).length > 0 && (
+            <div role="status" className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm">
+              {summary.notices.map(notice => (
+                <p key={notice} className="text-xs leading-relaxed">{notice}</p>
+              ))}
+            </div>
+          )}
           {summary.unsupported ? (
             <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
               <p className="font-medium text-foreground">A saved record needs review before {taxYear} can be reconciled</p>
