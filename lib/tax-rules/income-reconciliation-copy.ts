@@ -11,7 +11,7 @@ export const GUIDE_QUESTION = 'Did this client pay you by card, PayPal, Venmo or
 export const GUIDE_ANSWER_APP = 'Yes, by card or a payment app';
 export const GUIDE_ANSWER_BANK = 'No, by check, ACH or wire';
 export const GUIDE_ANSWER_NOT_SURE = 'Not sure';
-export const GUIDE_HINT_APP = 'Card and payment app payments are reported on a 1099-K, not a 1099-NEC. If you have both forms for this work, they may report the same payments. Compare the amounts, then choose.';
+export const GUIDE_HINT_APP = 'Card and payment app payments belong on a 1099-K, not a 1099-NEC. If you have both forms for this work, they may report the same payments. Compare the amounts, then choose.';
 export const GUIDE_HINT_BANK = 'Check, ACH and wire payments are not reported on a 1099-K. A 1099-NEC for this work is more likely separate income. Compare the amounts, then choose.';
 export const GUIDE_HINT_NOT_SURE = 'Check the client\'s payment records or your bank statement. If you still can\'t tell, ask your tax preparer before you choose.';
 

@@ -11,7 +11,7 @@ import {
 import {
   CORRECTED_ORIGINAL_BADGE, DECISION_LABEL_CORRECTED, ERR_CORRECTED_NEEDS_TWO_NEC, ERR_CORRECTED_PICK, ERR_CORRECTED_SAME_PAYER, ERR_CORRECTED_SUM,
   ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTIAL_DEPOSIT_NOT_SHARED, ERR_PARTIAL_DEPOSITS, ERR_PARTIAL_OVERLAP, ERR_PARTS_EXCEED_GROSS, ERR_PARTS_ON_K_ONLY, ERR_REASON_REQUIRED, ERR_SAME_NEEDS_K, ERR_SELECT_BUSINESS_RECORDS, ERR_SEPARATE_FORM_WITH_MONEY, ERR_SEPARATE_SAME_PAYMENTS_ONLY,
-  LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_NEC_WARNING, NO_FORM_NO_INCOME, OUTSIDE_SC_NOTE, PANEL_FORMS_NOTE, REASON_ERROR, REASON_PERSONAL_HELP, SAME_DISABLED_NEC, fillIncomeCopy,
+  GUIDE_HINT_APP, LEGACY_NEC_CHANGE_NOTICE, LEGACY_NEC_PRIOR_YEAR_NOTE, LEGACY_NEC_REOPEN_REASON, LEGACY_NEC_WARNING, NO_FORM_NO_INCOME, OUTSIDE_SC_NOTE, PANEL_FORMS_NOTE, REASON_ERROR, REASON_PERSONAL_HELP, SAME_DISABLED_NEC, fillIncomeCopy,
 } from '../lib/tax-rules/income-reconciliation-copy';
 import * as incomeCopy from '../lib/tax-rules/income-reconciliation-copy';
 import { prepareReconciliationDecision, summarizeIncomeReconciliation } from '../lib/tax-rules/income-reconciliation-response';
@@ -649,6 +649,7 @@ describe('legacy decisions and copy', () => {
     expect(LEGACY_NEC_CHANGE_NOTICE).toBe('We used to count these two 1099-NECs once. Two 1099-NECs are usually separate income, so both now count, and your total and quarterly estimate may go up.');
     expect(DECISION_LABEL_CORRECTED).toBe('A client sent a corrected 1099-NEC');
     expect(CORRECTED_ORIGINAL_BADGE).toBe('Original form. A corrected form was sent, so this one is kept but not counted.');
+    expect(GUIDE_HINT_APP).toBe('Card and payment app payments belong on a 1099-K, not a 1099-NEC. If you have both forms for this work, they may report the same payments. Compare the amounts, then choose.');
     expect(PANEL_FORMS_NOTE).toContain('is required to send a 1099-K only when your payments are over $20,000 and over 200 transactions');
     expect(PANEL_FORMS_NOTE).toContain('Some send one anyway.');
     expect(NO_FORM_NO_INCOME).toContain("No form doesn't mean no income");
