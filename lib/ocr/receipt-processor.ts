@@ -141,7 +141,14 @@ function earliestDateText(candidates: ReceiptDateCandidate[]): string {
   if (candidates.length === 0) return '';
   let best = candidates[0];
   for (const candidate of candidates) {
-    if (candidate.index < best.index) best = candidate;
+    if (candidate.iso < best.iso) {
+      best = candidate;
+      continue;
+    }
+    if (candidate.iso !== best.iso) continue;
+    if (candidate.raw.length > best.raw.length || (candidate.raw.length === best.raw.length && candidate.index < best.index)) {
+      best = candidate;
+    }
   }
   return best.raw;
 }
