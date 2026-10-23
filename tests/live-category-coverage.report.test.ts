@@ -4,10 +4,10 @@ import { EXPENSE_CATEGORIES } from '@/lib/ai/transaction-tax-policy';
 import { PLAID_CATEGORY_MAP } from '@/lib/ai/merchant-intelligence';
 import { VEHICLE_ACTUAL_EXPENSE_CATEGORY, VEHICLE_LOAN_INTEREST_CATEGORY, VEHICLE_PROPERTY_TAX_CATEGORY } from '@/lib/ai/actual-expense-share';
 import { HIRED_LOCAL_TRANSPORT_CATEGORY } from '@/lib/ai/vehicle-separate-costs';
-import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { hasCategoryRule } from '@/lib/schedule-c/aggregate';
 import { REVIEW_CATEGORIES } from '@/lib/transactions/ai-review-contract';
 
-/** Report mode. Unmapped live values are printed for the alias table. They do not fail CI. */
+/** Enforce mode. Any live value other than the four review placeholders must have a rule. CI fails when one does not. */
 const DELIBERATE_EXCEPTIONS = [
   'EQUIPMENT_REVIEW_REQUIRED',
   'VEHICLE_REVIEW_REQUIRED',
@@ -25,8 +25,8 @@ function expensePickerValues(path: string): string[] {
   return [...block[1].matchAll(/value:\s*"([^"]+)"/g)].map(match => match[1]);
 }
 
-describe('live category coverage (report)', () => {
-  it('prints every unmapped live category and lists the four review exceptions without failing', () => {
+describe('live category coverage', () => {
+  it('fails when a live category has no rule, other than the four review placeholders', () => {
     const policy = source('lib/ai/transaction-tax-policy.ts');
     const analysis = source('lib/ai/analyzeTransaction.ts');
     const merchant = source('lib/ai/merchant-intelligence.ts');
@@ -78,15 +78,12 @@ describe('live category coverage (report)', () => {
     ]);
 
     const exceptions = DELIBERATE_EXCEPTIONS.filter(value => live.has(value)).slice().sort();
-    const unmapped = [...live].filter(value => !Object.prototype.hasOwnProperty.call(CATEGORY_MAP, value) && !exceptions.includes(value)).sort();
+    const unmapped = [...live].filter(value => !hasCategoryRule(value) && !exceptions.includes(value)).sort();
     console.log(`[live-category-coverage] unmapped live categories (${unmapped.length}):\n${unmapped.join('\n')}`);
     console.log(`[live-category-coverage] deliberate exceptions:\n${exceptions.join('\n')}`);
 
     expect(exceptions).toEqual([...DELIBERATE_EXCEPTIONS].slice().sort());
-    expect(unmapped).toEqual(expect.arrayContaining([
-      'other', 'income', 'SOFTWARE', 'TRANSPORTATION_GAS', 'FOOD_AND_DRINK_COFFEE', 'meals_50', 'gas', 'Other', 'Food & Drink',
-    ]));
-    expect(unmapped.length).toBeGreaterThan(50);
-    for (const exception of exceptions) expect(unmapped).not.toContain(exception);
+    expect(unmapped).toEqual([]);
+    for (const exception of exceptions) expect(hasCategoryRule(exception)).toBe(false);
   });
 });

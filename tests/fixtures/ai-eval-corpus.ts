@@ -809,7 +809,7 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     modelOutput: deduction('software_subscriptions', ['software-334'], 'Figma is design software commonly used by graphic designers. Keep the invoice.', 'Design software subscription.'),
     expect: {
       status: 'needs_more_info', transaction_kind: 'expense', category: 'software_subscriptions', missing_field: 'business_purpose',
-      proposed_purpose: 'Design software subscription used for client work', schedule_c_line: '18', question_includes: 'Confirm or edit the purpose', evidence_includes: ['software-334'],
+      proposed_purpose: 'Design software subscription used for client work', schedule_c_line: '27a', question_includes: 'Confirm or edit the purpose', evidence_includes: ['software-334'],
     },
     invariants: GATED_EXPENSE,
   },
@@ -896,7 +896,7 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     transaction: tx('canva-purpose-ok', 'Canva', 12.99, { is_recurring: true, business_purpose: 'Design tool used for client social media graphics and proposals' }),
     context: SOLE_PROPRIETOR,
     modelOutput: deduction('software_subscriptions', ['software-334'], 'The recorded client social media graphics work supports a business design tool subscription. Keep the invoice.', 'Recorded client design tool use.'),
-    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'software_subscriptions', deductible_percent: 100, schedule_c_line: '18', proposed_purpose: null },
+    expect: { status: 'ok', transaction_kind: 'expense', is_deductible: true, category: 'software_subscriptions', deductible_percent: 100, schedule_c_line: '27a', proposed_purpose: null },
     invariants: OK_DEDUCTION,
   },
   {
@@ -941,7 +941,7 @@ export const AI_EVAL_CORPUS: EvalCase[] = [
     modelOutput: deduction('software_subscriptions', ['software-334'], 'SimplePractice is practice-management software for therapists. Keep the invoice.', 'Practice management software.'),
     expect: {
       status: 'needs_more_info', transaction_kind: 'expense', category: 'software_subscriptions', missing_field: 'business_purpose',
-      proposed_purpose: 'Practice management and telehealth software for the private practice', schedule_c_line: '18',
+      proposed_purpose: 'Practice management and telehealth software for the private practice', schedule_c_line: '27a',
     },
     invariants: GATED_EXPENSE,
   },

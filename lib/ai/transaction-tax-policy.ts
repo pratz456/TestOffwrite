@@ -146,9 +146,9 @@ export const CATEGORY_EVIDENCE: Record<ExpenseCategory, readonly string[]> = {
 const VEHICLE_PURCHASE_EVIDENCE = ['assets-946', 'capital-263', 'travel-463', 'mileage-rates'] as const;
 /** Schedule C line per expense category (2025 Instructions for Schedule C); a matching merchant entry can refine it. */
 export const CATEGORY_SCHEDULE_C_LINE: Record<ExpenseCategory, string | null> = {
-  advertising_marketing: '8', supplies_small_tools: '22', software_subscriptions: '18', contract_labor: '11', equipment: '13',
+  advertising_marketing: '8', supplies_small_tools: '22', software_subscriptions: '27a', contract_labor: '11', equipment: '13',
   vehicle_expense: '9', parking_tolls: '9', travel: '24a', meals_50: '24b', home_office: '30', utilities_phone_internet: '25', education_training: '27a',
-  dues_and_memberships: '27a', bank_and_payment_fees: '10', rent: '20b', insurance: '15', legal_professional: '17', taxes_licenses: '23',
+  dues_and_memberships: '27a', bank_and_payment_fees: '27a', rent: '20b', insurance: '15', legal_professional: '17', taxes_licenses: '23',
   repairs_maintenance: '21', other: null,
 };
 
@@ -930,7 +930,8 @@ export function groundTransactionAnalysis(
   // The Schedule C line names where a confirmed expense would be reported; it is display metadata, not an approval.
   if (result.transaction_kind === 'expense' && result.status !== 'blocked' && result.category && input.expense_type !== 'personal' && result.expense_type !== 'personal'
       && result.is_deductible !== false && !result.missing_fields?.includes('transaction_kind')) {
-    const line = merchant.category === result.category && merchant.scheduleCLine ? merchant.scheduleCLine : CATEGORY_SCHEDULE_C_LINE[result.category];
+    const merchantLine = merchant.category === result.category && merchant.scheduleCLine ? merchant.scheduleCLine : null;
+    const line = upworkPlatformFee ? '10' : merchantLine ?? CATEGORY_SCHEDULE_C_LINE[result.category];
     if (line) result.schedule_c_line = line;
   }
   // Restored after the category line assignment, which still runs when is_deductible is unset.

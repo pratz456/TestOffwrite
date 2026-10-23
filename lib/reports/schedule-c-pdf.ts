@@ -1,4 +1,5 @@
-import { aggregateScheduleC, CATEGORY_MAP, type LineItemSummary, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
+import { aggregateScheduleC, CATEGORY_MAP, type FuelSummary, type LineItemSummary, type PossibleRefund, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
+import { REFUND_COPY_MARK } from '@/lib/schedule-c/category-rules';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 
@@ -6,6 +7,10 @@ export interface ScheduleCExportData {
   taxYear: number; grossReceipts: number; lineItems: LineItemSummary[];
   /** Confirmed rows withheld from every line. Not a line and not part of the expense subtotal. */
   needsMoreInformation?: ScheduleCTransactionLike[];
+  fuelSummaries?: FuelSummary[];
+  possibleRefunds?: PossibleRefund[];
+  refundNotice?: string | null;
+  exportNotes?: string[];
   /** `ssn` and `ein` are masked display values (last four digits); callers never pass full identifiers. */
   name?: string; ssn?: string; profession?: string; naicsCode?: string; ein?: string;
   includeAppendix: boolean;
@@ -31,6 +36,19 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
     ['Worksheet', 'Receipts minus confirmed expenses, before other adjustments', money(data.grossReceipts - total)],
     ['29-31', 'Final tentative profit, home-office deduction and net profit', 'Not determined'],
   ], [70, 353, 105]);
+  if (data.refundNotice) {
+    const marked = data.refundNotice.endsWith(REFUND_COPY_MARK);
+    pdf.paragraph(marked ? data.refundNotice.slice(0, -REFUND_COPY_MARK.length).trimEnd() : data.refundNotice);
+    if (marked) pdf.paragraph(REFUND_COPY_MARK);
+  }
+  const refunds = data.possibleRefunds ?? [];
+  if (refunds.length) {
+    pdf.table(['Date', 'Merchant', 'Category', 'Amount'], [
+      ...refunds.map(row => [row.date, row.merchant, row.category, money(row.amount)]),
+      ['', '', 'Possible refunds total', money(refunds.reduce((sum, row) => sum + row.amount, 0))],
+    ], [90, 180, 160, 98]);
+  }
+  for (const note of data.exportNotes ?? []) pdf.paragraph(note);
   const withheld = data.needsMoreInformation ?? [];
   if (withheld.length) {
     pdf.paragraph(`Needs more information: ${withheld.length} confirmed record${withheld.length === 1 ? '' : 's'} withheld from every Schedule C line. These amounts are not in the expense subtotal.`);
@@ -41,9 +59,13 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   if (data.includeAppendix) {
     pdf.section('Complete confirmed-transaction appendix');
     const rows = data.lineItems.flatMap(item => item.transactions.map(tx => {
-      const contribution = aggregateScheduleC([tx], String(data.taxYear), CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible;
-      return [tx.date, tx.merchant_name || tx.id || 'Unnamed record', scheduleCExportLine(item.lineCode, data.taxYear), money(tx.amount), money(contribution)];
+      const included = tx.fuelIncludedInSummary === true;
+      const contribution = included ? 0 : aggregateScheduleC([tx], String(data.taxYear), CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible;
+      return [tx.date, tx.merchant_name || tx.id || 'Unnamed record', included ? '' : scheduleCExportLine(item.lineCode, data.taxYear), money(tx.amount), money(contribution)];
     }));
+    for (const summary of data.fuelSummaries ?? []) {
+      rows.push(['', `Fuel summary ${summary.vehicleKey}`, summary.disposition === 'line' ? scheduleCExportLine('9', data.taxYear) : '', money(summary.businessShare), money(summary.businessShare)]);
+    }
     for (const tx of withheld) {
       rows.push([tx.date ?? '', tx.merchant_name || tx.id || 'Unnamed record', '', money(tx.amount), money(0)]);
     }

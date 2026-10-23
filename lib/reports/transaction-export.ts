@@ -1,4 +1,4 @@
-import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { exportCategoryDecision } from '@/lib/schedule-c/aggregate';
 import { scheduleCLineCsvCell } from '@/lib/schedule-c/export-lines';
 import { resolveScheduleCPrint } from '@/lib/schedule-c/line-labels';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
@@ -96,7 +96,10 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
     if (equipment && typeof equipment === 'object' && 'business_use_percentage' in equipment) businessUse['equipment_details.business_use_percentage'] = equipment.business_use_percentage;
     const adjustments = Object.fromEntries(['deduction_override', 'deductible_amount', 'deduction_amount', 'deductible_amount_override', 'deduction_percentage'].filter(key => record[key] !== undefined).map(key => [key, record[key]]));
     const receiptPath = typeof rawPath === 'string' ? validateReceiptPreviewPath(rawPath) : null;
-    const lines = scheduleCCells(record, lineYear, CATEGORY_MAP[category]?.line ?? null);
+    const decision = exportCategoryDecision(category, record);
+    const lines = decision.withhold
+      ? { recorded: '', mapped: '', audit: typeof (record.schedule_c_line ?? record.scheduleC_line) === 'string' ? String(record.schedule_c_line ?? record.scheduleC_line) : '', needsMore: true }
+      : scheduleCCells(record, lineYear, decision.line);
     const review = [!date && 'Missing/invalid date', amount === null && 'Missing/invalid amount',
       !record.iso_currency_code && !record.unofficial_currency_code && 'Currency not recorded',
       record.pending === true && 'Pending record; reconcile posted transaction',

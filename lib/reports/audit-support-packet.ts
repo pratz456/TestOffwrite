@@ -1,7 +1,7 @@
 import { readBankHistoryReviewSummary, type BankHistoryReviewSummary } from '@/lib/plaid/reconnect-summary';
 import { adminDb } from '@/lib/firebase/admin';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
-import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { CATEGORY_MAP, exportCategoryDecision } from '@/lib/schedule-c/aggregate';
 import { printedScheduleCLine, scheduleCLineCsvCell } from '@/lib/schedule-c/export-lines';
 import { resolveScheduleCPrint } from '@/lib/schedule-c/line-labels';
 import { BUSINESS_STANDARD_MILEAGE_RATES, businessMileageRateForDate, summarizeBusinessMileage } from '@/lib/tax-rules/mileage-rates';
@@ -173,8 +173,13 @@ function savedAuditLabel(record: ExportRecord): string | null {
  * A category mapped to any other line keeps that line, including when the saved label is an allowlisted 27a or 27b.
  * Withheld rows leave the line blank and record Needs more information on the advisory, not as a line.
  */
-function auditScheduleCLine(category: string, label: string | null, taxYear: number | null, advisories: string[]): string | null {
-  const categoryLine = CATEGORY_MAP[category]?.line ?? null;
+function auditScheduleCLine(category: string, label: string | null, taxYear: number | null, advisories: string[], record: ExportRecord): string | null {
+  const categoryDecision = exportCategoryDecision(category, record);
+  if (categoryDecision.withhold) {
+    advisories.push(AUDIT_NEEDS_MORE_INFORMATION);
+    return null;
+  }
+  const categoryLine = categoryDecision.line;
   const decision = resolveScheduleCPrint({ categoryLine, label });
   const withhold = () => {
     advisories.push(AUDIT_NEEDS_MORE_INFORMATION);
@@ -260,7 +265,7 @@ export function buildEvidenceRecord(record: ExportRecord, context: { uid: string
     transactionId: identity,
     detailPath: `/protected?screen=transaction-detail&transactionId=${encodeURIComponent(identity)}&from=reports`,
     date, merchant: text(record.merchant_name ?? record.merchant ?? record.name, 300) ?? 'Unnamed record', amount, direction, currency: 'USD',
-    category, categoryLabel: humanize(category), scheduleCLine: auditScheduleCLine(category, savedAuditLabel(record), chargeTaxYear(record.date ?? record.datetime), advisories),
+    category, categoryLabel: humanize(category), scheduleCLine: auditScheduleCLine(category, savedAuditLabel(record), chargeTaxYear(record.date ?? record.datetime), advisories, record),
     substantiation: { category: type, label: rule.label, strict: rule.strict, status: missing.length ? 'needs_records' : 'complete', missing, advisories },
     businessPurpose: purpose, attendees, clientProject,
     travel: { destination, datesRecorded }, mileage, linkedTrips, receipts, receiptDeclaredOutsideApp: declared,

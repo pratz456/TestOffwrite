@@ -23,6 +23,28 @@
 import { otherExpensesYearPrint } from './export-lines';
 import { resolveScheduleCPrint } from './line-labels';
 import { safeTaxYear } from './taxDate';
+import { reviewCategory } from '@/lib/transactions/ai-review-contract';
+import {
+  BUSINESS_SHARE_ONLY_NOTE,
+  PART_V_AND_SUPPLIES_CAP_CENTS,
+  REFUND_MATCH_DAYS,
+  answeredPersonal,
+  cappedLine,
+  dayNumber,
+  fuelDecision,
+  hasExpenseDescription,
+  isIncomeLike,
+  isProcessorOrPlatformFee,
+  isTransferLike,
+  markedBusiness,
+  merchantKey,
+  possibleRefundNotice,
+  ruledCategory,
+  transferPurposeLine,
+  userPickedChargeId,
+  type FuelProfile,
+  type RuledCategory,
+} from './category-rules';
 import { finiteUsePercent, ACTUAL_EXPENSE_BUSINESS_SHARE, VEHICLE_ACTUAL_EXPENSE_CATEGORY } from '@/lib/ai/actual-expense-share';
 import { SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
@@ -41,19 +63,15 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'TRANSPORTATION_AUTO_PARKING': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_AUTO_REPAIR': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_AUTO_SERVICE': { line: '9', name: 'Car and truck expenses', code: '9' },
-  'TRANSPORTATION_FUEL': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_TOLLS': { line: '9', name: 'Car and truck expenses', code: '9' },
+  'TRANSPORTATION_PARKING': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_PARKING_AND_TOLLS': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_PUBLIC_TRANSIT': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_CAR_WASH': { line: '9', name: 'Car and truck expenses', code: '9' },
   'VEHICLE_ACTUAL_EXPENSE': { line: '9', name: 'Car and truck expenses', code: '9' },
   'VEHICLE_PROPERTY_TAX': { line: '23', name: 'Taxes and licenses', code: '23' },
 
-  // ── Line 10: Commissions and fees ────────────────────────────────────
-  'BANK_FEES_ATM_FEES': { line: '10', name: 'Commissions and fees', code: '10' },
-  'BANK_FEES_FOREIGN_TRANSACTION': { line: '10', name: 'Commissions and fees', code: '10' },
-  'BANK_FEES_OVERDRAFT': { line: '10', name: 'Commissions and fees', code: '10' },
-  'BANK_FEES_OTHER_BANK_FEES': { line: '10', name: 'Commissions and fees', code: '10' },
+  // ── Line 10: Commissions and fees (processor and platform fees only) ─
   'SERVICE_FINANCIAL_PLANNING_AND_INVESTMENTS': { line: '10', name: 'Commissions and fees', code: '10' },
 
   // ── Line 11: Contract labor ──────────────────────────────────────────
@@ -81,10 +99,8 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   // ── Line 18: Office expense ──────────────────────────────────────────
   'GENERAL_MERCHANDISE_COMPUTERS_AND_ELECTRONICS': { line: '18', name: 'Office expense', code: '18' },
   'GENERAL_MERCHANDISE_HOME_IMPROVEMENT': { line: '18', name: 'Office expense', code: '18' },
-  'GENERAL_MERCHANDISE_PHARMACY': { line: '18', name: 'Office expense', code: '18' },
   'GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE': { line: '18', name: 'Office expense', code: '18' },
   'SERVICE_STORAGE': { line: '18', name: 'Office expense', code: '18' },
-  'SERVICE_SUBSCRIPTION': { line: '18', name: 'Office expense', code: '18' },
 
   // ── Line 20a: Rent (vehicles, machinery, equipment) ──────────────────
   'TRANSPORTATION_RENTAL_CAR': { line: '20a', name: 'Rent (vehicles/equipment)', code: '20a' },
@@ -129,21 +145,51 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'SERVICE_WATER': { line: '25', name: 'Utilities', code: '25' },
 
   // ── Line 27a: Other expenses ─────────────────────────────────────────
-  'ENTERTAINMENT_SPORTS_AND_OUTDOORS': { line: '27a', name: 'Other expenses', code: '27a' },
-  'ENTERTAINMENT_ARTS': { line: '27a', name: 'Other expenses', code: '27a' },
-  'ENTERTAINMENT_THEATER': { line: '27a', name: 'Other expenses', code: '27a' },
-  'ENTERTAINMENT_MUSIC': { line: '27a', name: 'Other expenses', code: '27a' },
-  'ENTERTAINMENT_MOVIES_AND_DVDS': { line: '27a', name: 'Other expenses', code: '27a' },
   'GENERAL_MERCHANDISE_SPORTING_GOODS': { line: '27a', name: 'Other expenses', code: '27a' },
   'PERSONAL_CARE_GYMS_AND_FITNESS_CENTERS': { line: '27a', name: 'Other expenses', code: '27a' },
-  'COMMUNITY_CHARITY': { line: '27a', name: 'Other expenses', code: '27a' },
   'COMMUNITY_EDUCATION': { line: '27a', name: 'Other expenses', code: '27a' },
+  'SERVICE_SUBSCRIPTION': { line: '27a', name: 'Other expenses', code: '27a' },
   'COMMUNITY_RELIGIOUS': { line: '27a', name: 'Other expenses', code: '27a' },
   'SERVICE_CLEANING_AND_MAINTENANCE': { line: '27a', name: 'Other expenses', code: '27a' },
   'SERVICE_PROFESSIONAL_DUES': { line: '27a', name: 'Other expenses', code: '27a' },
   'SERVICE_MEMBERSHIPS': { line: '27a', name: 'Other expenses', code: '27a' },
   'SERVICE_EDUCATION': { line: '27a', name: 'Other expenses', code: '27a' },
   'HIRED_LOCAL_TRANSPORT': { line: '27a', name: 'Other expenses', code: '27a' },
+  'FOOD_AND_DRINK_COFFEE': { line: '24b', name: 'Meals', code: '24b' },
+  'FOOD_AND_DRINK_BEER_WINE_AND_LIQUOR': { line: '24b', name: 'Meals', code: '24b' },
+  'meals_50': { line: '24b', name: 'Meals', code: '24b' },
+  'Food & Drink': { line: '24b', name: 'Meals', code: '24b' },
+  'Advertising': { line: '8', name: 'Advertising', code: '8' },
+  'GENERAL_SERVICES_ACCOUNTING_AND_FINANCIAL_PLANNING': { line: '17', name: 'Legal and professional services', code: '17' },
+  'GENERAL_SERVICES_CONSULTING_AND_LEGAL': { line: '17', name: 'Legal and professional services', code: '17' },
+  'Professional Services': { line: '17', name: 'Legal and professional services', code: '17' },
+  'GENERAL_SERVICES_STORAGE': { line: '20b', name: 'Rent (other business property)', code: '20b' },
+  'GENERAL_MERCHANDISE_DEPARTMENT_STORES': { line: '22', name: 'Supplies', code: '22' },
+  'GENERAL_MERCHANDISE_DISCOUNT_STORES': { line: '22', name: 'Supplies', code: '22' },
+  'GENERAL_MERCHANDISE_SUPERSTORES': { line: '22', name: 'Supplies', code: '22' },
+  'HOME_IMPROVEMENT_HARDWARE': { line: '22', name: 'Supplies', code: '22' },
+  'GENERAL_SERVICES_POSTAGE_AND_SHIPPING': { line: '22', name: 'Supplies', code: '22' },
+  'office_supplies': { line: '22', name: 'Supplies', code: '22' },
+  'Office Supplies': { line: '22', name: 'Supplies', code: '22' },
+  'TRAVEL_RENTAL_CARS': { line: '24a', name: 'Travel', code: '24a' },
+  'travel': { line: '24a', name: 'Travel', code: '24a' },
+  'Travel': { line: '24a', name: 'Travel', code: '24a' },
+  'RENT_AND_UTILITIES_INTERNET_AND_CABLE': { line: '25', name: 'Utilities', code: '25' },
+  'RENT_AND_UTILITIES_TELEPHONE': { line: '25', name: 'Utilities', code: '25' },
+  'utilities_phone_internet': { line: '25', name: 'Utilities', code: '25' },
+  'BANK_FEES_ATM_FEES': { line: '27a', name: 'Other expenses', code: '27a' },
+  'BANK_FEES_FOREIGN_TRANSACTION_FEES': { line: '27a', name: 'Other expenses', code: '27a' },
+  'BANK_FEES_INSUFFICIENT_FUNDS': { line: '27a', name: 'Other expenses', code: '27a' },
+  'BANK_FEES_OVERDRAFT_FEES': { line: '27a', name: 'Other expenses', code: '27a' },
+  'BANK_FEES': { line: '27a', name: 'Other expenses', code: '27a' },
+  'BANK_FEES_OTHER_BANK_FEES': { line: '27a', name: 'Other expenses', code: '27a' },
+  'SOFTWARE': { line: '27a', name: 'Other expenses', code: '27a' },
+  'software_subscriptions': { line: '27a', name: 'Other expenses', code: '27a' },
+  'Software': { line: '27a', name: 'Other expenses', code: '27a' },
+  'GENERAL_SERVICES_EDUCATION': { line: '27a', name: 'Other expenses', code: '27a' },
+  'GENERAL_SERVICES_OTHER_GENERAL_SERVICES': { line: '27a', name: 'Other expenses', code: '27a' },
+  'BANK_FEES_LATE_FEES': { line: '16b', name: 'Interest: other', code: '16b' },
+  'BANK_FEES_INTEREST_CHARGE': { line: '16b', name: 'Interest: other', code: '16b' },
 };
 
 const BUSINESS_CATEGORY_KEYS = new Set(Object.keys(CATEGORY_MAP));
@@ -193,6 +239,37 @@ export interface LineItemSummary {
   transactions: ScheduleCTransactionLike[];
 }
 
+export interface FuelSummary {
+  vehicleKey: string;
+  taxYear: number;
+  /** Fuel charges for the vehicle and year after tied refunds, in dollars. */
+  total: number;
+  /** Vehicle business-use percentage. Null when it was missing or the two fields disagreed. */
+  percentage: number | null;
+  businessShare: number;
+  note: string | null;
+  disposition: 'line' | 'zero';
+  charges: ScheduleCTransactionLike[];
+}
+
+interface OpenCharge {
+  tx: ScheduleCTransactionLike;
+  id: string;
+  merchant: string;
+  day: number | null;
+  remainingGross: number;
+  remainingDeductible: number;
+  lineKey: string | null;
+  fuelKey: string | null;
+}
+
+export interface PossibleRefund {
+  amount: number;
+  merchant: string;
+  date: string;
+  category: string;
+}
+
 export interface AggregateScheduleCResult {
   totalExpenses: number;
   totalDeductible: number;
@@ -200,12 +277,76 @@ export interface AggregateScheduleCResult {
   lineItemsArray: LineItemSummary[];
   /** Confirmed rows withheld from every Schedule C line. Not a line item and not part of either total. */
   needsMoreInformation: ScheduleCTransactionLike[];
+  /** One row per vehicle per year. Individual fuel charges are marked included in this line. */
+  fuelSummaries: FuelSummary[];
+  possibleRefunds: PossibleRefund[];
+  possibleRefundsTotal: number;
+  /** Placeholder beside the totals. Null when the list is empty. */
+  refundNotice: string | null;
+  exportNotes: string[];
   counts: { deductible: number; year: number };
 }
 
 export type AggregateScheduleCMode = 'default' | 'confirmed-only';
 export interface AggregateScheduleCOptions {
   mode?: AggregateScheduleCMode;
+  /** Profile vehicle method and percentage. Fuel ignores the charge and the account percentage. */
+  fuelProfile?: FuelProfile | null;
+}
+
+const REVIEW_EXCEPTIONS = new Set([
+  'EQUIPMENT_REVIEW_REQUIRED',
+  'VEHICLE_REVIEW_REQUIRED',
+  'HOME_OFFICE_REVIEW_REQUIRED',
+  'OTHER_REVIEW_REQUIRED',
+]);
+
+/** True when a live category has a line, a zero, or a Needs more information rule. The four review placeholders stay exceptions. */
+export function hasCategoryRule(category: string): boolean {
+  if (REVIEW_EXCEPTIONS.has(category)) return false;
+  if (ruledCategory(category)) return true;
+  if (Object.prototype.hasOwnProperty.call(CATEGORY_MAP, category)) return true;
+  const recorded = reviewCategory(category)?.recordedCategory;
+  if (recorded && recorded !== category) return hasCategoryRule(recorded);
+  return false;
+}
+
+/**
+ * Line shown on a row export. Unknown categories are withheld.
+ * The four review placeholders stay exceptions. Fuel keeps line 9 here; the vehicle method is applied in aggregateScheduleC.
+ */
+export function exportCategoryDecision(category: string, record: { [key: string]: unknown } = {}): { line: string | null; withhold: boolean } {
+  const raw = category.trim();
+  if (REVIEW_EXCEPTIONS.has(raw)) return { line: null, withhold: false };
+  const alias = reviewCategory(raw)?.recordedCategory;
+  const ruled = ruledCategory(raw) ?? (alias && alias !== raw ? ruledCategory(alias) : undefined);
+  const info = CATEGORY_MAP[raw] ?? (alias && alias !== raw ? CATEGORY_MAP[alias] : undefined);
+  const amountCents = typeof record.amount === 'number' && Number.isFinite(record.amount) ? Math.abs(Math.round(record.amount * 100)) : null;
+  const overCap = amountCents !== null && amountCents > PART_V_AND_SUPPLIES_CAP_CENTS;
+  const finish = (line: string | null): { line: string | null; withhold: boolean } => {
+    if (line && cappedLine(line) && overCap) return { line: null, withhold: true };
+    return { line, withhold: false };
+  };
+  if (!ruled && !info) return raw ? { line: null, withhold: true } : { line: null, withhold: false };
+  if (ruled?.kind === 'zero' || ruled?.kind === 'inflow') return { line: null, withhold: false };
+  if (ruled?.kind === 'personal') return markedBusiness(record) ? { line: null, withhold: true } : { line: null, withhold: false };
+  if (ruled?.kind === 'nmi') return { line: null, withhold: true };
+  if (ruled?.kind === 'described-other') return hasExpenseDescription(record) ? finish('27a') : { line: null, withhold: true };
+  if (ruled?.kind === 'part-v') return finish(ruled.line || '27a');
+  if (ruled?.kind === 'line') return finish(ruled.line || null);
+  if (ruled?.kind === 'late-fee' || ruled?.kind === 'interest') return { line: '16b', withhold: false };
+  if (ruled?.kind === 'bank-split') {
+    if (answeredPersonal(record)) return { line: null, withhold: false };
+    if (isProcessorOrPlatformFee(record)) return { line: '10', withhold: false };
+    return finish('27a');
+  }
+  if (ruled?.kind === 'transfer') {
+    const purpose = transferPurposeLine(record);
+    return purpose ? { line: purpose, withhold: false } : { line: null, withhold: true };
+  }
+  if (ruled?.kind === 'fuel') return { line: '9', withhold: false };
+  if (ruled?.kind === 'automotive') return overCap ? { line: null, withhold: true } : { line: '9', withhold: false };
+  return finish(info?.line ?? null);
 }
 
 /**
@@ -288,59 +429,226 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
     return cents < 0 ? -rounded : rounded;
   };
 
-  for (const tx of deductibleTransactions) {
-    const rawCategory = typeof tx.category === 'string' ? tx.category.trim() : '';
-    const info = rawCategory ? categoryMap[rawCategory] : undefined;
-    const categoryLine = info ? info.line : rawCategory ? '27a' : null;
+  const exportNotes = new Set<string>();
+  const fuelGroups = new Map<string, { decision: ReturnType<typeof fuelDecision>; charges: OpenCharge[] }>();
+  const openCharges: OpenCharge[] = [];
+  const refunds: T[] = [];
+
+  const ensureLine = (lineKey: string, lineName: string) => {
+    if (!lineItems[lineKey]) {
+      lineItems[lineKey] = { lineCode: lineKey, lineName, total: 0, deductible: 0, transactionCount: 0, transactions: [] };
+    }
+    return lineItems[lineKey];
+  };
+
+  const signedCents = (tx: ScheduleCTransactionLike) => Math.round((tx.amount ?? 0) * 100);
+
+  const lookup = (raw: string): { ruled?: RuledCategory; info?: CategoryMapEntry } => {
+    const alias = reviewCategory(raw)?.recordedCategory;
+    const ruled = ruledCategory(raw) ?? (alias && alias !== raw ? ruledCategory(alias) : undefined);
+    const info = categoryMap[raw] ?? (alias ? categoryMap[alias] : undefined);
+    return { ruled, info };
+  };
+
+  const deductibleFor = (tx: ScheduleCTransactionLike, lineKey: string, cents: number) => {
+    if (lineKey === '24b') return halfCentsAwayFromZero(cents);
+    if (BUSINESS_USE_SHARE_CATEGORIES.has(tx.category)) {
+      const share = finiteUsePercent(tx.business_use_percentage);
+      return share === null ? 0 : Math.round(cents * share / 100);
+    }
+    return cents;
+  };
+
+  const withholdForYear = (lineKey: string, chargeYear: number | null) =>
+    (lineKey === '27a' || lineKey === '27b') && otherExpensesYearPrint(chargeYear).status === 'withhold';
+
+  /** Returns false when the row was withheld. */
+  const placeOnLine = (tx: T, lineKey: string, lineName: string, cents: number, note?: string | null): OpenCharge | null => {
     const chargeYear = safeTaxYear(tx.date);
     const label = savedScheduleCLabel(tx);
-    const decision = resolveScheduleCPrint({ categoryLine, label });
-    if (decision.kind === 'needs-more-information' || (decision.kind === 'passthrough' && !info && !rawCategory && label)) {
+    const decision = resolveScheduleCPrint({ categoryLine: lineKey, label });
+    if (decision.kind === 'needs-more-information') {
+      addReviewItem(needsMoreInformation, tx);
+      return null;
+    }
+    if (withholdForYear(lineKey, chargeYear) || (decision.kind === 'other-expenses' && otherExpensesYearPrint(chargeYear).status === 'withhold')) {
+      addReviewItem(needsMoreInformation, tx);
+      return null;
+    }
+    if (cappedLine(lineKey) && Math.abs(cents) > PART_V_AND_SUPPLIES_CAP_CENTS) {
+      addReviewItem(needsMoreInformation, tx);
+      return null;
+    }
+    const deductibleCents = deductibleFor(tx, lineKey, cents);
+    const line = ensureLine(lineKey, lineName);
+    line.total += cents / 100;
+    line.deductible += deductibleCents / 100;
+    line.transactionCount += 1;
+    line.transactions.push(lineItemTransaction(tx));
+    if (note) exportNotes.add(note);
+    const placed: OpenCharge = {
+      tx, id: typeof tx.id === 'string' ? tx.id : '', merchant: merchantKey(tx), day: dayNumber(tx.date),
+      remainingGross: cents, remainingDeductible: deductibleCents, lineKey, fuelKey: null,
+    };
+    openCharges.push(placed);
+    return placed;
+  };
+
+  const queueFuel = (tx: T, cents: number, ruledHint: string) => {
+    const vehicleId = typeof tx.vehicleId === 'string' ? tx.vehicleId : typeof tx.vehicle_id === 'string' ? tx.vehicle_id : null;
+    const decision = fuelDecision(options.fuelProfile, vehicleId);
+    if (decision.kind === 'nmi') {
+      addReviewItem(needsMoreInformation, tx);
+      return;
+    }
+    const key = `${ruledHint}:${vehicleId || 'profile'}:${decision.kind}:${decision.kind === 'line' ? decision.percentage ?? 'full' : 'zero'}`;
+    const group = fuelGroups.get(key) ?? { decision, charges: [] };
+    const placed: OpenCharge = {
+      tx, id: typeof tx.id === 'string' ? tx.id : '', merchant: merchantKey(tx), day: dayNumber(tx.date),
+      remainingGross: cents, remainingDeductible: 0, lineKey: null, fuelKey: key,
+    };
+    group.charges.push(placed);
+    fuelGroups.set(key, group);
+    openCharges.push(placed);
+  };
+
+  for (const tx of deductibleTransactions) {
+    const rawCategory = typeof tx.category === 'string' ? tx.category.trim() : '';
+    if (isIncomeLike(tx, rawCategory) || isTransferLike(tx, rawCategory)) continue;
+    if (mode === 'confirmed-only' && signedCents(tx) < 0) {
+      refunds.push(tx);
+      continue;
+    }
+    const cents = mode === 'confirmed-only' ? signedCents(tx) : Math.round(Math.abs(tx.amount ?? 0) * 100);
+    const { ruled, info } = rawCategory ? lookup(rawCategory) : {};
+    if (ruled?.kind === 'inflow' || ruled?.kind === 'zero') continue;
+    if (ruled?.kind === 'personal') {
+      if (markedBusiness(tx)) addReviewItem(needsMoreInformation, tx);
+      continue;
+    }
+    if (ruled?.kind === 'nmi') {
       addReviewItem(needsMoreInformation, tx);
       continue;
     }
-    // Mapped categories keep info.line as the summary key. Other expenses stays 27a there.
-    // scheduleCExportLine prints that key as 27a for 2017 through 2024 and 27b for 2025 and later.
-    // An unmapped or label-only Other expenses row follows the charge year. 2016 and earlier are withheld.
-    const lineKey = info ? info.line : otherExpensesLineKey(chargeYear);
-    const lineName = info ? info.name : 'Other expenses';
-    const otherBucket = decision.kind === 'other-expenses' || lineKey === '27a' || lineKey === '27b';
-    if (otherBucket && otherExpensesYearPrint(chargeYear).status === 'withhold') {
-      addReviewItem(needsMoreInformation, tx);
+    if (ruled?.kind === 'described-other') {
+      if (!hasExpenseDescription(tx)) addReviewItem(needsMoreInformation, tx);
+      else placeOnLine(tx, '27a', 'Other expenses', cents);
       continue;
     }
-
-    if (!lineItems[lineKey]) {
-      lineItems[lineKey] = {
-        lineCode: lineKey,
-        lineName,
-        total: 0,
-        deductible: 0,
-        transactionCount: 0,
-        transactions: [],
-      };
+    if (ruled?.kind === 'bank-split') {
+      if (answeredPersonal(tx)) continue;
+      if (isProcessorOrPlatformFee(tx)) placeOnLine(tx, '10', 'Commissions and fees', cents);
+      else placeOnLine(tx, '27a', 'Other expenses', cents);
+      continue;
     }
+    if (ruled?.kind === 'late-fee') {
+      if (!answeredPersonal(tx)) placeOnLine(tx, '16b', 'Interest: other', cents);
+      continue;
+    }
+    if (ruled?.kind === 'interest') {
+      if (answeredPersonal(tx)) continue;
+      const share = finiteUsePercent(tx.business_use_percentage);
+      if (share === null) addReviewItem(needsMoreInformation, tx);
+      else placeOnLine(tx, '16b', 'Interest: other', Math.round(cents * share / 100));
+      continue;
+    }
+    if (ruled?.kind === 'transfer') {
+      const purpose = transferPurposeLine(tx);
+      if (purpose === '11') placeOnLine(tx, '11', 'Contract labor', cents);
+      else if (purpose === '20b') placeOnLine(tx, '20b', 'Rent (other business property)', cents);
+      else addReviewItem(needsMoreInformation, tx);
+      continue;
+    }
+    if (ruled?.kind === 'fuel' || ruled?.kind === 'automotive') {
+      if (ruled.kind === 'automotive' && Math.abs(cents) > PART_V_AND_SUPPLIES_CAP_CENTS) addReviewItem(needsMoreInformation, tx);
+      else queueFuel(tx, cents, ruled.kind);
+      continue;
+    }
+    if (ruled?.kind === 'part-v' || ruled?.kind === 'line') {
+      placeOnLine(tx, ruled.line || '27a', ruled.name || 'Other expenses', cents, ruled.businessShareNote ? BUSINESS_SHARE_ONLY_NOTE : null);
+      continue;
+    }
+    if (!rawCategory) {
+      const label = savedScheduleCLabel(tx);
+      const decision = resolveScheduleCPrint({ categoryLine: null, label });
+      if (decision.kind === 'other-expenses') placeOnLine(tx, otherExpensesLineKey(safeTaxYear(tx.date)), 'Other expenses', cents);
+      else if (decision.kind === 'line' && decision.line) placeOnLine(tx, decision.line, 'Other expenses', cents);
+      else if (label) addReviewItem(needsMoreInformation, tx);
+      continue;
+    }
+    if (info) {
+      const note = ruledCategory(rawCategory)?.businessShareNote ? BUSINESS_SHARE_ONLY_NOTE : null;
+      placeOnLine(tx, info.line, info.name, cents, note);
+      continue;
+    }
+    // Unknown categories are withheld. They are not Other expenses.
+    addReviewItem(needsMoreInformation, tx);
+  }
 
-    if (mode === 'confirmed-only') {
-      const cents = Math.round((tx.amount ?? 0) * 100); // signed cents
-      const deductibleCents = lineKey === '24b' ? halfCentsAwayFromZero(cents) : businessUseShareCents(tx, cents);
-      lineItems[lineKey].total += cents / 100;
-      lineItems[lineKey].deductible += deductibleCents / 100;
-    } else {
-      const amount = normalizeAmount(tx);
-      lineItems[lineKey].total += amount;
-
-      if (lineKey === '24b') {
-        lineItems[lineKey].deductible += amount * 0.5;
-      } else if (BUSINESS_USE_SHARE_CATEGORIES.has(tx.category)) {
-        const share = finiteUsePercent(tx.business_use_percentage);
-        if (share !== null) lineItems[lineKey].deductible += amount * share / 100;
+  if (mode === 'confirmed-only') {
+    for (const refund of refunds) {
+      const refundCents = Math.abs(signedCents(refund));
+      const picked = userPickedChargeId(refund);
+      const merchant = merchantKey(refund);
+      const day = dayNumber(refund.date);
+      const match = openCharges.find(charge => {
+        if (charge.remainingGross <= 0 || refundCents > charge.remainingGross) return false;
+        if (picked && charge.id && charge.id === picked) return true;
+        if (!merchant || day === null || charge.day === null || charge.merchant !== merchant) return false;
+        return Math.abs(charge.day - day) <= REFUND_MATCH_DAYS;
+      });
+      if (!match) {
+        addReviewItem(needsMoreInformation, refund);
+        continue;
+      }
+      const take = Math.min(refundCents, match.remainingGross);
+      if (match.lineKey && lineItems[match.lineKey]) {
+        const dedTake = take === match.remainingGross ? match.remainingDeductible : Math.round(match.remainingDeductible * take / match.remainingGross);
+        lineItems[match.lineKey].total -= take / 100;
+        lineItems[match.lineKey].deductible -= dedTake / 100;
+        match.remainingGross -= take;
+        match.remainingDeductible -= dedTake;
       } else {
-        lineItems[lineKey].deductible += amount;
+        match.remainingGross -= take;
       }
     }
-    lineItems[lineKey].transactionCount += 1;
-    lineItems[lineKey].transactions.push(lineItemTransaction(tx));
+  }
+
+  const fuelSummaries: FuelSummary[] = [];
+  for (const [key, group] of fuelGroups) {
+    const netCents = group.charges.reduce((sum, charge) => sum + Math.max(0, charge.remainingGross), 0);
+    const decision = group.decision;
+    if (decision.kind === 'nmi') continue;
+    const businessShareCents = decision.kind === 'zero' ? 0 : decision.percentage === null ? netCents : Math.round(netCents * decision.percentage / 100);
+    const first = group.charges[0]?.tx;
+    const vehicleId = typeof first?.vehicleId === 'string' && first.vehicleId
+      ? first.vehicleId
+      : typeof first?.vehicle_id === 'string' && first.vehicle_id ? first.vehicle_id : '';
+    const summary: FuelSummary = {
+      vehicleKey: vehicleId || 'vehicle',
+      taxYear: Number(yearStr),
+      total: netCents / 100,
+      percentage: decision.kind === 'line' ? decision.percentage : null,
+      businessShare: businessShareCents / 100,
+      note: decision.kind === 'line' ? decision.note : null,
+      disposition: decision.kind === 'zero' ? 'zero' : 'line',
+      charges: group.charges.map(charge => ({ ...charge.tx, fuelIncludedInSummary: true })),
+    };
+    fuelSummaries.push(summary);
+    if (decision.kind === 'line' && decision.note) exportNotes.add(decision.note);
+    if (decision.kind === 'zero' || businessShareCents === 0 && netCents === 0) {
+      continue;
+    }
+    if (decision.kind === 'line') {
+      const line = ensureLine('9', 'Car and truck expenses');
+      line.total += businessShareCents / 100;
+      line.deductible += businessShareCents / 100;
+      for (const charge of group.charges) {
+        const marked = { ...charge.tx, fuelIncludedInSummary: true };
+        line.transactions.push(marked);
+        line.transactionCount += 1;
+      }
+    }
   }
 
   // The year filter above still drops an undated or impossible charge. Surface it so the row is not silent.
@@ -359,6 +667,15 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
 
   const totalExpenses = lineItemsArray.reduce((sum, item) => sum + item.total, 0);
   const totalDeductible = lineItemsArray.reduce((sum, item) => sum + item.deductible, 0);
+  const possibleRefunds: PossibleRefund[] = needsMoreInformation
+    .filter(tx => signedCents(tx) < 0)
+    .map(tx => ({
+      amount: Math.abs(tx.amount ?? 0),
+      merchant: typeof tx.merchant_name === 'string' ? tx.merchant_name : '',
+      date: typeof tx.date === 'string' ? tx.date : '',
+      category: typeof tx.category === 'string' ? tx.category : '',
+    }));
+  const possibleRefundsTotal = possibleRefunds.reduce((sum, row) => sum + row.amount, 0);
 
   return {
     totalExpenses,
@@ -366,6 +683,11 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
     lineItems,
     lineItemsArray,
     needsMoreInformation,
+    fuelSummaries,
+    possibleRefunds,
+    possibleRefundsTotal,
+    refundNotice: possibleRefundsTotal > 0 ? possibleRefundNotice(possibleRefundsTotal) : null,
+    exportNotes: [...exportNotes],
     counts: { deductible: deductibleTransactions.length, year: yearTransactions.length },
   };
 }

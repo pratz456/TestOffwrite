@@ -79,11 +79,14 @@ describe('Schedule C real PDF and request integrity', () => {
     const view = inspectText(); const response = await scheduleC(request({ year: '2026', includeAppendix: true }));
     expect(response.status).toBe(200); const bytes = new Uint8Array(await response.arrayBuffer());
     expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThan(2);
-    expect(view.text()).toContain('$100,000.00'); expect(view.text()).toContain('$6,985.01'); expect(view.text()).toContain('$93,014.99');
+    expect(view.text()).toContain('$100,000.00'); expect(view.text()).toContain('$5.01'); expect(view.text()).toContain('$99,994.99');
+    expect(view.text()).not.toContain('$6,985.01');
     for (let i = 0; i < 70; i++) expect(view.text()).toContain(`SYNTHETIC-RECORD-${String(i).padStart(3, '0')}`);
     expect(view.text()).toContain('-$20.00'); expect(view.text()).toContain('$5.01'); expect(view.text()).not.toContain('UNCONFIRMED-EXCLUDED');
     expect(view.text()).not.toContain('Cash'); expect(view.text()).not.toContain('Home Office');
-    expect(view.text()).toContain('Not determined'); expect(view.text()).toContain('27b'); expect(view.text()).toContain('NOT FOR FILING');
+    expect(view.text()).toContain('Not determined'); expect(view.text()).toContain('24b'); expect(view.text()).toContain('NOT FOR FILING');
+    expect(view.text()).toContain('These totals do not subtract $20.00 in possible refunds.');
+    expect(view.text()).toContain('awaiting copy approval');
     expect(response.headers.get('cache-control')).toContain('no-store'); view.checkBounds(); saveArtifact('schedule-c-2026', bytes);
   });
   it('prints the organizer SSN masked to its last four digits and never the decrypted value', async () => {
@@ -271,7 +274,8 @@ it('serves complete signed Schedule C CSV with formula-safe merchant text', asyn
   state.transactions = [{ id: 'refund', date: '2026-01-01', iso_currency_code: 'USD', amount: -20, is_deductible: true, merchant_name: '=HYPERLINK("bad")', category: 'unknown' }];
   const response = await scheduleC(request({ year: 2026, format: 'csv' }));
   expect(response.status).toBe(200); expect(response.headers.get('content-type')).toContain('text/csv');
-  const csv = await response.text(); expect(csv).toContain("'=HYPERLINK"); expect(csv).toContain(',27b (Other expenses),-20,-20,');
+  const csv = await response.text(); expect(csv).toContain("'=HYPERLINK"); expect(csv).not.toContain('27b (Other expenses),-20,-20');
+  expect(csv).toContain('Possible refund'); expect(csv).toContain('awaiting copy approval');
 });
 
 

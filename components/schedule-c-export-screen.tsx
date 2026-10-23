@@ -77,6 +77,8 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   const [includeAppendix, setIncludeAppendix] = useState(true);
   const [lineDetails, setLineDetails] = useState<Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }>>({});
   const [needsMoreInformationCount, setNeedsMoreInformationCount] = useState(0);
+  const [refundNotice, setRefundNotice] = useState<string | null>(null);
+  const [possibleRefunds, setPossibleRefunds] = useState<Array<{ amount: number; merchant: string; date: string; category: string }>>([]);
 
 
   // Memoize transactions array reference to prevent unnecessary re-renders
@@ -115,6 +117,8 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 
     setCategorySummaries(summaries);
     setNeedsMoreInformationCount(aggregation.needsMoreInformation.length);
+    setRefundNotice(aggregation.refundNotice);
+    setPossibleRefunds(aggregation.possibleRefunds);
     setTotalDeductible(aggregation.totalDeductible);
     setDeductibleCount(aggregation.counts.deductible);
     setConfirmedCount(aggregation.counts.deductible);
@@ -434,6 +438,14 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
                       {formatCurrency(totalDeductible)}
                     </div>
                   </div>
+                  {refundNotice && <p className="mt-3 text-sm text-foreground">{refundNotice}</p>}
+                  {possibleRefunds.length > 0 && (
+                    <ul className="mt-3 space-y-1 text-sm text-foreground">
+                      {possibleRefunds.map((refund, index) => (
+                        <li key={`${refund.date}-${refund.merchant}-${index}`}>{refund.date} {refund.merchant} {refund.category} {formatCurrency(refund.amount)}</li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
             ) : (
@@ -441,6 +453,14 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
                 <FileText className="w-12 h-12 mx-auto mb-3 text-muted-foreground/70" />
                 <p>No deductible business expenses found for {selectedYear}</p>
                 <p className="text-sm mb-4 text-muted-foreground/70">Make sure to categorize your transactions as business expenses first.</p>
+                {refundNotice && <p className="mt-3 text-sm text-foreground">{refundNotice}</p>}
+                {possibleRefunds.length > 0 && (
+                  <ul className="mt-3 space-y-1 text-sm text-left text-foreground">
+                    {possibleRefunds.map((refund, index) => (
+                      <li key={`${refund.date}-${refund.merchant}-${index}`}>{refund.date} {refund.merchant} {refund.category} {formatCurrency(refund.amount)}</li>
+                    ))}
+                  </ul>
+                )}
                 {potentialCount > 0 && (
                   <div className="bg-muted border border-border rounded-lg p-4 mt-4 text-foreground">
                     <p className="font-medium">💡 Found {potentialCount} transactions that might be deductible</p>

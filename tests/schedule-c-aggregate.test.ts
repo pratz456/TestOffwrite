@@ -66,21 +66,23 @@ describe('Schedule C aggregation (confirmed-only)', () => {
       {
         amount: 100,
         date: '2024-05-01',
-        category: 'TRANSPORTATION_FUEL',
+        category: 'SERVICE_ADVERTISING',
+        merchant_name: 'Print shop',
         is_deductible: true,
       },
       // potentially deductible (must be excluded in confirmed-only)
       {
         amount: 50,
         date: '2024-05-02',
-        category: 'TRANSPORTATION_FUEL',
+        category: 'SERVICE_ADVERTISING',
         is_deductible: null,
       },
-      // confirmed credit/refund: negative amount must offset totals
+      // tied refund: same merchant, smaller amount, within 90 days, same year
       {
         amount: -20,
         date: '2024-05-03',
-        category: 'TRANSPORTATION_FUEL',
+        category: 'SERVICE_ADVERTISING',
+        merchant_name: 'Print shop',
         is_deductible: true,
       },
     ];
@@ -89,10 +91,10 @@ describe('Schedule C aggregation (confirmed-only)', () => {
     expect(cents(res.totalDeductible)).toBe(8000); // 100 - 20 = 80.00
     expect(res.counts.deductible).toBe(2);
 
-    const line9 = res.lineItemsArray.find((li) => li.lineCode === '9');
-    expect(line9).toBeTruthy();
-    expect(cents(line9!.deductible)).toBe(8000);
-    expect(line9!.transactionCount).toBe(2);
+    const line8 = res.lineItemsArray.find((li) => li.lineCode === '8');
+    expect(line8).toBeTruthy();
+    expect(cents(line8!.deductible)).toBe(8000);
+    expect(line8!.transactionCount).toBe(1);
   });
 
   it('meals 50% rounding is deterministic on odd cents (half away from zero)', () => {
@@ -118,9 +120,10 @@ describe('Schedule C aggregation (confirmed-only)', () => {
     const resCredit = aggregateScheduleC(
       [
         {
-          amount: -10.01, // -1001 cents -> half = -501 cents => -5.01
+          amount: -10.01,
           date: '2024-06-02',
           category: 'FOOD_AND_DRINK_RESTAURANT',
+          merchant_name: 'Cafe',
           is_deductible: true,
         },
       ],
@@ -128,18 +131,17 @@ describe('Schedule C aggregation (confirmed-only)', () => {
       CATEGORY_MAP,
       { mode: 'confirmed-only' }
     );
-    const mealCreditLine = resCredit.lineItemsArray.find((li) => li.lineCode === '24b');
-    expect(mealCreditLine).toBeTruthy();
-    expect(cents(mealCreditLine!.deductible)).toBe(-501);
-    expect(mealCreditLine!.deductible).toBeCloseTo(-5.01, 2);
+    expect(resCredit.lineItems['24b']).toBeUndefined();
+    expect(resCredit.totalDeductible).toBe(0);
+    expect(resCredit.possibleRefunds).toHaveLength(1);
   });
 
   it('net reconciliation: sum(line deductible by line) == totalDeductible', () => {
     const res = aggregateScheduleC(
       [
         // car/truck: 100 - 20 = 80
-        { amount: 100, date: '2024-05-01', category: 'TRANSPORTATION_FUEL', is_deductible: true },
-        { amount: -20, date: '2024-05-03', category: 'TRANSPORTATION_FUEL', is_deductible: true },
+        { amount: 100, date: '2024-05-01', category: 'SERVICE_ADVERTISING', merchant_name: 'Print shop', is_deductible: true },
+        { amount: -20, date: '2024-05-03', category: 'SERVICE_ADVERTISING', merchant_name: 'Print shop', is_deductible: true },
 
         // meals: 10.01 -> 5.01
         { amount: 10.01, date: '2024-06-01', category: 'FOOD_AND_DRINK_RESTAURANT', is_deductible: true },
@@ -165,7 +167,7 @@ describe('confirmed-only trusts server-recorded decisions or documented legacy c
   const beforeCutoff = new Date(cutoffMs - 24 * 60 * 60 * 1000);
   const afterCutoff = new Date(cutoffMs + 60 * 1000);
   const confirmed = (extra: Record<string, unknown> = {}): Tx => ({
-    amount: 100, date: '2026-03-01', category: 'TRANSPORTATION_FUEL', is_deductible: true, ...extra,
+    amount: 100, date: '2026-03-01', category: 'SERVICE_ADVERTISING', is_deductible: true, ...extra,
   });
   const total = (records: Tx[]) => aggregateScheduleC(records, '2026', CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible;
 
