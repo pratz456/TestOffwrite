@@ -408,7 +408,7 @@ export function groundTransactionAnalysis(
   const savedAndMerchant = `${saved} ${text(transaction.merchant)} ${text(transaction.merchant_name)}`;
   // Interest and vehicle property tax are separate costs only while the vehicle copy switch is on.
   // With it off, this stays empty so the base review questions still run.
-  const separateVehicleCost = standardMileageSeparateCost(savedAndMerchant);
+  const separateVehicleCost = mileageVehicleCopyEnabled() ? standardMileageSeparateCost(savedAndMerchant) : null;
   const reviewText = `${savedAndMerchant} ${explanation}`;
   const itemContext = categoryContext(input, transaction);
   // Merchant and profession intelligence choose the gate and its question; they never approve.
@@ -448,7 +448,7 @@ export function groundTransactionAnalysis(
   /** An insurer that sells only business coverage (Hiscox, Next, Thimble, biBERK, The Hartford's small-business line). */
   const businessInsurer = merchant.category === 'insurance' && merchant.confidence === 'high' && merchant.disposition === 'business_likely';
   if (kind === 'expense' && result.expense_type !== 'personal') {
-    if (result.category === 'vehicle_expense' && /\buber\s*eats\b/i.test(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`)) {
+    if (mileageVehicleCopyEnabled() && result.category === 'vehicle_expense' && /\buber\s*eats\b/i.test(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`)) {
       result.category = 'meals_50';
     }
     const placeable = !result.category || result.category === 'other';
@@ -467,7 +467,7 @@ export function groundTransactionAnalysis(
     if ((remittedBusinessTax || federalBusinessTax || stateFilingFee) && (!result.category || ['other', 'legal_professional'].includes(result.category))) {
       result.category = 'taxes_licenses';
     }
-    if (separateVehicleCost === 'property_tax' && (!result.category || ['other', 'vehicle_expense', 'home_office'].includes(result.category))) {
+    if (mileageVehicleCopyEnabled() && separateVehicleCost === 'property_tax' && (!result.category || ['other', 'vehicle_expense', 'home_office'].includes(result.category))) {
       result.category = 'taxes_licenses';
     }
   }
@@ -786,7 +786,7 @@ export function groundTransactionAnalysis(
       addEvidence('home-587');
       requireInfo(result, 'home_office_eligibility', 'Is this rent for a separate business location, or for the home where you live? If it is your home, is a space used regularly and exclusively for business?',
         'Rent for the home you live in is not a business rent expense; only a qualifying home office deduction can include part of it. Rent for a separate business location is generally deductible as business rent.');
-    } else if (result.is_deductible === true && propertyTax && !remittedBusinessTax && separateVehicleCost !== 'property_tax') {
+    } else if (result.is_deductible === true && propertyTax && !remittedBusinessTax && !(mileageVehicleCopyEnabled() && separateVehicleCost === 'property_tax')) {
       // Property tax on the home is a Form 8829 item; on business assets or a business location it is line 23 (approved below).
       addEvidence('home-587'); addEvidence('taxes-licenses-sch-c');
       result.category = 'home_office';
@@ -811,7 +811,7 @@ export function groundTransactionAnalysis(
       addEvidence('capital-263');
       requireInfo(result, 'asset_treatment', hint?.question ?? 'What was purchased, when was it first used for business, and have you recorded the de minimis safe harbor election or a depreciation election for this year?',
         `This purchase needs item-level review to distinguish supplies from assets. The de minimis safe harbor generally uses a $${DE_MINIMIS_ITEM_CEILING.toLocaleString('en-US')} per-item or per-invoice ceiling without an applicable financial statement ($5,000 with one), plus consistent book-expensing and an annual election. A bank-charge total does not establish item cost or capitalization: qualifying materials, supplies and repairs may be current expenses without that election, while assets may need depreciation or a separate expensing election. Review the asset treatment before deducting it in full.`);
-    } else if (result.is_deductible === true && hiredVehicleFare(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`) &&
+    } else if (mileageVehicleCopyEnabled() && result.is_deductible === true && hiredVehicleFare(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`) &&
       result.category !== 'meals_50') {
       // A hired fare follows the trip. It is transportation, never the method for the user's own car.
       const farePurpose = hiredFarePurpose(purpose);
@@ -848,7 +848,7 @@ export function groundTransactionAnalysis(
         result.deductible_percent = share;
       }
     } else if (result.is_deductible === true && ['equipment', 'home_office', 'vehicle_expense', 'travel'].includes(result.category ?? '') &&
-      !(result.category === 'vehicle_expense' && (separateVehicleCost || hiredVehicleFare(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`)))) {
+      !(mileageVehicleCopyEnabled() && result.category === 'vehicle_expense' && (separateVehicleCost || hiredVehicleFare(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`)))) {
       const questions: Record<string, [string, string]> = {
         equipment: ['asset_treatment', 'What was purchased, when was it first used for business, and what business-use records and depreciation elections apply?'],
         home_office: ['home_office_eligibility', 'Is the space used regularly and exclusively for business, and which eligible method and business area apply?'],
