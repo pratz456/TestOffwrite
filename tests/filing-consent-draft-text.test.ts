@@ -13,14 +13,13 @@ import {
   FILING_CONSENT_TEXT_COLLECTION,
   PARTNER_RECIPIENT_LEGAL_NAMES,
   createPartnerSendStub,
-  replaceDraftDisclosureConsentText,
-  resetDraftDisclosureConsentText,
   saveDisclosureConsent,
   sendFilingHandOff,
   type HandOffRequest,
   type SaveDisclosureConsentInput,
 } from '@/lib/filing-consent';
 import { resetFilingConsentClock, setFilingConsentClock } from '@/lib/filing-consent/clock';
+import { replaceDraftDisclosureConsentText, resetDraftDisclosureConsentText } from '@/lib/filing-consent/text';
 
 const db = adminDb as unknown as FakeFirestore;
 const PARTNER = PARTNER_RECIPIENT_LEGAL_NAMES[0];

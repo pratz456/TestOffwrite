@@ -60,10 +60,26 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
   const generation = (path: string) => generations.get(path) ?? 0;
   const bump = (path: string) => generations.set(path, generation(path) + 1);
 
-  const snapshot = (path: string) => ({
-    id: path.split('/').at(-1), ref: ref(path), exists: records.has(path), data: () => clone(records.get(path)),
-    get: (field: string) => fieldValue(records.get(path) ?? {}, field),
-  });
+  const snapshot = (path: string) => {
+    const held = clone(records.get(path));
+    return {
+      id: path.split('/').at(-1), ref: ref(path), exists: records.has(path),
+      data: () => clone(held),
+      get: (field: string) => fieldValue(held ?? {}, field),
+    };
+  };
+  const freezeSnapshot = (snap: any) => {
+    if (snap && Array.isArray(snap.docs)) {
+      const docs = snap.docs.map((doc: any) => freezeSnapshot(doc));
+      return { docs, empty: docs.length === 0, size: docs.length, forEach: (visit: (doc: any) => void) => docs.forEach(visit) };
+    }
+    const held = clone(typeof snap?.data === 'function' ? snap.data() : undefined);
+    return {
+      id: snap?.id, ref: snap?.ref, exists: Boolean(snap?.exists),
+      data: () => clone(held),
+      get: (field: string) => fieldValue(held ?? {}, field),
+    };
+  };
   const ref = (path: string): any => ({
     path, id: path.split('/').at(-1),
     parent: query(path.split('/').slice(0, -1).join('/')),
@@ -131,8 +147,8 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
       const writes: Array<() => void> = [];
       const mark = (target: any) => { if (target?.path) seen.set(target.path, generation(target.path)); };
       const result = await work({
-        get: (target: any) => { mark(target); return target.get(); },
-        getAll: (...targets: any[]) => { targets.forEach(mark); return Promise.all(targets.map(target => target.get())); },
+        get: (target: any) => { mark(target); return target.get().then(freezeSnapshot); },
+        getAll: (...targets: any[]) => { targets.forEach(mark); return Promise.all(targets.map((target: any) => target.get().then(freezeSnapshot))); },
         set: (target: any, data: Record<string, any>, setOptions?: { merge?: boolean }) => writes.push(() => write(target.path, data, setOptions)),
         update: (target: any, data: Record<string, any>) => writes.push(() => write(target.path, data, { merge: true })),
         create: (target: any, data: Record<string, any>) => writes.push(() => { if (records.has(target.path)) throw new Error(`Document exists at ${target.path}`); write(target.path, data); }),
@@ -151,7 +167,7 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
       set: (target: any, data: Record<string, any>, setOptions?: { merge?: boolean }) => { writes.push(() => write(target.path, data, setOptions)); return self; },
       update: (target: any, data: Record<string, any>) => { writes.push(() => { if (!records.has(target.path)) throw new Error(`No document at ${target.path}`); write(target.path, data, { merge: true }); }); return self; },
       create: (target: any, data: Record<string, any>) => { writes.push(() => write(target.path, data)); return self; },
-      delete: (target: any) => { writes.push(() => { records.delete(target.path); }); return self; },
+      delete: (target: any) => { writes.push(() => { records.delete(target.path); bump(target.path); }); return self; },
       commit: async () => { fail(); writes.forEach(apply => apply()); writes.length = 0; return []; },
     };
     return self;

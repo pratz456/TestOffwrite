@@ -19,10 +19,8 @@ import {
   type DisclosureScope,
 } from './record';
 import { isAcceptedSignatureMethod, isSignatureMethod } from './signature';
-import { filingConsentNow, resetFilingConsentClock, setFilingConsentClock } from './clock';
+import { filingConsentNow } from './clock';
 import { consentTextSha256, draftDisclosureConsentText } from './text';
-
-export { resetFilingConsentClock, setFilingConsentClock };
 
 export interface SaveDisclosureConsentInput {
   uid: string;

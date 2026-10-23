@@ -448,6 +448,8 @@ describe('disclosure consent hand off gate', () => {
     const api = await import('@/lib/filing-consent');
     expect(api).not.toHaveProperty('setFilingConsentClock');
     expect(api).not.toHaveProperty('resetFilingConsentClock');
+    expect(api).not.toHaveProperty('replaceDraftDisclosureConsentText');
+    expect(api).not.toHaveProperty('resetDraftDisclosureConsentText');
     for (const fn of [
       saveDisclosureConsent,
       withdrawDisclosureConsent,

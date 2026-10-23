@@ -7,18 +7,16 @@ vi.mock('@/lib/firebase/admin', async () => {
 
 import { adminDb } from '@/lib/firebase/admin';
 import type { FakeFirestore } from './fixtures/fake-firestore';
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import {
   CURRENT_CONSENT_TEXT_VERSION,
   DRAFT_DISCLOSURE_CONSENT_TEXT,
   FILING_CONSENT_TEXT_COLLECTION,
   PARTNER_RECIPIENT_LEGAL_NAMES,
 } from '@/lib/filing-consent';
-import {
-  resetFilingConsentClock,
-  saveDisclosureConsent,
-  setFilingConsentClock,
-  type SaveDisclosureConsentInput,
-} from '@/lib/filing-consent/store';
+import { resetFilingConsentClock, setFilingConsentClock } from '@/lib/filing-consent/clock';
+import { saveDisclosureConsent, type SaveDisclosureConsentInput } from '@/lib/filing-consent/store';
 
 const db = adminDb as unknown as FakeFirestore;
 const PARTNER = PARTNER_RECIPIENT_LEGAL_NAMES[0];
@@ -56,13 +54,48 @@ afterEach(() => {
   expect(fetchSpy).not.toHaveBeenCalled();
 });
 
+const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const clockSetters = ['setFilingConsentClock', 'resetFilingConsentClock'];
+
+function sourceFiles(dir: string): string[] {
+  const found: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.next' || entry.name === 'dist') continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) found.push(...sourceFiles(full));
+    else if (/\.(ts|tsx|js|mjs|cjs)$/.test(entry.name)) found.push(full);
+  }
+  return found;
+}
+
 describe('filing consent clock seam', () => {
-  it('stores the signing time from the store clock seam', async () => {
+  it('stores the signing time from the clock module', async () => {
     setFilingConsentClock(() => new Date('2026-06-01T15:00:00.000Z'));
     const saved = await saveDisclosureConsent(saveInput());
     expect(saved.ok).toBe(true);
     if (!saved.ok) throw new Error('expected a stored disclosure consent');
     expect(saved.record.signedAt).toBe('2026-06-01T15:00:00.000Z');
     expect(saved.record.expiresAt).toBe('2027-06-01T15:00:00.000Z');
+  });
+
+  it('keeps the clock setters out of non test files except the clock module', () => {
+    const allowed = path.join('lib', 'filing-consent', 'clock.ts');
+    const hits = sourceFiles(repoRoot)
+      .map(file => path.relative(repoRoot, file))
+      .filter(rel => !rel.startsWith(`tests${path.sep}`) && rel !== allowed)
+      .filter(rel => clockSetters.some(name => readFileSync(path.join(repoRoot, rel), 'utf8').includes(name)));
+    expect(hits).toEqual([]);
+  });
+
+  it('imports the clock setters only from the clock module', () => {
+    const bad: string[] = [];
+    for (const file of sourceFiles(path.join(repoRoot, 'tests'))) {
+      const text = readFileSync(file, 'utf8');
+      for (const match of text.matchAll(/import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g)) {
+        if (!clockSetters.some(name => match[1].includes(name))) continue;
+        if (!match[2].endsWith('/clock') && !match[2].endsWith('/clock.ts')) bad.push(`${path.relative(repoRoot, file)} from ${match[2]}`);
+      }
+    }
+    expect(bad).toEqual([]);
   });
 });

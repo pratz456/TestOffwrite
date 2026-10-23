@@ -29,4 +29,4 @@ export {
 } from './signature';
 export { saveDisclosureConsent, withdrawDisclosureConsent, type SaveDisclosureConsentInput } from './store';
 export { noteInFirmPreparerReassignment } from './store';
-export { consentTextSha256, draftDisclosureConsentText, replaceDraftDisclosureConsentText, resetDraftDisclosureConsentText } from './text';
+export { consentTextSha256, draftDisclosureConsentText } from './text';
