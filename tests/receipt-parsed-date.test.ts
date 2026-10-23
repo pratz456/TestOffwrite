@@ -634,6 +634,35 @@ describe('OCR save uses the printed calendar day', () => {
     expect(invalid.saved?.uploadTimeZone).toBeUndefined();
   });
 
+  it('does not store est and saves 2026-07-15T04:30Z in Needs more information', async () => {
+    const instant = new Date('2026-07-15T04:30:00Z');
+    expect(normalizeDateToISO(instant, 'est')).toBeNull();
+    expect(normalizeDateToISO(instant, 'America/New_York')).toBe('2026-07-15');
+    const rejected = await saveInstant(instant, 'est');
+    expect(rejected.response.status).toBe(200);
+    expect(rejected.saved?.date).toBe('');
+    expect(rejected.saved?.uploadTimeZone).toBeUndefined();
+    expect(rejected.saved?.deductionStatus).toBe('Needs more information');
+    expect(rejected.saved?.tax_review_required).toBe(true);
+    const eastern = await saveInstant(instant, 'America/New_York');
+    expect(eastern.response.status).toBe(200);
+    expect(eastern.saved).toMatchObject({ date: '2026-07-15', uploadTimeZone: 'America/New_York', amount: 12.34 });
+    expect(eastern.saved?.deductionStatus).toBeUndefined();
+  });
+
+  it('does not store est and saves 2026-06-01T04:30Z in Needs more information', async () => {
+    const instant = new Date('2026-06-01T04:30:00Z');
+    expect(normalizeDateToISO(instant, 'est')).toBeNull();
+    expect(normalizeDateToISO(instant, 'America/New_York')).toBe('2026-06-01');
+    const rejected = await saveInstant(instant, 'est');
+    expect(rejected.response.status).toBe(200);
+    expect(rejected.saved?.date).toBe('');
+    expect(rejected.saved?.uploadTimeZone).toBeUndefined();
+    expect(rejected.saved?.deductionStatus).toBe('Needs more information');
+    const eastern = await saveInstant(instant, 'America/New_York');
+    expect(eastern.saved).toMatchObject({ date: '2026-06-01', uploadTimeZone: 'America/New_York' });
+  });
+
   it('saves a no-zone row at 05:00Z in Needs more information', async () => {
     const instant = new Date('2027-01-01T05:00:00Z');
     expect(normalizeDateToISO(instant)).toBeNull();

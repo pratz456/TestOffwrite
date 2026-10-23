@@ -1,4 +1,5 @@
 import Tesseract from 'tesseract.js';
+import { regionUploadTimeZone } from './region-time-zone';
 
 export interface ReceiptData {
   merchant: string;
@@ -58,15 +59,9 @@ function calendarDay(year: number, month: number, day: number): string | null {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === iso ? iso : null;
 }
 
-/** A real IANA zone name. Anything else, including a missing value, is not a zone. */
+/** A region zone or UTC. Anything else, including a missing value, is not a zone. */
 function ianaTimeZone(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  try {
-    Intl.DateTimeFormat('en-US', { timeZone: value });
-    return value;
-  } catch {
-    return undefined;
-  }
+  return regionUploadTimeZone(value);
 }
 
 /** Calendar day of an instant in one IANA zone. The process clock is not used. */

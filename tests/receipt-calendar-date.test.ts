@@ -86,6 +86,35 @@ describe('OCR receipt dates must be real calendar days', () => {
     }
   });
 
+  it('rejects an abbreviation in a receipt batch and keeps a region zone', async () => {
+    const processor = receiptProcessor as unknown as {
+      parseReceiptText(text: string): { merchant: string; amount: number; date: Date; category: string; items: [] };
+    };
+    const original = processor.parseReceiptText;
+    const useInstant = (iso: string) => {
+      processor.parseReceiptText = () => ({
+        merchant: 'SYNTHETIC OFFICE STORE', amount: 12.34, date: new Date(iso), category: 'other', items: [],
+      });
+    };
+    worker.recognize.mockResolvedValue({ data: { text: 'synthetic', confidence: 95 } });
+    try {
+      useInstant('2026-07-15T04:30:00Z');
+      const [july] = await receiptProcessor.processReceiptBatch([Buffer.from('july')], 'America/New_York');
+      expect(july.data?.date).toBe('2026-07-15');
+      const [julyAbbreviation] = await receiptProcessor.processReceiptBatch([Buffer.from('july')], 'est');
+      expect(julyAbbreviation.data?.date).toBe('');
+      useInstant('2026-06-01T04:30:00Z');
+      const [june] = await receiptProcessor.processReceiptBatch([Buffer.from('june')], 'America/New_York');
+      expect(june.data?.date).toBe('2026-06-01');
+      for (const zone of ['PST', 'EST5EDT', 'Etc/GMT+5']) {
+        const [rejected] = await receiptProcessor.processReceiptBatch([Buffer.from('june')], zone);
+        expect(rejected.data?.date).toBe('');
+      }
+    } finally {
+      processor.parseReceiptText = original;
+    }
+  });
+
   it.each(['2026-13-01', '2026-02-30', '2025-12-32'])('leaves OCR date %s blank so it can be entered', async date => {
     recognized(date);
     const result = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));

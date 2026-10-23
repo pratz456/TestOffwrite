@@ -113,14 +113,27 @@ describe('OCR receipt save requires a real calendar day', () => {
     }));
   });
 
-  it('stores est as the canonical zone Node returns', async () => {
+  it('stores UTC and still stores America/Los_Angeles', async () => {
     ocrDate('2026-09-15');
-    const response = await POST(request('est'));
-    expect(response.status).toBe(200);
-    expect(mocks.processReceipt).toHaveBeenCalledWith(expect.any(Buffer), 'America/Panama');
+    const utc = await POST(request('UTC'));
+    expect(utc.status).toBe(200);
+    expect(mocks.processReceipt).toHaveBeenCalledWith(expect.any(Buffer), 'UTC');
     expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({
-      date: '2026-09-15', uploadTimeZone: 'America/Panama',
+      uploadTimeZone: 'UTC',
     }));
+    const losAngeles = await POST(request('America/Los_Angeles'));
+    expect(losAngeles.status).toBe(200);
+    expect(mocks.createTransaction).toHaveBeenLastCalledWith(owner, 'manual', expect.objectContaining({
+      uploadTimeZone: 'America/Los_Angeles',
+    }));
+  });
+
+  it.each(['est', 'EST', 'pst', 'PST', 'EST5EDT', 'GMT+5', 'Etc/GMT+5', '+05:00'])('rejects %s and still returns 200', async zone => {
+    ocrDate('2026-09-15');
+    const response = await POST(request(zone));
+    expect(response.status).toBe(200);
+    expect(mocks.processReceipt).toHaveBeenCalledWith(expect.any(Buffer), undefined);
+    expect((mocks.createTransaction.mock.calls.at(-1)?.[2] as { uploadTimeZone?: string }).uploadTimeZone).toBeUndefined();
   });
 
   it('stores the canonical zone on an attached transaction and leaves its other fields alone', async () => {
@@ -145,7 +158,10 @@ describe('OCR receipt save requires a real calendar day', () => {
     expect(mocks.updateTransaction.mock.calls.at(-1)?.[2]).not.toHaveProperty('uploadTimeZone');
     const est = await POST(request('est', { attachTransactionId: 'owned-bank-transaction' }));
     expect(est.status).toBe(200);
-    expect((mocks.updateTransaction.mock.calls.at(-1)?.[2] as { uploadTimeZone?: string }).uploadTimeZone).toBe('America/Panama');
+    expect(mocks.updateTransaction.mock.calls.at(-1)?.[2]).not.toHaveProperty('uploadTimeZone');
+    const offset = await POST(request('Etc/GMT+5', { attachTransactionId: 'owned-bank-transaction' }));
+    expect(offset.status).toBe(200);
+    expect(mocks.updateTransaction.mock.calls.at(-1)?.[2]).not.toHaveProperty('uploadTimeZone');
   });
 
   it('drops a missing or invalid upload zone', async () => {
