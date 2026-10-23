@@ -41,7 +41,6 @@ beforeEach(() => {
 describe('client transaction create stores a calendar day', () => {
   it.each([
     ['1/31/2025', '2025-01-31'],
-    ['12/1/2025', '2025-12-01'],
     ['2025-1-5', '2025-01-05'],
     ['Jan 1, 2026', '2026-01-01'],
     ['2026-01-01', '2026-01-01'],
@@ -58,7 +57,7 @@ describe('client transaction create stores a calendar day', () => {
     expect(result.data?.date).toBe(stored);
   });
 
-  it.each(['1/5/2025', '01/05/2025', '02/30/2025', '2025/13/01'])('does not write an unreadable date %s', async (printed) => {
+  it.each(['12/1/2025', '1/12/2025', '11/3/2026', '1/5/2025', '01/05/2025', '02/30/2025', '2025/13/01'])('does not write an unreadable date %s', async (printed) => {
     const result = await createTransaction('synthetic-owner', 'manual', {
       merchant_name: 'Synthetic Cafe',
       amount: 18.5,

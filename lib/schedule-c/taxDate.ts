@@ -48,23 +48,20 @@ function writtenYMD(value: string): string | null {
 
 /**
  * Year last, slash or hyphen. One part over 12 has only one valid order.
- * Equal parts are that day. Different parts that are both 12 or under are
- * ambiguous when written with the same number of digits (01/05/2025, 1/5/2025)
- * and stay unset. A single digit beside a two digit number is month first,
- * so 12/1/2025 is December 1 and 1/31/2025 is January 31.
+ * Equal parts are that day. Both parts 12 or under and different stay unset.
+ * Digit count never decides the order, so 12/1/2025 and 1/12/2025 stay unset
+ * while 1/31/2025 is January 31.
  */
 function yearLastYMD(value: string): string | null {
   const match = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(value);
   if (!match) return null;
-  const [, aText, bText, yearText] = match;
-  const year = Number(yearText);
-  const a = Number(aText);
-  const b = Number(bText);
+  const year = Number(match[3]);
+  const a = Number(match[1]);
+  const b = Number(match[2]);
   if (a > 12 && b > 12) return null;
   if (b > 12) return realYMD(year, a, b);
   if (a > 12) return realYMD(year, b, a);
   if (a === b) return realYMD(year, a, b);
-  if (aText.length !== bText.length) return realYMD(year, a, b);
   return null;
 }
 
