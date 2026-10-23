@@ -356,10 +356,14 @@ export class ReceiptProcessor {
     try {
       if (!dateLike) return null;
       if (typeof dateLike === 'string') {
+        const isoDay = /^(\d{4}-\d{2}-\d{2})(?:$|T)/.exec(dateLike);
+        if (isoDay) {
+          const day = isoDay[1];
+          const parsed = new Date(`${day}T12:00:00Z`);
+          return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
+        }
         const d = new Date(dateLike);
         if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
-        // If it's already YYYY-MM-DD-ish, just grab the prefix.
-        if (/^\d{4}-\d{2}-\d{2}/.test(dateLike)) return dateLike.slice(0, 10);
         return null;
       }
       if (dateLike instanceof Date) return dateLike.toISOString().split('T')[0];
