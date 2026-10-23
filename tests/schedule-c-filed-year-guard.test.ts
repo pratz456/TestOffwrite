@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { PDFPage } from 'pdf-lib';
@@ -67,8 +70,6 @@ const clock = () => CLOCK;
 type GuardModule = {
   shouldHoldYear: (uid: string, year: number) => boolean;
   comparisonScreenWording: (year: number) => string;
-  setScheduleCClockForTests: (next: (() => Date) | null) => void;
-  setCurrentScheduleCRulesForTests: (rules: RuleSet | null) => void;
   decideScheduleCExport: (input: {
     uid: string;
     year: number;
@@ -89,14 +90,29 @@ type RuleSet = {
   aggregate: typeof aggregateScheduleC;
 };
 
+type FiledYearHooks = {
+  setScheduleCClockForTests: (next: (() => Date) | null) => void;
+  setCurrentScheduleCRulesForTests: (rules: RuleSet | null) => void;
+};
+
+const filedYearSource = join(dirname(fileURLToPath(import.meta.url)), '../lib/schedule-c/filed-year.ts');
+let filedYear: FiledYearHooks | null = null;
+
 async function loadGuard(): Promise<GuardModule> {
   return await import('@/lib/schedule-c/export-lines') as GuardModule;
 }
 
+async function loadFiledYearHooks(): Promise<FiledYearHooks | null> {
+  if (!existsSync(filedYearSource)) return null;
+  const hooks = await import('@/lib/schedule-c/filed-year');
+  if (typeof hooks.setScheduleCClockForTests !== 'function' || typeof hooks.setCurrentScheduleCRulesForTests !== 'function') return null;
+  return hooks;
+}
+
 function canInjectRules(guard: GuardModule): boolean {
-  return typeof guard.frozenScheduleCRules === 'function'
+  return filedYear !== null
+    && typeof guard.frozenScheduleCRules === 'function'
     && typeof guard.currentScheduleCRules === 'function'
-    && typeof guard.setCurrentScheduleCRulesForTests === 'function'
     && typeof guard.registerScheduleCRules === 'function'
     && typeof guard.decideScheduleCExport === 'function';
 }
@@ -184,9 +200,9 @@ beforeEach(async () => {
   harness.transactions = [];
   harness.csvTransactions = [];
   harness.db?.records.clear();
-  const mod = await import('@/lib/schedule-c/export-lines');
-  if (typeof mod.setScheduleCClockForTests === 'function') mod.setScheduleCClockForTests(clock);
-  if (typeof mod.setCurrentScheduleCRulesForTests === 'function') mod.setCurrentScheduleCRulesForTests(null);
+  filedYear = await loadFiledYearHooks();
+  filedYear?.setScheduleCClockForTests(clock);
+  filedYear?.setCurrentScheduleCRulesForTests(null);
 });
 
 describe('filed year guard', () => {
@@ -237,7 +253,7 @@ describe('filed year guard', () => {
 
   it('B. holds 2025 on v0 until the year is confirmed', async () => {
     const guard = await loadGuard();
-    if (canInjectRules(guard)) guard.setCurrentScheduleCRulesForTests(mealsRules(guard));
+    if (canInjectRules(guard)) filedYear!.setCurrentScheduleCRulesForTests(mealsRules(guard));
     harness.transactions = [confirmed({ id: 'ad1', amount: 100, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
     const view = capturePdf();
     const response = await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }));
@@ -276,7 +292,7 @@ describe('filed year guard', () => {
     let current: ReturnType<GuardModule['currentScheduleCRules']> | null = null;
     if (canInjectRules(guard)) {
       frozen = guard.frozenScheduleCRules();
-      guard.setCurrentScheduleCRulesForTests(shiftedDateRules(guard));
+      filedYear!.setCurrentScheduleCRulesForTests(shiftedDateRules(guard));
       current = guard.currentScheduleCRules();
       expect(frozen.readYear('1 January 2025')).not.toBe(current.readYear('1 January 2025'));
     }
@@ -315,7 +331,7 @@ describe('filed year guard', () => {
     const guard = await loadGuard();
     if (canInjectRules(guard)) {
       expect(guard.shouldHoldYear('owner', 2026)).toBe(true);
-      guard.setCurrentScheduleCRulesForTests(mealsRules(guard));
+      filedYear!.setCurrentScheduleCRulesForTests(mealsRules(guard));
     }
     harness.transactions = [confirmed({ id: 'now1', amount: 100, date: '2026-03-01', category: 'SERVICE_ADVERTISING' })];
     const view = capturePdf();
@@ -406,7 +422,7 @@ describe('filed year guard', () => {
     if (canInjectRules(guard)) {
       const frozen = guard.frozenScheduleCRules();
       const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: 'Needs more information', name: 'Needs more information', code: 'Needs more information' } };
-      guard.setCurrentScheduleCRulesForTests({
+      filedYear!.setCurrentScheduleCRulesForTests({
         version: 'v1', categoryMap, readDate: frozen.readDate, readYear: frozen.readYear,
         aggregate: (txs, year, map = categoryMap, options) => frozen.aggregate(txs, year, map, options),
       });
@@ -439,7 +455,7 @@ describe('filed year guard', () => {
         const ymd = readDate(value);
         return ymd ? Number(ymd.slice(0, 4)) : null;
       };
-      guard.setCurrentScheduleCRulesForTests({
+      filedYear!.setCurrentScheduleCRulesForTests({
         version: 'v1', categoryMap, readDate, readYear,
         aggregate: (txs, year, map = categoryMap, options) => frozen.aggregate(txs.map(tx => (
           tx.date === '2025-04-01' ? { ...tx, date: '2024-04-01' } : tx
@@ -481,7 +497,7 @@ describe('filed year guard', () => {
     expect(savedExports()).toHaveLength(0);
     if (canInjectRules(guard)) {
       expect(guard.shouldHoldYear('owner', 2025)).toBe(true);
-      guard.setCurrentScheduleCRulesForTests(mealsRules(guard));
+      filedYear!.setCurrentScheduleCRulesForTests(mealsRules(guard));
     }
     harness.transactions = [confirmed({ id: 'ad1', amount: 100, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
     const first = capturePdf();
@@ -544,8 +560,15 @@ describe('filed year guard', () => {
     expect(planning.status).toBe(200);
     expect(planning.headers.get('content-type')).toContain('application/pdf');
     expect(savedExports()).toEqual(beforeFiltered);
-    await saveExportLog('log-data-export', 'data-export', 0, 'archive', '2026-07-15T15:00:01.000Z');
-    await saveExportLog('log-planning-pdf', 'planning-pdf', 0, 'planning', '2026-07-15T15:00:02.000Z');
+    const scheduleCExportedAt = String(savedExports().find(row => row.kind === 'schedule-c-pdf')?.exportedAt ?? '');
+    const laterThanScheduleC = '2026-07-15T16:00:00.000Z';
+    expect(laterThanScheduleC > scheduleCExportedAt).toBe(true);
+    const { adminDb } = await import('@/lib/firebase/admin');
+    await adminDb.collection('user_export_records').doc('aaa-missing-kind').set({
+      uid: 'owner', taxYear: 2025, rulesVersion: 'v0', exportedAt: laterThanScheduleC, sha256: 'missing-kind',
+      lineTotals: [{ line: '8', amount: 0 }], totalDeductible: 0,
+      charges: [{ id: 'stray', line: '8', amount: 0 }],
+    });
     const nextPdf = capturePdf();
     expect((await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }))).status).toBe(200);
     expect(subtotal(nextPdf.text())).toBe('$100.00');
@@ -554,9 +577,7 @@ describe('filed year guard', () => {
     const scheduleC = savedExports().filter(row => row.kind === 'schedule-c-pdf' || row.kind === 'schedule-c-csv');
     expect(scheduleC.length).toBeGreaterThan(1);
     expect(scheduleC.every(row => row.totalDeductible === 100)).toBe(true);
-    const otherKinds = savedExports().filter(row => row.kind === 'data-export' || row.kind === 'planning-pdf');
-    expect(otherKinds.map(row => row.kind).sort()).toEqual(['data-export', 'planning-pdf']);
-    expect(otherKinds.every(row => row.totalDeductible === 0)).toBe(true);
+    expect(savedExports().some(row => row.kind === undefined && row.totalDeductible === 0 && row.exportedAt === laterThanScheduleC)).toBe(true);
   });
 
   it('a transactions CSV download writes no export record', async () => {

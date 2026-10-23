@@ -15,7 +15,5 @@ export {
   loweringRuleSentence,
   registerScheduleCRules,
   scheduleCNow,
-  setCurrentScheduleCRulesForTests,
-  setScheduleCClockForTests,
   shouldHoldYear,
 } from './filed-year';

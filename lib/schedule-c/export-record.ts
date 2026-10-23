@@ -21,14 +21,10 @@ export const EXPORT_RECORDS = 'user_export_records';
 
 /**
  * Only a Schedule C CSV or PDF is written, and only those kinds are read
- * back as a held year's old total. A transactions CSV download is not logged.
- * If a log of another kind is present, readLatestExportRecord skips it.
+ * back as a held year's old total. Any other record, including one with a
+ * missing kind, is ignored.
  */
-export type ExportRecordKind =
-  | 'schedule-c-pdf'
-  | 'schedule-c-csv'
-  | 'data-export'
-  | 'planning-pdf';
+export type ExportRecordKind = 'schedule-c-pdf' | 'schedule-c-csv';
 
 export interface ExportRecordDocument extends ScheduleCExportSnapshot {
   uid: string;

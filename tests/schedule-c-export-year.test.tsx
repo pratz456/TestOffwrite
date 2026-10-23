@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Real component handlers with a minimal hook scheduler; network/downloads are
@@ -56,11 +59,13 @@ beforeEach(() => {
   vi.stubGlobal('window', { URL: { createObjectURL: (blob: Blob) => { harness.blob = blob; return 'blob:synthetic'; }, revokeObjectURL: vi.fn() } });
   vi.stubGlobal('document', { createElement: () => harness.download, body: { appendChild: vi.fn(), removeChild: vi.fn() } });
 });
+const filedYearSource = join(dirname(fileURLToPath(import.meta.url)), '../lib/schedule-c/filed-year.ts');
 afterEach(async () => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  const lines = await import('@/lib/schedule-c/export-lines');
-  if (typeof lines.setCurrentScheduleCRulesForTests === 'function') lines.setCurrentScheduleCRulesForTests(null);
+  if (!existsSync(filedYearSource)) return;
+  const hooks = await import('@/lib/schedule-c/filed-year');
+  if (typeof hooks.setCurrentScheduleCRulesForTests === 'function') hooks.setCurrentScheduleCRulesForTests(null);
 });
 
 describe('Schedule C supported-year selection', () => {
@@ -71,11 +76,12 @@ describe('Schedule C supported-year selection', () => {
 
   async function showYear(input: typeof props, year: string) {
     const lines = await import('@/lib/schedule-c/export-lines');
-    const canInject = typeof lines.frozenScheduleCRules === 'function' && typeof lines.setCurrentScheduleCRulesForTests === 'function';
-    if (canInject) {
+    const hooks = existsSync(filedYearSource) ? await import('@/lib/schedule-c/filed-year') : null;
+    const canInject = typeof lines.frozenScheduleCRules === 'function' && typeof hooks?.setCurrentScheduleCRulesForTests === 'function';
+    if (canInject && hooks) {
       const frozen = lines.frozenScheduleCRules();
       const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: '24b', name: 'Meals', code: '24b' }, SERVICE_SUBSCRIPTION: { line: '24b', name: 'Meals', code: '24b' } };
-      lines.setCurrentScheduleCRulesForTests({
+      hooks.setCurrentScheduleCRulesForTests({
         version: 'v1', categoryMap, readDate: frozen.readDate, readYear: frozen.readYear,
         aggregate: (txs, yearArg, map = categoryMap, options) => frozen.aggregate(txs, yearArg, map, options),
       });
