@@ -56,10 +56,9 @@ function isPosted(tx: QuarterlyTransactionLike): boolean {
 }
 
 /**
- * Charge day for a quarter total. A string `date` keeps the written day.
- * A Date, a Timestamp, or a datetime-only row is undated, so it is left out of
- * the quarter the same way Schedule C leaves it out of the year. The amount
- * stays on the row. `userTimezone` does not move the day: no zone is saved.
+ * Written charge day. A string `date` keeps that day. A Date, a Timestamp, or a
+ * datetime-only row is undated: this returns null and does not guess a day.
+ * `userTimezone` does not move the day. Schedule C uses the same charge day.
  */
 export function getLocalTransactionDate(
   transaction: QuarterlyTransactionLike,
@@ -74,6 +73,108 @@ export function getLocalTransactionDate(
     day: Number(ymd.slice(8, 10)),
     ymd,
   };
+}
+
+/** Earliest and latest civil offsets checked for a stored UTC moment. */
+const EARLIEST_OFFSET_MINUTES = -12 * 60;
+const LATEST_OFFSET_MINUTES = 14 * 60;
+
+function partsAtOffset(instant: Date, offsetMinutes: number): LocalDateParts {
+  const shifted = new Date(instant.getTime() + offsetMinutes * 60_000);
+  const year = shifted.getUTCFullYear();
+  const month = shifted.getUTCMonth() + 1;
+  const day = shifted.getUTCDate();
+  return { year, month, day, ymd: `${year}-${pad2(month)}-${pad2(day)}` };
+}
+
+/** A stored UTC moment. Numbers below 1e11 are epoch seconds. No zone is applied here. */
+function storedMoment(value: unknown): Date | null {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (value && typeof value === 'object' && typeof (value as { toDate?: unknown }).toDate === 'function') {
+    try {
+      const date = (value as { toDate: () => Date }).toDate();
+      if (date instanceof Date && !Number.isNaN(date.getTime())) return date;
+    } catch {
+      return null;
+    }
+    return null;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const millis = Math.abs(value) < 1e11 ? value * 1000 : value;
+    const date = new Date(millis);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const parsed = Date.parse(value.trim());
+  return Number.isFinite(parsed) ? new Date(parsed) : null;
+}
+
+function writtenDateMissing(transaction: QuarterlyTransactionLike): boolean {
+  return transaction.date === undefined || transaction.date === null;
+}
+
+function isIncomeCategory(transaction: QuarterlyTransactionLike): boolean {
+  return transaction.category === 'income'
+    || transaction.category === 'revenue'
+    || (transaction.account_id === 'manual' && (transaction as { type?: unknown }).type === 'income');
+}
+
+/**
+ * Estimate placement for income. A written charge day wins. A datetime-only row
+ * stays undated for Schedule C, and on the estimate it uses the earliest day
+ * from UTC-12 through UTC+14 (never the latest). An unreadable written `date`
+ * does not fall through to `datetime`.
+ */
+function incomeEstimateDay(transaction: QuarterlyTransactionLike, userTimezone: string): LocalDateParts | null {
+  const written = getLocalTransactionDate(transaction, userTimezone);
+  if (written) return written;
+  if (!writtenDateMissing(transaction)) return null;
+  const instant = storedMoment(transaction.datetime);
+  if (!instant) return null;
+  const earliest = partsAtOffset(instant, EARLIEST_OFFSET_MINUTES);
+  const latest = partsAtOffset(instant, LATEST_OFFSET_MINUTES);
+  return earliest.ymd <= latest.ymd ? earliest : latest;
+}
+
+export type EstimateDateReview = {
+  expenseNeedsDateCount: number;
+  expenseNeedsDateAmount: number;
+  incomeNeedsDateCount: number;
+  incomeNeedsDateAmount: number;
+  needsDateCopy: string;
+};
+
+/**
+ * Undated expenses stay out of every quarter and the year total, with a count
+ * and amount kept. Undated income is flagged and is not dropped. A datetime-only
+ * income row is placed by incomeEstimateDay. The estimate is not blocked.
+ */
+export function reviewEstimateDates(
+  transactions: QuarterlyTransactionLike[],
+  userTimezone: string,
+): EstimateDateReview {
+  let expenseCents = 0;
+  let expenseNeedsDateCount = 0;
+  let incomeCents = 0;
+  let incomeNeedsDateCount = 0;
+  for (const transaction of dedupeQuarterlyTransactions(transactions)) {
+    if (!isPosted(transaction) || !Number.isFinite(transaction.amount)) continue;
+    if (getLocalTransactionDate(transaction, userTimezone)) continue;
+    if (isIncomeCategory(transaction) && transaction.amount < 0) {
+      incomeNeedsDateCount += 1;
+      incomeCents += toCents(-transaction.amount);
+      continue;
+    }
+    if (!BUSINESS_CATEGORIES.has(transaction.category)) continue;
+    expenseNeedsDateCount += 1;
+    expenseCents += toCents(transaction.amount);
+  }
+  const expenseNeedsDateAmount = expenseCents / 100;
+  const incomeNeedsDateAmount = incomeCents / 100;
+  const money = (amount: number) => amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+  // DRAFT pending approval. This sentence is customer copy.
+  const needsDateCopy = `${expenseNeedsDateCount} expense rows need a date. Amount kept: ${money(expenseNeedsDateAmount)}. These expenses are left out of every estimate quarter and the year total. ${incomeNeedsDateCount} income rows need a date. Amount kept: ${money(incomeNeedsDateAmount)}. Undated income stays in the estimate year total and is flagged.`;
+  return { expenseNeedsDateCount, expenseNeedsDateAmount, incomeNeedsDateCount, incomeNeedsDateAmount, needsDateCopy };
 }
 
 export function getTaxYear(localDate: LocalDateParts): number {
@@ -139,7 +240,7 @@ export function sumIncomeForQuarter(
     if (!isPosted(tx)) continue;
     if (!tx.category) continue;
 
-    const localDate = getLocalTransactionDate(tx, userTimezone);
+    const localDate = incomeEstimateDay(tx, userTimezone);
     if (!localDate) continue;
     if (getTaxYear(localDate) !== year) continue;
     if (getTaxQuarter(localDate) !== quarter) continue;

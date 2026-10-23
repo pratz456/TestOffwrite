@@ -37,7 +37,13 @@ function writtenMonthDay(value: string): string | null {
   return realWrittenDay(monthFirst[3], monthFirst[1], monthFirst[2]);
 }
 
-/** A YYYY-MM-DD that exists on the calendar. Noon UTC only checks the day, it does not choose it. */
+/**
+ * Rejects a candidate YYYY-MM-DD that is not a real calendar day.
+ * toISOString().slice(0, 10) runs only on the noon UTC instant of that
+ * candidate, and only as a validity check. It does not choose the charge day.
+ * Noon UTC stays on the same calendar day in every offset, so this check
+ * cannot move the written day.
+ */
 function realIsoDay(day: string): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
   const parsed = new Date(`${day}T12:00:00Z`);

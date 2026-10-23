@@ -98,6 +98,23 @@ describe('dashboard filing-status review display', () => {
     expect(content).toContain('Confirmed Transaction Deductions');
     expect(content).not.toContain('Estimated Tax Effect of Unreviewed Items');
     expect(content).not.toContain('NaN');
+    expect(content).toContain('0 rows need a date. Amount kept: $0.00. These rows are in Needs more information and are not in the confirmed total.');
+  });
+  it('shows the draft count of rows that need a date and keeps the amount', async () => {
+    const saved = harness.transactions;
+    harness.transactions = [{ id: 'adobe', amount: 42.5, datetime: '2024-12-31T15:00:00Z', merchant_name: 'Adobe', category: 'software', is_deductible: null, iso_currency_code: 'USD' }];
+    harness.slots = [];
+    try {
+      const component = () => AIInsightsPage({ user: { id: 'synthetic' }, onBack() {} }) as Element;
+      render(component); await flush();
+      const content = text(render(component));
+      expect(content).toContain('1 rows need a date. Amount kept: $42.50. These rows are in Needs more information and are not in the confirmed total.');
+      expect(content).toContain('$0.00');
+      expect(content).not.toContain('NaN');
+    } finally {
+      harness.transactions = saved;
+      harness.slots = [];
+    }
   });
   it.each([
     ['legacy dashboard', () => Dashboard({ user: { id: 'synthetic' }, onNavigate: harness.navigate }) as Element],

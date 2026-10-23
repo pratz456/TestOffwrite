@@ -1,25 +1,50 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { Timestamp } from 'firebase-admin/firestore';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
-import { chargeDay, chargeYear, safeTaxYear, safeYMD } from '@/lib/schedule-c/taxDate';
-import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
-import { convertTransactionsToCSV, exportDate, selectExportYear } from '@/lib/reports/transaction-export';
-import * as transactionServer from '@/lib/firebase/transactions-server';
-import * as reviewApi from '@/lib/transactions/review';
-
-function normalizeDoc(doc: { id: string; data(): Record<string, any> }) {
-  return transactionServer.normalizeDoc(doc);
-}
-function taxYearOf(record: { date?: unknown; datetime?: unknown; created_at?: unknown; updated_at?: unknown } | null | undefined) {
-  return reviewApi.taxYearOf(record);
-}
-function vehicleMethodForCharge(record: { date?: unknown; datetime?: unknown; created_at?: unknown } | null | undefined, saved: unknown) {
-  return reviewApi.vehicleMethodForCharge(record, saved);
-}
-import { buildMonthlySavings } from '@/lib/tax/savings-summary';
-import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
+import * as taxDate from '@/lib/schedule-c/taxDate';
 
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { doc: () => ({}) } }));
+
+function chargeDay(record: { date?: unknown; datetime?: unknown } | null | undefined) {
+  return taxDate.chargeDay(record);
+}
+function chargeYear(record: { date?: unknown; datetime?: unknown } | null | undefined) {
+  return taxDate.chargeYear(record);
+}
+const safeYMD = (value: unknown) => taxDate.safeYMD(value);
+const safeTaxYear = (value: unknown) => taxDate.safeTaxYear(value);
+
+async function scheduleCTools() {
+  const [{ aggregateScheduleC, CATEGORY_MAP }, exportApi, { generateScheduleCCSV }] = await Promise.all([
+    import('@/lib/schedule-c/aggregate'),
+    import('@/lib/reports/transaction-export'),
+    import('@/lib/reports/schedule-c-csv'),
+  ]);
+  return {
+    aggregateScheduleC,
+    CATEGORY_MAP,
+    convertTransactionsToCSV: exportApi.convertTransactionsToCSV,
+    exportDate: exportApi.exportDate,
+    selectExportYear: exportApi.selectExportYear,
+    generateScheduleCCSV,
+  };
+}
+
+async function savedRowTools() {
+  const [transactionServer, reviewApi, savings, display] = await Promise.all([
+    import('@/lib/firebase/transactions-server'),
+    import('@/lib/transactions/review'),
+    import('@/lib/tax/savings-summary'),
+    import('@/lib/tax/display-deductions'),
+  ]);
+  return {
+    normalizeDoc: transactionServer.normalizeDoc,
+    taxYearOf: reviewApi.taxYearOf,
+    vehicleMethodForCharge: reviewApi.vehicleMethodForCharge,
+    buildMonthlySavings: savings.buildMonthlySavings,
+    summarizeConfirmedDeductions: display.summarizeConfirmedDeductions,
+  };
+}
 
 const confirmed = (facts: Record<string, unknown> = {}) => ({
   id: 'row', amount: 100, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', iso_currency_code: 'USD',
@@ -39,7 +64,8 @@ describe('charge day shared by Schedule C totals and the export', () => {
     confirmed({ id: 'missing' }),
   ];
 
-  it('counts a real charge day in that year and lists every other row as undated', () => {
+  it('counts a real charge day in that year and lists every other row as undated', async () => {
+    const { aggregateScheduleC, CATEGORY_MAP } = await scheduleCTools();
     const year2024 = aggregateScheduleC(rows, '2024', CATEGORY_MAP, { mode: 'confirmed-only' });
     const year2025 = aggregateScheduleC(rows, '2025', CATEGORY_MAP, { mode: 'confirmed-only' });
     expect(year2024.totalDeductible).toBe(100);
@@ -56,7 +82,8 @@ describe('charge day shared by Schedule C totals and the export', () => {
     expect(safeTaxYear('2025-02-30')).toBeNull();
   });
 
-  it('uses the same charge day for the export tax date as for the year total', () => {
+  it('uses the same charge day for the export tax date as for the year total', async () => {
+    const { aggregateScheduleC, CATEGORY_MAP, convertTransactionsToCSV, exportDate, selectExportYear } = await scheduleCTools();
     const dated = rows.filter(row => chargeYear(row) !== null);
     const undated = rows.filter(row => chargeYear(row) === null);
     const exported2024 = selectExportYear(dated, 2024);
@@ -86,7 +113,8 @@ describe('normalizeDoc charge day', () => {
     is_deductible: true, review_status: 'confirmed', ...data,
   }) });
 
-  it('leaves a save timestamp out of the charge date', () => {
+  it('leaves a save timestamp out of the charge date', async () => {
+    const { normalizeDoc, summarizeConfirmedDeductions, buildMonthlySavings } = await savedRowTools();
     const saved = { created_at: '2025-06-15T18:00:00.000Z', updated_at: '2026-06-15T18:00:00.000Z' };
     expect(chargeDay(saved)).toBeNull();
     expect(chargeYear(saved)).toBeNull();
@@ -99,7 +127,8 @@ describe('normalizeDoc charge day', () => {
     expect(() => buildMonthlySavings([confirmed(row)], 2026, 0.2, new Date('2026-09-23T12:00:00Z'))).toThrow(/Review missing or invalid transaction dates/);
   });
 
-  it('keeps a December charge in 2024 when the row was saved in January', () => {
+  it('keeps a December charge in 2024 when the row was saved in January', async () => {
+    const { normalizeDoc, buildMonthlySavings } = await savedRowTools();
     const saved = { date: '2024-12-31', created_at: '2025-01-02T08:00:00.000Z', updated_at: '2025-01-02T08:00:00.000Z' };
     expect(chargeDay(saved)).toBe('2024-12-31');
     expect(chargeYear(saved)).toBe(2024);
@@ -111,7 +140,9 @@ describe('normalizeDoc charge day', () => {
     expect(buildMonthlySavings([confirmed(row)], 2025, 0.2, new Date('2026-09-23T12:00:00Z')).summary.deductionBasis).toBe(0);
   });
 
-  it('leaves a datetime-only row undated and keeps the amount', () => {
+  it('leaves a datetime-only row undated and keeps the amount', async () => {
+    const { normalizeDoc } = await savedRowTools();
+    const { aggregateScheduleC, CATEGORY_MAP } = await scheduleCTools();
     const saved = { datetime: '2024-12-31T15:00:00Z', amount: 100 };
     expect(chargeDay(saved)).toBeNull();
     expect(chargeYear(saved)).toBeNull();
@@ -130,7 +161,8 @@ describe('normalizeDoc charge day', () => {
 describe('vehicle method follows the charge year only', () => {
   afterEach(() => { vi.useRealTimers(); });
 
-  it('gives an undated row no year and no vehicle method while the clock reads 2099', () => {
+  it('gives an undated row no year and no vehicle method while the clock reads 2099', async () => {
+    const { taxYearOf, vehicleMethodForCharge } = await savedRowTools();
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2099-06-15T12:00:00Z'));
     expect(new Date().getFullYear()).toBe(2099);
@@ -155,7 +187,8 @@ describe('vehicle method follows the charge year only', () => {
 });
 
 describe('offset timestamps keep the date written in the string', () => {
-  it('lands 2024-12-31T20:00:00-08:00 in tax year 2024 and prints 27a (Other expenses)', () => {
+  it('lands 2024-12-31T20:00:00-08:00 in tax year 2024 and prints 27a (Other expenses)', async () => {
+    const { aggregateScheduleC, CATEGORY_MAP, generateScheduleCCSV, selectExportYear } = await scheduleCTools();
     const row = confirmed({ id: 'offset', date: '2024-12-31T20:00:00-08:00', category: 'SERVICE_MEMBERSHIPS', amount: 80 });
     expect(chargeDay(row)).toBe('2024-12-31');
     expect(chargeYear(row)).toBe(2024);
@@ -195,7 +228,8 @@ describe('a space and a time, a trailing Z, or an English month keeps the writte
     ' 2025-01-05',
     '2025-01-05 ',
     '2025/01/05',
-  ])('counts %s on the written day in the 2025 total', (date) => {
+  ])('counts %s on the written day in the 2025 total', async (date) => {
+    const { aggregateScheduleC, CATEGORY_MAP } = await scheduleCTools();
     const row = confirmed({ id: 'written-day', date, amount: 55 });
     const written = date.includes('Sept') ? '2025-09-05' : '2025-01-05';
     expect(chargeDay(row)).toBe(written);
@@ -217,7 +251,8 @@ describe('chargeDay and chargeYear match safeYMD and safeTaxYear for a string da
     ['an offset timestamp string', '2024-12-31T20:00:00-08:00', '2024-12-31', 2024],
     ['December 31', '2025-12-31', '2025-12-31', 2025],
     ['January 1', '2026-01-01', '2026-01-01', 2026],
-  ])('reads %s', (_label, value, day, year) => {
+  ])('reads %s', async (_label, value, day, year) => {
+    const { aggregateScheduleC, CATEGORY_MAP } = await scheduleCTools();
     expect(chargeDay({ date: value })).toBe(day);
     expect(chargeYear({ date: value })).toBe(year);
     expect(chargeDay({ date: value })).toBe(safeYMD(value));
@@ -255,14 +290,17 @@ describe('a Date, a Timestamp, or a datetime-only row is undated', () => {
   it.each([
     ['a Date at 11:30 PM Dec 31 in Los Angeles', losAngelesDec31],
     ['a Timestamp at 11:30 PM Dec 31 in Los Angeles', timestamp(losAngelesDec31)],
+    ['a firebase-admin Timestamp at 11:30 PM Dec 31 in Los Angeles', Timestamp.fromMillis(losAngelesDec31.getTime())],
     ['a Date at 12:30 AM Jan 1 in Tokyo', tokyoJan1],
     ['a Timestamp at 12:30 AM Jan 1 in Tokyo', timestamp(tokyoJan1)],
-  ])('%s is undated and counted in neither year', (_label, value) => {
+    ['a firebase-admin Timestamp at 12:30 AM Jan 1 in Tokyo', Timestamp.fromMillis(tokyoJan1.getTime())],
+  ])('%s is undated and counted in neither year', async (_label, value) => {
     const row = confirmed({ id: 'instant', date: value, amount: 40 });
-    expect(chargeDay(row)).toBeNull();
-    expect(chargeYear(row)).toBeNull();
     expect(safeYMD(value)).toBeNull();
     expect(safeTaxYear(value)).toBeNull();
+    expect(chargeDay(row)).toBeNull();
+    expect(chargeYear(row)).toBeNull();
+    const { aggregateScheduleC, CATEGORY_MAP } = await scheduleCTools();
     for (const year of ['2024', '2025']) {
       const totals = aggregateScheduleC([row], year, CATEGORY_MAP, { mode: 'confirmed-only' });
       expect(totals.totalDeductible).toBe(0);
@@ -277,20 +315,24 @@ describe('a Date, a Timestamp, or a datetime-only row is undated', () => {
     ['2025-01-01', 2025, 2024],
     ['2025-12-31', 2025, 2026],
     ['2026-01-01', 2026, 2025],
-  ])('string %s counts in the written year', (date, year, other) => {
+  ])('string %s counts in the written year', async (date, year, other) => {
     const row = confirmed({ date, amount: 40 });
+    expect(safeYMD(date)).toBe(date);
+    expect(safeTaxYear(date)).toBe(year);
     expect(chargeDay(row)).toBe(date);
     expect(chargeYear(row)).toBe(year);
+    const { aggregateScheduleC, CATEGORY_MAP } = await scheduleCTools();
     expect(aggregateScheduleC([row], String(year), CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible).toBe(40);
     expect(aggregateScheduleC([row], String(other), CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible).toBe(0);
   });
 
-  it('keeps a datetime-only amount out of every year total', () => {
+  it('keeps a datetime-only amount out of every year total', async () => {
     const row = confirmed({ id: 'datetime-only', datetime: '2024-12-31T15:00:00Z', amount: 80 });
+    expect(safeYMD('2024-12-31T15:00:00Z')).toBe('2024-12-31');
     expect(chargeDay(row)).toBeNull();
     expect(chargeYear(row)).toBeNull();
+    const { aggregateScheduleC, CATEGORY_MAP, exportDate } = await scheduleCTools();
     expect(exportDate(row)).toBeNull();
-    expect(safeYMD('2024-12-31T15:00:00Z')).toBe('2024-12-31');
     for (const year of ['2024', '2025']) {
       const totals = aggregateScheduleC([row], year, CATEGORY_MAP, { mode: 'confirmed-only' });
       expect(totals.totalDeductible).toBe(0);
@@ -304,15 +346,18 @@ describe('a Date, a Timestamp, or a datetime-only row is undated', () => {
     ['seconds and nanoseconds', { seconds: 1735689600, nanoseconds: 0 }],
     ['_seconds and _nanoseconds', { _seconds: 1735689600, _nanoseconds: 0 }],
     ['type, seconds, and nanoseconds', { type: 'firestore/timestamp/1.0', seconds: 1735689600, nanoseconds: 0 }],
+    ['seconds for 11:30 PM Dec 31 in Los Angeles', { seconds: 1735716600, nanoseconds: 0 }],
+    ['seconds for 12:30 AM Jan 1 in Tokyo', { seconds: 1735659000, nanoseconds: 0 }],
     ['an epoch number', Date.UTC(2025, 0, 5)],
     ['a millisecond epoch', 1735689600000],
     ['String(ts)', String({ seconds: 1735689600, nanoseconds: 0 })],
-  ])('%s is undated', (_label, value) => {
+  ])('%s is undated', async (_label, value) => {
     const row = confirmed({ date: value, amount: 15 });
-    expect(chargeDay(row)).toBeNull();
-    expect(chargeYear(row)).toBeNull();
     expect(safeYMD(value)).toBeNull();
     expect(safeTaxYear(value)).toBeNull();
+    expect(chargeDay(row)).toBeNull();
+    expect(chargeYear(row)).toBeNull();
+    const { aggregateScheduleC, CATEGORY_MAP } = await scheduleCTools();
     const totals = aggregateScheduleC([row], '2025', CATEGORY_MAP, { mode: 'confirmed-only' });
     expect(totals.totalDeductible).toBe(0);
     expect(totals.needsMoreInformation).toBe(1);

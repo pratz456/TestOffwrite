@@ -173,6 +173,7 @@ export default function ReportsPage() {
     const today = new Date().toISOString().slice(0, 10);
     const rows = allTransactions.filter(record => {
       const date = exportDate(record);
+      // exportDate reads the written date only. A datetime-only row stays blank.
       return !date || chartYear !== currentYear || date <= today;
     });
     const cash = summarizeRecordedCashFlow(rows, chartYear);

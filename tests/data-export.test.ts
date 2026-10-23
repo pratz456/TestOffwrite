@@ -114,6 +114,11 @@ describe('owner export source completeness and privacy', () => {
     const pack = generateDataPackage(data);
     expect(pack.summary.dateRange.earliest === '2024-12-31' || pack.summary.dateRange.latest === '2024-12-31').toBe(false);
     expect(pack.csv).toContain('Needs more information');
+    const lines = pack.csv.split('\r\n');
+    const taxDateIndex = lines[0].split(',').indexOf('Tax Date');
+    const exported = lines.find((line) => line.includes('2024-12-31T15:00:00Z'));
+    if (!exported) throw new Error('datetime-only row missing from the csv');
+    expect(exported.split(',')[taxDateIndex]).toBe('');
   });
   it('requires review for undated transactions instead of silently omitting them from a selected year', async () => {
     seed('transactions/undated', { userId: 'owner', amount: 10 });

@@ -26,9 +26,16 @@ function isChargeRecord(value: unknown): value is { date?: unknown; datetime?: u
   if (typeof (value as { toDate?: unknown }).toDate === 'function') return false;
   return 'date' in value || 'datetime' in value;
 }
-/** Tax date of one value, or of a charge record through the shared charge day. A datetime-only record is undated. */
+/**
+ * Tax date for an export. A charge record uses only its written `date`.
+ * A missing `date` stays blank: `datetime` is not read and is not converted
+ * into a calendar day. A lone string still uses the written-day reader.
+ */
 export function exportDate(value: unknown): string | null {
-  if (isChargeRecord(value)) return chargeDay(value);
+  if (isChargeRecord(value)) {
+    if (value.date === undefined || value.date === null) return null;
+    return calendarChargeDay(value.date);
+  }
   return calendarChargeDay(value);
 }
 export function selectExportYear(records: ExportRecord[], year?: number): ExportRecord[] {
@@ -66,7 +73,7 @@ export const TRANSACTION_CSV_HEADERS = [
 ];
 export function convertTransactionsToCSV(records: ExportRecord[]): string {
   return [TRANSACTION_CSV_HEADERS.map(csvCell).join(','), ...records.map(record => {
-    const amount = transactionAmount(record), date = chargeDay(record), deductible = recordedDeductibility(record);
+    const amount = transactionAmount(record), date = exportDate(record), deductible = recordedDeductibility(record);
     const category = categoryText(record.category);
     const rawPath = record.receipt_url;
     const businessUse = Object.fromEntries(['business_percent', 'business_use_percent', 'business_use_percentage', 'businessUsePercent'].filter(key => record[key] !== undefined).map(key => [key, record[key]]));

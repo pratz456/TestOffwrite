@@ -52,8 +52,15 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Unit and contract tests
+      - name: Unit and contract tests (America/Los_Angeles)
         run: npm test
+        env:
+          TZ: America/Los_Angeles
+
+      - name: Unit and contract tests (Asia/Tokyo)
+        run: npm test
+        env:
+          TZ: Asia/Tokyo
 
       - name: Build application without provider access
         env:

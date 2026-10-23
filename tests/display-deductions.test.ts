@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { summarizeConfirmedDeductions, isReviewableBusinessOutflow } from '@/lib/tax/display-deductions';
+import { summarizeConfirmedDeductions, isReviewableBusinessOutflow, rowsNeedingDate } from '@/lib/tax/display-deductions';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { compute1040 } from '@/lib/tax-rules/compute-1040';
@@ -81,5 +81,19 @@ describe('confirmed transaction amounts displayed to the owner', () => {
     }
     expect(isReviewableBusinessOutflow(expense())).toBe(false);
     expect(isReviewableBusinessOutflow(expense({ date: '2026-01-01', review_status: undefined }))).toBe(false);
+  });
+
+  it('counts undated rows that need a date and keeps the amount out of the confirmed total', () => {
+    const row = expense({ date: undefined, datetime: '2024-12-31T15:00:00Z', amount: 42.5 });
+    const superseded = expense({ id: 'old', date: undefined, datetime: '2024-12-31T15:00:00Z', amount: 9, superseded_by: 'older/path' });
+    const needing = rowsNeedingDate([row, superseded, expense()]);
+    expect(needing.count).toBe(1);
+    expect(needing.amount).toBe(42.5);
+    expect(needing.rows[0].amount).toBe(42.5);
+    const totals = aggregateScheduleC([row], '2024', CATEGORY_MAP, { mode: 'confirmed-only' });
+    expect(totals.needsMoreInformation).toBe(needing.count);
+    expect(totals.totalDeductible).toBe(0);
+    expect(isReviewableBusinessOutflow(row)).toBe(false);
+    expect(summarizeConfirmedDeductions([row]).totalDeductible).toBeNull();
   });
 });
