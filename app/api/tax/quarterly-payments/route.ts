@@ -122,6 +122,7 @@ export async function GET(request: NextRequest) {
         const detail = current?.record;
         const legacySuperseded = typeof data.supersededBy === 'string' && data.supersededBy.length > 0;
         const source = detail ?? (legacySuperseded ? null : data);
+        const rawDesignated = source?.designatedTaxYear;
         record = {
           quarter: data.quarter ?? q,
           year: data.year ?? y,
@@ -129,7 +130,7 @@ export async function GET(request: NextRequest) {
           estimatedAmount: data.estimatedAmount ?? 0,
           paidAmount,
           paidDate: latestPaidDate,
-          designatedTaxYear: Number.isInteger(source?.designatedTaxYear) ? source.designatedTaxYear : null,
+          designatedTaxYear: typeof rawDesignated === 'number' && Number.isInteger(rawDesignated) ? rawDesignated : null,
           paymentType: source?.paymentType === 'prior_year_overpayment' ? 'prior_year_overpayment' : null,
           confirmationNumber: typeof source?.confirmationNumber === 'string' ? source.confirmationNumber : null,
           paymentMethod: typeof source?.paymentMethod === 'string' ? source.paymentMethod : null,
