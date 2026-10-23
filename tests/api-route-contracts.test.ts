@@ -4,7 +4,8 @@
  * replaced by fail-closed doubles (tests/fixtures/api-route-harness.ts). Contract:
  *   - anonymous or forged credentials: 401/403/404 (exceptions below), JSON body, no cached response,
  *     no outbound provider or storage call;
- *   - signed-in owner with an empty, malformed or `{}` body on a mutating method: 400/422, never 500;
+ *   - signed-in owner with an empty, malformed or `{}` body on a mutating method: 400/422, never 500
+ *     (a route listed in UNAVAILABLE_BEFORE_VALIDATION answers 404 before that validation);
  *   - session-cookie mutations from another site are rejected (CSRF);
  *   - diagnostic routes answer 404 in production;
  *   - a database failure never echoes its message, and no body contains stack/path/vendor markers.
@@ -70,6 +71,12 @@ const BODYLESS_MUTATIONS: Record<string, Expectation> = {
   'DELETE /api/plaid/items/[itemId]': { statuses: [404], reason: 'Unknown connection on an empty account.' },
   'POST /api/tax/form-8879': { statuses: [409], reason: 'Always refuses: e-file authorization comes from a filing provider.' },
   'POST /api/tax/year-lock': { statuses: [409], reason: 'Always refuses: filing status comes from a filing provider.' },
+};
+
+/** The copy switch is off in this harness, so these routes answer 404 before the body is validated. */
+const UNAVAILABLE_BEFORE_VALIDATION: Record<string, Expectation> = {
+  'POST /api/mileage/assignments': { statuses: [404], reason: 'Vehicle tracking is off, so a signed-in request is 404 before the body is validated.' },
+  'PATCH /api/mileage/vehicles/[id]': { statuses: [404], reason: 'Vehicle tracking is off, so a signed-in request is 404 before the body is validated.' },
 };
 
 /** These routes verify a specific owned resource before parsing a mutation body. */
@@ -140,6 +147,8 @@ function expectedForEmptyBody(operation: Operation, body: string): number[] {
   if (bodyless) return [...bodyless.statuses, ...gap];
   const resourceFirst = RESOURCE_FIRST_MUTATIONS[operation.key];
   if (resourceFirst) return [...resourceFirst.statuses, ...gap];
+  const unavailable = UNAVAILABLE_BEFORE_VALIDATION[operation.key];
+  if (unavailable) return [...unavailable.statuses, ...gap];
   const accepted = body === '{' ? undefined : EMPTY_BODY_ACCEPTED[operation.key];
   return [...(accepted?.statuses ?? []), 400, 422, ...gap];
 }
@@ -157,9 +166,9 @@ describe('discovery', () => {
   });
   it('lists only real operations in the exception tables', () => {
     const keys = new Set(operations.map(operation => operation.key));
-    const tables = [PUBLIC_ANONYMOUS, PUBLIC_CAPABILITIES, SERVICE_OPERATIONS, BODYLESS_MUTATIONS, RESOURCE_FIRST_MUTATIONS, EMPTY_BODY_ACCEPTED, KNOWN_GAPS, REPORTED_OUT_OF_SCOPE, SKIPPED];
+    const tables = [PUBLIC_ANONYMOUS, PUBLIC_CAPABILITIES, SERVICE_OPERATIONS, BODYLESS_MUTATIONS, RESOURCE_FIRST_MUTATIONS, UNAVAILABLE_BEFORE_VALIDATION, EMPTY_BODY_ACCEPTED, KNOWN_GAPS, REPORTED_OUT_OF_SCOPE, SKIPPED];
     for (const key of tables.flatMap(Object.keys)) expect(keys, key).toContain(key);
-    for (const key of [...Object.keys(BODYLESS_MUTATIONS), ...Object.keys(RESOURCE_FIRST_MUTATIONS), ...Object.keys(EMPTY_BODY_ACCEPTED)]) expect(mutating.map(operation => operation.key), key).toContain(key);
+    for (const key of [...Object.keys(BODYLESS_MUTATIONS), ...Object.keys(RESOURCE_FIRST_MUTATIONS), ...Object.keys(UNAVAILABLE_BEFORE_VALIDATION), ...Object.keys(EMPTY_BODY_ACCEPTED)]) expect(mutating.map(operation => operation.key), key).toContain(key);
   });
   it('keeps the platform no-store header for every API path', () => {
     // Handlers that set Cache-Control must say no-store (asserted per response); this rule covers the rest.
