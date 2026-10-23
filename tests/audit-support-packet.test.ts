@@ -107,6 +107,7 @@ describe('§274(d) substantiation rules', () => {
     expect(record.substantiation.advisories).toEqual([
       'Receipt or invoice recommended for an expense of $75 or more.',
       'No business-purpose note. §274(d) does not apply, but add one when the purpose is not evident from the merchant and category.',
+      "The de minimis safe harbor election statement must be attached to that year's return.",
     ]);
   });
   it('accepts a declared receipt kept outside the app, the owner review note as purpose, and reports mixed use', () => {

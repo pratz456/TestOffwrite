@@ -77,7 +77,7 @@ describe('composeExplanation over corpus-style results', () => {
     const explanation = explain('okSoftware');
     expect(explanation.headline).toBe('Likely deductible: Software and subscriptions — Adobe, $54.99');
     expect(explanation.why).toContain('26 USC 162 allows a cost that is ordinary and necessary');
-    expect(explanation.scheduleCLine).toBe('Schedule C line 18 (Office expense)');
+    expect(explanation.scheduleCLine).toBe('Schedule C line 27b (Other expenses)');
     expect(explanation.yourFacts).toEqual(['Purpose you saved: Creative Cloud for client design work', 'Filing status used for the estimate: single']);
     const effect = explanation.estimatedTaxEffect!;
     expect(effect.label).toBe('estimated federal tax effect; state not included');
@@ -110,7 +110,7 @@ describe('composeExplanation over corpus-style results', () => {
     const explanation = explain('needsPurpose');
     expect(explanation.headline).toBe('Confirm: Design software for client projects — Adobe, $54.99');
     expect(explanation.estimatedTaxEffect).toBeNull();
-    expect(explanation.scheduleCLine).toBe('Schedule C line 18 (Office expense)');
+    expect(explanation.scheduleCLine).toBe('Schedule C line 27b (Other expenses)');
     expect(explanation.nextQuestion).toBe('Is this the design software you use for client work?');
     expect(explanation.yourFacts).toEqual([]);
   });
@@ -255,12 +255,12 @@ describe('estimated tax effect boundaries', () => {
 });
 
 describe('Schedule C placement and stored payloads', () => {
-  it('prefers the policy-supplied schedule_c_line in any of its shapes', () => {
+  it('prints the software category on Other expenses for the charge year, including when a stale line is supplied', () => {
     expect(explain('okSoftware', { schedule_c_line: '27a' }).scheduleCLine).toBe('Schedule C line 27b (Other expenses)');
-    expect(explain('okSoftware', { schedule_c_line: 'Schedule C line 18 (Office expense)' }).scheduleCLine).toBe('Schedule C line 18 (Office expense)');
-    expect(explain('okSoftware', { schedule_c_line: 'line 25' }).scheduleCLine).toBe('Schedule C line 25');
-    expect(explain('okSoftware', { schedule_c_line: 'Not deductible' }).scheduleCLine).toBe('Not deductible');
-    expect(explain('okSoftware', { schedule_c_line: '   ' }).scheduleCLine).toBe('Schedule C line 18 (Office expense)');
+    expect(explain('okSoftware', { schedule_c_line: 'Schedule C line 18 (Office expense)' }).scheduleCLine).toBe('Schedule C line 27b (Other expenses)');
+    expect(explain('okSoftware', { schedule_c_line: 'line 25' }).scheduleCLine).toBe('Schedule C line 27b (Other expenses)');
+    expect(explain('okSoftware', { schedule_c_line: 'Not deductible' }).scheduleCLine).toBe('Schedule C line 27b (Other expenses)');
+    expect(explain('okSoftware', { schedule_c_line: '   ' }).scheduleCLine).toBe('Schedule C line 27b (Other expenses)');
   });
 
   it('normalizes a stored payload and rejects malformed or tampered records', () => {

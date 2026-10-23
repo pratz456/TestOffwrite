@@ -78,13 +78,8 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'SERVICE_SECURITY': { line: '17', name: 'Legal and professional services', code: '17' },
   'SERVICE_TAX_PREPARATION': { line: '17', name: 'Legal and professional services', code: '17' },
 
-  // ── Line 18: Office expense ──────────────────────────────────────────
-  'GENERAL_MERCHANDISE_COMPUTERS_AND_ELECTRONICS': { line: '18', name: 'Office expense', code: '18' },
-  'GENERAL_MERCHANDISE_HOME_IMPROVEMENT': { line: '18', name: 'Office expense', code: '18' },
-  'GENERAL_MERCHANDISE_PHARMACY': { line: '18', name: 'Office expense', code: '18' },
-  'GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE': { line: '18', name: 'Office expense', code: '18' },
-  'SERVICE_STORAGE': { line: '18', name: 'Office expense', code: '18' },
-  'SERVICE_SUBSCRIPTION': { line: '18', name: 'Office expense', code: '18' },
+  // ── Line 18: Office expense (office supplies and postage) ────────────
+  'GENERAL_MERCHANDISE_OFFICE_SUPPLIES': { line: '18', name: 'Office expense', code: '18' },
 
   // ── Line 20a: Rent (vehicles, machinery, equipment) ──────────────────
   'TRANSPORTATION_RENTAL_CAR': { line: '20a', name: 'Rent (vehicles/equipment)', code: '20a' },
@@ -92,12 +87,13 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   // ── Line 20b: Rent (other business property) ─────────────────────────
   'RENT_RENT': { line: '20b', name: 'Rent (other business property)', code: '20b' },
   'RENT_COWORKING': { line: '20b', name: 'Rent (other business property)', code: '20b' },
+  'SERVICE_STORAGE': { line: '20b', name: 'Rent (other business property)', code: '20b' },
 
   // ── Line 21: Repairs and maintenance ─────────────────────────────────
   'SERVICE_REPAIRS_AND_MAINTENANCE': { line: '21', name: 'Repairs and maintenance', code: '21' },
 
   // ── Line 22: Supplies ────────────────────────────────────────────────
-  'GENERAL_MERCHANDISE_OFFICE_SUPPLIES': { line: '22', name: 'Supplies', code: '22' },
+  'GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE': { line: '22', name: 'Supplies', code: '22' },
   'SERVICE_SHIPPING': { line: '22', name: 'Supplies', code: '22' },
   'SERVICE_PRINTING_AND_COPYING': { line: '22', name: 'Supplies', code: '22' },
   'GENERAL_MERCHANDISE_HARDWARE_STORE': { line: '22', name: 'Supplies', code: '22' },
@@ -148,6 +144,104 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
 
 const BUSINESS_CATEGORY_KEYS = new Set(Object.keys(CATEGORY_MAP));
 
+/** $2,500.00 per invoice or item without an applicable financial statement. $2,500.01 does not qualify. */
+export const DE_MINIMIS_SAFE_HARBOR_CENTS = 250_000;
+export const DE_MINIMIS_ELECTION_NOTE =
+  "The de minimis safe harbor election statement must be attached to that year's return.";
+
+const MULTI_YEAR_OR_LIFETIME = /\b(?:multi[\s-]*year|lifetime)\b/i;
+
+/** Categories whose line depends on the charge, not a static map entry. */
+export const CONDITIONAL_BUSINESS_CATEGORIES = new Set([
+  'GENERAL_MERCHANDISE_COMPUTERS_AND_ELECTRONICS',
+  'GENERAL_MERCHANDISE_HOME_IMPROVEMENT',
+  'SERVICE_SUBSCRIPTION',
+]);
+
+export type CategoryTreatment = {
+  line: string | null;
+  name: string | null;
+  /** Personal by default. Contributes nothing and is not Needs more information. */
+  personal: boolean;
+  needsMoreInformation: boolean;
+  exportNote: string | null;
+};
+
+const NEEDS_MORE: CategoryTreatment = { line: null, name: null, personal: false, needsMoreInformation: true, exportNote: null };
+const PERSONAL_ZERO: CategoryTreatment = { line: null, name: null, personal: true, needsMoreInformation: false, exportNote: null };
+
+function partV(exportNote: string | null): CategoryTreatment {
+  return { line: '27a', name: 'Other expenses', personal: false, needsMoreInformation: false, exportNote };
+}
+
+export function merchantRecurrenceKey(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.normalize('NFKC').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+export function chargeAmountCents(amount: unknown): number | null {
+  if (typeof amount !== 'number' || !Number.isFinite(amount)) return null;
+  return Math.round(Math.abs(amount) * 100);
+}
+
+type MerchantFields = { id?: unknown; merchant_name?: unknown; merchant?: unknown; name?: unknown };
+
+function merchantOf(tx: MerchantFields): string {
+  return merchantRecurrenceKey(tx.merchant_name ?? tx.merchant ?? tx.name);
+}
+
+/** True when another charge in the working set uses the same merchant. The row itself does not count. */
+export function chargeRecursFromMerchant(tx: MerchantFields, peers: readonly MerchantFields[]): boolean {
+  const key = merchantOf(tx);
+  if (!key) return false;
+  const selfId = typeof tx.id === 'string' && tx.id ? tx.id : '';
+  for (const peer of peers) {
+    if (peer === tx) continue;
+    if (selfId && peer.id === selfId) continue;
+    if (merchantOf(peer) === key) return true;
+  }
+  return false;
+}
+
+function descriptionOf(tx: { description?: unknown }): string {
+  return typeof tx.description === 'string' ? tx.description : '';
+}
+
+/**
+ * Software is guessed from the charge pattern. A recurring merchant, including every
+ * SERVICE_SUBSCRIPTION charge that shares its merchant with another charge, is Part V.
+ * A one-off at or under $2,500.00 is Part V with the de minimis election note.
+ * A one-off over $2,500.00, or a description that says multi-year or lifetime, needs more information.
+ */
+function softwareTreatment(tx: ScheduleCTransactionLike, peers: readonly ScheduleCTransactionLike[]): CategoryTreatment {
+  if (MULTI_YEAR_OR_LIFETIME.test(descriptionOf(tx))) return NEEDS_MORE;
+  if (tx.schedule_c_recurring === true || chargeRecursFromMerchant(tx, peers)) return partV(null);
+  const cents = chargeAmountCents(tx.amount);
+  if (cents !== null && cents <= DE_MINIMIS_SAFE_HARBOR_CENTS) return partV(DE_MINIMIS_ELECTION_NOTE);
+  return NEEDS_MORE;
+}
+
+/**
+ * Shared Schedule C line for one charge. Card, totals, both CSVs, the PDF and the audit packet call this.
+ * Year printing of Part V stays in otherExpensesYearPrint. A static map line is returned unchanged.
+ */
+export function resolveCategoryTreatment(tx: ScheduleCTransactionLike, peers: readonly ScheduleCTransactionLike[] = []): CategoryTreatment {
+  const category = typeof tx.category === 'string' ? tx.category.trim() : '';
+  if (category === 'GENERAL_MERCHANDISE_PHARMACY') return tx.is_deductible === true ? NEEDS_MORE : PERSONAL_ZERO;
+  if (category === 'GENERAL_MERCHANDISE_HOME_IMPROVEMENT') return NEEDS_MORE;
+  if (category === 'GENERAL_MERCHANDISE_COMPUTERS_AND_ELECTRONICS') {
+    const cents = chargeAmountCents(tx.amount);
+    if (cents !== null && cents <= DE_MINIMIS_SAFE_HARBOR_CENTS) return partV(DE_MINIMIS_ELECTION_NOTE);
+    return NEEDS_MORE;
+  }
+  if (category === 'SERVICE_SUBSCRIPTION') return softwareTreatment(tx, peers);
+  const mapped = category ? CATEGORY_MAP[category] : undefined;
+  if (mapped) return { line: mapped.line, name: mapped.name, personal: false, needsMoreInformation: false, exportNote: null };
+  if (category.endsWith('_REVIEW_REQUIRED')) return { line: null, name: null, personal: false, needsMoreInformation: false, exportNote: null };
+  if (category) return partV(null);
+  return { line: null, name: null, personal: false, needsMoreInformation: false, exportNote: null };
+}
+
 export interface ScheduleCTransactionLike {
   amount: number;
   date: string;
@@ -170,10 +264,11 @@ export function normalizeAmount(tx: ScheduleCTransactionLike): number {
   return Math.abs(tx.amount);
 }
 
-/** True if transaction counts as a business/deductible expense: confirmed or potential (business category + positive amount). */
+/** True if transaction counts as a business/deductible expense: confirmed or potential (business category + positive amount). Pharmacy is personal unless the user marks it business. */
 export function isBusinessExpense(tx: ScheduleCTransactionLike): boolean {
+  if (tx.category === 'GENERAL_MERCHANDISE_PHARMACY' && tx.is_deductible !== true) return false;
   if (tx.is_deductible === true) return true;
-  if (tx.is_deductible == null && BUSINESS_CATEGORY_KEYS.has(tx.category) && tx.amount > 0) return true;
+  if (tx.is_deductible == null && tx.amount > 0 && (BUSINESS_CATEGORY_KEYS.has(tx.category) || CONDITIONAL_BUSINESS_CATEGORIES.has(tx.category))) return true;
   return false;
 }
 
@@ -291,8 +386,18 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
 
   for (const tx of deductibleTransactions) {
     const rawCategory = typeof tx.category === 'string' ? tx.category.trim() : '';
-    const info = rawCategory ? categoryMap[rawCategory] : undefined;
-    const categoryLine = info ? info.line : rawCategory ? '27a' : null;
+    let treatment = resolveCategoryTreatment(tx, transactions);
+    if (categoryMap !== CATEGORY_MAP && rawCategory && categoryMap[rawCategory] && CATEGORY_MAP[rawCategory]) {
+      const entry = categoryMap[rawCategory];
+      treatment = { line: entry.line, name: entry.name, personal: false, needsMoreInformation: false, exportNote: null };
+    }
+    if (treatment.personal) continue;
+    if (treatment.needsMoreInformation) {
+      addReviewItem(lineItems, tx);
+      continue;
+    }
+    const info = treatment.line ? { line: treatment.line, name: treatment.name ?? 'Other expenses', code: treatment.line } : undefined;
+    const categoryLine = treatment.line;
     const chargeYear = safeTaxYear(tx.date);
     const label = savedScheduleCLabel(tx);
     const decision = resolveScheduleCPrint({ categoryLine, label });
@@ -341,7 +446,10 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
       }
     }
     lineItems[lineKey].transactionCount += 1;
-    lineItems[lineKey].transactions.push(lineItemTransaction(tx));
+    const stored = { ...lineItemTransaction(tx) };
+    if (treatment.exportNote) stored.schedule_c_export_note = treatment.exportNote;
+    if (tx.category === 'SERVICE_SUBSCRIPTION' && treatment.line === '27a' && !treatment.exportNote) stored.schedule_c_recurring = true;
+    lineItems[lineKey].transactions.push(stored);
   }
 
   // The year filter above still drops an undated or impossible charge. Surface it so the row is not silent.

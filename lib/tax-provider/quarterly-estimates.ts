@@ -1,5 +1,6 @@
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
-import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { CATEGORY_MAP, CONDITIONAL_BUSINESS_CATEGORIES, resolveCategoryTreatment } from '@/lib/schedule-c/aggregate';
+import { otherExpensesYearPrint } from '@/lib/schedule-c/export-lines';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { QuarterlyReviewRequiredError, QUARTERLY_REVIEW_MESSAGE } from './regular-estimated-payments';
 
@@ -33,7 +34,7 @@ export type QuarterlyTransactionLike = {
   is_deductible?: boolean | null; // confirmed true, or null/undefined for needs review, false for non-deductible
 };
 
-const BUSINESS_CATEGORIES = new Set(Object.keys(CATEGORY_MAP));
+const BUSINESS_CATEGORIES = new Set([...Object.keys(CATEGORY_MAP), ...CONDITIONAL_BUSINESS_CATEGORIES]);
 
 const pad2 = (n: number): string => String(n).padStart(2, '0');
 
@@ -209,9 +210,11 @@ export function sumIncomeForQuarter(
   return { grossIncomeCents, grossIncome: grossIncomeCents / 100 };
 }
 
-function getScheduleCLineCodeFromCategory(category: string): string | null {
-  const entry = CATEGORY_MAP[category];
-  return entry ? entry.line : null;
+function getScheduleCLineCodeFromCategory(category: string, tx: QuarterlyTransactionLike, peers: readonly QuarterlyTransactionLike[], year: number): string | null {
+  const treatment = resolveCategoryTreatment({ ...tx, category, amount: tx.amount, date: tx.date ?? tx.datetime ?? '' }, peers);
+  if (treatment.personal || treatment.needsMoreInformation || !treatment.line) return null;
+  if ((treatment.line === '27a' || treatment.line === '27b') && otherExpensesYearPrint(year).status !== 'line') return null;
+  return treatment.line;
 }
 
 function sumExpensesLikeForQuarter(
@@ -239,7 +242,7 @@ function sumExpensesLikeForQuarter(
     if (mode === 'confirmed' && !isConfirmed) continue;
     if (mode === 'potential' && !isPotential) continue;
 
-    const lineCode = getScheduleCLineCodeFromCategory(tx.category);
+    const lineCode = getScheduleCLineCodeFromCategory(tx.category, tx, deduped, year);
     if (!lineCode) continue;
 
     const signedCents = toCents(tx.amount ?? 0); // keep sign for credits/refunds offsets

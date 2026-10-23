@@ -56,7 +56,7 @@ const t = (category: ExpenseCategory, nuance: string, evidence: readonly string[
 
 // Nuances reused across professions --------------------------------------------------------------
 const N = {
-  softwareBusiness: t('software_subscriptions', 'Subscriptions used in the business are ordinary (line 18); family or personal plans need a business-use split', E.software),
+  softwareBusiness: t('software_subscriptions', 'Subscriptions used in the business are ordinary (Schedule C other expenses); family or personal plans need a business-use split', E.software),
   computerAsset: t('equipment', 'Computers and tablets: de minimis election at or under $2,500 per item, otherwise depreciation/§179; shared devices need a business-use %', E.assets),
   homeOffice: t('home_office', 'Regular and exclusive business use only (Form 8829 or simplified method); a shared family room fails', E.home),
   phoneSplit: t('utilities_phone_internet', 'Phone and internet count only at the documented business-use %; the first residential line is personal', E.phone),
@@ -78,7 +78,7 @@ export const PROFESSION_PRIORS: readonly ProfessionPrior[] = [
     keywords: ['graphic designer', 'ux designer', 'ui designer', 'ux/ui', 'product designer', 'web designer', 'brand designer', 'illustrator', 'designer', 'design', 'animator', 'motion graphics'],
     summary: 'Client design work billed per project; software-heavy with a home office and occasional print or stock purchases.',
     typical: [
-      t('software_subscriptions', 'Adobe, Figma and similar design tools are ordinary software (line 18); Microsoft or Apple family plans need a business-use split', E.software),
+      t('software_subscriptions', 'Adobe, Figma and similar design tools are ordinary software (Schedule C other expenses); Microsoft or Apple family plans need a business-use split', E.software),
       N.computerAsset,
       t('supplies_small_tools', 'Stock images, fonts and templates bought for client deliverables are supplies (line 22)', E.supplies),
       t('advertising_marketing', 'Portfolio site, domain and paid listings promoting the practice are advertising (line 8)', E.ads),
@@ -99,7 +99,7 @@ export const PROFESSION_PRIORS: readonly ProfessionPrior[] = [
     keywords: ['software developer', 'software engineer', 'web developer', 'developer', 'programmer', 'engineer', 'app developer', 'data scientist', 'data engineer', 'devops', 'coder', 'it consultant', 'it contractor', 'machine learning', 'data analyst', 'qa engineer', 'technical consultant'],
     summary: 'Contract development billed hourly or per project; cloud, tooling and hardware costs dominate.',
     typical: [
-      t('software_subscriptions', 'Hosting, repositories, IDEs and AI tools used for client work are ordinary software (line 18); bills that host personal side projects need a split', E.software),
+      t('software_subscriptions', 'Hosting, repositories, IDEs and AI tools used for client work are ordinary software (Schedule C other expenses); bills that host personal side projects need a split', E.software),
       N.computerAsset, N.contractors, N.homeOffice, N.phoneSplit,
       t('education_training', 'Courses and conferences maintaining current skills qualify; a degree or bootcamp that qualifies for the trade does not', E.education),
     ],
@@ -116,7 +116,7 @@ export const PROFESSION_PRIORS: readonly ProfessionPrior[] = [
     summary: 'Paid shoots with heavy equipment, editing software, travel to locations and second shooters or editors.',
     typical: [
       t('equipment', 'Camera bodies, lenses, lighting and drones are assets: §179/bonus or depreciation over $2,500 per item, de minimis election at or under; gear also used personally needs a business-use %', E.assets),
-      t('software_subscriptions', 'Editing suites and client gallery delivery services are ordinary software (line 18)', E.software),
+      t('software_subscriptions', 'Editing suites and client gallery delivery services are ordinary software (Schedule C other expenses)', E.software),
       t('rent', 'Studio rent is line 20b; gear and lens rentals for a shoot are line 20a', E.rent),
       t('travel', 'Shoots away from the tax home overnight are travel; a vacation with an incidental paid shoot is personal except the shoot-specific costs', E.travel),
       t('contract_labor', 'Second shooters and editors are contract labor (line 11) with Form 1099-NEC at $2,000 or more per payee', E.labor),
@@ -358,7 +358,7 @@ export const PROFESSION_PRIORS: readonly ProfessionPrior[] = [
     summary: 'Sees clients in a rented office or by telehealth; practice-management software, licensure, CE, supervision and malpractice coverage.',
     typical: [
       t('rent', 'Office rent is line 20b; a home telehealth room qualifies only with regular and exclusive use', E.rent.concat(E.home)),
-      t('software_subscriptions', 'Practice-management, telehealth and billing software are ordinary software (line 18)', E.software),
+      t('software_subscriptions', 'Practice-management, telehealth and billing software are ordinary software (Schedule C other expenses)', E.software),
       N.licenses,
       t('education_training', 'CE required to keep the license qualifies; the degree or supervised hours that qualify you for licensure do not', E.education),
       t('other', 'Clinical supervision and consultation fees are professional services (line 17); malpractice is line 15; your own therapy is personal', E.professional.concat(E.insurance, E.personal)),
@@ -381,7 +381,7 @@ export const PROFESSION_PRIORS: readonly ProfessionPrior[] = [
     summary: 'Gigs, sessions, royalties and merch; instruments and gear, software, travel to shows, agent commissions and union dues.',
     typical: [
       t('equipment', 'Instruments, PA and recording gear are assets: §179/bonus or depreciation over $2,500, de minimis at or under; instruments also played for pleasure need a business-use %', E.assets),
-      t('software_subscriptions', 'DAWs, plugins and sample libraries are ordinary software (line 18)', E.software),
+      t('software_subscriptions', 'DAWs, plugins and sample libraries are ordinary software (Schedule C other expenses)', E.software),
       t('travel', 'Gigs away from the tax home overnight are travel; local shows are vehicle mileage plus parking', E.travel.concat(E.mileage)),
       t('bank_and_payment_fees', 'Booking agent and manager commissions and distribution fees are line 10; royalties and streaming payouts are income', E.fees.concat(E.records)),
       t('dues_and_memberships', 'Union and performing-rights organization dues are deductible', E.dues),
@@ -537,7 +537,7 @@ export const PROFESSION_PRIORS: readonly ProfessionPrior[] = [
     keywords: ['bookkeeper', 'bookkeeping', 'accountant', 'accounting', 'cpa', 'tax preparer', 'tax professional', 'tax consultant', 'tax advisor', 'enrolled agent', 'payroll', 'controller', 'cfo', 'financial analyst'],
     summary: 'Client bookkeeping and tax work; accounting and tax software, CPE, credential renewals, E&O and a home office.',
     typical: [
-      t('software_subscriptions', 'Accounting, payroll and tax software used for clients is ordinary software (line 18)', E.software),
+      t('software_subscriptions', 'Accounting, payroll and tax software used for clients is ordinary software (Schedule C other expenses)', E.software),
       t('education_training', 'CPE required to keep a credential qualifies; CPA or EA exam review that qualifies for the credential does not', E.education),
       N.licenses, N.professionalDues, N.liability, N.homeOffice, N.phoneSplit,
       t('other', 'Fees you pay on a client\'s behalf and are reimbursed for are income and expense, not a net item', E.records),
@@ -582,7 +582,7 @@ export const PROFESSION_PRIORS: readonly ProfessionPrior[] = [
       t('equipment', 'Cameras, lights, mics and phones: §179/bonus or depreciation over $2,500, de minimis at or under; a shared phone needs a business-use %', E.assets),
       t('other', 'Free products and trips received for promotion are income at fair market value', E.records),
       t('travel', 'Content trips need a business purpose beyond the trip itself; filmed vacations and meals are personal', E.travel.concat(E.meals)),
-      t('software_subscriptions', 'Editing, scheduling and design tools are ordinary software (line 18)', E.software),
+      t('software_subscriptions', 'Editing, scheduling and design tools are ordinary software (Schedule C other expenses)', E.software),
       t('bank_and_payment_fees', 'Platform, agency and management commissions are line 10; report brand-deal income at the gross amount', E.fees),
       t('home_office', 'A filming room qualifies only with regular and exclusive business use', E.home),
     ],

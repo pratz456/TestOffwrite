@@ -114,7 +114,7 @@ describe('personalized "For you" facts', () => {
     expect(response.status).toBe(200);
     const result = await response.json();
     expect(result.forYou.paragraph).toContain('You have 12 Adobe charges in 2026 totaling $659.88; all are unreviewed.');
-    expect(result.forYou.paragraph).toContain('Schedule C line 18');
+    expect(result.forYou.paragraph).toContain('Schedule C line 27b (other expenses; line 27a on 2024 returns)');
     expect(result.forYou.paragraph).not.toContain('5,000');
     expect(result.forYou.action).toEqual({ screen: 'transactions', merchantKey: 'adobe', count: 12, label: 'Review these 12 charges' });
     expect(result.reply).not.toContain('$659.88');

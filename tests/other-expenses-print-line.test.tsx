@@ -122,11 +122,11 @@ describe('printed Other expenses line', () => {
   });
 
   it('maps the recorded code and the category code independently', () => {
-    expect(exportColumns(dues({ date: '2025-03-01', category: 'SERVICE_SUBSCRIPTION' }))).toEqual({ recorded: '27b (Other expenses)', mapped: '18' });
-    expect(exportColumns(dues({ date: '2024-06-15', category: 'SERVICE_SUBSCRIPTION', schedule_c_line: '18' }))).toEqual({ recorded: '18', mapped: '18' });
+    expect(exportColumns(dues({ date: '2025-03-01', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }))).toEqual({ recorded: '27b (Other expenses)', mapped: '18' });
+    expect(exportColumns(dues({ date: '2024-06-15', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', schedule_c_line: '18' }))).toEqual({ recorded: '18', mapped: '18' });
     expect(exportColumns(dues({ date: '2024-06-15', schedule_c_line: '18' }))).toEqual({ recorded: '27a (Other expenses)', mapped: '27a (Other expenses)' });
     expect(exportColumns(dues({ date: '2025-03-01', schedule_c_line: ' 27a ' })).recorded).toBe('27b (Other expenses)');
-    expect(exportColumns(dues({ date: '2025-03-01', category: 'SERVICE_SUBSCRIPTION', schedule_c_line: 'ask preparer' })).recorded).toBe('ask preparer');
+    expect(exportColumns(dues({ date: '2025-03-01', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', schedule_c_line: 'ask preparer' })).recorded).toBe('ask preparer');
     expect(exportColumns(dues({ date: '2025-03-01', schedule_c_line: 'ask preparer' })).recorded).toBe('27b (Other expenses)');
   });
 
@@ -188,10 +188,10 @@ describe('printed Other expenses line', () => {
   });
 
   it('keeps a non-27a line when the charge date is missing', () => {
-    const software = dues({ category: 'SERVICE_SUBSCRIPTION', schedule_c_line: '18' });
-    delete software.date;
-    expect(exportColumns(software)).toEqual({ recorded: '18', mapped: '18' });
-    expect(whereItGoes({ created_at: '2026-10-23T00:00:00Z' }, 2026, duesResult({ schedule_c_line: undefined, category: 'software_subscriptions' }))).toBe('Schedule C line 18 (Office expense)');
+    const supplies = dues({ category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', schedule_c_line: '18' });
+    delete supplies.date;
+    expect(exportColumns(supplies)).toEqual({ recorded: '18', mapped: '18' });
+    expect(whereItGoes({ created_at: '2026-10-23T00:00:00Z' }, 2026, duesResult({ schedule_c_line: undefined, category: 'supplies_small_tools' }))).toBe('Schedule C line 18 (Office expense)');
   });
 
   it('writes Where it goes from the charge date, including the category fallback and the card', () => {
@@ -205,7 +205,7 @@ describe('printed Other expenses line', () => {
     expect(scheduleCLineFor(duesResult({ schedule_c_line: undefined }), undefined)).toBeNull();
     expect(scheduleCLineFor(duesResult({ schedule_c_line: 'line 27a' }), '2025-04-01')).toBe('Schedule C line 27b (Other expenses)');
     expect(scheduleCLineFor(duesResult({ category: 'utilities_phone_internet', schedule_c_line: 'line 25' }), '2025-04-01')).toBe('Schedule C line 25');
-    expect(scheduleCLineFor(duesResult({ category: 'software_subscriptions', schedule_c_line: 'Schedule C line 18 (Office expense)' }), '2025-04-01')).toBe('Schedule C line 18 (Office expense)');
+    expect(scheduleCLineFor(duesResult({ category: 'supplies_small_tools', schedule_c_line: 'Schedule C line 18 (Office expense)' }), '2025-04-01')).toBe('Schedule C line 18 (Office expense)');
     const html = renderToStaticMarkup(<ExplanationCard explanation={composeExplanation({
       result: duesResult(), transaction: { date: '2025-06-01', merchant_name: 'AIGA', amount: 120, iso_currency_code: 'USD' },
       profile: { income: 80000, filing_status: 'single' }, taxYear: 2024,
@@ -301,8 +301,8 @@ describe('stored and supplied Other expenses sentences', () => {
     expect(scheduleCLineFor(duesResult({ status: 'blocked', schedule_c_line: '27b', missing_fields: ['supported_tax_year'] }), '2024-12-31')).toBe('Schedule C line 27a (Other expenses)');
     expect(scheduleCLineFor(duesResult({ is_deductible: false, schedule_c_line: 'line 27b' }), '2025-04-01')).toBe('Schedule C line 27b (Other expenses)');
     expect(scheduleCLineFor(duesResult({ transaction_kind: undefined, schedule_c_line: 'Schedule C line 27b' }), undefined)).toBeNull();
-    expect(scheduleCLineFor(duesResult({ category: 'software_subscriptions', schedule_c_line: '18' }), '2024-06-15')).toBe('Schedule C line 18 (Office expense)');
-    expect(scheduleCLineFor(duesResult({ category: 'software_subscriptions', schedule_c_line: 'Schedule C line 18 (Office expense)' }), '2025-04-01')).toBe('Schedule C line 18 (Office expense)');
+    expect(scheduleCLineFor(duesResult({ category: 'software_subscriptions', schedule_c_line: '18' }), '2024-06-15', { amount: 54.99, category: 'SERVICE_SUBSCRIPTION' })).toBe('Schedule C line 27a (Other expenses)');
+    expect(scheduleCLineFor(duesResult({ category: 'software_subscriptions', schedule_c_line: 'Schedule C line 18 (Office expense)' }), '2025-04-01', { amount: 54.99, category: 'SERVICE_SUBSCRIPTION' })).toBe('Schedule C line 27b (Other expenses)');
   });
 
   it('reprints a stored 27b sentence from the charge date and leaves the year-free sentence unchanged', () => {
@@ -518,9 +518,9 @@ describe('energy labels and unknown parentheticals', () => {
 
   it('prints an allowlisted label by year and withholds it when the date is missing', () => {
     for (const label of ['27B', 'Line 27b', '27 b', '27b(Other expenses)']) {
-      expect(scheduleCLineFor(duesResult({ category: 'software_subscriptions', schedule_c_line: label }), '2024-06-15')).toBe('Schedule C line 27a (Other expenses)');
-      expect(scheduleCLineFor(duesResult({ category: 'software_subscriptions', schedule_c_line: label }), '2025-06-15')).toBe('Schedule C line 27b (Other expenses)');
-      expect(scheduleCLineFor(duesResult({ category: 'software_subscriptions', schedule_c_line: label }), undefined)).toBeNull();
+      expect(scheduleCLineFor(duesResult({ category: 'software_subscriptions', schedule_c_line: label }), '2024-06-15', { amount: 120, category: 'SERVICE_SUBSCRIPTION' })).toBe('Schedule C line 27a (Other expenses)');
+      expect(scheduleCLineFor(duesResult({ category: 'software_subscriptions', schedule_c_line: label }), '2025-06-15', { amount: 120, category: 'SERVICE_SUBSCRIPTION' })).toBe('Schedule C line 27b (Other expenses)');
+      expect(scheduleCLineFor(duesResult({ category: 'software_subscriptions', schedule_c_line: label }), undefined, { amount: 120, category: 'SERVICE_SUBSCRIPTION' })).toBeNull();
       expect(normalizeExplanation({ ...SAVED_CARD, scheduleCLine: label }, { chargeDate: '2024-06-15' })?.scheduleCLine).toBe('Schedule C line 27a (Other expenses)');
       expect(normalizeExplanation({ ...SAVED_CARD, scheduleCLine: label }, { chargeDate: '2025-06-15' })?.scheduleCLine).toBe('Schedule C line 27b (Other expenses)');
       expect(normalizeExplanation({ ...SAVED_CARD, scheduleCLine: label }, { chargeDate: undefined })?.scheduleCLine).toBeNull();

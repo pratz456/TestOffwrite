@@ -1,8 +1,8 @@
 import { readBankHistoryReviewSummary, type BankHistoryReviewSummary } from '@/lib/plaid/reconnect-summary';
 import { adminDb } from '@/lib/firebase/admin';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
-import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
-import { printedScheduleCLine } from '@/lib/schedule-c/export-lines';
+import { CATEGORY_MAP, resolveCategoryTreatment, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
+import { otherExpensesYearPrint, printedScheduleCLine } from '@/lib/schedule-c/export-lines';
 import { BUSINESS_STANDARD_MILEAGE_RATES, businessMileageRateForDate, summarizeBusinessMileage } from '@/lib/tax-rules/mileage-rates';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
@@ -160,8 +160,19 @@ function businessUsePercent(record: ExportRecord): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : typeof value === 'string' && value.trim() && Number.isFinite(Number(value)) ? Number(value) : null;
 }
 
+function auditScheduleCLine(record: ExportRecord, peers: readonly ExportRecord[]): string | null {
+  const category = Array.isArray(record.category) ? record.category.join(' > ') : typeof record.category === 'string' ? record.category : '';
+  const amount = transactionAmount(record);
+  const treatment = resolveCategoryTreatment({ ...record, amount: amount ?? Number.NaN, date: exportDate(record.date ?? record.datetime) ?? '', category, is_deductible: record.is_deductible === true } as ScheduleCTransactionLike, peers as ScheduleCTransactionLike[]);
+  if (treatment.personal || treatment.needsMoreInformation || !treatment.line) return null;
+  const year = chargeTaxYear(record.date ?? record.datetime);
+  if ((treatment.line === '27a' || treatment.line === '27b') && otherExpensesYearPrint(year).status !== 'line') return null;
+  const printed = printedScheduleCLine(treatment.line, year);
+  return printed ? printed : null;
+}
+
 /** One confirmed deduction paired with the records on file and the §274(d) elements still missing. */
-export function buildEvidenceRecord(record: ExportRecord, context: { uid: string; tripsByDate: Map<string, number>; yearTripCount: number; receiptsByTransaction: Map<string, ExportRecord[]> }): AuditEvidenceRecord {
+export function buildEvidenceRecord(record: ExportRecord, context: { uid: string; tripsByDate: Map<string, number>; yearTripCount: number; receiptsByTransaction: Map<string, ExportRecord[]>; peers?: readonly ExportRecord[] }): AuditEvidenceRecord {
   const identity = String(record.trans_id ?? record.id ?? '');
   const date = exportDate(record.date ?? record.datetime)!;
   const amount = transactionAmount(record)!;
@@ -216,6 +227,10 @@ export function buildEvidenceRecord(record: ExportRecord, context: { uid: string
     if (declared) advisories.push('Owner marked documentation complete; the receipt is kept outside WriteOff and is not attached.');
     if (record.documentation_status === 'partial' || record.documentation_status === 'missing') advisories.push(`Owner marked documentation as ${record.documentation_status}.`);
     if (businessUse !== null && businessUse !== 100) advisories.push(`Mixed-use allocation of ${businessUse}% recorded. Keep the basis for the allocation.`);
+    const scheduleLine = auditScheduleCLine(record, context.peers ?? [record]);
+    const noteTreatment = resolveCategoryTreatment({ ...record, amount, date: exportDate(record.date ?? record.datetime) ?? '', category, is_deductible: record.is_deductible === true } as ScheduleCTransactionLike, (context.peers ?? [record]) as ScheduleCTransactionLike[]);
+    if (noteTreatment.needsMoreInformation) advisories.push('Needs more information');
+    else if (scheduleLine && noteTreatment.exportNote) advisories.push(noteTreatment.exportNote);
   }
   const source: ReviewSource = record.review_source === 'ai_confirmed' || record.review_source === 'user_corrected' ? record.review_source : 'unknown';
   return {
@@ -223,7 +238,7 @@ export function buildEvidenceRecord(record: ExportRecord, context: { uid: string
     transactionId: identity,
     detailPath: `/protected?screen=transaction-detail&transactionId=${encodeURIComponent(identity)}&from=reports`,
     date, merchant: text(record.merchant_name ?? record.merchant ?? record.name, 300) ?? 'Unnamed record', amount, direction, currency: 'USD',
-    category, categoryLabel: humanize(category), scheduleCLine: printedScheduleCLine(CATEGORY_MAP[category]?.line ?? null, chargeTaxYear(record.date ?? record.datetime)),
+    category, categoryLabel: humanize(category), scheduleCLine: auditScheduleCLine(record, context.peers ?? [record]),
     substantiation: { category: type, label: rule.label, strict: rule.strict, status: missing.length ? 'needs_records' : 'complete', missing, advisories },
     businessPurpose: purpose, attendees, clientProject,
     travel: { destination, datesRecorded }, mileage, linkedTrips, receipts, receiptDeclaredOutsideApp: declared,
@@ -310,7 +325,7 @@ export function assembleAuditSupportPacket(uid: string, year: number, inputs: Au
     const key = text(receipt.transactionId, 600); if (!key) continue;
     receiptsByTransaction.set(key, [...(receiptsByTransaction.get(key) ?? []), receipt]);
   }
-  const deductions = confirmed.map(record => buildEvidenceRecord(record, { uid, tripsByDate, yearTripCount: trips.length, receiptsByTransaction }))
+  const deductions = confirmed.map(record => buildEvidenceRecord(record, { uid, tripsByDate, yearTripCount: trips.length, receiptsByTransaction, peers: confirmed }))
     .sort((a, b) => a.date.localeCompare(b.date) || a.reference.localeCompare(b.reference));
   const byStatus: AuditSupportPacket['summary']['byStatus'] = { complete: { count: 0, amount: 0 }, needs_records: { count: 0, amount: 0 } };
   const categories = new Map<SubstantiationCategory, AuditSupportPacket['summary']['byCategory'][number]>();

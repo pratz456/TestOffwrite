@@ -121,7 +121,7 @@ describe('assistant topic catalogue', () => {
       const input = assistantRequestSchema.parse({ message: 'Can I deduct my Adobe subscription?', taxYear });
       const assessment = validateAssessment({ topic: 'software-subscriptions', missingFactIds: ['software-subscriptions:1'], photoCategories: [] }, input);
       expect(assessment.status).toBe('needs_details');
-      expect(assessment.answer).toContain('**Where it goes:** Schedule C line 18');
+      expect(assessment.answer).toContain('**Where it goes:** Schedule C line 27b (other expenses; line 27a on 2024 returns)');
       expect(assessment.answer).toContain('**Keep:** subscription invoices');
       expect(assessment.answer).toContain('not a determination that your expense qualifies');
       expect(assessment.questions).toEqual(['Which tool is this, and what business work do you use it for?']);

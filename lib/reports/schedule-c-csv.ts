@@ -7,7 +7,8 @@ export function generateScheduleCCSV(lines: LineItemSummary[], taxYear: number):
   const rows = lines.flatMap(line => line.transactions.map(tx => [tx.date, tx.merchant_name, tx.category,
     scheduleCLineCsvCell(line.lineCode, taxYear), tx.amount,
     aggregateScheduleC([tx], String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible,
-    'Confirmed in app - preparer review required; not a complete Schedule C', tx.description ?? tx.deductible_reason ?? tx.notes ?? '',
+    'Confirmed in app - preparer review required; not a complete Schedule C',
+    [tx.description ?? tx.deductible_reason ?? tx.notes ?? '', tx.schedule_c_export_note].filter(Boolean).join(' '),
   ]));
   return [headers, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n');
 }
