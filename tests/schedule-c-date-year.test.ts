@@ -84,4 +84,9 @@ describe('schedule C date year', () => {
       }
     }
   });
+
+  it('known limit: a Date for December 31, 2025 at 5 PM Pacific resolves to 2026', () => {
+    const date = new Date('2026-01-01T01:00:00.000Z');
+    expect(resolveOtherExpensesYear(meal(date))).toBe(2026);
+  });
 });
