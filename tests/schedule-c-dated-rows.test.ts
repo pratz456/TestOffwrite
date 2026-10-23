@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { chargeDay, chargeYear, safeTaxYear } from '@/lib/schedule-c/taxDate';
+import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { convertTransactionsToCSV, exportDate, selectExportYear } from '@/lib/reports/transaction-export';
 import { normalizeDoc } from '@/lib/firebase/transactions-server';
 import { taxYearOf, vehicleMethodForCharge } from '@/lib/transactions/review';
@@ -123,5 +125,27 @@ describe('vehicle method follows the charge year only', () => {
     });
     expect(vehicleMethodForCharge({ date: '2024-06-01' }, 'not-a-method').method).toBeNull();
     expect(vehicleMethodForCharge({ date: '2024-06-01' }, 'not-a-method').needsMoreInformation).toBe(true);
+  });
+});
+
+describe('offset timestamps keep the date written in the string', () => {
+  it('lands 2024-12-31T20:00:00-08:00 in tax year 2024 and prints 27a (Other expenses)', () => {
+    const row = confirmed({ id: 'offset', date: '2024-12-31T20:00:00-08:00', category: 'SERVICE_MEMBERSHIPS', amount: 80 });
+    expect(chargeDay(row)).toBe('2024-12-31');
+    expect(chargeYear(row)).toBe(2024);
+    const year2024 = aggregateScheduleC([row], '2024', CATEGORY_MAP, { mode: 'confirmed-only' });
+    const year2025 = aggregateScheduleC([row], '2025', CATEGORY_MAP, { mode: 'confirmed-only' });
+    expect(year2024.totalDeductible).toBe(80);
+    expect(year2024.needsMoreInformation).toBe(0);
+    expect(year2025.totalDeductible).toBe(0);
+    expect(year2025.counts.year).toBe(0);
+    const line = year2024.lineItems['27a'];
+    expect(line).toMatchObject({ lineCode: '27a', lineName: 'Other expenses', transactionCount: 1 });
+    expect(`${scheduleCExportLine(line.lineCode, chargeYear(row)!)} (${line.lineName})`).toBe('27a (Other expenses)');
+    const csv = generateScheduleCCSV(year2024.lineItemsArray, 2024);
+    expect(csv).toContain('27a');
+    expect(csv).not.toContain('27b');
+    expect(selectExportYear([row], 2024)).toHaveLength(1);
+    expect(selectExportYear([row], 2025)).toHaveLength(0);
   });
 });
