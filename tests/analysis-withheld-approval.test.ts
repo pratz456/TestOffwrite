@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
 import { ACTUAL_EXPENSE_BUSINESS_SHARE } from '@/lib/ai/actual-expense-share';
+import { HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
 import { analysisSuggestionUpdate, STANDARD_MILEAGE_RUNNING_COST_GATE, VEHICLE_METHOD_GATE, withheldApprovalGate, withheldMissingField } from '@/lib/ai/analysis-persistence';
 import { blankVehicle, saveVehicle } from '@/lib/mileage/vehicles';
 import type { OutputType } from '@/lib/ai/analyzeTransaction';
@@ -113,51 +114,103 @@ describe('an engine approval the review path cannot consume is stored as the que
     vi.unstubAllEnvs();
   });
 
-  it('standard mileage still deducts car loan interest and vehicle personal property tax', () => {
+  it('car loan interest and vehicle personal property tax count only at the recorded business-use share', () => {
     vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
     const savedCars = saveVehicle([blankVehicle('legacy-vehicle-1', 0)], 'legacy-vehicle-1', { method: 'standard_mileage', taxYear: 2026 });
     if (!savedCars.ok) throw new Error(savedCars.reason);
     const facts = { vehicles: savedCars.vehicles, taxYear: 2026, vehicleId: 'legacy-vehicle-1' };
     const interest = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9', evidence_ids: ['travel-463'] }), 1,
       record({ amount: 180, merchant_name: 'Toyota Financial', business_purpose: 'Interest on the car loan for business miles' }), undefined, null, facts);
-    const propertyTax = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9', evidence_ids: ['travel-463'] }), 1,
+    const propertyTax = analysisSuggestionUpdate(approval({ category: 'taxes_licenses', schedule_c_line: '23', evidence_ids: ['taxes-licenses-sch-c'] }), 1,
       record({ amount: 90, merchant_name: 'County Treasurer', business_purpose: 'Personal property tax on the car' }), undefined, null, facts);
+    expect(interest.deductionStatus).toBe('Needs more information');
+    expect(interest.ai_suggestion.questions[0]).toBe(SEPARATE_VEHICLE_COST_SHARE.question);
+    expect(interest.ai_suggestion.reasoning).toBe(SEPARATE_VEHICLE_COST_SHARE.reason);
+    expect(interest.ai_suggestion.deductiblePercent).toBeNull();
+    expect(interest.deductionStatus).not.toBe('Likely Deductible');
+    expect(propertyTax.ai_suggestion.questions[0]).toBe(SEPARATE_VEHICLE_COST_SHARE.question);
+    expect(propertyTax.ai_suggestion.deductiblePercent).toBeNull();
+    const withShare = savedCars.vehicles.map(vehicle => ({ ...vehicle, legacyBusinessUsePercentage: 40 }));
+    const sharedFacts = { vehicles: withShare, taxYear: 2026, vehicleId: 'legacy-vehicle-1' };
+    for (const method of ['standard_mileage', 'actual_expense'] as const) {
+      const cars = withShare.map(vehicle => ({ ...vehicle, method, methodByYear: { '2026': method } }));
+      const methodFacts = { vehicles: cars, taxYear: 2026, vehicleId: 'legacy-vehicle-1' };
+      const sharedInterest = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
+        record({ amount: 180, merchant_name: 'Toyota Financial', business_purpose: 'Interest on the car loan for business miles' }), undefined, null, methodFacts);
+      const sharedTax = analysisSuggestionUpdate(approval({ category: 'taxes_licenses', deductible_percent: 100, schedule_c_line: '23' }), 1,
+        record({ amount: 90, merchant_name: 'County Treasurer', business_purpose: 'Personal property tax on the car' }), undefined, null, methodFacts);
+      expect(sharedInterest.deductionStatus).toBe('Likely Deductible');
+      expect(sharedInterest.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 40, category: 'vehicle_expense' });
+      expect(sharedInterest.ai_suggestion.questions.join(' ')).not.toContain(STANDARD_MILEAGE_RUNNING_COST_GATE.question);
+      expect(sharedTax.deductionStatus).toBe('Likely Deductible');
+      expect(sharedTax.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 40, category: 'taxes_licenses' });
+      for (const [merchant, purpose] of [['PARKMOBILE', 'Parking at the client site'], ['EZ PASS', 'Toll on the way to the client']] as const) {
+        const allowed = analysisSuggestionUpdate(approval({ category: 'parking_tolls', schedule_c_line: '9' }), 1,
+          record({ amount: 18, merchant_name: merchant, business_purpose: purpose }), undefined, null, methodFacts);
+        expect(allowed.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, category: 'parking_tolls' });
+        expect(allowed.deductionStatus).toBe('Likely Deductible');
+      }
+    }
+    const fullShare = withShare.map(vehicle => ({ ...vehicle, legacyBusinessUsePercentage: 100 }));
+    const fullInterest = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
+      record({ amount: 180, merchant_name: 'Toyota Financial', business_purpose: 'Interest on the car loan for business miles' }), undefined, null,
+      { vehicles: fullShare, taxYear: 2026, vehicleId: 'legacy-vehicle-1' });
+    expect(fullInterest.ai_suggestion.deductiblePercent).toBe(100);
     const payment = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
-      record({ amount: 420, merchant_name: 'Toyota Financial', business_purpose: 'Car loan payment for the work car' }), undefined, null, facts);
-    expect(interest.deductionStatus).toBe('Likely Deductible');
-    expect(interest.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, category: 'vehicle_expense' });
-    expect(interest.ai_suggestion.questions.join(' ')).not.toContain(STANDARD_MILEAGE_RUNNING_COST_GATE.question);
-    expect(propertyTax.deductionStatus).toBe('Likely Deductible');
-    expect(propertyTax.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, category: 'vehicle_expense' });
-    expect(propertyTax.ai_suggestion.questions.join(' ')).not.toContain(STANDARD_MILEAGE_RUNNING_COST_GATE.question);
+      record({ amount: 420, merchant_name: 'Toyota Financial', business_purpose: 'Car loan payment for the work car' }), undefined, null, sharedFacts);
     expect(payment.deductionStatus).toBe('Needs more information');
     expect(payment.ai_suggestion.questions[0]).toBe(STANDARD_MILEAGE_RUNNING_COST_GATE.question);
     vi.unstubAllEnvs();
     const off = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
-      record({ amount: 180, merchant_name: 'Toyota Financial', business_purpose: 'Interest on the car loan for business miles' }), undefined, null, facts);
+      record({ amount: 180, merchant_name: 'Toyota Financial', business_purpose: 'Interest on the car loan for business miles' }), undefined, null, sharedFacts);
     expect(off.deductionStatus).toBe('Needs more information');
     expect(off.ai_suggestion.questions[0]).toBe(VEHICLE_METHOD_GATE.question);
     expect(off.deductionStatus).not.toBe('Likely Deductible');
   });
 
-  it('a hired fare on a standard mileage car is not treated as a cost already in the mileage rate', () => {
+  it('a hired fare follows the trip purpose and not the method of the user car', () => {
     vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
     const savedCars = saveVehicle([blankVehicle('legacy-vehicle-1', 0)], 'legacy-vehicle-1', { method: 'standard_mileage', taxYear: 2026 });
     if (!savedCars.ok) throw new Error(savedCars.reason);
-    const facts = { vehicles: savedCars.vehicles, taxYear: 2026, vehicleId: 'legacy-vehicle-1' };
+    const withShare = savedCars.vehicles.map(vehicle => ({ ...vehicle, legacyBusinessUsePercentage: 40 }));
+    const facts = { vehicles: withShare, taxYear: 2026, vehicleId: 'legacy-vehicle-1' };
     for (const merchant of ['Uber', 'Lyft', 'TAXI SVC']) {
-      const fare = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
+      const fare = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9', deductible_percent: 40 }), 1,
         record({ amount: 28, merchant_name: merchant, business_purpose: 'Ride to the client meeting' }), undefined, null, facts);
       expect(fare.deductionStatus).toBe('Likely Deductible');
-      expect(fare.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, category: 'vehicle_expense' });
+      expect(fare.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, category: 'travel' });
       expect(fare.ai_suggestion.questions.join(' ')).not.toContain(STANDARD_MILEAGE_RUNNING_COST_GATE.question);
+      expect(fare.ai_suggestion.questions.join(' ')).not.toContain(ACTUAL_EXPENSE_BUSINESS_SHARE.question);
       expect(fare.ai_suggestion.reasoning).not.toContain('already included');
     }
+    const actualCars = withShare.map(vehicle => ({ ...vehicle, method: 'actual_expense' as const, methodByYear: { '2026': 'actual_expense' as const } }));
+    const actualFare = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9' }), 1,
+      record({ amount: 28, merchant_name: 'Uber', business_purpose: 'Ride to the client meeting' }), undefined, null,
+      { vehicles: actualCars, taxYear: 2026, vehicleId: 'legacy-vehicle-1' });
+    expect(actualFare.ai_suggestion).toMatchObject({ status: 'ok', deductiblePercent: 100, category: 'travel' });
+    const personal = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
+      record({ amount: 18, merchant_name: 'Uber', business_purpose: 'Ride home from a concert' }), undefined, null, facts);
+    expect(personal.deductionStatus).toBe('Unlikely Deductible');
+    expect(personal.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: false, deductiblePercent: 0, category: 'travel' });
+    expect(personal.ai_suggestion.reasoning).toBe(HIRED_FARE_PERSONAL.reason);
+    const unstated = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
+      record({ amount: 18, merchant_name: 'Lyft', business_purpose: 'Ride across town tonight' }), undefined, null, facts);
+    expect(unstated.deductionStatus).toBe('Needs more information');
+    expect(unstated.ai_suggestion.questions[0]).toBe(HIRED_FARE_PURPOSE.question);
+    expect(unstated.ai_missing_fields).toEqual(['business_purpose']);
+    const meal = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
+      record({ amount: 24, merchant_name: 'UBER EATS', business_purpose: 'Dinner delivered while finishing a client proposal' }), undefined, null, facts);
+    expect(meal.ai_suggestion.category).toBe('meals_50');
+    expect(meal.ai_suggestion.questions.join(' ')).not.toContain(STANDARD_MILEAGE_RUNNING_COST_GATE.question);
     const gas = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
       record({ amount: 58, merchant_name: 'CHEVRON 0209', business_purpose: 'Gas for a full day of Uber driving' }), undefined, null, facts);
     expect(gas.deductionStatus).toBe('Needs more information');
     expect(gas.ai_suggestion.questions[0]).toBe(STANDARD_MILEAGE_RUNNING_COST_GATE.question);
     vi.unstubAllEnvs();
+    const off = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
+      record({ amount: 28, merchant_name: 'Uber', business_purpose: 'Ride to the client meeting' }), undefined, null, facts);
+    expect(off.ai_suggestion.questions[0]).toBe(VEHICLE_METHOD_GATE.question);
+    expect(off.ai_suggestion.category).toBe('vehicle_expense');
   });
 
   it('actual expenses use the recorded business share and ask when it is missing', () => {

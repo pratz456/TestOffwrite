@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ACTUAL_EXPENSE_BUSINESS_SHARE } from '@/lib/ai/actual-expense-share';
+import { HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
 import { CATEGORY_EVIDENCE, CATEGORY_SCHEDULE_C_LINE, EXPENSE_CATEGORIES, groundTransactionAnalysis, isStatedSentence, proposedPurposeQuestion,
   transactionTaxPolicyPrompt, transactionTaxYear, TRANSACTION_EVIDENCE_IDS, TRANSACTION_TAX_EVIDENCE, TRANSACTION_TAX_POLICY_VERSION, uncitedReferences,
   userPurposeText } from '@/lib/ai/transaction-tax-policy';
@@ -606,13 +607,59 @@ describe('2026-09-23 source-audit regressions', () => {
     expect(fuel?.customized_reason).toContain('cannot be deducted again');
   });
 
+  it('interest and vehicle property tax use the recorded share under both methods, and parking and tolls stay in full', () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    for (const method of ['standard_mileage', 'actual_expense'] as const) {
+      const vehicle = { ...ctx, vehicle_deduction_method: method, vehicle_business_use_percentage: 40 };
+      const interest = analyze({ category: 'vehicle_expense', evidence_ids: ['travel-463'] },
+        { merchant: 'Toyota Financial', amount_usd: 180, business_purpose: 'Interest on the car loan for business miles this year.' }, vehicle);
+      expect(interest).toMatchObject({ status: 'ok', is_deductible: true, category: 'vehicle_expense', deductible_percent: 40 });
+      expect(`${interest?.customized_reason}`).not.toContain('cannot be deducted again');
+      const propertyTax = analyze({ category: 'vehicle_expense', evidence_ids: ['taxes-licenses-sch-c'] },
+        { merchant: 'County Treasurer', amount_usd: 90, business_purpose: 'Personal property tax on the car for the business share.' }, vehicle);
+      expect(propertyTax).toMatchObject({ status: 'ok', is_deductible: true, category: 'taxes_licenses', deductible_percent: 40 });
+      const parking = analyze({ category: 'parking_tolls', evidence_ids: ['travel-463'] },
+        { merchant: 'ParkMobile', amount_usd: 18, business_purpose: 'Parking at the client site for the kickoff meeting.' }, vehicle);
+      expect(parking).toMatchObject({ status: 'ok', is_deductible: true, category: 'parking_tolls', deductible_percent: 100 });
+      const toll = analyze({ category: 'parking_tolls', evidence_ids: ['travel-463'] },
+        { merchant: 'E-ZPass', amount_usd: 12, business_purpose: 'Toll on the drive to the client meeting.' }, vehicle);
+      expect(toll).toMatchObject({ status: 'ok', is_deductible: true, category: 'parking_tolls', deductible_percent: 100 });
+    }
+    const asked = analyze({ category: 'vehicle_expense', evidence_ids: ['travel-463'] },
+      { merchant: 'Toyota Financial', business_purpose: 'Interest on the car loan for business miles this year.' },
+      { ...ctx, vehicle_deduction_method: 'standard_mileage' });
+    expect(asked).toMatchObject({ status: 'needs_more_info', missing_fields: ['business_use_percentage'] });
+    expect(asked?.questions?.[0]).toBe(SEPARATE_VEHICLE_COST_SHARE.question);
+    expect(asked?.reason).toBe(SEPARATE_VEHICLE_COST_SHARE.reason);
+    expect(asked?.deductible_percent).toBeUndefined();
+    vi.unstubAllEnvs();
+  });
+
   it('a hired fare is not absorbed by the standard mileage rate, and actual expenses use the recorded share', () => {
     vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
     const fare = analyze({ category: 'vehicle_expense', evidence_ids: ['travel-463'] },
       { merchant: 'Uber', business_purpose: 'Ride to the client meeting downtown.' },
-      { ...ctx, vehicle_deduction_method: 'standard_mileage' });
-    expect(fare).toMatchObject({ status: 'ok', is_deductible: true, category: 'vehicle_expense', deductible_percent: 100 });
+      { ...ctx, vehicle_deduction_method: 'standard_mileage', vehicle_business_use_percentage: 40 });
+    expect(fare).toMatchObject({ status: 'ok', is_deductible: true, category: 'travel', deductible_percent: 100 });
     expect(`${fare?.questions?.join(' ')} ${fare?.reason ?? ''} ${fare?.customized_reason ?? ''}`).not.toContain('already included');
+    const actualFare = analyze({ category: 'vehicle_expense', evidence_ids: ['travel-463'] },
+      { merchant: 'Lyft', business_purpose: 'Ride to the client meeting downtown.' },
+      { ...ctx, vehicle_deduction_method: 'actual_expense', vehicle_business_use_percentage: 40 });
+    expect(actualFare).toMatchObject({ status: 'ok', is_deductible: true, category: 'travel', deductible_percent: 100 });
+    const personal = analyze({ category: 'vehicle_expense', evidence_ids: ['travel-463'] },
+      { merchant: 'Uber', business_purpose: 'Ride home from a concert.' },
+      { ...ctx, vehicle_deduction_method: 'actual_expense', vehicle_business_use_percentage: 40 });
+    expect(personal).toMatchObject({ status: 'ok', transaction_kind: 'personal', is_deductible: false, deductible_percent: 0 });
+    expect(personal?.customized_reason).toBe(HIRED_FARE_PERSONAL.reason);
+    const unstated = analyze({ category: 'vehicle_expense', evidence_ids: ['travel-463'] },
+      { merchant: 'TAXI SVC', business_purpose: 'Ride across town tonight.' },
+      { ...ctx, vehicle_deduction_method: 'standard_mileage' });
+    expect(unstated).toMatchObject({ status: 'needs_more_info', category: 'travel', missing_fields: ['business_purpose'] });
+    expect(unstated?.questions?.[0]).toBe(HIRED_FARE_PURPOSE.question);
+    const meal = analyze({ category: 'vehicle_expense', evidence_ids: ['meals-274'] },
+      { merchant: 'Uber Eats', business_purpose: 'Dinner delivered while finishing the client proposal tonight.' });
+    expect(meal?.category).toBe('meals_50');
+    expect(meal?.missing_fields ?? []).not.toContain('vehicle_method');
     const gas = analyze({ category: 'vehicle_expense', evidence_ids: ['travel-463'] },
       { merchant: 'Chevron', business_purpose: 'Gas for the work car this month.' },
       { ...ctx, vehicle_deduction_method: 'actual_expense', vehicle_business_use_percentage: 40 });

@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { adminDb } from '@/lib/firebase/admin';
-import { finiteUsePercent, VEHICLE_ACTUAL_EXPENSE_CATEGORY } from '@/lib/ai/actual-expense-share';
+import { finiteUsePercent, VEHICLE_ACTUAL_EXPENSE_CATEGORY, VEHICLE_LOAN_INTEREST_CATEGORY, VEHICLE_PROPERTY_TAX_CATEGORY } from '@/lib/ai/actual-expense-share';
 import { analysisInputHash } from '@/lib/ai/analysis-persistence';
 import { analysisProfileHash } from '@/lib/ai/profile-context';
-import { hiredVehicleFare } from '@/lib/ai/vehicle-separate-costs';
+import { hiredVehicleFare, standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
 import { invalidateTaxpayerContextCache } from '@/lib/ai/taxpayer-context-server';
 import { TRANSACTION_TAX_POLICY_VERSION } from '@/lib/ai/transaction-tax-policy';
 import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
@@ -55,15 +55,27 @@ async function loadVehicles(tx: FirebaseFirestore.Transaction, profileRef: Fireb
   return docs.map(doc => vehicleFromDocument(doc.id, doc.data()));
 }
 
-/** Business share for an actual-expense car cost. A hired fare is not a cost of that car. Null keeps the base review error. */
-function actualExpenseShare(data: Record<string, unknown>, profile: LegacyVehicleProfile | null, vehicles: VehicleRecord[]): number | null {
+function chargeText(data: Record<string, unknown>): string {
+  return ['merchant_name', 'name', 'description', 'notes', 'note', 'business_purpose']
+    .map(key => typeof data[key] === 'string' ? data[key] as string : '').filter(Boolean).join(' ');
+}
+
+/**
+ * Recorded business-use share for a car cost. Interest and vehicle property tax use it under either method.
+ * Operating costs use it only for actual expenses. A hired fare is not a cost of the user's own car.
+ */
+function vehicleCostShare(data: Record<string, unknown>, profile: LegacyVehicleProfile | null, vehicles: VehicleRecord[]):
+  { kind: 'actual' | 'loan_interest' | 'property_tax'; share: number } | null {
   if (!mileageVehicleCopyEnabled()) return null;
   const merchantText = ['merchant_name', 'name', 'description'].map(key => typeof data[key] === 'string' ? data[key] as string : '').filter(Boolean).join(' ');
   if (hiredVehicleFare(merchantText)) return null;
   const vehicleId = typeof data.vehicleId === 'string' ? data.vehicleId : typeof data.vehicle_id === 'string' ? data.vehicle_id : null;
   const fact = vehicleMethodForTaxYear({ vehicles, profile, taxYear: taxYearOf(data), vehicleId });
-  if (fact.status !== 'known' || fact.method !== 'actual_expense') return null;
-  return finiteUsePercent(data.business_use_percentage) ?? finiteUsePercent(fact.businessUsePercent);
+  const share = finiteUsePercent(data.business_use_percentage) ?? finiteUsePercent(fact.businessUsePercent);
+  const separate = standardMileageSeparateCost(chargeText(data));
+  if (separate) return share === null ? null : { kind: separate, share };
+  if (fact.status !== 'known' || fact.method !== 'actual_expense' || share === null) return null;
+  return { kind: 'actual', share };
 }
 
 export async function reviewTransaction(uid: string, id: string, input: TransactionReviewRequest) {
@@ -117,10 +129,12 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       confirmedSuggestion = suggestion;
       if (deduction === true) {
         const mapped = reviewCategory(category);
-        const recordedShare = mapped?.value === 'vehicle_expense' ? actualExpenseShare(data, profileData, vehicles) : null;
         const suggestionShare = finiteUsePercent(suggestion.deductiblePercent);
-        if (recordedShare !== null && suggestionShare === recordedShare) {
+        const cost = vehicleCostShare(data, profileData, vehicles);
+        if (cost && suggestionShare === cost.share) {
           deduction = true;
+        } else if (cost && (cost.kind === 'loan_interest' || cost.kind === 'property_tax')) {
+          deduction = null;
         } else if (!mapped || mapped.recordedCategory.endsWith('_REVIEW_REQUIRED') ||
             suggestion.deductiblePercent !== (mapped.value === 'meals_50' ? 50 : 100)) deduction = null;
       }
@@ -143,13 +157,20 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       const mapped = reviewCategory(category);
       if (!mapped) throw new TransactionReviewError('INVALID_CATEGORY', 'Choose a supported category.');
       recordedCategory = mapped.recordedCategory;
-      const recordedShare = mapped.value === 'vehicle_expense' && deduction === true ? actualExpenseShare(data, profileData, vehicles) : null;
+      const cost = deduction === true ? vehicleCostShare(data, profileData, vehicles) : null;
+      const separate = standardMileageSeparateCost(chargeText(data));
       const suggestionShare = finiteUsePercent(confirmedSuggestion?.deductiblePercent);
-      const shareMatches = input.action === 'correct' || suggestionShare === recordedShare;
-      if (deduction === true && recordedCategory.endsWith('_REVIEW_REQUIRED')) {
-        if (recordedShare !== null && shareMatches) {
+      const shareMatches = input.action === 'correct' || suggestionShare === cost?.share;
+      if (mileageVehicleCopyEnabled() && deduction === true && separate && !cost) {
+        throw new TransactionReviewError('DEDUCTION_REVIEW_REQUIRED', 'This category needs a separate tax method review. Save the category without claiming a deduction.');
+      }
+      if (deduction === true && cost && (cost.kind === 'loan_interest' || cost.kind === 'property_tax') && shareMatches) {
+        recordedCategory = cost.kind === 'property_tax' ? VEHICLE_PROPERTY_TAX_CATEGORY : VEHICLE_LOAN_INTEREST_CATEGORY;
+        savedShare = cost.share;
+      } else if (deduction === true && recordedCategory.endsWith('_REVIEW_REQUIRED')) {
+        if (cost?.kind === 'actual' && shareMatches) {
           recordedCategory = VEHICLE_ACTUAL_EXPENSE_CATEGORY;
-          savedShare = recordedShare;
+          savedShare = cost.share;
         } else throw new TransactionReviewError('DEDUCTION_REVIEW_REQUIRED', 'This category needs a separate tax method review. Save the category without claiming a deduction.');
       }
     }

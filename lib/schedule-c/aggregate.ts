@@ -39,6 +39,8 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'TRANSPORTATION_PUBLIC_TRANSIT': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_CAR_WASH': { line: '9', name: 'Car and truck expenses', code: '9' },
   'VEHICLE_ACTUAL_EXPENSE': { line: '9', name: 'Car and truck expenses', code: '9' },
+  'VEHICLE_LOAN_INTEREST': { line: '9', name: 'Car and truck expenses', code: '9' },
+  'VEHICLE_PROPERTY_TAX': { line: '23', name: 'Taxes and licenses', code: '23' },
 
   // ── Line 10: Commissions and fees ────────────────────────────────────
   'BANK_FEES_ATM_FEES': { line: '10', name: 'Commissions and fees', code: '10' },
@@ -193,9 +195,11 @@ export interface AggregateScheduleCOptions {
 /**
  * Filter by year, then by isBusinessExpense; group by Schedule C line; apply 50% for meals (24b).
  */
-/** Actual-expense car costs count at the recorded business-use share. The bank amount stays the line total. */
-function actualExpenseShareCents(tx: ScheduleCTransactionLike, cents: number): number {
-  if (tx.category !== 'VEHICLE_ACTUAL_EXPENSE') return cents;
+const BUSINESS_USE_SHARE_CATEGORIES = new Set(['VEHICLE_ACTUAL_EXPENSE', 'VEHICLE_LOAN_INTEREST', 'VEHICLE_PROPERTY_TAX']);
+
+/** Car costs that were saved at a business-use share. The bank amount stays the line total. */
+function businessUseShareCents(tx: ScheduleCTransactionLike, cents: number): number {
+  if (!BUSINESS_USE_SHARE_CATEGORIES.has(tx.category)) return cents;
   const share = tx.business_use_percentage;
   if (typeof share !== 'number' || !Number.isFinite(share)) return cents;
   return Math.round(cents * share / 100);
@@ -258,7 +262,7 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
 
     if (mode === 'confirmed-only') {
       const cents = Math.round((tx.amount ?? 0) * 100); // signed cents
-      const deductibleCents = lineKey === '24b' ? halfCentsAwayFromZero(cents) : actualExpenseShareCents(tx, cents);
+      const deductibleCents = lineKey === '24b' ? halfCentsAwayFromZero(cents) : businessUseShareCents(tx, cents);
       lineItems[lineKey].total += cents / 100;
       lineItems[lineKey].deductible += deductibleCents / 100;
     } else {
@@ -267,7 +271,7 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
 
       if (lineKey === '24b') {
         lineItems[lineKey].deductible += amount * 0.5;
-      } else if (tx.category === 'VEHICLE_ACTUAL_EXPENSE' && typeof tx.business_use_percentage === 'number' && Number.isFinite(tx.business_use_percentage)) {
+      } else if (BUSINESS_USE_SHARE_CATEGORIES.has(tx.category) && typeof tx.business_use_percentage === 'number' && Number.isFinite(tx.business_use_percentage)) {
         lineItems[lineKey].deductible += amount * tx.business_use_percentage / 100;
       } else {
         lineItems[lineKey].deductible += amount;

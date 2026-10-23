@@ -1,6 +1,6 @@
 import type { OutputType, TransactionInput, UserContext } from './analyzeTransaction';
 import { findMerchantEntry, merchantDescriptor, merchantIntelligence, type MerchantIntelligenceResult } from './merchant-intelligence';
-import { hiredVehicleFare, standardMileageSeparateCost } from './vehicle-separate-costs';
+import { hiredFarePurpose, hiredVehicleFare, HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, SEPARATE_VEHICLE_COST_SHARE, standardMileageSeparateCost } from './vehicle-separate-costs';
 import { ACTUAL_EXPENSE_BUSINESS_SHARE } from './actual-expense-share';
 import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { matchProfessions, professionHint } from './profession-priors';
@@ -446,6 +446,9 @@ export function groundTransactionAnalysis(
   /** An insurer that sells only business coverage (Hiscox, Next, Thimble, biBERK, The Hartford's small-business line). */
   const businessInsurer = merchant.category === 'insurance' && merchant.confidence === 'high' && merchant.disposition === 'business_likely';
   if (kind === 'expense' && result.expense_type !== 'personal') {
+    if (result.category === 'vehicle_expense' && /\buber\s*eats\b/i.test(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`)) {
+      result.category = 'meals_50';
+    }
     const placeable = !result.category || result.category === 'other';
     if (placeable && merchant.confidence === 'high' && merchant.category && CONFIRMABLE_LINE_CATEGORIES.includes(merchant.category)) {
       result.category = merchant.category;
@@ -698,6 +701,10 @@ export function groundTransactionAnalysis(
       addEvidence('personal-262');
       requireInfo(result, 'personal_use_exception', hint?.question ?? merchant.question ?? 'Is this item unusable outside your business (a uniform, costume or protective gear) or a product used on your own clients, rather than clothing or grooming for yourself?',
         'Clothing, grooming and similar items suitable for everyday use are personal living costs even when bought for work or on-camera use. Only items unusable outside the business, such as uniforms, costumes or protective gear, or products used on your own clients can qualify; confirm which this was.');
+    } else if (mileageVehicleCopyEnabled() && result.is_deductible === true && purposeMissing &&
+      hiredVehicleFare(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`) && result.category !== 'meals_50') {
+      result.category = 'travel';
+      requireInfo(result, 'business_purpose', HIRED_FARE_PURPOSE.question, HIRED_FARE_PURPOSE.reason);
     } else if (result.is_deductible === true && purposeMissing) {
       const generic = 'What did you buy, and how did you use it in your business?';
       if (merchant.disposition === 'transfer_or_deposit') {
@@ -802,13 +809,40 @@ export function groundTransactionAnalysis(
       addEvidence('capital-263');
       requireInfo(result, 'asset_treatment', hint?.question ?? 'What was purchased, when was it first used for business, and have you recorded the de minimis safe harbor election or a depreciation election for this year?',
         `This purchase needs item-level review to distinguish supplies from assets. The de minimis safe harbor generally uses a $${DE_MINIMIS_ITEM_CEILING.toLocaleString('en-US')} per-item or per-invoice ceiling without an applicable financial statement ($5,000 with one), plus consistent book-expensing and an annual election. A bank-charge total does not establish item cost or capitalization: qualifying materials, supplies and repairs may be current expenses without that election, while assets may need depreciation or a separate expensing election. Review the asset treatment before deducting it in full.`);
-    } else if (result.is_deductible === true && result.category === 'vehicle_expense' && hiredVehicleFare(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`)) {
-      // A hired fare is not fuel, insurance, or repairs of the taxpayer's own car.
-      const provided = percentage(transaction.business_use_percentage);
-      result.status = 'ok';
-      result.is_deductible = true;
-      result.expense_type = 'business';
-      result.deductible_percent = provided ?? 100;
+    } else if (result.is_deductible === true && hiredVehicleFare(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`) &&
+      (mileageVehicleCopyEnabled() ? result.category !== 'meals_50' : result.category === 'vehicle_expense')) {
+      // A hired fare follows the trip. With the copy switch on it is transportation, never the method for the user's own car.
+      if (mileageVehicleCopyEnabled()) {
+        const farePurpose = hiredFarePurpose(purpose);
+        result.category = 'travel';
+        if (farePurpose === 'personal') {
+          markPersonal(HIRED_FARE_PERSONAL.reason, 'Recorded as a personal trip.');
+        } else if (farePurpose === 'business') {
+          result.status = 'ok';
+          result.is_deductible = true;
+          result.expense_type = 'business';
+          result.deductible_percent = 100;
+        } else {
+          requireInfo(result, 'business_purpose', HIRED_FARE_PURPOSE.question, HIRED_FARE_PURPOSE.reason);
+        }
+      } else {
+        const provided = percentage(transaction.business_use_percentage);
+        result.status = 'ok';
+        result.is_deductible = true;
+        result.expense_type = 'business';
+        result.deductible_percent = provided ?? 100;
+      }
+    } else if (mileageVehicleCopyEnabled() && result.is_deductible === true && separateVehicleCost) {
+      // Interest and vehicle personal property tax stay out of the mileage hold, and count only at the recorded share.
+      const share = percentage(transaction.business_use_percentage) ?? percentage(context?.vehicle_business_use_percentage);
+      if (share === null) {
+        requireInfo(result, 'business_use_percentage', SEPARATE_VEHICLE_COST_SHARE.question, SEPARATE_VEHICLE_COST_SHARE.reason);
+      } else {
+        result.status = 'ok';
+        result.is_deductible = true;
+        result.expense_type = 'business';
+        result.deductible_percent = share;
+      }
     } else if (mileageVehicleCopyEnabled() && result.is_deductible === true && result.category === 'vehicle_expense' && !separateVehicleCost && context?.vehicle_deduction_method === 'actual_expense') {
       const share = percentage(transaction.business_use_percentage) ?? percentage(context.vehicle_business_use_percentage);
       if (share === null) {

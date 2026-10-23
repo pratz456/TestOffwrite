@@ -344,6 +344,15 @@ describe('mileage vehicles, trip types, and sorting', () => {
     return [...fleet, blankVehicle('overlap-4', fleet.length)];
   }
 
+  it('a car with no business use does not ask whether five cars are used at the same time', () => {
+    const fleet = overlappingFleet();
+    const unused = fleet.find(vehicle => vehicle.id === 'overlap-4');
+    expect(unused?.method).toBe('unset');
+    expect(unused?.datePlacedInService).toBe('');
+    expect(fiveBusinessCarsOverlap(fleet)).toBe(false);
+    expect(fiveAtOnceQuestion(fleet, null)).toBeNull();
+  });
+
   it('one business car plus four blank cars can use the standard rate', () => {
     let fleet = mustSave([blankVehicle('work', 0)], 'work', { ownership: 'owned', method: 'standard_mileage', datePlacedInService: '2024-01-01' });
     for (let index = 0; index < 4; index += 1) fleet = [...fleet, blankVehicle(`blank-${index}`, fleet.length)];

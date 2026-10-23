@@ -7,6 +7,12 @@ export const ACTUAL_EXPENSE_BUSINESS_SHARE = {
 /** Saved category for an actual-expense car cost that has a recorded business-use share. Schedule C line 9. */
 export const VEHICLE_ACTUAL_EXPENSE_CATEGORY = 'VEHICLE_ACTUAL_EXPENSE';
 
+/** Car loan interest at the recorded business-use share. Schedule C line 9. */
+export const VEHICLE_LOAN_INTEREST_CATEGORY = 'VEHICLE_LOAN_INTEREST';
+
+/** Personal property tax on the car at the recorded business-use share. Schedule C line 23. */
+export const VEHICLE_PROPERTY_TAX_CATEGORY = 'VEHICLE_PROPERTY_TAX';
+
 export function finiteUsePercent(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null;
 }

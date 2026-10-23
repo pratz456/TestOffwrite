@@ -335,3 +335,69 @@ describe('actual expenses save at the recorded business share', () => {
     }
   });
 });
+
+describe('interest, vehicle property tax, and hired fares', () => {
+  const reviewError = 'This category needs a separate tax method review. Save the category without claiming a deduction.';
+  function vehicleProfile(method: 'standard_mileage' | 'actual_expense', percent?: number) {
+    const profile = mocks.docs.get('user_profiles/owner')!;
+    const next = { ...profile, vehicle_deduction_method: method };
+    if (percent !== undefined) next.vehicle_business_use_percentage = percent;
+    mocks.docs.set('user_profiles/owner', next);
+  }
+  it('saves car loan interest and vehicle property tax at the recorded share under either method', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      for (const method of ['standard_mileage', 'actual_expense'] as const) {
+        vehicleProfile(method, 40);
+        change({ merchant_name: 'Toyota Financial', amount: 200, business_purpose: 'Interest on the car loan for business miles', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED' });
+        const interest = await send(correct({ category: 'vehicle_expense', isDeductible: true, reason: 'Interest on the car loan' }));
+        expect(interest.status).toBe(200);
+        expect(record()).toMatchObject({ category: 'VEHICLE_LOAN_INTEREST', is_deductible: true, business_use_percentage: 40, deductible_percent: 40 });
+        expect(aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' }).totalDeductible).toBe(80);
+        change({ merchant_name: 'County Treasurer', amount: 90, business_purpose: 'Personal property tax on the car', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED', business_use_percentage: undefined, deductible_percent: undefined });
+        const propertyTax = await send(correct({ category: 'taxes_licenses', isDeductible: true, reason: 'Personal property tax on the car' }));
+        expect(propertyTax.status).toBe(200);
+        expect(record()).toMatchObject({ category: 'VEHICLE_PROPERTY_TAX', is_deductible: true, business_use_percentage: 40, deductible_percent: 40 });
+        expect(aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' }).lineItems['23']).toMatchObject({ deductible: 36 });
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('does not save interest or vehicle property tax at 100 when no share is recorded', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      vehicleProfile('standard_mileage');
+      change({ merchant_name: 'Toyota Financial', amount: 200, business_purpose: 'Interest on the car loan for business miles' });
+      const interest = await send(correct({ category: 'vehicle_expense', isDeductible: true, reason: 'Interest on the car loan' }));
+      expect(interest.status).toBe(422);
+      expect(await interest.json()).toEqual({ error: reviewError, code: 'DEDUCTION_REVIEW_REQUIRED' });
+      change({ merchant_name: 'County Treasurer', amount: 90, business_purpose: 'Personal property tax on the car' });
+      const propertyTax = await send(correct({ category: 'taxes_licenses', isDeductible: true, reason: 'Personal property tax on the car' }));
+      expect(propertyTax.status).toBe(422);
+      expect(await propertyTax.json()).toEqual({ error: reviewError, code: 'DEDUCTION_REVIEW_REQUIRED' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('confirms a business fare as transportation and does not scale it by the car share', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      vehicleProfile('actual_expense', 40);
+      const profile = mocks.docs.get('user_profiles/owner')!;
+      change({ merchant_name: 'Uber', amount: 28, business_purpose: 'Ride to the client meeting', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED' });
+      change(analysisSuggestionUpdate({
+        ...result, category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9',
+        customized_reason: 'Ride to the client meeting is local transportation.',
+      }, 1770000000000, record(), analysisProfileHash(profile, record().date), profile, { profile, taxYear: 2026 }));
+      expect(record().ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, category: 'travel' });
+      const response = await send(confirm());
+      expect(response.status).toBe(200);
+      expect(record()).toMatchObject({ category: 'TRAVEL_OTHER_TRAVEL', is_deductible: true });
+      expect(record().business_use_percentage).toBeUndefined();
+      expect(aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' }).totalDeductible).toBe(28);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

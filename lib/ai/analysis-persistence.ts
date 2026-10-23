@@ -3,7 +3,7 @@ import type { DocumentReference } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { vehicleFromDocument, vehicleMethodForTaxYear, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
-import { hiredVehicleFare, standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
+import { hiredFarePurpose, hiredVehicleFare, HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, SEPARATE_VEHICLE_COST_SHARE, standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
 import { ACTUAL_EXPENSE_BUSINESS_SHARE, finiteUsePercent } from '@/lib/ai/actual-expense-share';
 import type { OutputType } from './analyzeTransaction';
 import { composeExplanation, type ExplainableResult, type ExplanationProfile } from './explanation';
@@ -103,7 +103,7 @@ export interface VehicleMethodGateFacts {
 }
 
 export function withheldApprovalGate(input: { category: string | null; deductiblePercent: number | null; transactionKind: TransactionKind; amount?: unknown; text?: string; merchantText?: string; businessUsePercent?: number | null },
-  expectedPercent: number, facts?: VehicleMethodGateFacts): { question: string; reason: string } | { share: number } | null {
+  expectedPercent: number, facts?: VehicleMethodGateFacts): { question: string; reason: string } | { share: number; reason?: string } | null {
   const category = reviewCategory(input.category);
   if (input.transactionKind === 'unknown') {
     return { question: 'Was this a purchase, customer payment, refund, loan, owner contribution or movement between your own accounts?',
@@ -113,7 +113,9 @@ export function withheldApprovalGate(input: { category: string | null; deductibl
     return { question: 'Which expense category fits this charge?',
       reason: 'This charge does not fit a category WriteOff can place on Schedule C automatically. Choose a specific category, or keep it with its saved purpose for your preparer.' };
   }
-  if (category.value === 'vehicle_expense') {
+  const separateCost = standardMileageSeparateCost(input.text ?? '');
+  const vehiclePropertyTax = category.value === 'taxes_licenses' && separateCost === 'property_tax';
+  if (category.value === 'vehicle_expense' || vehiclePropertyTax) {
     if (mileageVehicleCopyEnabled()) {
       const dated = facts?.taxYear;
       const fact = vehicleMethodForTaxYear({
@@ -122,18 +124,25 @@ export function withheldApprovalGate(input: { category: string | null; deductibl
         taxYear: typeof dated === 'number' ? dated : new Date().getFullYear(),
         vehicleId: facts?.vehicleId,
       });
+      // Interest and vehicle property tax stay out of the mileage hold and count only at the recorded share, under either method.
+      if (separateCost) {
+        const recorded = finiteUsePercent(input.businessUsePercent) ?? finiteUsePercent(fact.businessUsePercent);
+        if (recorded === null) return { ...SEPARATE_VEHICLE_COST_SHARE };
+        return { share: recorded, reason: SEPARATE_VEHICLE_COST_SHARE.reason };
+      }
+      if (category.value === 'vehicle_expense' && hiredVehicleFare(input.merchantText ?? '')) {
+        return { ...HIRED_FARE_PURPOSE };
+      }
       if (fact.status === 'known' && fact.method === 'standard_mileage') {
-        // Loan interest, vehicle personal property tax, and a hired fare are not running costs of this car.
-        if (standardMileageSeparateCost(input.text ?? '') || hiredVehicleFare(input.merchantText ?? '')) return null;
         return { ...STANDARD_MILEAGE_RUNNING_COST_GATE };
       }
-      if (fact.status === 'known' && fact.method === 'actual_expense' && !hiredVehicleFare(input.merchantText ?? '')) {
+      if (fact.status === 'known' && fact.method === 'actual_expense') {
         const recorded = finiteUsePercent(input.businessUsePercent) ?? finiteUsePercent(fact.businessUsePercent);
         if (recorded === null) return { ...ACTUAL_EXPENSE_BUSINESS_SHARE };
         return { share: recorded };
       }
     }
-    return { ...VEHICLE_METHOD_GATE };
+    if (category.value === 'vehicle_expense') return { ...VEHICLE_METHOD_GATE };
   }
   if (category.value === 'equipment') {
     return { question: 'What was purchased, when was it first used for business, and which depreciation or de minimis election applies?',
@@ -204,18 +213,53 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
     suggestion.status = 'needs_more_info'; suggestion.isDeductible = null; suggestion.deductiblePercent = null;
     suggestion.questions = [...suggestion.questions, 'Confirm whether this entry is a purchase, income, a transfer, or a refund before assigning tax treatment.'].slice(0, 3);
   }
+  const merchantText = canonicalData ? ['merchant_name', 'name', 'description'].map(key => typeof canonicalData[key] === 'string' ? canonicalData[key] as string : '').filter(Boolean).join(' ') : '';
+  if (mileageVehicleCopyEnabled() && canonicalData && suggestion.status === 'ok' && suggestion.isDeductible === true &&
+      suggestion.category === 'vehicle_expense' && /\buber\s*eats\b/i.test(merchantText)) {
+    suggestion.category = 'meals_50';
+    suggestion.deductiblePercent = 50;
+    suggestion.scheduleCLine = '24b';
+  }
+  const purposeText = canonicalData ? ['business_purpose', 'notes', 'note'].map(key => typeof canonicalData[key] === 'string' ? canonicalData[key] as string : '').filter(Boolean).join(' ') : '';
+  // A hired fare is transportation decided by the trip. It never takes the method or the share of the user's own car.
+  if (mileageVehicleCopyEnabled() && canonicalData && suggestion.status === 'ok' && suggestion.isDeductible === true &&
+      hiredVehicleFare(merchantText) && suggestion.category !== 'meals_50' &&
+      (suggestion.category === 'vehicle_expense' || suggestion.category === 'travel' || suggestion.category === 'other')) {
+    const farePurpose = hiredFarePurpose(purposeText);
+    suggestion.category = 'travel';
+    suggestion.scheduleCLine = '24a';
+    if (farePurpose === 'business') {
+      suggestion.deductiblePercent = 100;
+      suggestion.isDeductible = true;
+      suggestion.status = 'ok';
+    } else if (farePurpose === 'personal') {
+      suggestion.isDeductible = false;
+      suggestion.deductiblePercent = 0;
+      suggestion.status = 'ok';
+      suggestion.questions = [];
+      suggestion.reasoning = HIRED_FARE_PERSONAL.reason;
+    } else {
+      suggestion.status = 'needs_more_info';
+      suggestion.isDeductible = null;
+      suggestion.deductiblePercent = null;
+      suggestion.questions = [HIRED_FARE_PURPOSE.question];
+      suggestion.reasoning = HIRED_FARE_PURPOSE.reason;
+    }
+  }
   const supportedCategory = reviewCategory(suggestion.category);
   const expectedPercent = supportedCategory?.value === 'meals_50' ? 50 : 100;
+  const separateOnThisCharge = mileageVehicleCopyEnabled() && canonicalData &&
+    (suggestion.category === 'vehicle_expense' || suggestion.category === 'taxes_licenses') &&
+    standardMileageSeparateCost(approvalText(canonicalData));
   // The reasoning the user reads must describe the saved suggestion; an approval the review path cannot
   // consume is stored with the question that unblocks it, never beside "deductible on line N" prose.
   let withheld: { question: string; reason: string } | null = null;
   let appliedShareReason: string | null = null;
   if (suggestion.status === 'ok' && canonicalData && (transactionKind === 'unknown' ||
       suggestion.isDeductible === true && (!supportedCategory || supportedCategory.recordedCategory.endsWith('_REVIEW_REQUIRED') ||
-        suggestion.deductiblePercent !== expectedPercent))) {
+        suggestion.deductiblePercent !== expectedPercent || Boolean(separateOnThisCharge)))) {
     const savedDate = typeof canonicalData.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(canonicalData.date) ? Number(canonicalData.date.slice(0, 4)) : null;
     const vehicleId = typeof canonicalData.vehicleId === 'string' ? canonicalData.vehicleId : typeof canonicalData.vehicle_id === 'string' ? canonicalData.vehicle_id : vehicleFacts?.vehicleId;
-    const merchantText = ['merchant_name', 'name', 'description'].map(key => typeof canonicalData[key] === 'string' ? canonicalData[key] as string : '').filter(Boolean).join(' ');
     const gate = withheldApprovalGate({
       category: suggestion.category, deductiblePercent: suggestion.deductiblePercent, transactionKind, amount: canonicalData.amount, text: approvalText(canonicalData),
       merchantText, businessUsePercent: finiteUsePercent(canonicalData.business_use_percentage),
@@ -229,7 +273,7 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
       suggestion.isDeductible = true;
       suggestion.status = 'ok';
       if (result.deductible_percent !== gate.share) {
-        appliedShareReason = ACTUAL_EXPENSE_BUSINESS_SHARE.reason;
+        appliedShareReason = gate.reason ?? ACTUAL_EXPENSE_BUSINESS_SHARE.reason;
         suggestion.reasoning = appliedShareReason;
       }
     } else if (gate) {
@@ -239,14 +283,23 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
       suggestion.reasoning = gate.reason;
     }
   }
-  const displayedReason = withheld?.reason ?? appliedShareReason ?? result.customized_reason ?? null;
+  const fareReason = suggestion.reasoning === HIRED_FARE_PERSONAL.reason || suggestion.reasoning === HIRED_FARE_PURPOSE.reason ? suggestion.reasoning : null;
+  const displayedReason = withheld?.reason ?? appliedShareReason ?? fareReason ?? result.customized_reason ?? null;
+  const missingFields = withheld
+    ? [withheld.question === ACTUAL_EXPENSE_BUSINESS_SHARE.question ? 'business_use_percentage'
+      : withheld.question === HIRED_FARE_PURPOSE.question ? 'business_purpose'
+        : withheldMissingField(suggestion.category, transactionKind)]
+    : suggestion.status === 'needs_more_info' && suggestion.questions[0] === HIRED_FARE_PURPOSE.question
+      ? ['business_purpose']
+      : result.missing_fields ?? [];
   const label = suggestion.status === 'needs_more_info' ? 'Needs more information' : suggestion.status === 'blocked' ? 'Needs manual review' :
     suggestion.isDeductible === true ? 'Likely Deductible' : suggestion.isDeductible === false ? 'Unlikely Deductible' : 'Needs manual review';
   // The explanation describes the gated suggestion the user sees, never the raw model output.
   const gated: ExplainableResult = { ...(result as ExplainableResult), status: suggestion.status, transaction_kind: transactionKind,
-    questions: suggestion.questions, is_deductible: suggestion.isDeductible ?? undefined, deductible_percent: suggestion.deductiblePercent ?? undefined,
+    category: suggestion.category ?? result.category, questions: suggestion.questions, is_deductible: suggestion.isDeductible ?? undefined, deductible_percent: suggestion.deductiblePercent ?? undefined,
     ...(withheld ? { customized_reason: withheld.reason, reasoning_summary: withheld.reason, key_analysis_factor: withheld.reason.slice(0, 400),
-      missing_fields: [withheld.question === ACTUAL_EXPENSE_BUSINESS_SHARE.question ? 'business_use_percentage' : withheldMissingField(suggestion.category, transactionKind)] } : {}),
+      missing_fields: missingFields } : {}),
+    ...(fareReason ? { customized_reason: fareReason, reasoning_summary: fareReason, key_analysis_factor: fareReason.slice(0, 400), missing_fields: missingFields } : {}),
     ...(appliedShareReason ? { customized_reason: appliedShareReason, reasoning_summary: appliedShareReason, key_analysis_factor: appliedShareReason.slice(0, 400), deductible_percent: suggestion.deductiblePercent ?? undefined } : {}) };
   const savedDate = typeof canonicalData?.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(canonicalData.date) ? Number(canonicalData.date.slice(0, 4)) : null;
   const explanation = composeExplanation({ result: gated, transaction: canonicalData, profile, taxYear: evidence.tax_year ?? savedDate });
@@ -254,16 +307,16 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
     ai_suggestion: suggestion, ai_explanation: explanation, ai_transaction_kind: transactionKind,
     ai_tax_year: evidence.tax_year ?? null, ai_sources: evidence.sources ?? [],
     ai_policy_version: evidence.policy_version ?? null, ai_provenance: evidence.provenance ?? null,
-    ai_status: suggestion.status, ai_category: result.category ?? null,
+    ai_status: suggestion.status, ai_category: suggestion.category ?? null,
     ai_deductible_percent: suggestion.deductiblePercent,
-    ai_key_analysis_factor: withheld ? withheld.reason.slice(0, 400) : result.key_analysis_factor ?? null,
+    ai_key_analysis_factor: withheld ? withheld.reason.slice(0, 400) : fareReason ? fareReason.slice(0, 400) : result.key_analysis_factor ?? null,
     ai_customized_reason: displayedReason,
-    ai_reasoning_summary: withheld ? withheld.reason : result.reasoning_summary ?? null,
+    ai_reasoning_summary: withheld ? withheld.reason : fareReason ?? result.reasoning_summary ?? null,
     ai_irs_refs: result.irs_refs ?? [], ai_audit_risk: result.audit_risk ?? null,
     ai_audit_risk_rationale: result.audit_risk_rationale ?? null, ai_confidence: result.confidence ?? null,
-    ai_missing_fields: withheld ? [withheld.question === ACTUAL_EXPENSE_BUSINESS_SHARE.question ? 'business_use_percentage' : withheldMissingField(suggestion.category, transactionKind)] : result.missing_fields ?? [], ai_questions: suggestion.questions,
+    ai_missing_fields: missingFields, ai_questions: suggestion.questions,
     ai_documentation_required: result.documentation_required ?? [], ai_reason_hash: result.reason_hash ?? null,
-    ai_proposed_purpose: proposedPurpose ?? null, ai_schedule_c_line: scheduleCLine ?? null,
+    ai_proposed_purpose: proposedPurpose ?? null, ai_schedule_c_line: suggestion.scheduleCLine ?? scheduleCLine ?? null,
     ai_model: model, ai_last_analyzed_at: now,
     deductionStatus: label, confidence: result.confidence ?? null,
     reasoning: displayedReason ?? result.reasoning_summary ?? null,
@@ -272,11 +325,11 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
       transaction_kind: transactionKind, tax_year: evidence.tax_year ?? null, sources: evidence.sources ?? [],
       policy_version: evidence.policy_version ?? null, provenance: evidence.provenance ?? null,
       status: suggestion.status, status_label: label, score_pct: result.confidence == null ? null : Math.round(result.confidence * 100),
-      reasoning: displayedReason ?? result.reasoning_summary ?? null, category: result.category ?? null,
+      reasoning: displayedReason ?? result.reasoning_summary ?? null, category: suggestion.category ?? null,
       irs_refs: result.irs_refs ?? [], audit_risk: result.audit_risk ?? null,
       deductible_percent: suggestion.deductiblePercent, questions: suggestion.questions,
-      missing_fields: withheld ? [withheld.question === ACTUAL_EXPENSE_BUSINESS_SHARE.question ? 'business_use_percentage' : withheldMissingField(suggestion.category, transactionKind)] : result.missing_fields ?? [], documentation_required: result.documentation_required ?? [],
-      proposed_purpose: proposedPurpose ?? null, schedule_c_line: scheduleCLine ?? null,
+      missing_fields: missingFields, documentation_required: result.documentation_required ?? [],
+      proposed_purpose: proposedPurpose ?? null, schedule_c_line: suggestion.scheduleCLine ?? scheduleCLine ?? null,
       model, last_analyzed_at: now,
     },
     analyzed: true, analysis_status: 'completed', analysisStatus: 'completed', analysisErrorCode: null, analysisRefreshReason: null,
