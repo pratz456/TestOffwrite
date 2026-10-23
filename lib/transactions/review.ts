@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { adminDb } from '@/lib/firebase/admin';
+import { finiteUsePercent, VEHICLE_ACTUAL_EXPENSE_CATEGORY } from '@/lib/ai/actual-expense-share';
 import { analysisInputHash } from '@/lib/ai/analysis-persistence';
 import { analysisProfileHash } from '@/lib/ai/profile-context';
+import { hiredVehicleFare } from '@/lib/ai/vehicle-separate-costs';
 import { invalidateTaxpayerContextCache } from '@/lib/ai/taxpayer-context-server';
 import { TRANSACTION_TAX_POLICY_VERSION } from '@/lib/ai/transaction-tax-policy';
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
+import { vehicleFromDocument, vehicleMethodForTaxYear, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
 import { transactionIdInput } from './client-updates';
 import { canConfirmAiSuggestion, recordedTransactionType, reviewCategory, reviewHydrationFields,
   type AiReviewSuggestion, type TransactionReviewRequest } from './ai-review-contract';
@@ -38,6 +42,30 @@ export function hydrateReviewTransaction(data: Record<string, any>, id: string) 
   };
 }
 
+function taxYearOf(data: Record<string, unknown>): number {
+  const date = typeof data.date === 'string' ? data.date : '';
+  return /^\d{4}-\d{2}-\d{2}/.test(date) ? Number(date.slice(0, 4)) : new Date().getFullYear();
+}
+
+async function loadVehicles(tx: FirebaseFirestore.Transaction, profileRef: FirebaseFirestore.DocumentReference): Promise<VehicleRecord[]> {
+  if (!mileageVehicleCopyEnabled()) return [];
+  const snap = await tx.get(profileRef.collection('vehicles'));
+  const docs = (snap as { docs?: Array<{ id: string; data: () => Record<string, unknown> }> }).docs;
+  if (!Array.isArray(docs)) return [];
+  return docs.map(doc => vehicleFromDocument(doc.id, doc.data()));
+}
+
+/** Business share for an actual-expense car cost. A hired fare is not a cost of that car. Null keeps the base review error. */
+function actualExpenseShare(data: Record<string, unknown>, profile: LegacyVehicleProfile | null, vehicles: VehicleRecord[]): number | null {
+  if (!mileageVehicleCopyEnabled()) return null;
+  const merchantText = ['merchant_name', 'name', 'description'].map(key => typeof data[key] === 'string' ? data[key] as string : '').filter(Boolean).join(' ');
+  if (hiredVehicleFare(merchantText)) return null;
+  const vehicleId = typeof data.vehicleId === 'string' ? data.vehicleId : typeof data.vehicle_id === 'string' ? data.vehicle_id : null;
+  const fact = vehicleMethodForTaxYear({ vehicles, profile, taxYear: taxYearOf(data), vehicleId });
+  if (fact.status !== 'known' || fact.method !== 'actual_expense') return null;
+  return finiteUsePercent(data.business_use_percentage) ?? finiteUsePercent(fact.businessUsePercent);
+}
+
 export async function reviewTransaction(uid: string, id: string, input: TransactionReviewRequest) {
   const accountRef = adminDb.doc(`user_profiles/${uid}/accounts/${input.accountId}`);
   const ref = accountRef.collection('transactions').doc(id);
@@ -61,6 +89,9 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
     let reason: string;
     let suggestionId: string | null = null;
     let source: 'ai_confirmed' | 'user_corrected';
+    let confirmedSuggestion: AiReviewSuggestion | null = null;
+    const profileData = profile.exists ? profile.data() as LegacyVehicleProfile : null;
+    const vehicles = await loadVehicles(tx, profileRef);
     if (input.action === 'confirm') {
       if (data.review_status === 'confirmed' && data.review_source === 'ai_confirmed' && data.review_suggestion_id === input.suggestionId) {
         return hydrateReviewTransaction(data, id);
@@ -83,9 +114,14 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       reason = suggestion.reasoning;
       suggestionId = suggestion.id;
       source = 'ai_confirmed';
+      confirmedSuggestion = suggestion;
       if (deduction === true) {
         const mapped = reviewCategory(category);
-        if (!mapped || mapped.recordedCategory.endsWith('_REVIEW_REQUIRED') ||
+        const recordedShare = mapped?.value === 'vehicle_expense' ? actualExpenseShare(data, profileData, vehicles) : null;
+        const suggestionShare = finiteUsePercent(suggestion.deductiblePercent);
+        if (recordedShare !== null && suggestionShare === recordedShare) {
+          deduction = true;
+        } else if (!mapped || mapped.recordedCategory.endsWith('_REVIEW_REQUIRED') ||
             suggestion.deductiblePercent !== (mapped.value === 'meals_50' ? 50 : 100)) deduction = null;
       }
     } else {
@@ -99,6 +135,7 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       throw new TransactionReviewError('DEDUCTION_REVIEW_REQUIRED', 'Income, transfers and personal entries are not expense deductions. Refunds need reconciliation with the original expense.');
     }
     let recordedCategory: string;
+    let savedShare: number | null = null;
     if (kind === 'income') recordedCategory = 'INCOME';
     else if (kind === 'transfer') recordedCategory = 'TRANSFER';
     else if (kind === 'personal') recordedCategory = 'PERSONAL';
@@ -106,8 +143,14 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       const mapped = reviewCategory(category);
       if (!mapped) throw new TransactionReviewError('INVALID_CATEGORY', 'Choose a supported category.');
       recordedCategory = mapped.recordedCategory;
+      const recordedShare = mapped.value === 'vehicle_expense' && deduction === true ? actualExpenseShare(data, profileData, vehicles) : null;
+      const suggestionShare = finiteUsePercent(confirmedSuggestion?.deductiblePercent);
+      const shareMatches = input.action === 'correct' || suggestionShare === recordedShare;
       if (deduction === true && recordedCategory.endsWith('_REVIEW_REQUIRED')) {
-        throw new TransactionReviewError('DEDUCTION_REVIEW_REQUIRED', 'This category needs a separate tax method review. Save the category without claiming a deduction.');
+        if (recordedShare !== null && shareMatches) {
+          recordedCategory = VEHICLE_ACTUAL_EXPENSE_CATEGORY;
+          savedShare = recordedShare;
+        } else throw new TransactionReviewError('DEDUCTION_REVIEW_REQUIRED', 'This category needs a separate tax method review. Save the category without claiming a deduction.');
       }
     }
     // Refund category is useful, but never claims an offset without original-expense reconciliation.
@@ -120,6 +163,7 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       review_status: 'confirmed', review_source: source, review_suggestion_id: suggestionId,
       reviewed_at: new Date().toISOString(), tax_review_required: deduction === null,
       updated_at: new Date(),
+      ...(savedShare !== null ? { business_use_percentage: savedShare, deductible_percent: savedShare } : {}),
     };
     tx.update(ref, update);
     return hydrateReviewTransaction({ ...data, ...update }, id);

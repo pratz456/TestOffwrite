@@ -22,3 +22,9 @@ export function standardMileageSeparateCost(text: string): StandardMileageSepara
   if (CAR_LOAN_INTEREST.test(text)) return 'loan_interest';
   return null;
 }
+
+/** A hired ride is not a cost of the taxpayer's own car, so the mileage method does not absorb it. Uber Eats is a meal, not a fare. */
+export function hiredVehicleFare(merchantText: string): boolean {
+  if (/\buber\s*eats\b/i.test(merchantText)) return false;
+  return /\b(?:uber|lyft|taxi|taxicab|cab)\b/i.test(merchantText);
+}

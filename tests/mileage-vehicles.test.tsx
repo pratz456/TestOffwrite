@@ -28,6 +28,7 @@ import {
   partIVForYear,
   planLegacyVehicle,
   fiveAtOnceQuestion,
+  fiveBusinessCarsOverlap,
   saveVehicle,
   sortProgress,
   tripCreateRecord,
@@ -342,6 +343,18 @@ describe('mileage vehicles, trip types, and sorting', () => {
     }
     return [...fleet, blankVehicle('overlap-4', fleet.length)];
   }
+
+  it('one business car plus four blank cars can use the standard rate', () => {
+    let fleet = mustSave([blankVehicle('work', 0)], 'work', { ownership: 'owned', method: 'standard_mileage', datePlacedInService: '2024-01-01' });
+    for (let index = 0; index < 4; index += 1) fleet = [...fleet, blankVehicle(`blank-${index}`, fleet.length)];
+    const saved = saveVehicle(fleet, 'work', { method: 'standard_mileage', taxYear: 2026 }, 'yes');
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    expect(saved.vehicles.find(vehicle => vehicle.id === 'work')?.method).toBe('standard_mileage');
+    expect(saved.question).toBeNull();
+    expect(fiveBusinessCarsOverlap(saved.vehicles)).toBe(false);
+    expect(fiveAtOnceQuestion(saved.vehicles, null)).toBeNull();
+  });
 
   it('five overlapping business cars with the answer no can use the standard rate', () => {
     const saved = saveVehicle(overlappingFleet(), 'overlap-4', {

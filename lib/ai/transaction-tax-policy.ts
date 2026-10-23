@@ -1,6 +1,8 @@
 import type { OutputType, TransactionInput, UserContext } from './analyzeTransaction';
 import { findMerchantEntry, merchantDescriptor, merchantIntelligence, type MerchantIntelligenceResult } from './merchant-intelligence';
-import { standardMileageSeparateCost } from './vehicle-separate-costs';
+import { hiredVehicleFare, standardMileageSeparateCost } from './vehicle-separate-costs';
+import { ACTUAL_EXPENSE_BUSINESS_SHARE } from './actual-expense-share';
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { matchProfessions, professionHint } from './profession-priors';
 import { redactIdentifierText } from '@/lib/security/identifier-redaction';
 import { BUSINESS_STANDARD_MILEAGE_RATES } from '@/lib/tax-rules/mileage-rates';
@@ -727,8 +729,19 @@ export function groundTransactionAnalysis(
       // Auto insurance, registration or repairs filed as "other" is still a vehicle cost: the method decides whether it is deductible separately.
       addEvidence('travel-463');
       result.category = 'vehicle_expense';
-      requireInfo(result, 'vehicle_method', 'Is this cost for a vehicle you drive for business, and do you use the standard mileage rate or actual expenses for it?',
-        'Vehicle insurance, registration and repairs are part of the actual-expense method; under the standard mileage rate they are already included in the per-mile amount and cannot be deducted again. Confirm the vehicle and method before including this cost.');
+      const actualShare = mileageVehicleCopyEnabled() && context?.vehicle_deduction_method === 'actual_expense'
+        ? percentage(transaction.business_use_percentage) ?? percentage(context.vehicle_business_use_percentage) : undefined;
+      if (actualShare === null) {
+        requireInfo(result, 'business_use_percentage', ACTUAL_EXPENSE_BUSINESS_SHARE.question, ACTUAL_EXPENSE_BUSINESS_SHARE.reason);
+      } else if (typeof actualShare === 'number') {
+        result.status = 'ok';
+        result.is_deductible = true;
+        result.expense_type = 'business';
+        result.deductible_percent = actualShare;
+      } else {
+        requireInfo(result, 'vehicle_method', 'Is this cost for a vehicle you drive for business, and do you use the standard mileage rate or actual expenses for it?',
+          'Vehicle insurance, registration and repairs are part of the actual-expense method; under the standard mileage rate they are already included in the per-mile amount and cannot be deducted again. Confirm the vehicle and method before including this cost.');
+      }
     } else if (result.is_deductible === true && TAX_PREP_PATTERN.test(savedAndMerchant) && percentage(transaction.business_use_percentage) === null) {
       // Once the share is saved, the fee is approved below under legal_professional at that share.
       addEvidence('professional-fees-334');
@@ -789,8 +802,25 @@ export function groundTransactionAnalysis(
       addEvidence('capital-263');
       requireInfo(result, 'asset_treatment', hint?.question ?? 'What was purchased, when was it first used for business, and have you recorded the de minimis safe harbor election or a depreciation election for this year?',
         `This purchase needs item-level review to distinguish supplies from assets. The de minimis safe harbor generally uses a $${DE_MINIMIS_ITEM_CEILING.toLocaleString('en-US')} per-item or per-invoice ceiling without an applicable financial statement ($5,000 with one), plus consistent book-expensing and an annual election. A bank-charge total does not establish item cost or capitalization: qualifying materials, supplies and repairs may be current expenses without that election, while assets may need depreciation or a separate expensing election. Review the asset treatment before deducting it in full.`);
+    } else if (result.is_deductible === true && result.category === 'vehicle_expense' && hiredVehicleFare(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`)) {
+      // A hired fare is not fuel, insurance, or repairs of the taxpayer's own car.
+      const provided = percentage(transaction.business_use_percentage);
+      result.status = 'ok';
+      result.is_deductible = true;
+      result.expense_type = 'business';
+      result.deductible_percent = provided ?? 100;
+    } else if (mileageVehicleCopyEnabled() && result.is_deductible === true && result.category === 'vehicle_expense' && !separateVehicleCost && context?.vehicle_deduction_method === 'actual_expense') {
+      const share = percentage(transaction.business_use_percentage) ?? percentage(context.vehicle_business_use_percentage);
+      if (share === null) {
+        requireInfo(result, 'business_use_percentage', ACTUAL_EXPENSE_BUSINESS_SHARE.question, ACTUAL_EXPENSE_BUSINESS_SHARE.reason);
+      } else {
+        result.status = 'ok';
+        result.is_deductible = true;
+        result.expense_type = 'business';
+        result.deductible_percent = share;
+      }
     } else if (result.is_deductible === true && ['equipment', 'home_office', 'vehicle_expense', 'travel'].includes(result.category ?? '') &&
-      !(result.category === 'vehicle_expense' && separateVehicleCost)) {
+      !(result.category === 'vehicle_expense' && (separateVehicleCost || hiredVehicleFare(`${text(transaction.merchant)} ${text(transaction.merchant_name)}`)))) {
       const questions: Record<string, [string, string]> = {
         equipment: ['asset_treatment', 'What was purchased, when was it first used for business, and what business-use records and depreciation elections apply?'],
         home_office: ['home_office_eligibility', 'Is the space used regularly and exclusively for business, and which eligible method and business area apply?'],

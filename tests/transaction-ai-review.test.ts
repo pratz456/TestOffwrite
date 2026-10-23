@@ -269,3 +269,69 @@ describe('proposed purpose and Schedule C line pass through persistence', () => 
     expect(record().ai_suggestion.proposedPurpose).toBeUndefined();
   });
 });
+
+describe('actual expenses save at the recorded business share', () => {
+  const reviewError = 'This category needs a separate tax method review. Save the category without claiming a deduction.';
+  function actualProfile(percent?: number) {
+    const profile = mocks.docs.get('user_profiles/owner')!;
+    const next = { ...profile, vehicle_deduction_method: 'actual_expense' as const };
+    if (percent !== undefined) next.vehicle_business_use_percentage = percent;
+    mocks.docs.set('user_profiles/owner', next);
+  }
+  it('a correction that claimed the deduction saves gas at the recorded share', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      actualProfile(40);
+      change({ merchant_name: 'CHEVRON', amount: 100, business_purpose: 'Gas for the work car', date: '2026-09-15', is_deductible: null });
+      const response = await send(correct({ category: 'vehicle_expense', isDeductible: true, reason: 'Gas for the work car' }));
+      expect(response.status).toBe(200);
+      expect(record()).toMatchObject({
+        category: 'VEHICLE_ACTUAL_EXPENSE', is_deductible: true, business_use_percentage: 40,
+        deductible_percent: 40, tax_review_required: false,
+      });
+      const totals = aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' });
+      expect(totals.totalDeductible).toBe(40);
+      expect(totals.lineItems['9']).toMatchObject({ deductible: 40, lineCode: '9' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('confirming the suggestion at that same share counts the business portion', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      actualProfile(40);
+      const profile = mocks.docs.get('user_profiles/owner')!;
+      change({ merchant_name: 'JIFFY LUBE', amount: 100, business_purpose: 'Oil change on the work car', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED' });
+      change(analysisSuggestionUpdate({
+        ...result, category: 'vehicle_expense', deductible_percent: 100, schedule_c_line: '9',
+        customized_reason: 'Oil change on the work car is deductible on Schedule C line 9.',
+      }, 1770000000000, record(), analysisProfileHash(profile, record().date), profile, { profile, taxYear: 2026 }));
+      expect(record().ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 40, category: 'vehicle_expense' });
+      const response = await send(confirm());
+      expect(response.status).toBe(200);
+      expect(record()).toMatchObject({
+        category: 'VEHICLE_ACTUAL_EXPENSE', is_deductible: true, business_use_percentage: 40, deductible_percent: 40,
+      });
+      expect(aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' }).totalDeductible).toBe(40);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('the same correction still returns the method review error when the switch is off or no share is recorded', async () => {
+    actualProfile(40);
+    change({ merchant_name: 'GEICO', amount: 100, business_purpose: 'Car insurance for the work car' });
+    const off = await send(correct({ category: 'vehicle_expense', isDeductible: true, reason: 'Car insurance for the work car' }));
+    expect(off.status).toBe(422);
+    expect(await off.json()).toEqual({ error: reviewError, code: 'DEDUCTION_REVIEW_REQUIRED' });
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    try {
+      const { vehicle_business_use_percentage: _dropped, ...withoutShare } = mocks.docs.get('user_profiles/owner')!;
+      mocks.docs.set('user_profiles/owner', withoutShare);
+      const missing = await send(correct({ category: 'vehicle_expense', isDeductible: true, reason: 'Car insurance for the work car' }));
+      expect(missing.status).toBe(422);
+      expect(await missing.json()).toEqual({ error: reviewError, code: 'DEDUCTION_REVIEW_REQUIRED' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { ACTUAL_EXPENSE_BUSINESS_SHARE } from '@/lib/ai/actual-expense-share';
 import { CATEGORY_EVIDENCE, CATEGORY_SCHEDULE_C_LINE, EXPENSE_CATEGORIES, groundTransactionAnalysis, isStatedSentence, proposedPurposeQuestion,
   transactionTaxPolicyPrompt, transactionTaxYear, TRANSACTION_EVIDENCE_IDS, TRANSACTION_TAX_EVIDENCE, TRANSACTION_TAX_POLICY_VERSION, uncitedReferences,
   userPurposeText } from '@/lib/ai/transaction-tax-policy';
@@ -603,5 +604,33 @@ describe('2026-09-23 source-audit regressions', () => {
     );
     expect(fuel).toMatchObject({ status: 'needs_more_info', category: 'vehicle_expense' });
     expect(fuel?.customized_reason).toContain('cannot be deducted again');
+  });
+
+  it('a hired fare is not absorbed by the standard mileage rate, and actual expenses use the recorded share', () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    const fare = analyze({ category: 'vehicle_expense', evidence_ids: ['travel-463'] },
+      { merchant: 'Uber', business_purpose: 'Ride to the client meeting downtown.' },
+      { ...ctx, vehicle_deduction_method: 'standard_mileage' });
+    expect(fare).toMatchObject({ status: 'ok', is_deductible: true, category: 'vehicle_expense', deductible_percent: 100 });
+    expect(`${fare?.questions?.join(' ')} ${fare?.reason ?? ''} ${fare?.customized_reason ?? ''}`).not.toContain('already included');
+    const gas = analyze({ category: 'vehicle_expense', evidence_ids: ['travel-463'] },
+      { merchant: 'Chevron', business_purpose: 'Gas for the work car this month.' },
+      { ...ctx, vehicle_deduction_method: 'actual_expense', vehicle_business_use_percentage: 40 });
+    expect(gas).toMatchObject({ status: 'ok', is_deductible: true, category: 'vehicle_expense', deductible_percent: 40 });
+    const repair = analyze({ category: 'repairs_maintenance', evidence_ids: ['business-162'] },
+      { merchant: 'Jiffy Lube', business_purpose: 'Oil change on the work car this month.' },
+      { ...ctx, vehicle_deduction_method: 'actual_expense', vehicle_business_use_percentage: 40 });
+    expect(repair).toMatchObject({ status: 'ok', is_deductible: true, deductible_percent: 40, category: 'vehicle_expense' });
+    const asked = analyze({ category: 'vehicle_expense', evidence_ids: ['travel-463'] },
+      { merchant: 'GEICO', business_purpose: 'Car insurance for the work car this year.' },
+      { ...ctx, vehicle_deduction_method: 'actual_expense' });
+    expect(asked).toMatchObject({ status: 'needs_more_info', missing_fields: ['business_use_percentage'], category: 'vehicle_expense' });
+    expect(asked?.questions?.[0]).toBe(ACTUAL_EXPENSE_BUSINESS_SHARE.question);
+    expect(asked?.questions?.join(' ')).not.toContain('standard mileage rate or actual expenses');
+    vi.unstubAllEnvs();
+    const base = analyze({ category: 'vehicle_expense', evidence_ids: ['travel-463'] },
+      { merchant: 'Chevron', business_purpose: 'Gas for the work car this month.' },
+      { ...ctx, vehicle_deduction_method: 'actual_expense', vehicle_business_use_percentage: 40 });
+    expect(base).toMatchObject({ status: 'needs_more_info', missing_fields: ['vehicle_method'] });
   });
 });
