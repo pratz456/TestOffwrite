@@ -1,8 +1,8 @@
 /**
- * Filed year guard. A past year stays on hold until that user's first export
- * record for the year or their confirmation, whichever comes first. The
- * current year never holds. While a past year is unconfirmed, the download
- * prints the stored export when one exists, otherwise v0 on current data.
+ * Filed year guard. A past year stays on hold until that user confirms it.
+ * An export does not end the hold. The current year never holds. Until
+ * confirmation, a held year prints the stored export when one exists,
+ * otherwise v0 on current data, and attaches the old versus new charge list.
  */
 
 import type { LineItemSummary, ScheduleCTransactionLike } from './aggregate';
@@ -102,16 +102,11 @@ export function currentCalendarYear(now: Date = scheduleCNow()): number {
   return now.getUTCFullYear();
 }
 
-export function shouldHoldYear(
-  uid: string,
-  year: number,
-  state?: { hasExportRecord?: boolean; confirmed?: boolean },
-): boolean {
-  // Every prior year stays on hold until the first export record or a confirmation.
-  // Callers still refuse the current calendar year even though this returns true.
+export function shouldHoldYear(uid: string, year: number): boolean {
+  // An export record does not end this hold. Only a confirmation for the year does,
+  // and callers apply that check. The current year never holds.
   void uid;
   void year;
-  if (state?.hasExportRecord || state?.confirmed) return false;
   return true;
 }
 
@@ -378,13 +373,11 @@ export function decideScheduleCExport(input: {
   const frozen = frozenScheduleCRules();
   const past = input.year < currentCalendarYear(now);
   const confirmed = input.confirmedRulesVersion === current.version;
-  const hasExportRecord = input.prior != null;
-  const held = past && shouldHoldYear(input.uid, input.year, { hasExportRecord, confirmed }) && !confirmed;
-  const replayStored = past && !confirmed && hasExportRecord;
+  const held = past && shouldHoldYear(input.uid, input.year) && !confirmed;
   const keys = keysFor(input.transactions);
   const currentResult = current.aggregate(input.transactions, String(input.year), current.categoryMap, { mode: 'confirmed-only' });
 
-  if (!held && !replayStored) {
+  if (!held) {
     const lineItems = currentResult.lineItemsArray;
     return {
       held: false,
