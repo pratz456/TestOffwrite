@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { DocumentReference } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
+import { vehicleFromDocument, vehicleMethodForTaxYear, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
 import type { OutputType } from './analyzeTransaction';
 import { composeExplanation, type ExplainableResult, type ExplanationProfile } from './explanation';
 import { getOpenAIModel } from '@/lib/openai/client';
@@ -71,8 +72,15 @@ export async function claimAnalysisLease(ref: DocumentReference) {
  * Schedule C paths cannot consume a deduction in a method-review category or at a partial share, so
  * the stored suggestion must ask for the fact that unblocks it rather than restate the approval.
  */
+export interface VehicleMethodGateFacts {
+  vehicles?: readonly VehicleRecord[] | null;
+  profile?: LegacyVehicleProfile | null;
+  taxYear?: number;
+  vehicleId?: string | null;
+}
+
 export function withheldApprovalGate(input: { category: string | null; deductiblePercent: number | null; transactionKind: TransactionKind; amount?: unknown },
-  expectedPercent: number): { question: string; reason: string } {
+  expectedPercent: number, facts?: VehicleMethodGateFacts): { question: string; reason: string } | null {
   const category = reviewCategory(input.category);
   if (input.transactionKind === 'unknown') {
     return { question: 'Was this a purchase, customer payment, refund, loan, owner contribution or movement between your own accounts?',
@@ -83,6 +91,14 @@ export function withheldApprovalGate(input: { category: string | null; deductibl
       reason: 'This charge does not fit a category WriteOff can place on Schedule C automatically. Choose a specific category, or keep it with its saved purpose for your preparer.' };
   }
   if (category.value === 'vehicle_expense') {
+    const dated = facts?.taxYear;
+    const fact = vehicleMethodForTaxYear({
+      vehicles: facts?.vehicles,
+      profile: facts?.profile,
+      taxYear: typeof dated === 'number' ? dated : new Date().getFullYear(),
+      vehicleId: facts?.vehicleId,
+    });
+    if (fact.status === 'known') return null;
     return { question: 'Do you use the standard mileage rate or actual expenses for this vehicle?',
       reason: 'Vehicle costs depend on the method chosen for the vehicle. Fuel, repairs and insurance are included in the standard mileage rate; with actual expenses they are allocated by business-use share. Record the method and your mileage log in Settings before this charge can count.' };
   }
@@ -123,7 +139,7 @@ export function withheldMissingField(category: string | null, transactionKind: T
 
 /** Only suggestions and workflow state; no user classification, category, amount, or reason fields. */
 export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), canonicalData?: Record<string, unknown>, profileHash?: string,
-  profile?: ExplanationProfile | Record<string, unknown> | null) {
+  profile?: ExplanationProfile | Record<string, unknown> | null, vehicleFacts?: VehicleMethodGateFacts) {
   const evidence = result as OutputType & { transaction_kind?: TransactionKind; tax_year?: number | null;
     policy_version?: string; sources?: AiReviewSuggestion['sources'] };
   const model = result.provenance?.model?.trim() || getOpenAIModel('transaction');
@@ -163,10 +179,19 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
   if (suggestion.status === 'ok' && canonicalData && (transactionKind === 'unknown' ||
       suggestion.isDeductible === true && (!supportedCategory || supportedCategory.recordedCategory.endsWith('_REVIEW_REQUIRED') ||
         suggestion.deductiblePercent !== expectedPercent))) {
-    withheld = withheldApprovalGate({ category: suggestion.category, deductiblePercent: suggestion.deductiblePercent, transactionKind, amount: canonicalData.amount }, expectedPercent);
-    suggestion.status = 'needs_more_info'; suggestion.isDeductible = null; suggestion.deductiblePercent = null;
-    suggestion.questions = [withheld.question, ...suggestion.questions.filter(question => question !== withheld!.question)].slice(0, 3);
-    suggestion.reasoning = withheld.reason;
+    const savedDate = typeof canonicalData.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(canonicalData.date) ? Number(canonicalData.date.slice(0, 4)) : null;
+    const vehicleId = typeof canonicalData.vehicleId === 'string' ? canonicalData.vehicleId : typeof canonicalData.vehicle_id === 'string' ? canonicalData.vehicle_id : vehicleFacts?.vehicleId;
+    withheld = withheldApprovalGate({ category: suggestion.category, deductiblePercent: suggestion.deductiblePercent, transactionKind, amount: canonicalData.amount }, expectedPercent, {
+      ...vehicleFacts,
+      taxYear: vehicleFacts?.taxYear ?? evidence.tax_year ?? savedDate ?? undefined,
+      vehicleId,
+    });
+    if (withheld) {
+      const gate = withheld;
+      suggestion.status = 'needs_more_info'; suggestion.isDeductible = null; suggestion.deductiblePercent = null;
+      suggestion.questions = [gate.question, ...suggestion.questions.filter(question => question !== gate.question)].slice(0, 3);
+      suggestion.reasoning = gate.reason;
+    }
   }
   const displayedReason = withheld?.reason ?? result.customized_reason ?? null;
   const label = suggestion.status === 'needs_more_info' ? 'Needs more information' : suggestion.status === 'blocked' ? 'Needs manual review' :
@@ -221,12 +246,29 @@ export async function persistAnalysisSuggestion(ref: DocumentReference, result: 
   }
   const profileRef = adminDb.doc(`user_profiles/${parts[1]}`);
   return adminDb.runTransaction(async tx => {
-    const [snap, currentProfile] = await Promise.all([tx.get(ref), tx.get(profileRef)]);
+    const vehicleRead = tx.get(profileRef.collection('vehicles')).then(vehicleSnap => {
+      const docs = (vehicleSnap as { docs?: Array<{ id: string; data: () => Record<string, unknown> }> }).docs;
+      return Array.isArray(docs) ? docs.map(doc => vehicleFromDocument(doc.id, doc.data())) : undefined;
+    }).catch(() => undefined);
+    const [snap, currentProfile, vehicles] = await Promise.all([
+      tx.get(ref), tx.get(profileRef), vehicleRead,
+    ]);
     if (!snap.exists || !isAnalysisLeaseCurrent(snap.data()!, lease)) return { status: 'stale' as const };
     // Profile edits can change both the decision and displayed tax effect while the model runs.
     // Reading profile and transaction inside one commit transaction prevents publishing old facts.
     if (!currentProfile.exists || analysisProfileHash(currentProfile.data()!, snap.data()!.date) !== profileHash) return { status: 'stale' as const };
-    const update = analysisSuggestionUpdate(result, Date.now(), snap.data()!, profileHash, profile);
+    const profileData = currentProfile.data() as Record<string, unknown>;
+    const nested = profileData.business_vehicle;
+    const vehicleId = typeof snap.data()!.vehicleId === 'string' ? snap.data()!.vehicleId : typeof snap.data()!.vehicle_id === 'string' ? snap.data()!.vehicle_id : null;
+    const update = analysisSuggestionUpdate(result, Date.now(), snap.data()!, profileHash, profile, {
+      vehicles,
+      vehicleId,
+      profile: {
+        vehicle_deduction_method: typeof profileData.vehicle_deduction_method === 'string' ? profileData.vehicle_deduction_method : null,
+        vehicle_business_use_percentage: typeof profileData.vehicle_business_use_percentage === 'number' ? profileData.vehicle_business_use_percentage : null,
+        business_vehicle: nested && typeof nested === 'object' ? nested as LegacyVehicleProfile['business_vehicle'] : null,
+      },
+    });
     tx.update(ref, update);
     return {
       status: 'saved' as const,

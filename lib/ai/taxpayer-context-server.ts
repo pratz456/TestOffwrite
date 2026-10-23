@@ -1,4 +1,5 @@
 import { adminDb } from '@/lib/firebase/admin';
+import { vehicleFromDocument, type VehicleRecord } from '@/lib/mileage/vehicles';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 import type { UserContext } from './analyzeTransaction';
 import {
@@ -168,16 +169,27 @@ function loadTaxYearRecordFacts(uid: string, taxYear?: number): Promise<TaxYearR
  * Best-effort enrichment. Any read failure yields profile-only context so
  * analysis still runs; it never fails a transaction because history was unavailable.
  */
+async function readUserVehicles(uid: string): Promise<VehicleRecord[] | undefined> {
+  try {
+    const snap = await adminDb.doc(`user_profiles/${uid}`).collection('vehicles').get();
+    const docs = (snap as { docs?: Array<{ id: string; data: () => Record<string, unknown> }> }).docs;
+    return Array.isArray(docs) ? docs.map(doc => vehicleFromDocument(doc.id, doc.data())) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function loadTaxpayerContext(uid: string, profile: UserContext, merchant: string | null | undefined, transactionDate: string | null): Promise<TaxpayerAnalysisContext> {
   const taxYear = typeof transactionDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(transactionDate)
     ? Number(transactionDate.slice(0, 4))
     : undefined;
-  const [homeOffice, confirmed, taxYearRecords] = await Promise.all([
+  const [homeOffice, confirmed, taxYearRecords, vehicles] = await Promise.all([
     loadHomeOfficeFacts(uid).catch(() => null),
     loadConfirmedTransactionRecords(uid)
       .then(records => summarizeConfirmedMerchants(records, 40, taxYear))
       .catch(() => [] as ReturnType<typeof summarizeConfirmedMerchants>),
     loadTaxYearRecordFacts(uid, taxYear).catch(() => null),
+    readUserVehicles(uid),
   ]);
-  return buildTaxpayerContext({ profile, homeOffice, confirmed, taxYearRecords, merchant, transactionDate });
+  return buildTaxpayerContext({ profile, homeOffice, confirmed, taxYearRecords, merchant, transactionDate, vehicles, taxYear });
 }

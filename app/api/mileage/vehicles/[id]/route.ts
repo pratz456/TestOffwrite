@@ -13,6 +13,8 @@ const patchInput = z.object({
   method: z.enum(['standard_mileage', 'actual_expense', 'unset']).optional(),
   ownership: z.enum(['owned', 'leased', 'not_answered']).optional(),
   datePlacedInService: z.string().optional(),
+  dateDisposed: z.string().optional(),
+  methodEffectiveDate: z.string().optional(),
   odometerStart: z.number().finite().nonnegative().nullable().optional(),
   odometerEnd: z.number().finite().nonnegative().nullable().optional(),
   partIV: z.object({

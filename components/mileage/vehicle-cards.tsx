@@ -1,6 +1,7 @@
 import React from 'react';
 import { MILEAGE_VEHICLE_COPY } from '@/lib/mileage/vehicle-copy';
 import {
+  methodForYear,
   odometerForYear,
   partIVForYear,
   vehicleNeedsReview,
@@ -49,6 +50,7 @@ export function VehicleCards({
       <div className="grid gap-4 md:grid-cols-2">
         {vehicles.map(vehicle => {
           const readings = odometerForYear(vehicle, taxYear);
+          const yearMethod = methodForYear(vehicle, taxYear);
           const answers = partIVForYear(vehicle, taxYear);
           const missingOdometer = readings.start === null || readings.end === null;
           return (
@@ -83,8 +85,8 @@ export function VehicleCards({
                 <select
                   className="h-11 w-full rounded-lg border border-border bg-card px-3 text-base"
                   aria-label={copy.deductionMethod}
-                  value={vehicle.method}
-                  onChange={event => onChange(vehicle.id, { method: event.target.value as DeductionMethod })}
+                  value={yearMethod}
+                  onChange={event => onChange(vehicle.id, { taxYear, method: event.target.value as DeductionMethod })}
                 >
                   <option value="unset">{copy.notSet}</option>
                   <option value="standard_mileage">{copy.standardMileage}</option>
@@ -115,6 +117,18 @@ export function VehicleCards({
                 />
               </label>
               {detail === 'full' ? (
+                <label className="block space-y-1">
+                  <span className="text-xs font-medium text-muted-foreground">{copy.dateSold}</span>
+                  <input
+                    className="h-11 w-full rounded-lg border border-border bg-card px-3 text-base"
+                    aria-label={copy.dateSold}
+                    type="date"
+                    defaultValue={vehicle.dateDisposed}
+                    onBlur={event => onChange(vehicle.id, { dateDisposed: event.target.value })}
+                  />
+                </label>
+              ) : null}
+              {detail === 'full' ? (
                 <>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="block space-y-1">
@@ -126,6 +140,7 @@ export function VehicleCards({
                         defaultValue={readings.start ?? ''}
                         onBlur={event => onChange(vehicle.id, { taxYear, odometerStart: event.target.value.trim() === '' ? null : Number(event.target.value) })}
                       />
+                      {readings.startDate ? <span className="text-xs text-muted-foreground">{readings.startDate}</span> : null}
                     </label>
                     <label className="block space-y-1">
                       <span className="text-xs font-medium text-muted-foreground">{copy.odometerDec31}</span>
@@ -136,6 +151,7 @@ export function VehicleCards({
                         defaultValue={readings.end ?? ''}
                         onBlur={event => onChange(vehicle.id, { taxYear, odometerEnd: event.target.value.trim() === '' ? null : Number(event.target.value) })}
                       />
+                      {readings.endDate ? <span className="text-xs text-muted-foreground">{readings.endDate}</span> : null}
                     </label>
                   </div>
                   {([

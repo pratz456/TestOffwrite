@@ -11,8 +11,11 @@ export const MILEAGE_VEHICLE_COPY = {
   deductionMethod: 'Deduction method',
   ownedOrLeased: 'Owned or leased',
   dateFirstUsed: 'Date first used for business',
-  odometerJan1: 'Odometer on Jan 1',
-  odometerDec31: 'Odometer on Dec 31',
+  odometerJan1: 'Odometer at start of year (or when first used)',
+  odometerDec31: 'Odometer at end of year (or when sold)',
+  dateSold: 'Date sold or stopped using',
+  midYearMethod: 'A change partway through the year is not split. This car keeps one method for the whole year.',
+  invalidMethodDate: 'Enter a date in this tax year, or leave it blank.',
   partIVOffDuty: "Was this car available for personal use when you weren't working?",
   partIVOtherCar: 'Do you or your spouse have another car for personal use?',
   partIVEvidence: 'Do you have records to back up your mileage?',
@@ -72,7 +75,7 @@ export const MILEAGE_VEHICLE_COPY = {
 
 const STATIC_COPY_KEYS = [
   'pickTripType', 'homePrompt', 'methodDisagree', 'odometerReview', 'legacyPercentage',
-  'vehicleName', 'deductionMethod', 'ownedOrLeased', 'dateFirstUsed', 'odometerJan1', 'odometerDec31',
+  'vehicleName', 'deductionMethod', 'ownedOrLeased', 'dateFirstUsed', 'odometerJan1', 'odometerDec31', 'dateSold', 'midYearMethod', 'invalidMethodDate',
   'partIVOffDuty', 'partIVOtherCar', 'partIVEvidence', 'partIVWritten', 'sortTitle', 'yourCars', 'addCar',
   'repeatedTrips', 'oneOffTrips', 'business', 'commute', 'personal', 'notSure', 'review', 'notSet',
   'standardMileage', 'actualExpense', 'owned', 'leased', 'notAnswered', 'yes', 'no', 'regularWork',

@@ -15,7 +15,7 @@ let fleet: VehicleRecord[] = [migrated];
 const second = blankVehicle('civic-2', fleet.length);
 second.name = 'Studio van';
 fleet = [...fleet, second];
-const saved = saveVehicle(fleet, second.id, { ownership: 'owned', method: 'standard_mileage', datePlacedInService: '2024-06-01' });
+const saved = saveVehicle(fleet, second.id, { ownership: 'owned', method: 'standard_mileage', datePlacedInService: '2026-07-01', taxYear: 2026, odometerStart: 24000, odometerEnd: 31000 });
 if (!saved.ok) throw new Error(saved.reason);
 fleet = saved.vehicles;
 

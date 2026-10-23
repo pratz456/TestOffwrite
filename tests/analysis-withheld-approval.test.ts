@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
 import { analysisSuggestionUpdate, withheldApprovalGate, withheldMissingField } from '@/lib/ai/analysis-persistence';
+import { blankVehicle, saveVehicle } from '@/lib/mileage/vehicles';
 import type { OutputType } from '@/lib/ai/analyzeTransaction';
 
 const approval = (patch: Partial<OutputType> = {}): OutputType => ({
@@ -85,6 +86,31 @@ describe('an engine approval the review path cannot consume is stored as the que
       }
     }
   });
+  it('a known vehicle method for the tax year is not asked again', () => {
+    const savedCars = saveVehicle([blankVehicle('legacy-vehicle-1', 0)], 'legacy-vehicle-1', { method: 'actual_expense', taxYear: 2026 });
+    if (!savedCars.ok) throw new Error(savedCars.reason);
+    const saved = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
+      record({ amount: 58, merchant_name: 'CHEVRON 0209', business_purpose: 'Gas for a full day of Uber driving' }), undefined, null, {
+        vehicles: savedCars.vehicles,
+        profile: { vehicle_deduction_method: 'standard_mileage' },
+      });
+    expect(saved.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true });
+    expect(saved.ai_suggestion.questions.join(' ')).not.toContain('standard mileage rate or actual expenses');
+    expect(saved.ai_missing_fields ?? []).not.toContain('vehicle_method');
+  });
+
+  it('several cars and no linked car still need the vehicle method', () => {
+    const first = saveVehicle([blankVehicle('legacy-vehicle-1', 0)], 'legacy-vehicle-1', { method: 'standard_mileage', taxYear: 2026 });
+    if (!first.ok) throw new Error(first.reason);
+    const saved = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
+      record({ amount: 58, business_purpose: 'Gas for a full day of Uber driving' }), undefined, null, {
+        vehicles: [...first.vehicles, blankVehicle('van', 1)],
+      });
+    expect(saved.ai_suggestion.status).toBe('needs_more_info');
+    expect(saved.ai_suggestion.questions[0]).toBe('Do you use the standard mileage rate or actual expenses for this vehicle?');
+    expect(saved.ai_missing_fields).toEqual(['vehicle_method']);
+  });
+
   it('a meal approval at 50% is saved as the approval; any other share is withheld', () => {
     const meal = approval({ category: 'meals_50', deductible_percent: 50, schedule_c_line: '24b' });
     expect(analysisSuggestionUpdate(meal, 1, record({ amount: 64, merchant_name: 'Chipotle' })).ai_suggestion.status).toBe('ok');

@@ -14,9 +14,11 @@ import {
   emptyPartIV,
   groupTrips,
   legacyPercentageContribution,
+  methodForYear,
   migrateLegacyVehicles,
   mileageDeductionTotal,
   normalizeStoredTrip,
+  odometerForYear,
   partIVForYear,
   planLegacyVehicle,
   saveVehicle,
@@ -24,6 +26,8 @@ import {
   tripCreateRecord,
   tripTypeFromBusinessPurpose,
   vehicleFromDocument,
+  vehicleMethodForTaxYear,
+  vehicleNeedsReview,
   vehicleToDocument,
   type LegacyVehicleProfile,
   type MileageTripFields,
@@ -116,7 +120,7 @@ describe('mileage vehicles, trip types, and sorting', () => {
     expect(saved.name).toBe('Civic');
     expect(saved.ownership).toBe('owned');
     expect(saved.datePlacedInService).toBe('2024-03-01');
-    expect(saved.odometerByYear['2026']).toEqual({ start: 1200, end: 8400 });
+    expect(saved.odometerByYear['2026']).toEqual({ start: 1200, end: 8400, startDate: '2026-01-01', endDate: '2026-12-31' });
     expect(saved.partIVByYear['2026']).toEqual({ offDutyPersonalUse: 'yes', otherVehicleForPersonalUse: 'no', hasEvidence: 'yes', evidenceWritten: 'no' });
     expect(saved.partIVByYear['2025']).toBeUndefined();
     expect(partIVForYear(saved, 2025)).toEqual(emptyPartIV());
@@ -215,6 +219,75 @@ describe('mileage vehicles, trip types, and sorting', () => {
     expect(store.profile.vehicle_deduction_method).toBe('standard_mileage');
     expect(store.profile.business_vehicle).toEqual(profile.business_vehicle);
     expect(store.saved[0].name).toBe('Toyota Camry 2018');
+  });
+
+  it('mid year method change goes to review', () => {
+    const started = mustSave([blankVehicle('car', 0)], 'car', { ownership: 'owned', method: 'standard_mileage', taxYear: 2026 });
+    expect(methodForYear(started[0], 2026)).toBe('standard_mileage');
+    expect(Object.keys(started[0].methodByYear)).toEqual(['2026']);
+    const mid = saveVehicle(started, 'car', { method: 'actual_expense', taxYear: 2026, methodEffectiveDate: '2026-06-15' });
+    expect(mid.ok).toBe(true);
+    if (!mid.ok) return;
+    expect(methodForYear(mid.vehicles[0], 2026)).toBe('standard_mileage');
+    expect(mid.vehicles[0].methodByYear).toEqual({ '2026': 'standard_mileage' });
+    expect(mid.vehicles[0].reviewItems).toEqual([{ id: 'mid_year_method_change', taxYear: 2026, message: copy.midYearMethod }]);
+    const again = saveVehicle(mid.vehicles, 'car', { method: 'actual_expense', taxYear: 2026, methodEffectiveDate: '2026-08-01' });
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    expect(again.vehicles[0].reviewItems.filter(item => item.id === 'mid_year_method_change')).toHaveLength(1);
+  });
+
+  it('actual to standard switch is blocked', () => {
+    const started = mustSave([blankVehicle('car', 0)], 'car', { ownership: 'owned', method: 'actual_expense', taxYear: 2025 });
+    expect(started[0].depreciationMethod).toBe('macrs');
+    const blocked = saveVehicle(started, 'car', { method: 'standard_mileage', taxYear: 2026 });
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) expect(blocked.reason).toBe(copy.macrsLock);
+    expect(started[0].methodByYear['2025']).toBe('actual_expense');
+    expect(started[0].methodByYear['2026']).toBeUndefined();
+  });
+
+  it('a car placed in service on July 1 stores that start reading date', () => {
+    const placed = mustSave([blankVehicle('car', 0)], 'car', {
+      datePlacedInService: '2026-07-01', taxYear: 2026, odometerStart: 41000, odometerEnd: 46000,
+    });
+    expect(odometerForYear(placed[0], 2026)).toEqual({ start: 41000, end: 46000, startDate: '2026-07-01', endDate: '2026-12-31' });
+    const sold = mustSave(placed, 'car', { dateDisposed: '2026-09-15' });
+    expect(odometerForYear(sold[0], 2026).endDate).toBe('2026-09-15');
+    expect(sold[0].dateDisposed).toBe('2026-09-15');
+  });
+
+  it('a car missing either odometer reading is flagged and nothing is assumed', () => {
+    const partial = mustSave([blankVehicle('car', 0)], 'car', { taxYear: 2026, odometerStart: 10, method: 'standard_mileage' });
+    expect(odometerForYear(partial[0], 2026)).toMatchObject({ start: 10, end: null, endDate: null });
+    expect(vehicleNeedsReview(partial[0], 2026)).toBe(true);
+    const empty = blankVehicle('bare', 1);
+    expect(odometerForYear(empty, 2026)).toEqual({ start: null, end: null, startDate: null, endDate: null });
+    expect(vehicleNeedsReview(empty, 2026)).toBe(true);
+  });
+
+  it('vehicle method reader uses the list for the tax year and treats several unlinked cars as unknown', () => {
+    const migrated = blankVehicle('legacy-vehicle-1', 0);
+    migrated.legacyMigration = true;
+    migrated.legacyBusinessUsePercentage = 80;
+    migrated.method = 'standard_mileage';
+    migrated.methodByYear = { '2026': 'standard_mileage' };
+    const listed = [migrated];
+    const one = vehicleMethodForTaxYear({
+      vehicles: listed, profile: { vehicle_deduction_method: 'actual_expense', vehicle_business_use_percentage: 15 }, taxYear: 2026,
+    });
+    expect(one).toMatchObject({ status: 'known', method: 'standard_mileage', businessUsePercent: 80, vehicleId: migrated.id, needsInfo: false });
+    const second = blankVehicle('other', 1);
+    const many = vehicleMethodForTaxYear({ vehicles: [...listed, second], taxYear: 2026 });
+    expect(many).toMatchObject({ status: 'unknown', method: null, businessUsePercent: null, needsInfo: true });
+    const linked = vehicleMethodForTaxYear({ vehicles: [...listed, second], taxYear: 2026, vehicleId: migrated.id });
+    expect(linked.method).toBe('standard_mileage');
+    const fallback = vehicleMethodForTaxYear({ profile: { vehicle_deduction_method: 'standard_mileage', vehicle_business_use_percentage: 33 }, taxYear: 2026 });
+    expect(fallback).toMatchObject({ status: 'known', method: 'standard_mileage', businessUsePercent: 33, vehicleId: 'legacy-vehicle-1' });
+    const disagree = vehicleMethodForTaxYear({
+      profile: { vehicle_deduction_method: 'standard_mileage', business_vehicle: { deduction_method: 'actual_expense' } }, taxYear: 2026,
+    });
+    expect(disagree).toMatchObject({ status: 'unset', method: null, needsInfo: true });
   });
 
   it('actual first year then standard is rejected', () => {
@@ -369,7 +442,7 @@ describe('mileage vehicles, trip types, and sorting', () => {
     expect(text(VehicleCards({ copyEnabled: false, ...props }))).toBe('');
     const shown = VehicleCards({ copyEnabled: true, ...props });
     const shownText = text(shown);
-    for (const sentence of [copy.yourCars, copy.addCar, copy.vehicleName, copy.deductionMethod, copy.ownedOrLeased, copy.dateFirstUsed, copy.odometerJan1, copy.odometerDec31, copy.partIVOffDuty, copy.partIVOtherCar, copy.partIVEvidence, copy.partIVWritten, copy.methodDisagree, copy.odometerReview, copy.legacyPercentage, copy.review]) {
+    for (const sentence of [copy.yourCars, copy.addCar, copy.vehicleName, copy.deductionMethod, copy.ownedOrLeased, copy.dateFirstUsed, copy.dateSold, copy.odometerJan1, copy.odometerDec31, copy.partIVOffDuty, copy.partIVOtherCar, copy.partIVEvidence, copy.partIVWritten, copy.methodDisagree, copy.odometerReview, copy.legacyPercentage, copy.review]) {
       expect(shownText).toContain(sentence);
     }
     const nodes = walk(shown);
