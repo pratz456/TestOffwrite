@@ -1,5 +1,5 @@
 import { learningMerchantKey } from '@/lib/ai/learning-engine';
-import { vehicleMethodForTaxYear, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
+import { vehicleMethodForRead, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { guidanceSource } from './knowledge';
 
@@ -97,7 +97,7 @@ export function assistantProfileFacts(
   const homeOffice = record.home_office_method;
   const vehicleId = vehicleFacts?.vehicleId
     ?? (typeof record.vehicleId === 'string' ? record.vehicleId : typeof record.vehicle_id === 'string' ? record.vehicle_id : null);
-  const vehicleFact = vehicleMethodForTaxYear({
+  const vehicleFact = vehicleMethodForRead({
     vehicles: vehicleFacts?.vehicles,
     profile: record as LegacyVehicleProfile,
     taxYear: vehicleFacts?.taxYear ?? new Date().getFullYear(),

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const writes: string[] = [];
+const sets: Array<{ path: string; data: Record<string, unknown> }> = [];
 const profileData = {
   vehicle_deduction_method: 'standard_mileage',
   vehicle_business_use_percentage: 40,
@@ -38,8 +39,9 @@ vi.mock('@/lib/firebase/admin', () => ({
         if (ref.path === 'user_profiles/owner') return { exists: true, data: () => profileData, docs: [] };
         return { exists: false, data: () => undefined, docs: [] };
       },
-      set(ref) {
+      set(ref, data) {
         writes.push(ref.path);
+        sets.push({ path: ref.path, data: data as Record<string, unknown> });
       },
     }),
   },
@@ -49,6 +51,7 @@ import { addUserVehicle, ensureUserVehicles, saveUserVehicle } from '@/lib/fireb
 
 beforeEach(() => {
   writes.length = 0;
+  sets.length = 0;
   vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
 });
 afterEach(() => vi.unstubAllEnvs());
@@ -87,6 +90,11 @@ describe('vehicle list writes', () => {
     expect(writes).toEqual([
       'user_profiles/owner/vehicles/legacy-vehicle-1',
       'user_profiles/owner/vehicles/legacy-vehicle-1',
+      'user_profiles/owner',
+      'profile_analysis_refresh/owner',
     ]);
+    const stamp = sets.find(entry => entry.path === 'user_profiles/owner')?.data.vehicles as Array<{ id: string; method: string }>;
+    expect(stamp.map(vehicle => vehicle.id)).toEqual(['legacy-vehicle-1']);
+    expect(stamp[0].method).toBe('standard_mileage');
   });
 });

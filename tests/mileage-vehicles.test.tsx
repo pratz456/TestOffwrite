@@ -372,6 +372,19 @@ describe('mileage vehicles, trip types, and sorting', () => {
     if (saved.ok) expect(saved.vehicles.find(vehicle => vehicle.id === 'current')?.method).toBe('standard_mileage');
   });
 
+  it('four cars used one after another plus a fifth in 2026 is allowed', () => {
+    let fleet: VehicleRecord[] = [];
+    for (const year of [2022, 2023, 2024, 2025]) {
+      const id = `year-${year}`;
+      fleet = [...fleet, blankVehicle(id, fleet.length)];
+      fleet = mustSave(fleet, id, { ownership: 'owned', method: 'standard_mileage', datePlacedInService: `${year}-01-01`, dateDisposed: `${year}-12-31` });
+    }
+    fleet = [...fleet, blankVehicle('year-2026', fleet.length)];
+    const saved = saveVehicle(fleet, 'year-2026', { ownership: 'owned', method: 'standard_mileage', datePlacedInService: '2026-01-01', taxYear: 2026 });
+    expect(saved.ok).toBe(true);
+    if (saved.ok) expect(saved.vehicles.find(vehicle => vehicle.id === 'year-2026')?.method).toBe('standard_mileage');
+  });
+
   it('five cars in service at the same time is refused', () => {
     const open = Array.from({ length: 5 }, (_, index) => blankVehicle(`open-${index}`, index));
     const undated = saveVehicle(open, 'open-4', { ownership: 'owned', method: 'standard_mileage' });
@@ -403,20 +416,31 @@ describe('mileage vehicles, trip types, and sorting', () => {
     expect(countedMiles(applyHomeDestination(home, 'second_work'))).toBe(0);
   });
 
-  it('a home to regular work trip stays commute when the home office is not the principal place of business', () => {
+  it('a home to regular work trip stays commute unless regular and exclusive use are both yes', () => {
     const home = trip({ id: 'home', startLocation: 'Home', endLocation: 'Office', miles: 8, vehicleId: 'v1' });
     const assignment = { vehicleId: 'v1', tripType: 'commute' as const, homeDestination: 'regular_work' as const };
-    for (const qualifyingUse of [undefined, null, 'none', 'meet_clients', 'separate_structure'] as const) {
-      const [sorted] = assignTrips([home], [home.id], assignment, { qualifyingUse });
+    const offices = [
+      { qualifyingUse: undefined },
+      { qualifyingUse: null },
+      { qualifyingUse: 'none' as const },
+      { qualifyingUse: 'meet_clients' as const },
+      { qualifyingUse: 'separate_structure' as const },
+      { qualifyingUse: 'principal_place_of_business' as const, regularUse: 'no' as const, exclusiveUse: 'yes' as const },
+      { qualifyingUse: 'principal_place_of_business' as const, regularUse: 'yes' as const, exclusiveUse: 'no' as const },
+      { qualifyingUse: 'principal_place_of_business' as const, regularUse: 'yes' as const },
+    ];
+    for (const homeOffice of offices) {
+      const [sorted] = assignTrips([home], [home.id], assignment, homeOffice);
       expect(sorted.tripType).toBe('commute');
       expect(sorted.homeDestination).toBe('regular_work');
       expect(countedMiles(sorted)).toBe(0);
     }
   });
 
-  it('a home to regular work trip stays unsorted when the home office is the principal place of business', () => {
+  it('a home to regular work trip stays unsorted when the home office is the principal place and both uses are yes', () => {
     const home = trip({ id: 'home', startLocation: 'Home', endLocation: 'Office', miles: 8, vehicleId: 'v1', tripType: 'commute' });
-    const [reviewed] = assignTrips([home], [home.id], { vehicleId: 'v1', tripType: 'commute', homeDestination: 'regular_work' }, { qualifyingUse: 'principal_place_of_business' });
+    const office = { qualifyingUse: 'principal_place_of_business' as const, regularUse: 'yes' as const, exclusiveUse: 'yes' as const };
+    const [reviewed] = assignTrips([home], [home.id], { vehicleId: 'v1', tripType: 'commute', homeDestination: 'regular_work' }, office);
     expect(reviewed.tripType).toBeNull();
     expect(reviewed.homeDestination).toBeNull();
     expect(countedMiles(reviewed)).toBe(0);
@@ -547,6 +571,7 @@ describe('mileage vehicles, trip types, and sorting', () => {
   });
 
   it('11a five readers use the vehicle list for the tax year', () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
     const stale = {
       user_id: 'owner', profession: ['Photographer'], filing_state: 'TX',
       vehicle_deduction_method: 'actual_expense' as const, vehicle_business_use_percentage: 90,
@@ -568,7 +593,7 @@ describe('mileage vehicles, trip types, and sorting', () => {
     const gate = withheldApprovalGate({ category: 'vehicle_expense', deductiblePercent: 100, transactionKind: 'expense', amount: 40 }, 100, {
       vehicles: [linked], profile: stale, taxYear: 2026, vehicleId: linked.id,
     });
-    expect(gate).toBeNull();
+    expect(gate?.question).toBe('Fuel, repairs and insurance are included in the standard mileage rate. Only parking and tolls are added on their own.');
     const enhanced = convertToEnhancedContext(stale, '2026-08-01', { vehicles: [linked], vehicleId: linked.id });
     expect(enhanced.vehicle_deduction_method).toBe('standard_mileage');
     expect(enhanced.business_vehicle).toMatchObject({ make: 'Ford', model: 'Focus', year: 2014, deduction_method: 'standard_mileage', business_use_percentage: 40 });
@@ -589,6 +614,30 @@ describe('mileage vehicles, trip types, and sorting', () => {
     expect(unknown.business_vehicle?.business_use_percentage).toBeUndefined();
     expect(unknown.business_vehicle).toMatchObject({ make: 'Ford', model: 'Focus', year: 2014 });
     expect(assistantProfileFacts(stale, { vehicles: [linked, other], taxYear: 2026 }).vehicleMethod).toBeNull();
+    vi.unstubAllEnvs();
+  });
+
+  it('a legacy profile whose two old method fields disagree reads as the base when the switch is off', () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    const disagreeing = {
+      user_id: 'owner', profession: ['Photographer'], filing_state: 'TX',
+      vehicle_deduction_method: 'standard_mileage' as const,
+      vehicle_business_use_percentage: 40,
+      business_vehicle: { make: 'Ford', model: 'Focus', year: 2014, deduction_method: 'actual_expense' as const, business_use_percentage: 80 },
+    };
+    const listed = blankVehicle('legacy-vehicle-1', 0);
+    listed.method = 'actual_expense';
+    listed.methodByYear = { '2026': 'actual_expense' };
+    const context = buildTaxpayerContext({
+      profile: disagreeing as UserContext, vehicles: [listed], transactionDate: '2026-08-01', merchant: 'Chevron', confirmed: [],
+    });
+    expect(context.methods.vehicle).toEqual({ method: 'standard_mileage', businessUsePercent: 40 });
+    expect(context.gaps).not.toContain('vehicle_deduction_method');
+    const enhanced = convertToEnhancedContext(disagreeing, '2026-08-01', { vehicles: [listed] });
+    expect(enhanced.vehicle_deduction_method).toBe('standard_mileage');
+    expect(enhanced.business_vehicle).toMatchObject({ deduction_method: 'standard_mileage', business_use_percentage: 40 });
+    expect(assistantProfileFacts(disagreeing, { vehicles: [listed], taxYear: 2026 }).vehicleMethod).toBe('standard_mileage');
+    vi.unstubAllEnvs();
   });
 
   it('11b a mid year method change on one car goes to review and leaves the method in place', () => {

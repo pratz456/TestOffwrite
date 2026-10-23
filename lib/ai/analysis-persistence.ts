@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { DocumentReference } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { vehicleFromDocument, vehicleMethodForTaxYear, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
 import type { OutputType } from './analyzeTransaction';
 import { composeExplanation, type ExplainableResult, type ExplanationProfile } from './explanation';
@@ -54,6 +55,18 @@ export function isAnalysisLeaseCurrent(data: Record<string, unknown>, lease: Ana
     lease.expiresAt > now && analysisInputHash(data) === lease.inputHash;
 }
 
+/** Base vehicle-expense question. Actual expenses, an unknown method, no vehicle data, and the copy switch off all keep this text. */
+export const VEHICLE_METHOD_GATE = {
+  question: 'Do you use the standard mileage rate or actual expenses for this vehicle?',
+  reason: 'Vehicle costs depend on the method chosen for the vehicle. Fuel, repairs and insurance are included in the standard mileage rate; with actual expenses they are allocated by business-use share. Record the method and your mileage log in Settings before this charge can count.',
+} as const;
+
+/** Standard mileage already covers running costs. Parking and tolls stay a separate category and are not held here. */
+export const STANDARD_MILEAGE_RUNNING_COST_GATE = {
+  question: 'Fuel, repairs and insurance are included in the standard mileage rate. Only parking and tolls are added on their own.',
+  reason: 'This car uses the standard mileage rate, so fuel, repairs, insurance and other running costs are already included and are not deducted again. Parking and tolls on a business trip can still count.',
+} as const;
+
 /** Call only after resolving and authorizing the transaction's actual document reference. */
 export async function claimAnalysisLease(ref: DocumentReference) {
   return adminDb.runTransaction(async tx => {
@@ -91,16 +104,17 @@ export function withheldApprovalGate(input: { category: string | null; deductibl
       reason: 'This charge does not fit a category WriteOff can place on Schedule C automatically. Choose a specific category, or keep it with its saved purpose for your preparer.' };
   }
   if (category.value === 'vehicle_expense') {
-    const dated = facts?.taxYear;
-    const fact = vehicleMethodForTaxYear({
-      vehicles: facts?.vehicles,
-      profile: facts?.profile,
-      taxYear: typeof dated === 'number' ? dated : new Date().getFullYear(),
-      vehicleId: facts?.vehicleId,
-    });
-    if (fact.status === 'known') return null;
-    return { question: 'Do you use the standard mileage rate or actual expenses for this vehicle?',
-      reason: 'Vehicle costs depend on the method chosen for the vehicle. Fuel, repairs and insurance are included in the standard mileage rate; with actual expenses they are allocated by business-use share. Record the method and your mileage log in Settings before this charge can count.' };
+    if (mileageVehicleCopyEnabled()) {
+      const dated = facts?.taxYear;
+      const fact = vehicleMethodForTaxYear({
+        vehicles: facts?.vehicles,
+        profile: facts?.profile,
+        taxYear: typeof dated === 'number' ? dated : new Date().getFullYear(),
+        vehicleId: facts?.vehicleId,
+      });
+      if (fact.status === 'known' && fact.method === 'standard_mileage') return { ...STANDARD_MILEAGE_RUNNING_COST_GATE };
+    }
+    return { ...VEHICLE_METHOD_GATE };
   }
   if (category.value === 'equipment') {
     return { question: 'What was purchased, when was it first used for business, and which depreciation or de minimis election applies?',
@@ -246,10 +260,10 @@ export async function persistAnalysisSuggestion(ref: DocumentReference, result: 
   }
   const profileRef = adminDb.doc(`user_profiles/${parts[1]}`);
   return adminDb.runTransaction(async tx => {
-    const vehicleRead = tx.get(profileRef.collection('vehicles')).then(vehicleSnap => {
+    const vehicleRead = mileageVehicleCopyEnabled() ? tx.get(profileRef.collection('vehicles')).then(vehicleSnap => {
       const docs = (vehicleSnap as { docs?: Array<{ id: string; data: () => Record<string, unknown> }> }).docs;
       return Array.isArray(docs) ? docs.map(doc => vehicleFromDocument(doc.id, doc.data())) : undefined;
-    }).catch(() => undefined);
+    }).catch(() => undefined) : Promise.resolve(undefined);
     const [snap, currentProfile, vehicles] = await Promise.all([
       tx.get(ref), tx.get(profileRef), vehicleRead,
     ]);

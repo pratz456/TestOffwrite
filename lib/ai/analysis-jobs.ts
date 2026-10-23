@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { vehicleFromDocument, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 import { analyzeTransactionWithRetry, convertToEnhancedContext, findMissingUserFields, type TransactionInput } from './analyzeTransaction';
@@ -61,6 +62,7 @@ function legacyProfile(data: Record<string, unknown> | undefined): LegacyVehicle
 }
 
 function readVehicles(tx: { get: (ref: any) => Promise<any> }, profileRef: { collection: (name: string) => any }): Promise<VehicleRecord[] | undefined> {
+  if (!mileageVehicleCopyEnabled()) return Promise.resolve(undefined);
   return tx.get(profileRef.collection('vehicles')).then(vehicleSnap => {
     const docs = (vehicleSnap as { docs?: Array<{ id: string; data: () => Record<string, unknown> }> }).docs;
     return Array.isArray(docs) ? docs.map(doc => vehicleFromDocument(doc.id, doc.data())) : undefined;

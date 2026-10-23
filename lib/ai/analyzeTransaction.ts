@@ -1,5 +1,6 @@
 import { APIConnectionError } from 'openai/error';
-import { vehicleMethodForTaxYear, type VehicleRecord } from '@/lib/mileage/vehicles';
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
+import { vehicleMethodForRead, type VehicleRecord } from '@/lib/mileage/vehicles';
 import { getOpenAIClientOrThrow } from '@/lib/openai/client';
 import { z } from 'zod';
 import { aiLearningEngine } from './learning-engine';
@@ -360,9 +361,13 @@ function vehicleContextFields(userProfile: Record<string, any>, transactionDate:
   const taxYear = /^\d{4}-\d{2}-\d{2}/.test(transactionDate) ? Number(transactionDate.slice(0, 4)) : new Date().getFullYear();
   const vehicleId = vehicleFacts?.vehicleId
     ?? (typeof userProfile.vehicleId === 'string' ? userProfile.vehicleId : typeof userProfile.vehicle_id === 'string' ? userProfile.vehicle_id : null);
-  const fact = vehicleMethodForTaxYear({ vehicles: vehicleFacts?.vehicles, profile: userProfile, taxYear, vehicleId });
+  const fact = vehicleMethodForRead({ vehicles: vehicleFacts?.vehicles, profile: userProfile, taxYear, vehicleId });
   const method = fact.status === 'known' ? fact.method ?? undefined : undefined;
-  const businessUsePercent = fact.status === 'unknown' || fact.status === 'none' ? undefined : fact.businessUsePercent ?? undefined;
+  // Status none drops the helper percent. With the switch off, a recorded 0 still has to reach the prompt, matching the base field copy.
+  const recordedPercent = finiteNonnegative(userProfile.vehicle_business_use_percentage);
+  const businessUsePercent = fact.status === 'unknown' || fact.status === 'none'
+    ? (!mileageVehicleCopyEnabled() && fact.status === 'none' ? recordedPercent : undefined)
+    : fact.businessUsePercent ?? undefined;
   const nested = userProfile.business_vehicle && typeof userProfile.business_vehicle === 'object' && !Array.isArray(userProfile.business_vehicle)
     ? { ...userProfile.business_vehicle } : undefined;
   let business_vehicle = nested as UserContext['business_vehicle'] | undefined;

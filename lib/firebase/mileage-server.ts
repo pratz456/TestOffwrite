@@ -4,6 +4,7 @@ import {
   normalizeStoredTrip,
   tripCreateRecord,
   type HomeDestination,
+  type HomeOfficeTripFacts,
   type TripType,
 } from '@/lib/mileage/vehicles';
 import type { DocumentData } from 'firebase-admin/firestore';
@@ -18,9 +19,9 @@ export interface MileageTrip {
   miles: number;
   businessPurpose: string;
   roundTrip: boolean;
-  vehicleId: string | null;
-  tripType: TripType | null;
-  homeDestination: HomeDestination | null;
+  vehicleId?: string | null;
+  tripType?: TripType | null;
+  homeDestination?: HomeDestination | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -43,14 +44,39 @@ export interface MileageWriteError {
   status?: number;
 }
 
-function tripFromData(id: string, userId: string, data: DocumentData): MileageTrip {
-  const normalized = normalizeStoredTrip({ id, ...data, businessPurpose: data.businessPurpose });
+/** Shared read for get, create, and sort. Missing miles become 0. Purpose text never becomes a trip type. */
+export function mileageTripFromDocument(id: string, userId: string, data: DocumentData): MileageTrip {
+  const normalized = normalizeStoredTrip({ ...data, id, businessPurpose: data.businessPurpose });
+  const copyOn = mileageVehicleCopyEnabled();
   return {
-    ...normalized,
+    id: normalized.id,
     userId: typeof data.userId === 'string' ? data.userId : userId,
+    date: normalized.date,
+    startLocation: normalized.startLocation,
+    endLocation: normalized.endLocation,
+    miles: normalized.miles,
+    businessPurpose: normalized.businessPurpose,
+    roundTrip: normalized.roundTrip,
     createdAt: data.createdAt?.toDate?.() || data.createdAt,
     updatedAt: data.updatedAt?.toDate?.() || data.updatedAt,
+    ...(copyOn ? { vehicleId: normalized.vehicleId, tripType: normalized.tripType, homeDestination: normalized.homeDestination } : {}),
   };
+}
+
+function storedTripFields(trip: MileageTrip, createdAt: Date, copyOn: boolean): Record<string, unknown> {
+  const base = {
+    userId: trip.userId,
+    date: trip.date,
+    startLocation: trip.startLocation,
+    endLocation: trip.endLocation,
+    miles: trip.miles,
+    businessPurpose: trip.businessPurpose,
+    roundTrip: trip.roundTrip,
+    createdAt,
+    updatedAt: createdAt,
+  };
+  if (!copyOn) return base;
+  return { ...base, vehicleId: trip.vehicleId ?? null, tripType: trip.tripType ?? null, homeDestination: trip.homeDestination ?? null };
 }
 
 function tripsCollection(userId: string) {
@@ -73,7 +99,7 @@ export async function getMileageTrips(
       const data = doc.data();
       const tripDate = data.date ? new Date(data.date) : null;
       if (targetYear !== null && (!tripDate || tripDate.getFullYear() !== targetYear)) return;
-      trips.push(tripFromData(doc.id, userId, data));
+      trips.push(mileageTripFromDocument(doc.id, userId, data));
     });
     trips.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     return { data: trips, error: null };
@@ -91,34 +117,23 @@ export async function createMileageTrip(
 ): Promise<{ data: MileageTrip | null; error: MileageWriteError | null }> {
   try {
     const collectionRef = tripsCollection(input.userId);
-    const existingSnap = await collectionRef.get();
-    const existing = existingSnap.docs.map(doc => normalizeStoredTrip({ id: doc.id, ...doc.data() }));
     const copyOn = mileageVehicleCopyEnabled();
-    const decision = tripCreateRecord(input, copyOn ? existing : []);
-    if (!decision.ok) return { data: null, error: { status: 400, message: copyOn ? decision.reason : 'Failed to create mileage trip' } };
-    if (copyOn && decision.trip.vehicleId) {
-      const vehicle = await adminDb.collection('user_profiles').doc(input.userId).collection('vehicles').doc(decision.trip.vehicleId).get();
-      if (!vehicle.exists) return { data: null, error: { status: 400, message: MILEAGE_VEHICLE_COPY.vehicleMissing } };
-    }
     const createdAt = new Date();
-    const docRef = await collectionRef.add({
-      userId: input.userId,
-      date: decision.trip.date,
-      startLocation: decision.trip.startLocation,
-      endLocation: decision.trip.endLocation,
-      miles: decision.trip.miles,
-      businessPurpose: decision.trip.businessPurpose,
-      roundTrip: decision.trip.roundTrip,
-      vehicleId: decision.trip.vehicleId,
-      tripType: decision.trip.tripType,
-      homeDestination: decision.trip.homeDestination,
-      createdAt,
-      updatedAt: createdAt,
+    const docRef = collectionRef.doc();
+    const written = await adminDb.runTransaction(async tx => {
+      const existingSnap = await tx.get(collectionRef);
+      const existing = copyOn ? existingSnap.docs.map((doc: { id: string; data: () => DocumentData }) => normalizeStoredTrip({ id: doc.id, ...doc.data() })) : [];
+      const decision = tripCreateRecord(input, existing);
+      if (!decision.ok) return { data: null, error: { status: 400 as const, message: copyOn ? decision.reason : 'Failed to create mileage trip' } };
+      if (copyOn && decision.trip.vehicleId) {
+        const vehicle = await tx.get(adminDb.collection('user_profiles').doc(input.userId).collection('vehicles').doc(decision.trip.vehicleId));
+        if (!vehicle.exists) return { data: null, error: { status: 400 as const, message: MILEAGE_VEHICLE_COPY.vehicleMissing } };
+      }
+      const trip = mileageTripFromDocument(docRef.id, input.userId, { ...decision.trip, createdAt, updatedAt: createdAt });
+      tx.set(docRef, storedTripFields(trip, createdAt, copyOn));
+      return { data: trip, error: null };
     });
-    return {
-      data: { ...decision.trip, id: docRef.id, userId: input.userId, createdAt, updatedAt: createdAt },
-      error: null,
-    };
+    return written;
   } catch (error) {
     console.error('mileage create failed', error);
     return { data: null, error: { message: 'Failed to create mileage trip' } };
@@ -128,7 +143,7 @@ export async function createMileageTrip(
 export async function assignMileageTrips(
   userId: string,
   updates: Array<{ tripId: string; vehicleId: string | null; tripType: TripType | null; homeDestination?: HomeDestination | null }>,
-  homeOffice?: { qualifyingUse?: string | null } | null,
+  homeOffice?: HomeOfficeTripFacts,
 ): Promise<{ data: MileageTrip[] | null; error: MileageWriteError | null }> {
   try {
     if (updates.length < 1 || updates.length > 200) return { data: null, error: { status: 400, message: MILEAGE_VEHICLE_COPY.sortFailed } };
@@ -141,7 +156,7 @@ export async function assignMileageTrips(
       const vehicle = await adminDb.collection('user_profiles').doc(userId).collection('vehicles').doc(vehicleId).get();
       if (!vehicle.exists) return { data: null, error: { status: 400, message: MILEAGE_VEHICLE_COPY.vehicleMissing } };
     }
-    let trips = snaps.map(snap => normalizeStoredTrip({ id: snap.id, ...snap.data() }));
+    let trips = snaps.map(snap => mileageTripFromDocument(snap.id, userId, snap.data()));
     for (const update of updates) {
       trips = assignTrips(trips, [update.tripId], update, homeOffice);
     }

@@ -4,7 +4,7 @@
  * analysis. It never states that an expense is deductible; the server policy
  * keeps that decision behind the user's confirmation.
  */
-import { vehicleMethodForTaxYear, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
+import { vehicleMethodForRead, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
 import type { UserContext } from './analyzeTransaction';
 
 export type PriorDecision = 'business' | 'personal' | 'unresolved';
@@ -181,7 +181,7 @@ export function buildTaxpayerContext(input: {
   const datedYear = typeof input.transactionDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(input.transactionDate)
     ? Number(input.transactionDate.slice(0, 4)) : null;
   const taxYear = input.taxYear ?? datedYear ?? new Date().getFullYear();
-  const vehicleFact = vehicleMethodForTaxYear({
+  const vehicleFact = vehicleMethodForRead({
     vehicles: input.vehicles,
     profile: profile as LegacyVehicleProfile,
     taxYear,

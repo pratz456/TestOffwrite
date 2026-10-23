@@ -41,12 +41,23 @@ beforeEach(() => {
 });
 
 describe('vehicle profile field lists', () => {
-  it('11d a profile save keeps the vehicles field', async () => {
+  it('11d a profile save keeps the vehicles field when the switch is on', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
     const vehicles = [{ id: 'legacy-vehicle-1', name: 'Civic' }];
-    const response = await POST(request({ vehicles }));
+    const response = await POST(request({ name: 'Kept', vehicles }));
     expect(response.status).toBe(200);
     expect(model.stored.vehicles).toEqual(vehicles);
+    expect(model.stored.name).toBe('Kept');
+    vi.unstubAllEnvs();
+  });
+
+  it('a profile save ignores vehicles when the switch is off', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    const response = await POST(request({ name: 'Owner', vehicles: [{ id: 'legacy-vehicle-1', method: 'standard_mileage' }] }));
+    expect(response.status).toBe(200);
     expect(model.stored.name).toBe('Owner');
+    expect(model.stored.vehicles).toBeUndefined();
+    vi.unstubAllEnvs();
   });
 
   it('11d analysisProfileFieldsKey changes when vehicles changes', () => {

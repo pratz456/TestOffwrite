@@ -1,8 +1,10 @@
+import { enqueueProfileAnalysisRefresh } from '@/lib/ai/profile-analysis-refresh';
 import { MILEAGE_VEHICLE_COPY, mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import {
   blankVehicle,
   planLegacyVehicle,
   saveVehicle,
+  vehicleAnalysisStamp,
   vehicleFromDocument,
   vehicleToDocument,
   type LegacyVehicleProfile,
@@ -10,6 +12,14 @@ import {
   type VehicleRecord,
 } from '@/lib/mileage/vehicles';
 import { adminDb } from './admin';
+
+async function queueVehicleAnalysis(userId: string): Promise<void> {
+  try {
+    await enqueueProfileAnalysisRefresh(userId);
+  } catch (error) {
+    console.error('vehicle analysis refresh failed', error);
+  }
+}
 
 function profileFrom(data: Record<string, unknown> | undefined): LegacyVehicleProfile {
   const nested = data?.business_vehicle;
@@ -63,8 +73,10 @@ export async function addUserVehicle(userId: string): Promise<{ data: VehicleRec
       const id = vehiclesRef.doc().id;
       const vehicle = blankVehicle(id, plan.vehicles.length);
       tx.set(vehiclesRef.doc(id), vehicleToDocument(vehicle));
+      tx.set(profileRef, { vehicles: vehicleAnalysisStamp([...plan.vehicles, vehicle]) }, { merge: true });
       return vehicle;
     });
+    await queueVehicleAnalysis(userId);
     return { data: created, error: null };
   } catch (error) {
     console.error('vehicle add failed', error);
@@ -102,9 +114,11 @@ export async function saveUserVehicle(
         return;
       }
       tx.set(vehiclesRef.doc(vehicleId), vehicleToDocument(vehicle));
+      tx.set(profileRef, { vehicles: vehicleAnalysisStamp(result.vehicles) }, { merge: true });
       saved = vehicle;
     });
     if (reason || !saved) return { data: null, error: { message: reason ?? MILEAGE_VEHICLE_COPY.saveFailed, status: reason ? 400 : 500 } };
+    await queueVehicleAnalysis(userId);
     return { data: saved, error: null };
   } catch (error) {
     console.error('vehicle save failed', error);

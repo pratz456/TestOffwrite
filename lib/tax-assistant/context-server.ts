@@ -1,4 +1,5 @@
 import { getAnalysisProfile } from '@/lib/ai/profile-context';
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { readUserVehicleRecords } from '@/lib/firebase/vehicle-server';
 import { getTransactionsServer } from '@/lib/firebase/transactions-server';
 import { ASSISTANT_TRANSACTION_LIMIT, assistantProfileFacts, mentionedMerchantFacts, merchantCandidates, type AssistantContext } from './context';
@@ -21,7 +22,7 @@ export async function loadAssistantContext(uid: string, message: string, taxYear
     merchantCandidates(message).length
       ? getTransactionsServer(uid, { limit: ASSISTANT_TRANSACTION_LIMIT, fields: TRANSACTION_FIELDS }).then(result => result.data ?? []).catch(() => [])
       : Promise.resolve([]),
-    readUserVehicleRecords(uid),
+    mileageVehicleCopyEnabled() ? readUserVehicleRecords(uid) : Promise.resolve(undefined),
   ]);
   const profile = assistantProfileFacts((profileResult?.data as Record<string, unknown> | null) ?? null, { vehicles, taxYear });
   return { profile, merchant: rows.length ? mentionedMerchantFacts({ message, rows, taxYear, uid }) : null };

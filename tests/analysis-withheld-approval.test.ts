@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
-import { analysisSuggestionUpdate, withheldApprovalGate, withheldMissingField } from '@/lib/ai/analysis-persistence';
+import { analysisSuggestionUpdate, STANDARD_MILEAGE_RUNNING_COST_GATE, VEHICLE_METHOD_GATE, withheldApprovalGate, withheldMissingField } from '@/lib/ai/analysis-persistence';
 import { blankVehicle, saveVehicle } from '@/lib/mileage/vehicles';
 import type { OutputType } from '@/lib/ai/analyzeTransaction';
 
@@ -86,17 +86,64 @@ describe('an engine approval the review path cannot consume is stored as the que
       }
     }
   });
-  it('a known vehicle method for the tax year is not asked again', () => {
+  it('standard mileage holds gas and other running costs and still allows parking and tolls', () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    const savedCars = saveVehicle([blankVehicle('legacy-vehicle-1', 0)], 'legacy-vehicle-1', { method: 'standard_mileage', taxYear: 2026 });
+    if (!savedCars.ok) throw new Error(savedCars.reason);
+    const facts = { vehicles: savedCars.vehicles, taxYear: 2026, vehicleId: 'legacy-vehicle-1' };
+    const gas = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9',
+      customized_reason: 'You noted: Gas for a full day of Uber driving. Fuel for business driving is deductible on Schedule C line 9.' }), 1,
+      record({ amount: 58, merchant_name: 'CHEVRON 0209', business_purpose: 'Gas for a full day of Uber driving' }), undefined, null, facts);
+    const repair = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
+      record({ amount: 40, merchant_name: 'JIFFY LUBE', business_purpose: 'Oil change on the work car' }), undefined, null, facts);
+    expect(gas.deductionStatus).toBe('Needs more information');
+    expect(gas.ai_suggestion).toMatchObject({ status: 'needs_more_info', isDeductible: null, deductiblePercent: null });
+    expect(gas.ai_suggestion.questions[0]).toBe(STANDARD_MILEAGE_RUNNING_COST_GATE.question);
+    expect(gas.ai_suggestion.reasoning).toBe(STANDARD_MILEAGE_RUNNING_COST_GATE.reason);
+    expect(gas.deductionStatus).not.toBe('Likely Deductible');
+    expect(repair.ai_suggestion.questions[0]).toBe(STANDARD_MILEAGE_RUNNING_COST_GATE.question);
+    expect(repair.deductionStatus).toBe('Needs more information');
+    for (const [merchant, purpose] of [['PARKMOBILE', 'Parking at the client site'], ['EZ PASS', 'Toll on the way to the client']] as const) {
+      const allowed = analysisSuggestionUpdate(approval({ category: 'parking_tolls', schedule_c_line: '9', customized_reason: `You noted: ${purpose}.` }), 1,
+        record({ amount: 18, merchant_name: merchant, business_purpose: purpose }), undefined, null, facts);
+      expect(allowed.deductionStatus).toBe('Likely Deductible');
+      expect(allowed.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, category: 'parking_tolls' });
+    }
+    vi.unstubAllEnvs();
+  });
+
+  it('actual expenses keep the base vehicle question', () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
     const savedCars = saveVehicle([blankVehicle('legacy-vehicle-1', 0)], 'legacy-vehicle-1', { method: 'actual_expense', taxYear: 2026 });
     if (!savedCars.ok) throw new Error(savedCars.reason);
-    const saved = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
-      record({ amount: 58, merchant_name: 'CHEVRON 0209', business_purpose: 'Gas for a full day of Uber driving' }), undefined, null, {
-        vehicles: savedCars.vehicles,
-        profile: { vehicle_deduction_method: 'standard_mileage' },
-      });
-    expect(saved.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true });
-    expect(saved.ai_suggestion.questions.join(' ')).not.toContain('standard mileage rate or actual expenses');
-    expect(saved.ai_missing_fields ?? []).not.toContain('vehicle_method');
+    const gas = approval({ category: 'vehicle_expense', schedule_c_line: '9',
+      customized_reason: 'You noted: Gas for a full day of Uber driving. Fuel for business driving is deductible on Schedule C line 9.' });
+    const trip = record({ amount: 58, merchant_name: 'CHEVRON 0209', business_purpose: 'Gas for a full day of Uber driving' });
+    const withMethod = analysisSuggestionUpdate(gas, 1, trip, undefined, null, { vehicles: savedCars.vehicles, taxYear: 2026 });
+    vi.unstubAllEnvs();
+    const base = analysisSuggestionUpdate(gas, 1, trip);
+    expect(withMethod.deductionStatus).toBe('Needs more information');
+    expect(withMethod.ai_suggestion).toMatchObject({ status: 'needs_more_info', isDeductible: null, questions: [VEHICLE_METHOD_GATE.question] });
+    expect(withMethod.ai_suggestion.reasoning).toBe(base.ai_suggestion.reasoning);
+    expect(withMethod.deductionStatus).toBe(base.deductionStatus);
+    expect(withMethod.deductionStatus).not.toBe('Likely Deductible');
+  });
+
+  it('the switch off matches the base vehicle result even when a standard mileage car is on file', () => {
+    const savedCars = saveVehicle([blankVehicle('legacy-vehicle-1', 0)], 'legacy-vehicle-1', { method: 'standard_mileage', taxYear: 2026 });
+    if (!savedCars.ok) throw new Error(savedCars.reason);
+    const gas = approval({ category: 'vehicle_expense', schedule_c_line: '9' });
+    const trip = record({ amount: 58, merchant_name: 'CHEVRON 0209', business_purpose: 'Gas for a full day of Uber driving' });
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    const off = analysisSuggestionUpdate(gas, 1, trip, undefined, null, { vehicles: savedCars.vehicles, profile: { vehicle_deduction_method: 'standard_mileage' }, taxYear: 2026 });
+    vi.unstubAllEnvs();
+    const base = analysisSuggestionUpdate(gas, 1, trip);
+    expect(off.deductionStatus).toBe('Needs more information');
+    expect(off.ai_suggestion.questions[0]).toBe(VEHICLE_METHOD_GATE.question);
+    expect(off.ai_suggestion.reasoning).toBe(base.ai_suggestion.reasoning);
+    expect(off.ai_suggestion.status).toBe(base.ai_suggestion.status);
+    expect(off.ai_missing_fields).toEqual(base.ai_missing_fields);
+    expect(JSON.stringify(off.ai_suggestion)).not.toContain(STANDARD_MILEAGE_RUNNING_COST_GATE.question);
   });
 
   it('several cars and no linked car still need the vehicle method', () => {

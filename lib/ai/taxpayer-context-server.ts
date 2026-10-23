@@ -1,4 +1,5 @@
 import { adminDb } from '@/lib/firebase/admin';
+import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { vehicleFromDocument, type VehicleRecord } from '@/lib/mileage/vehicles';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 import type { UserContext } from './analyzeTransaction';
@@ -170,6 +171,7 @@ function loadTaxYearRecordFacts(uid: string, taxYear?: number): Promise<TaxYearR
  * analysis still runs; it never fails a transaction because history was unavailable.
  */
 async function readUserVehicles(uid: string): Promise<VehicleRecord[] | undefined> {
+  if (!mileageVehicleCopyEnabled()) return undefined;
   try {
     const snap = await adminDb.doc(`user_profiles/${uid}`).collection('vehicles').get();
     const docs = (snap as { docs?: Array<{ id: string; data: () => Record<string, unknown> }> }).docs;

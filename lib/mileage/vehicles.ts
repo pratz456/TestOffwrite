@@ -1,4 +1,4 @@
-import { MILEAGE_VEHICLE_COPY } from './vehicle-copy';
+import { MILEAGE_VEHICLE_COPY, mileageVehicleCopyEnabled } from './vehicle-copy';
 
 export const LEGACY_VEHICLE_ID = 'legacy-vehicle-1';
 export const SIMULTANEOUS_STANDARD_MILEAGE_LIMIT = 5;
@@ -441,6 +441,35 @@ export interface VehicleMethodFact {
   needsInfo: boolean;
 }
 
+/**
+ * Base profile read (52f5788). The top-level method wins when both old fields are set.
+ * A disagreement does not become unset, and the vehicle list is not consulted.
+ * A percentage of 0 is not a vehicle on its own, matching Boolean(method || percent).
+ */
+export function legacyProfileVehicleFact(profile: LegacyVehicleProfile | null | undefined): VehicleMethodFact {
+  const top = profile?.vehicle_deduction_method;
+  const nested = profile?.business_vehicle?.deduction_method;
+  const method = top === 'standard_mileage' || top === 'actual_expense' ? top
+    : nested === 'standard_mileage' || nested === 'actual_expense' ? nested : null;
+  const rawPercent = profile?.vehicle_business_use_percentage ?? profile?.business_vehicle?.business_use_percentage ?? null;
+  const businessUsePercent = typeof rawPercent === 'number' && Number.isFinite(rawPercent) ? rawPercent : null;
+  const hasVehicle = Boolean(method || businessUsePercent);
+  if (!hasVehicle) return { status: 'none', method: null, businessUsePercent: null, vehicleId: null, needsInfo: false };
+  if (method) return { status: 'known', method, businessUsePercent, vehicleId: null, needsInfo: false };
+  return { status: 'unset', method: null, businessUsePercent, vehicleId: null, needsInfo: true };
+}
+
+/** Switch off matches the base profile read. Switch on uses the vehicle list. */
+export function vehicleMethodForRead(input: {
+  vehicles?: readonly VehicleRecord[] | null;
+  profile?: LegacyVehicleProfile | null;
+  taxYear: number;
+  vehicleId?: string | null;
+}): VehicleMethodFact {
+  if (!mileageVehicleCopyEnabled()) return legacyProfileVehicleFact(input.profile);
+  return vehicleMethodForTaxYear(input);
+}
+
 /** One reader for a tax year. Uses the vehicle list, then migrated vehicle 1. Several cars and no link is unknown. */
 export function vehicleMethodForTaxYear(input: {
   vehicles?: readonly VehicleRecord[] | null;
@@ -557,15 +586,26 @@ export function tripStartsAtHome(startLocation: string): boolean {
   return value === 'home' || value.startsWith('home ') || value.startsWith('home,');
 }
 
-/** HomeOfficeFacts.qualifyingUse. Principal place of business is Rev. Rul. 99-7, holding 3. */
-export function homeOfficeIsPrincipalPlace(homeOffice: { qualifyingUse?: string | null } | null | undefined): boolean {
-  return homeOffice?.qualifyingUse === 'principal_place_of_business';
+/**
+ * settings/homeOffice. A home to the regular workplace goes to review only when the office
+ * is the principal place of business and both regular and exclusive use are yes.
+ */
+export type HomeOfficeTripFacts = {
+  qualifyingUse?: string | null;
+  regularUse?: string | null;
+  exclusiveUse?: string | null;
+} | null | undefined;
+
+export function homeOfficeIsPrincipalPlace(homeOffice: HomeOfficeTripFacts): boolean {
+  return homeOffice?.qualifyingUse === 'principal_place_of_business'
+    && homeOffice.regularUse === 'yes'
+    && homeOffice.exclusiveUse === 'yes';
 }
 
 export function applyHomeDestination(
   trip: MileageTripFields,
   choice: HomeDestination,
-  homeOffice?: { qualifyingUse?: string | null } | null,
+  homeOffice?: HomeOfficeTripFacts,
 ): MileageTripFields {
   if (choice === 'temporary_work') return { ...trip, tripType: 'business', homeDestination: choice };
   if (choice === 'regular_work' && homeOfficeIsPrincipalPlace(homeOffice)) return { ...trip, tripType: null, homeDestination: null };
@@ -586,7 +626,7 @@ export function assignTrips(
   trips: readonly MileageTripFields[],
   tripIds: readonly string[],
   assignment: TripAssignment,
-  homeOffice?: { qualifyingUse?: string | null } | null,
+  homeOffice?: HomeOfficeTripFacts,
 ): MileageTripFields[] {
   const ids = new Set(tripIds);
   return trips.map(trip => {
@@ -661,6 +701,13 @@ export function groupTrips(trips: readonly MileageTripFields[]): { repeated: Tri
     repeated: groups.filter(group => group.tripCount > 1).sort(byCount),
     oneOff: groups.filter(group => group.tripCount === 1).sort(byCount),
   };
+}
+
+/** Profile field the analysis trigger compares. A vehicle collection write stores this on the profile document. */
+export function vehicleAnalysisStamp(vehicles: readonly VehicleRecord[]): Array<Record<string, unknown>> {
+  return [...vehicles]
+    .map(vehicle => ({ id: vehicle.id, ...vehicleToDocument(vehicle) }))
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
 }
 
 export function vehicleToDocument(vehicle: VehicleRecord): Record<string, unknown> {

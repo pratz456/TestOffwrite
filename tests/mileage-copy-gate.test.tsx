@@ -99,6 +99,17 @@ vi.mock('@/lib/firebase/admin', () => {
     adminDb: {
       collection: () => ({ doc: () => ({ collection: tripCollection }) }),
       doc: () => ({ collection: tripCollection }),
+      runTransaction: async (callback: (tx: { get: (ref: { add?: unknown; get?: () => Promise<unknown> }) => Promise<unknown>; set: (ref: unknown, data: unknown) => void }) => Promise<unknown>) => callback({
+        async get(ref) {
+          if (database.fail) throw new Error('database down');
+          if (ref && typeof ref.add === 'function') return tripCollection().get();
+          if (ref && typeof ref.get === 'function') return ref.get();
+          return { exists: false, data: () => undefined, docs: [] };
+        },
+        set() {
+          if (database.fail) throw new Error('database down');
+        },
+      }),
     },
     adminAuth: {},
     FieldValue: { delete: () => 'delete', serverTimestamp: () => 'time' },

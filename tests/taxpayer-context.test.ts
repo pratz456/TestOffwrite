@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildTaxpayerContext, detectRecurrence, merchantKey, summarizeConfirmedMerchants, taxpayerContextForModel } from '@/lib/ai/taxpayer-context';
 import { blankVehicle, saveVehicle } from '@/lib/mileage/vehicles';
 import { groundTransactionAnalysis } from '@/lib/ai/transaction-tax-policy';
@@ -69,6 +69,7 @@ describe('confirmed merchant priors', () => {
   });
 
   it('reads the vehicle method for the tax year from the vehicle list, not a stale profile field', () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
     const car = saveVehicle([blankVehicle('legacy-vehicle-1', 0)], 'legacy-vehicle-1', { method: 'standard_mileage', taxYear: 2026 });
     if (!car.ok) throw new Error(car.reason);
     car.vehicles[0].legacyBusinessUsePercentage = 40;
@@ -78,9 +79,11 @@ describe('confirmed merchant priors', () => {
     });
     expect(context.methods.vehicle).toEqual({ method: 'standard_mileage', businessUsePercent: 40 });
     expect(context.gaps).not.toContain('vehicle_deduction_method');
+    vi.unstubAllEnvs();
   });
 
   it('treats the method as unknown when several cars are on file and the transaction names none', () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
     const first = saveVehicle([blankVehicle('legacy-vehicle-1', 0)], 'legacy-vehicle-1', { method: 'standard_mileage', taxYear: 2026 });
     if (!first.ok) throw new Error(first.reason);
     const cars = [...first.vehicles, blankVehicle('van', 1)];
@@ -94,6 +97,7 @@ describe('confirmed merchant priors', () => {
       profile, vehicles: cars, vehicleId: 'legacy-vehicle-1', transactionDate: '2026-08-01', merchant: 'Adobe', confirmed: [],
     });
     expect(linked.methods.vehicle?.method).toBe('standard_mileage');
+    vi.unstubAllEnvs();
   });
 });
 
