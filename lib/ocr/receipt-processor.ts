@@ -100,6 +100,8 @@ function allowsMonthPeriod(token: string, dotted: boolean): boolean {
  * in BRIDGE_SKIP_PHRASES may also have one bridge word before the date: Date,
  * on, by, until, or thru. Every other skip phrase keeps the strict gap.
  * Delivered and delivery drop a date only when another date remains.
+ * A non-bridge skip phrase followed only by the word Date does the same,
+ * unless a real label such as "order date" sits on that date.
  */
 /** Only these skip phrases may bridge across Date, on, by, until, or thru. */
 const BRIDGE_SKIP_PHRASES = new Set([
@@ -253,6 +255,35 @@ function dateIsDeliverySkipped(line: string, dateStart: number, dateEnd: number)
     && SKIP_PHRASES.some(phrase => FALLBACK_SKIP_PHRASES.has(phrase) && phraseSkipsDate(line, dateStart, dateEnd, phrase));
 }
 
+/** The word Date sitting directly in front of the numeric date, if the gap is only allowed characters. */
+function dateWordBefore(line: string, dateStart: number): number | null {
+  const pattern = /\bdate\b/gi;
+  let match: RegExpExecArray | null;
+  let found: number | null = null;
+  while ((match = pattern.exec(line)) !== null) {
+    const end = match.index + match[0].length;
+    if (end <= dateStart && gapAllows(line.slice(end, dateStart))) found = match.index;
+    if (match[0].length === 0) break;
+  }
+  return found;
+}
+
+/**
+ * Ticket Date, Ref Date, Table Date, and Offer Date are fallback skips.
+ * Order Date is not: "order date" is a real tier-2 label, so it stays.
+ */
+function dateIsSkipWordDate(line: string, dateStart: number, dateEnd: number): boolean {
+  const labeled = LABEL_PHRASES.some(label => label.text !== 'date' && adjacentMatchLength(line, dateStart, dateEnd, label.text) > 0);
+  if (labeled) return false;
+  const wordStart = dateWordBefore(line, dateStart);
+  if (wordStart === null) return false;
+  const before = line.slice(0, wordStart);
+  return SKIP_PHRASES.some(phrase => {
+    if (BRIDGE_SKIP_PHRASES.has(phrase)) return false;
+    return new RegExp(`${phraseSource(phrase)}[ \\t:#,.\\-]*$`, 'i').test(before);
+  });
+}
+
 function labelTier(line: string, dateStart: number, dateEnd: number): number {
   let tier = 0;
   let length = 0;
@@ -278,7 +309,7 @@ function withoutAdjacentSkips(text: string, candidates: ReceiptDateCandidate[]):
     const { dateStart, dateEnd } = spanOf(text, candidate);
     if (dateIsHardSkipped(candidate.line, dateStart, dateEnd)) continue;
     const tiered = { ...candidate, tier: labelTier(candidate.line, dateStart, dateEnd) };
-    if (dateIsDeliverySkipped(candidate.line, dateStart, dateEnd)) deliveryOnly.push(tiered);
+    if (dateIsDeliverySkipped(candidate.line, dateStart, dateEnd) || dateIsSkipWordDate(candidate.line, dateStart, dateEnd)) deliveryOnly.push(tiered);
     else kept.push(tiered);
   }
   return kept.length > 0 ? kept : deliveryOnly;
