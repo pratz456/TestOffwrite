@@ -656,7 +656,7 @@ export const AUTO_LOAN_QUESTION = 'Car loan principal is not an expense. Under a
 const AUTO_LOAN_QUESTION_WITH_VEHICLE_COPY = 'Car loan principal is not an expense. The business share of the interest can count with either method. Depreciation follows the method you chose. Which method do you use, and what share of the interest was for business miles?';
 
 function merchantQuestion(question: string | undefined): string | null {
-  if (question === AUTO_LOAN_QUESTION && mileageVehicleCopyEnabled()) return AUTO_LOAN_QUESTION_WITH_VEHICLE_COPY;
+  if (question === AUTO_LOAN_QUESTION) return AUTO_LOAN_QUESTION_WITH_VEHICLE_COPY;
   return question ?? null;
 }
 

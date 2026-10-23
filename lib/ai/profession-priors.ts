@@ -698,7 +698,7 @@ const RIDESHARE_MILEAGE_BASE = 'Standard mileage covers fuel, repairs, insurance
 const RIDESHARE_MILEAGE_WITH_VEHICLE_COPY = 'Standard mileage covers fuel, repairs, insurance, depreciation and car washes. Parking, tolls, and the business share of car loan interest and personal property tax on the car are added on their own. App-on and en-route miles need a contemporaneous log; personal and commuting miles are out';
 
 function visibleNuance(nuance: string): string {
-  if (nuance === RIDESHARE_MILEAGE_BASE && mileageVehicleCopyEnabled()) return RIDESHARE_MILEAGE_WITH_VEHICLE_COPY;
+  if (nuance === RIDESHARE_MILEAGE_BASE) return RIDESHARE_MILEAGE_WITH_VEHICLE_COPY;
   return nuance;
 }
 
