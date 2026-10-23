@@ -47,6 +47,20 @@ export const HIRED_FARE_PURPOSE = {
   reason: 'A rideshare or taxi fare follows the trip, not the method for your own car. Say where this ride went before it can count.',
 } as const;
 
+/** Asked when a business fare is not yet confirmed as overnight travel. Local fares are not given a Schedule C line. */
+export const HIRED_FARE_OVERNIGHT = {
+  question: 'Was this ride part of an overnight business trip away from home?',
+  reason: 'This ride counts as travel only if it was part of an overnight business trip away from home.',
+} as const;
+
+/** True only when the saved purpose says the ride was overnight travel away from the tax home. */
+export function hiredFareOvernightConfirmed(purpose: string): boolean {
+  const overnight = /\bovernight\b/i.test(purpose);
+  const awayFromHome = /\baway\s+from\s+(?:my\s+|the\s+|our\s+|their\s+)?(?:tax\s+)?home\b/i.test(purpose);
+  const taxHome = /\btax\s+home\b/i.test(purpose);
+  return overnight && (awayFromHome || taxHome);
+}
+
 export const HIRED_FARE_PERSONAL = {
   reason: 'This trip is personal, so the fare stays out of business deductions.',
 } as const;

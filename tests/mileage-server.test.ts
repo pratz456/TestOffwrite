@@ -7,6 +7,8 @@ const database = vi.hoisted(() => ({
   vehicles: [] as string[],
   written: null as Record<string, unknown> | null,
   updates: [] as Array<{ id: string; data: Record<string, unknown> }>,
+  adds: 0,
+  transactions: 0,
 }));
 
 vi.mock('@/lib/firebase/admin', () => {
@@ -33,7 +35,12 @@ vi.mock('@/lib/firebase/admin', () => {
   }
   function trips() {
     return {
-      add: async () => tripDoc(),
+      add: async (data: Record<string, unknown>) => {
+        if (database.fail === 'read' || database.fail === 'write') throw new Error('database down');
+        database.adds += 1;
+        database.written = data;
+        return tripDoc();
+      },
       get: async () => {
         if (database.fail === 'read' || database.fail === 'write') throw new Error('database down');
         return snapshot(database.trips.map(trip => ({ id: trip.id, data: () => trip.data })));
@@ -71,7 +78,9 @@ vi.mock('@/lib/firebase/admin', () => {
       runTransaction: async (callback: (tx: {
         get: (ref: { get?: () => Promise<unknown>; add?: unknown; doc?: unknown }) => Promise<unknown>;
         set: (ref: unknown, data: Record<string, unknown>) => void;
-      }) => Promise<unknown>) => callback({
+      }) => Promise<unknown>) => {
+        database.transactions += 1;
+        return callback({
         async get(ref) {
           if (database.fail === 'read' || database.fail === 'write') throw new Error('database down');
           if (ref && typeof ref.add === 'function') return trips().get();
@@ -79,12 +88,14 @@ vi.mock('@/lib/firebase/admin', () => {
           return { exists: false, docs: [], data: () => undefined };
         },
         set(_ref, data) { database.written = data; },
-      }),
+      });
+      },
     },
   };
 });
 
 import { assignMileageTrips, createMileageTrip, deleteMileageTrip, getMileageTrips, mileageTripFromDocument } from '@/lib/firebase/mileage-server';
+import { countedMilesTotal, UNREADABLE_TRIP_MILES } from '@/lib/mileage/vehicles';
 
 const tripInput = {
   userId: 'owner', date: '2026-03-01', startLocation: 'Home', endLocation: 'Client', miles: 8, businessPurpose: 'Client meeting', roundTrip: false,
@@ -96,6 +107,8 @@ beforeEach(() => {
   database.vehicles = ['car-1'];
   database.written = null;
   database.updates = [];
+  database.adds = 0;
+  database.transactions = 0;
   vi.unstubAllEnvs();
 });
 afterEach(() => vi.unstubAllEnvs());
@@ -104,12 +117,58 @@ describe('mileage server', () => {
   it('the shared read helper turns a stored trip into miles and leaves purpose text untyped', () => {
     vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
     const trip = mileageTripFromDocument('trip-1', 'owner', { miles: '12', businessPurpose: 'Business commute to the client', date: '2026-02-02' });
-    expect(trip.miles).toBe(0);
+    expect(trip.miles).toBeNull();
+    expect(trip.miles).not.toBe(0);
+    expect(trip.needsReview).toBe(true);
+    expect(trip.reviewReason).toBe(UNREADABLE_TRIP_MILES);
     expect(trip.tripType).toBeNull();
     expect(trip.businessPurpose).toBe('Business commute to the client');
-    const counted = mileageTripFromDocument('trip-2', 'owner', { miles: 4.5, date: '2026-02-03', roundTrip: true });
+    const counted = mileageTripFromDocument('trip-2', 'owner', { miles: 4.5, date: '2026-02-03', roundTrip: true, vehicleId: 'car-1', tripType: 'business' });
     expect(counted.miles).toBe(4.5);
     expect(counted.roundTrip).toBe(true);
+    expect(counted.needsReview).toBeUndefined();
+    expect(countedMilesTotal([trip, counted])).toBe(9);
+  });
+
+  it('with the switch off, a malformed trip is not coerced and create does not read the collection', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    const trip = mileageTripFromDocument('trip-1', 'owner', {
+      miles: '12', roundTrip: 'yes', startLocation: 12, endLocation: '', date: '2026-02-02', businessPurpose: 'Client',
+    });
+    expect(trip.miles).toBe('12');
+    expect(trip.roundTrip).toBe('yes');
+    expect(trip.startLocation).toBe(12);
+    expect(trip.endLocation).toBe('');
+    expect(trip).not.toHaveProperty('needsReview');
+    expect(trip).not.toHaveProperty('vehicleId');
+    database.trips = [{ id: 'sorted', data: { date: '2026-01-02', miles: 4, vehicleId: 'car-1', tripType: 'business' } }];
+    const created = await createMileageTrip({ ...tripInput, vehicleId: 'car-1', tripType: 'business', homeDestination: 'regular_work' });
+    expect(created.error).toBeNull();
+    expect(database.transactions).toBe(0);
+    expect(database.adds).toBe(1);
+    expect(database.written).toEqual({
+      userId: 'owner', date: '2026-03-01', startLocation: 'Home', endLocation: 'Client', miles: 8,
+      businessPurpose: 'Client meeting', roundTrip: false, createdAt: expect.any(Date), updatedAt: expect.any(Date),
+    });
+    expect(created.data).not.toHaveProperty('vehicleId');
+    expect(created.data).not.toHaveProperty('tripType');
+    expect(created.data).not.toHaveProperty('homeDestination');
+  });
+
+  it('with the switch on, every year is readable and a trip with unreadable miles stays out of the total', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    database.trips = [
+      { id: 'good', data: { date: '2026-04-02', miles: 5, startLocation: 'A', endLocation: 'B', vehicleId: 'car-1', tripType: 'business', roundTrip: false } },
+      { id: 'bad', data: { date: '2024-01-02', miles: 'nope', startLocation: 'C', endLocation: 'D', vehicleId: 'car-1', tripType: 'business' } },
+    ];
+    const read = await getMileageTrips('owner', null);
+    expect(read.error).toBeNull();
+    expect(read.data.map(trip => trip.id).sort()).toEqual(['bad', 'good']);
+    const bad = read.data.find(trip => trip.id === 'bad');
+    expect(bad?.miles).toBeNull();
+    expect(bad?.needsReview).toBe(true);
+    expect(bad?.reviewReason).toBe(UNREADABLE_TRIP_MILES);
+    expect(countedMilesTotal(read.data)).toBe(5);
   });
 
   it('reads the chosen year through that helper and drops a trip with no date', async () => {
@@ -138,6 +197,7 @@ describe('mileage server', () => {
     expect(database.written).not.toHaveProperty('vehicleId');
     expect(database.written).not.toHaveProperty('tripType');
     expect(database.written).not.toHaveProperty('homeDestination');
+    expect(database.transactions).toBe(0);
     expect(JSON.stringify(created.data)).not.toContain(MILEAGE_VEHICLE_COPY.pickTripType);
   });
 

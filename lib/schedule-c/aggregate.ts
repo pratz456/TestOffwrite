@@ -39,7 +39,6 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'TRANSPORTATION_PUBLIC_TRANSIT': { line: '9', name: 'Car and truck expenses', code: '9' },
   'TRANSPORTATION_CAR_WASH': { line: '9', name: 'Car and truck expenses', code: '9' },
   'VEHICLE_ACTUAL_EXPENSE': { line: '9', name: 'Car and truck expenses', code: '9' },
-  'VEHICLE_LOAN_INTEREST': { line: '9', name: 'Car and truck expenses', code: '9' },
   'VEHICLE_PROPERTY_TAX': { line: '23', name: 'Taxes and licenses', code: '23' },
 
   // ── Line 10: Commissions and fees ────────────────────────────────────
@@ -55,6 +54,9 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   // ── Line 15: Insurance ───────────────────────────────────────────────
   'SERVICE_INSURANCE': { line: '15', name: 'Insurance', code: '15' },
   'TRANSPORTATION_AUTO_INSURANCE': { line: '15', name: 'Insurance', code: '15' },
+
+  // ── Line 16b: Interest (other) ───────────────────────────────────────
+  'VEHICLE_LOAN_INTEREST': { line: '16b', name: 'Interest: other', code: '16b' },
 
   // ── Line 16a: Interest (mortgage) ────────────────────────────────────
   'LOAN_INTEREST': { line: '16a', name: 'Interest (mortgage)', code: '16a' },

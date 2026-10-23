@@ -3,7 +3,7 @@ import type { DocumentReference } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { vehicleFromDocument, vehicleMethodForTaxYear, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
-import { hiredFarePurpose, hiredVehicleFare, HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, SEPARATE_VEHICLE_COST_SHARE, standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
+import { hiredFareOvernightConfirmed, hiredFarePurpose, hiredVehicleFare, HIRED_FARE_OVERNIGHT, HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, SEPARATE_VEHICLE_COST_SHARE, standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
 import { ACTUAL_EXPENSE_BUSINESS_SHARE, finiteUsePercent } from '@/lib/ai/actual-expense-share';
 import type { OutputType } from './analyzeTransaction';
 import { composeExplanation, type ExplainableResult, type ExplanationProfile } from './explanation';
@@ -222,23 +222,39 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
   }
   const purposeText = canonicalData ? ['business_purpose', 'notes', 'note'].map(key => typeof canonicalData[key] === 'string' ? canonicalData[key] as string : '').filter(Boolean).join(' ') : '';
   // A hired fare is transportation decided by the trip. It never takes the method or the share of the user's own car.
+  // undefined keeps the incoming line. null clears it so a local fare is not filed on 24a or 27b.
+  let scheduleLine: string | null | undefined;
   if (mileageVehicleCopyEnabled() && canonicalData && suggestion.status === 'ok' && suggestion.isDeductible === true &&
       hiredVehicleFare(merchantText) && suggestion.category !== 'meals_50' &&
       (suggestion.category === 'vehicle_expense' || suggestion.category === 'travel' || suggestion.category === 'other')) {
     const farePurpose = hiredFarePurpose(purposeText);
-    suggestion.category = 'travel';
-    suggestion.scheduleCLine = '24a';
-    if (farePurpose === 'business') {
+    if (farePurpose === 'business' && hiredFareOvernightConfirmed(purposeText)) {
+      suggestion.category = 'travel';
+      suggestion.scheduleCLine = '24a';
       suggestion.deductiblePercent = 100;
       suggestion.isDeductible = true;
       suggestion.status = 'ok';
+      scheduleLine = '24a';
+    } else if (farePurpose === 'business') {
+      suggestion.category = null;
+      delete suggestion.scheduleCLine;
+      suggestion.status = 'needs_more_info';
+      suggestion.isDeductible = null;
+      suggestion.deductiblePercent = null;
+      suggestion.questions = [HIRED_FARE_OVERNIGHT.question];
+      suggestion.reasoning = HIRED_FARE_OVERNIGHT.reason;
+      scheduleLine = null;
     } else if (farePurpose === 'personal') {
+      suggestion.category = 'travel';
+      suggestion.scheduleCLine = '24a';
       suggestion.isDeductible = false;
       suggestion.deductiblePercent = 0;
       suggestion.status = 'ok';
       suggestion.questions = [];
       suggestion.reasoning = HIRED_FARE_PERSONAL.reason;
     } else {
+      suggestion.category = 'travel';
+      suggestion.scheduleCLine = '24a';
       suggestion.status = 'needs_more_info';
       suggestion.isDeductible = null;
       suggestion.deductiblePercent = null;
@@ -283,20 +299,25 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
       suggestion.reasoning = gate.reason;
     }
   }
-  const fareReason = suggestion.reasoning === HIRED_FARE_PERSONAL.reason || suggestion.reasoning === HIRED_FARE_PURPOSE.reason ? suggestion.reasoning : null;
+  const fareReason = suggestion.reasoning === HIRED_FARE_PERSONAL.reason || suggestion.reasoning === HIRED_FARE_PURPOSE.reason || suggestion.reasoning === HIRED_FARE_OVERNIGHT.reason ? suggestion.reasoning : null;
   const displayedReason = withheld?.reason ?? appliedShareReason ?? fareReason ?? result.customized_reason ?? null;
+  const hiredPurposeField = mileageVehicleCopyEnabled() && suggestion.questions[0] === HIRED_FARE_PURPOSE.question;
   const missingFields = withheld
     ? [withheld.question === ACTUAL_EXPENSE_BUSINESS_SHARE.question ? 'business_use_percentage'
-      : withheld.question === HIRED_FARE_PURPOSE.question ? 'business_purpose'
+      : mileageVehicleCopyEnabled() && withheld.question === HIRED_FARE_PURPOSE.question ? 'business_purpose'
         : withheldMissingField(suggestion.category, transactionKind)]
-    : suggestion.status === 'needs_more_info' && suggestion.questions[0] === HIRED_FARE_PURPOSE.question
+    : hiredPurposeField && suggestion.status === 'needs_more_info'
       ? ['business_purpose']
-      : result.missing_fields ?? [];
+      : mileageVehicleCopyEnabled() && suggestion.status === 'needs_more_info' && suggestion.questions[0] === HIRED_FARE_OVERNIGHT.question
+        ? ['travel_eligibility']
+        : result.missing_fields ?? [];
   const label = suggestion.status === 'needs_more_info' ? 'Needs more information' : suggestion.status === 'blocked' ? 'Needs manual review' :
     suggestion.isDeductible === true ? 'Likely Deductible' : suggestion.isDeductible === false ? 'Unlikely Deductible' : 'Needs manual review';
   // The explanation describes the gated suggestion the user sees, never the raw model output.
+  const savedLine = scheduleLine !== undefined ? scheduleLine : (suggestion.scheduleCLine ?? scheduleCLine ?? null);
   const gated: ExplainableResult = { ...(result as ExplainableResult), status: suggestion.status, transaction_kind: transactionKind,
-    category: suggestion.category ?? result.category, questions: suggestion.questions, is_deductible: suggestion.isDeductible ?? undefined, deductible_percent: suggestion.deductiblePercent ?? undefined,
+    category: scheduleLine === null ? undefined : (suggestion.category ?? result.category), questions: suggestion.questions, is_deductible: suggestion.isDeductible ?? undefined, deductible_percent: suggestion.deductiblePercent ?? undefined,
+    ...(scheduleLine === null ? { schedule_c_line: undefined } : scheduleLine ? { schedule_c_line: scheduleLine } : {}),
     ...(withheld ? { customized_reason: withheld.reason, reasoning_summary: withheld.reason, key_analysis_factor: withheld.reason.slice(0, 400),
       missing_fields: missingFields } : {}),
     ...(fareReason ? { customized_reason: fareReason, reasoning_summary: fareReason, key_analysis_factor: fareReason.slice(0, 400), missing_fields: missingFields } : {}),
@@ -316,7 +337,7 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
     ai_audit_risk_rationale: result.audit_risk_rationale ?? null, ai_confidence: result.confidence ?? null,
     ai_missing_fields: missingFields, ai_questions: suggestion.questions,
     ai_documentation_required: result.documentation_required ?? [], ai_reason_hash: result.reason_hash ?? null,
-    ai_proposed_purpose: proposedPurpose ?? null, ai_schedule_c_line: suggestion.scheduleCLine ?? scheduleCLine ?? null,
+    ai_proposed_purpose: proposedPurpose ?? null, ai_schedule_c_line: savedLine,
     ai_model: model, ai_last_analyzed_at: now,
     deductionStatus: label, confidence: result.confidence ?? null,
     reasoning: displayedReason ?? result.reasoning_summary ?? null,
@@ -329,7 +350,7 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
       irs_refs: result.irs_refs ?? [], audit_risk: result.audit_risk ?? null,
       deductible_percent: suggestion.deductiblePercent, questions: suggestion.questions,
       missing_fields: missingFields, documentation_required: result.documentation_required ?? [],
-      proposed_purpose: proposedPurpose ?? null, schedule_c_line: suggestion.scheduleCLine ?? scheduleCLine ?? null,
+      proposed_purpose: proposedPurpose ?? null, schedule_c_line: savedLine,
       model, last_analyzed_at: now,
     },
     analyzed: true, analysis_status: 'completed', analysisStatus: 'completed', analysisErrorCode: null, analysisRefreshReason: null,

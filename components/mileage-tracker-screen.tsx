@@ -23,6 +23,7 @@ import { mileageVehicleCopyEnabled, MILEAGE_VEHICLE_COPY } from "@/lib/mileage/v
 import {
   applyHomeDestination,
   countedMiles,
+  countedMilesTotal,
   groupNeedsHomePrompt,
   groupTrips,
   normalizeStoredTrip,
@@ -44,12 +45,14 @@ interface MileageTrip {
   date: string;
   startLocation: string;
   endLocation: string;
-  miles: number;
+  miles: number | null;
   businessPurpose: string;
   roundTrip: boolean;
   vehicleId?: string | null;
   tripType?: TripType | null;
   homeDestination?: HomeDestination | null;
+  needsReview?: boolean;
+  reviewReason?: string;
 }
 
 interface MileageTrackerScreenProps {
@@ -58,7 +61,8 @@ interface MileageTrackerScreenProps {
 }
 
 function getEffectiveMiles(trip: MileageTrip): number {
-  return trip.roundTrip ? trip.miles * 2 : trip.miles;
+  const miles = trip.miles as number;
+  return trip.roundTrip ? miles * 2 : miles;
 }
 
 function getDeductionAmount(trip: MileageTrip): number | null {
@@ -322,7 +326,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
     return !isNaN(d.getTime()) && d.getFullYear() === currentYear;
   });
   const totalMiles = copyEnabled
-    ? countedYearTrips.reduce((sum, trip) => sum + countedMiles(trip), 0)
+    ? countedMilesTotal(countedYearTrips)
     : yearTrips.reduce((sum, t) => sum + getEffectiveMiles(t), 0);
   const mileageSummary = summarizeBusinessMileage(copyEnabled
     ? countedYearTrips.filter(trip => countedMiles(trip) > 0).map(trip => ({ date: trip.date, miles: countedMiles(trip) }))
@@ -464,8 +468,9 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
                 ) : (
                   <div className="grid items-start gap-3 lg:grid-cols-2">
                     {trips.map((trip) => {
-                      const effectiveMiles = getEffectiveMiles(trip);
-                      const deduction = getDeductionAmount(trip);
+                      const review = copyEnabled && trip.needsReview === true;
+                      const effectiveMiles = review ? null : getEffectiveMiles(trip);
+                      const deduction = review ? null : getDeductionAmount(trip);
                       return (
                         <div
                           key={trip.id}
@@ -487,7 +492,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
                                 <Calendar className="w-3 h-3" />
                                 {new Date(trip.date).toLocaleDateString()}
                               </span>
-                              <span>{effectiveMiles} mi</span>
+                              <span>{review ? trip.reviewReason : `${effectiveMiles} mi`}</span>
                               {trip.businessPurpose && (
                                 <span className="truncate max-w-[200px]">
                                   {trip.businessPurpose}

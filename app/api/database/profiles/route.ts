@@ -83,8 +83,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'A profile object is required' }, { status: 400 });
   }
   const body: Record<string, any> = { ...parsedBody };
-  if (!mileageVehicleCopyEnabled()) delete body.vehicles;
-  if (Object.keys(body).some(key => !EDITABLE_PROFILE_FIELDS.has(key))) {
+  const editableFields = new Set(EDITABLE_PROFILE_FIELDS);
+  if (!mileageVehicleCopyEnabled()) editableFields.delete('vehicles');
+  if (Object.keys(body).some(key => !editableFields.has(key))) {
     return NextResponse.json({ error: 'Profile contains fields that cannot be edited' }, { status: 400 });
   }
   if (JSON.stringify(body).length > 32_768) return NextResponse.json({ error: 'Profile is too large' }, { status: 413 });

@@ -34,12 +34,12 @@ export async function PATCH(
   try {
     const { user, error: authError } = await getAuthenticatedUser(request);
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!mileageVehicleCopyEnabled()) return NextResponse.json({ error: 'Internal server error' }, { status: 400 });
     const { id } = await params;
-    if (!id) return NextResponse.json({ error: 'Vehicle id required' }, { status: 400 });
     const parsed = patchInput.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return NextResponse.json({ error: MILEAGE_VEHICLE_COPY.invalidVehicleUpdate }, { status: 400 });
     if (parsed.data.userId !== user.uid) return NextResponse.json({ error: 'Invalid or unauthorized userId' }, { status: 403 });
+    if (!mileageVehicleCopyEnabled()) return NextResponse.json({ error: "Vehicle tracking isn't available yet" }, { status: 404 });
+    if (!id) return NextResponse.json({ error: 'Vehicle id required' }, { status: 400 });
     const { userId, ...patch } = parsed.data;
     const { data, fiveAtOnce, question, error } = await saveUserVehicle(userId, id, patch as VehiclePatch);
     if (error || !data) return NextResponse.json({ error: error?.message || MILEAGE_VEHICLE_COPY.saveFailed }, { status: error?.status || 500 });

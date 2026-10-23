@@ -7,16 +7,22 @@ import {
 } from '@/lib/firebase/mileage-server';
 import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 
-const mileageInput = z.object({
+const mileageFields = {
   userId: z.string().min(1),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value),
   startLocation: z.string().trim().min(1).max(500), endLocation: z.string().trim().min(1).max(500),
   miles: z.union([z.number(), z.string().trim().min(1)]).transform(Number).pipe(z.number().finite().positive()),
   businessPurpose: z.string().trim().max(2000).default(''), roundTrip: z.boolean().default(false),
+};
+const mileageVehicleFields = {
   vehicleId: z.string().trim().min(1).max(200).nullable().optional(),
   tripType: z.enum(['business', 'commute', 'personal']).nullable().optional(),
   homeDestination: z.enum(['regular_work', 'temporary_work', 'second_work']).nullable().optional(),
-});
+};
+
+function mileageInput() {
+  return mileageVehicleCopyEnabled() ? z.object({ ...mileageFields, ...mileageVehicleFields }) : z.object(mileageFields);
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -28,7 +34,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId') || user.uid;
     const yearParam = searchParams.get('year');
-    const year = yearParam === null ? undefined : yearParam === 'all' ? null : Number(yearParam);
+    const year = yearParam === null ? undefined : mileageVehicleCopyEnabled() && yearParam === 'all' ? null : Number(yearParam);
     if (year !== undefined && year !== null && (!Number.isInteger(year) || year < 2000 || year > 2100)) {
       return NextResponse.json({ error: 'Provide a valid tax year.' }, { status: 400 });
     }
@@ -64,10 +70,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const parsed = mileageInput.safeParse(await request.json().catch(() => null));
+    const copyOn = mileageVehicleCopyEnabled();
+    const parsed = mileageInput().safeParse(await request.json().catch(() => null));
     if (!parsed.success) return NextResponse.json({ error: 'Provide valid locations, a date (YYYY-MM-DD), and positive finite miles.' }, { status: 400 });
-    const { userId, date, startLocation, endLocation, miles, businessPurpose, roundTrip, vehicleId, tripType, homeDestination } = parsed.data;
+    const { userId, date, startLocation, endLocation, miles, businessPurpose, roundTrip } = parsed.data;
     if (userId !== user.uid) return NextResponse.json({ error: 'Invalid or unauthorized userId' }, { status: 403 });
+    const vehicleFields = copyOn ? parsed.data as { vehicleId?: string | null; tripType?: 'business' | 'commute' | 'personal' | null; homeDestination?: 'regular_work' | 'temporary_work' | 'second_work' | null } : null;
 
     const { data: trip, error } = await createMileageTrip({
       userId,
@@ -77,9 +85,11 @@ export async function POST(request: NextRequest) {
       miles: Number(miles),
       businessPurpose: businessPurpose || '',
       roundTrip: Boolean(roundTrip),
-      vehicleId: vehicleId ?? null,
-      tripType: tripType ?? null,
-      homeDestination: homeDestination ?? null,
+      ...(vehicleFields ? {
+        vehicleId: vehicleFields.vehicleId ?? null,
+        tripType: vehicleFields.tripType ?? null,
+        homeDestination: vehicleFields.homeDestination ?? null,
+      } : {}),
     });
 
     if (error) {

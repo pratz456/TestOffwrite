@@ -143,13 +143,22 @@ describe('vehicle copy switch off matches the base review', () => {
     expect(offSaved.ai_questions).toEqual([RIDE_QUESTION]);
     expect(offSaved.ai_category).toBe('vehicle_expense');
     expect(offSaved.ai_schedule_c_line).toBe('9');
+    expect(offSaved.ai_missing_fields).toEqual(['vehicle_method']);
+    expect(offSaved.ai.missing_fields).toEqual(['vehicle_method']);
+    const taxi = analyze(input, { merchant: 'City Taxi', amount_usd: 19, business_purpose: 'Taxi to the client meeting downtown.' });
+    const taxiSaved = saved(taxi!, { amount: 19, merchant_name: 'City Taxi', business_purpose: 'Taxi to the client meeting downtown.' });
+    expect(taxiSaved.ai_missing_fields).toEqual(['vehicle_method']);
+    expect(taxiSaved.ai.missing_fields).toEqual(['vehicle_method']);
 
     vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
     const on = analyze(input, charge, { ...ctx, vehicle_deduction_method: 'standard_mileage', vehicle_business_use_percentage: 40 });
     expect(on).toMatchObject({ status: 'ok', is_deductible: true, category: 'travel', deductible_percent: 100, schedule_c_line: '24a' });
     const onSaved = saved(on!, { amount: 28, merchant_name: 'Uber', business_purpose: charge.business_purpose });
-    expect(onSaved.deductionStatus).toBe('Likely Deductible');
-    expect(onSaved.ai_suggestion).toMatchObject({ status: 'ok', category: 'travel', deductiblePercent: 100, scheduleCLine: '24a' });
+    expect(onSaved.deductionStatus).toBe('Needs more information');
+    expect(onSaved.ai_schedule_c_line).toBeNull();
+    expect(onSaved.ai_suggestion.scheduleCLine).toBeUndefined();
+    expect(onSaved.ai_suggestion.questions).toEqual(['Was this ride part of an overnight business trip away from home?']);
+    expect(JSON.stringify(onSaved.ai_explanation)).not.toContain('27b');
     const unstated = analyze(input, { merchant: 'Lyft', amount_usd: 18, business_purpose: 'Ride across town tonight.' });
     expect(unstated).toMatchObject({ status: 'needs_more_info', category: 'travel', missing_fields: ['business_purpose'], questions: [HIRED_FARE_PURPOSE.question] });
   });

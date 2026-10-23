@@ -7,7 +7,7 @@ export const ACTUAL_EXPENSE_BUSINESS_SHARE = {
 /** Saved category for an actual-expense car cost that has a recorded business-use share. Schedule C line 9. */
 export const VEHICLE_ACTUAL_EXPENSE_CATEGORY = 'VEHICLE_ACTUAL_EXPENSE';
 
-/** Car loan interest at the recorded business-use share. Schedule C line 9. */
+/** Car loan interest at the recorded business-use share. Schedule C line 16b. */
 export const VEHICLE_LOAN_INTEREST_CATEGORY = 'VEHICLE_LOAN_INTEREST';
 
 /** Personal property tax on the car at the recorded business-use share. Schedule C line 23. */

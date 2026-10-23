@@ -27,6 +27,8 @@ const request = (body: unknown) => new NextRequest('https://writeoff.test/api/da
 });
 
 beforeEach(() => {
+  model.transaction.mockClear();
+  model.transactionSet.mockClear();
   model.stored = { name: 'Owner' };
   model.transactionSet.mockImplementation((_ref: unknown, fields: Record<string, unknown>) => {
     for (const [key, value] of Object.entries(fields)) {
@@ -51,10 +53,12 @@ describe('vehicle profile field lists', () => {
     vi.unstubAllEnvs();
   });
 
-  it('a profile save ignores vehicles when the switch is off', async () => {
+  it('a profile save with vehicles returns 400 and writes nothing when the switch is off', async () => {
     vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
-    const response = await POST(request({ name: 'Owner', vehicles: [{ id: 'legacy-vehicle-1', method: 'standard_mileage' }] }));
-    expect(response.status).toBe(200);
+    const response = await POST(request({ name: 'Changed', vehicles: [{ id: 'legacy-vehicle-1', method: 'standard_mileage' }] }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Profile contains fields that cannot be edited' });
+    expect(model.transaction).not.toHaveBeenCalled();
     expect(model.stored.name).toBe('Owner');
     expect(model.stored.vehicles).toBeUndefined();
     vi.unstubAllEnvs();

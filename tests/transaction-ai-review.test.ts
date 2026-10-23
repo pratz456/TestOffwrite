@@ -353,7 +353,10 @@ describe('interest, vehicle property tax, and hired fares', () => {
         const interest = await send(correct({ category: 'vehicle_expense', isDeductible: true, reason: 'Interest on the car loan' }));
         expect(interest.status).toBe(200);
         expect(record()).toMatchObject({ category: 'VEHICLE_LOAN_INTEREST', is_deductible: true, business_use_percentage: 40, deductible_percent: 40 });
-        expect(aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' }).totalDeductible).toBe(80);
+        const interestTotals = aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' });
+        expect(interestTotals.totalDeductible).toBe(80);
+        expect(interestTotals.lineItems['16b']).toMatchObject({ lineCode: '16b', lineName: 'Interest: other', deductible: 80 });
+        expect(interestTotals.lineItems['9']).toBeUndefined();
         change({ merchant_name: 'County Treasurer', amount: 90, business_purpose: 'Personal property tax on the car', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED', business_use_percentage: undefined, deductible_percent: undefined });
         const propertyTax = await send(correct({ category: 'taxes_licenses', isDeductible: true, reason: 'Personal property tax on the car' }));
         expect(propertyTax.status).toBe(200);
@@ -385,17 +388,19 @@ describe('interest, vehicle property tax, and hired fares', () => {
     try {
       vehicleProfile('actual_expense', 40);
       const profile = mocks.docs.get('user_profiles/owner')!;
-      change({ merchant_name: 'Uber', amount: 28, business_purpose: 'Ride to the client meeting', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED' });
+      change({ merchant_name: 'Uber', amount: 28, business_purpose: 'Ride from the airport during an overnight business trip away from home', date: '2026-09-15', is_deductible: null, category: 'UNCLASSIFIED' });
       change(analysisSuggestionUpdate({
         ...result, category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9',
-        customized_reason: 'Ride to the client meeting is local transportation.',
+        customized_reason: 'Ride from the airport during an overnight business trip away from home.',
       }, 1770000000000, record(), analysisProfileHash(profile, record().date), profile, { profile, taxYear: 2026 }));
-      expect(record().ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, category: 'travel' });
+      expect(record().ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, category: 'travel', scheduleCLine: '24a' });
       const response = await send(confirm());
       expect(response.status).toBe(200);
       expect(record()).toMatchObject({ category: 'TRAVEL_OTHER_TRAVEL', is_deductible: true });
       expect(record().business_use_percentage).toBeUndefined();
-      expect(aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' }).totalDeductible).toBe(28);
+      const fareTotals = aggregateScheduleC([record() as any], '2026', undefined, { mode: 'confirmed-only' });
+      expect(fareTotals.totalDeductible).toBe(28);
+      expect(fareTotals.lineItems['24a']).toMatchObject({ lineCode: '24a', deductible: 28 });
     } finally {
       vi.unstubAllEnvs();
     }

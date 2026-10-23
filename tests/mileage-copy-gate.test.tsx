@@ -124,7 +124,7 @@ import { SettingsScreen } from '@/components/settings-screen';
 import { DELETE as deleteTrip } from '@/app/api/mileage/[id]/route';
 import { GET as readMileage, POST as createMileage } from '@/app/api/mileage/route';
 import { POST as assignTrips } from '@/app/api/mileage/assignments/route';
-import { POST as addVehicle } from '@/app/api/mileage/vehicles/route';
+import { GET as listVehicles, POST as addVehicle } from '@/app/api/mileage/vehicles/route';
 import { PATCH as saveVehicle } from '@/app/api/mileage/vehicles/[id]/route';
 
 const BASE_MILEAGE_ERRORS = [
@@ -272,15 +272,33 @@ describe('mileage copy switch off matches the base screens and errors', () => {
       const created = await createMileage(request('https://writeoff.test/api/mileage', tripBody));
       expect(created.status).toBe(200);
       expect(JSON.stringify(await created.json())).not.toContain(MILEAGE_VEHICLE_COPY.pickTripType);
-      const hiddenVehicle = await saveVehicle(request('https://writeoff.test/api/mileage/vehicles/car-1', {}), { params: Promise.resolve({ id: '' }) });
-      expect(hiddenVehicle.status).toBe(400);
-      expect((await hiddenVehicle.json()).error).toBe('Internal server error');
+      const unavailable = "Vehicle tracking isn't available yet";
+      const hiddenList = await listVehicles(request('https://writeoff.test/api/mileage/vehicles?userId=owner', undefined, 'GET'));
+      expect(hiddenList.status).toBe(404);
+      expect((await hiddenList.json()).error).toBe(unavailable);
+      const hiddenVehicle = await saveVehicle(request('https://writeoff.test/api/mileage/vehicles/car-1', { userId: 'owner' }), { params: Promise.resolve({ id: 'car-1' }) });
+      expect(hiddenVehicle.status).toBe(404);
+      expect((await hiddenVehicle.json()).error).toBe(unavailable);
       const hiddenAdd = await addVehicle(request('https://writeoff.test/api/mileage/vehicles', { userId: 'owner' }));
-      expect(hiddenAdd.status).toBe(400);
-      expect((await hiddenAdd.json()).error).toBe('Internal server error');
-      const hiddenAssign = await assignTrips(request('https://writeoff.test/api/mileage/assignments', {}));
-      expect(hiddenAssign.status).toBe(400);
-      expect((await hiddenAssign.json()).error).toBe('Internal server error');
+      expect(hiddenAdd.status).toBe(404);
+      expect((await hiddenAdd.json()).error).toBe(unavailable);
+      const hiddenAssign = await assignTrips(request('https://writeoff.test/api/mileage/assignments', {
+        userId: 'owner', updates: [{ tripId: 'trip-1', vehicleId: null, tripType: null }],
+      }));
+      expect(hiddenAssign.status).toBe(404);
+      expect((await hiddenAssign.json()).error).toBe(unavailable);
+      const wrongYear = await readMileage(request('https://writeoff.test/api/mileage?userId=owner&year=all', undefined, 'GET'));
+      expect(wrongYear.status).toBe(400);
+      expect((await wrongYear.json()).error).toBe('Provide a valid tax year.');
+      const extraFields = await createMileage(request('https://writeoff.test/api/mileage', {
+        ...tripBody, vehicleId: 'car-1', tripType: 'business', homeDestination: 'regular_work',
+      }));
+      expect(extraFields.status).toBe(200);
+      const extraBody = await extraFields.json();
+      expect(extraBody).not.toHaveProperty('vehicleId');
+      expect(extraBody).not.toHaveProperty('tripType');
+      expect(extraBody).not.toHaveProperty('homeDestination');
+      expect(extraBody).not.toHaveProperty('needsReview');
       const bodies = [
         await (await readMileage(request('https://writeoff.test/api/mileage?userId=owner', undefined, 'GET'))).json(),
         await (await saveVehicle(request('https://writeoff.test/api/mileage/vehicles/car-1', { userId: 'owner' }), { params: Promise.resolve({ id: 'car-1' }) })).json(),
@@ -288,5 +306,17 @@ describe('mileage copy switch off matches the base screens and errors', () => {
       for (const body of bodies) expect(catalog.has(body.error)).toBe(false);
       expect(BASE_MILEAGE_ERRORS).toContain('Failed to delete mileage trip');
     }
+  });
+
+  it('accepts year=all only while the switch is on', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    database.trips = [
+      { id: 'now', data: { date: '2026-04-02', miles: 3, startLocation: 'A', endLocation: 'B' } },
+      { id: 'then', data: { date: '2024-01-02', miles: 6, startLocation: 'C', endLocation: 'D' } },
+    ];
+    const response = await readMileage(new NextRequest('https://writeoff.test/api/mileage?userId=owner&year=all'));
+    expect(response.status).toBe(200);
+    const trips = await response.json() as Array<{ id: string }>;
+    expect(trips.map(trip => trip.id).sort()).toEqual(['now', 'then']);
   });
 });

@@ -76,7 +76,12 @@ export interface MileageTripFields {
   vehicleId: string | null;
   tripType: TripType | null;
   homeDestination: HomeDestination | null;
+  /** Set when stored miles are not a finite number, so the trip is left out of mileage totals. */
+  needsReview?: boolean;
+  reviewReason?: string;
 }
+
+export const UNREADABLE_TRIP_MILES = 'Miles on this trip could not be read.';
 
 export interface VehiclePatch {
   name?: string;
@@ -531,14 +536,15 @@ export function legacyPercentageContribution(vehicle: VehicleRecord): number {
   return 0;
 }
 
-export function countedMiles(trip: Pick<MileageTripFields, 'miles' | 'roundTrip' | 'vehicleId' | 'tripType'>): number {
+export function countedMiles(trip: Pick<MileageTripFields, 'miles' | 'roundTrip' | 'vehicleId' | 'tripType' | 'needsReview'>): number {
+  if (trip.needsReview) return 0;
   if (!trip.vehicleId || trip.tripType !== 'business') return 0;
   if (typeof trip.miles !== 'number' || !Number.isFinite(trip.miles) || trip.miles <= 0) return 0;
   return trip.roundTrip ? trip.miles * 2 : trip.miles;
 }
 
-export function countedMilesTotal(trips: readonly Pick<MileageTripFields, 'miles' | 'roundTrip' | 'vehicleId' | 'tripType'>[]): number {
-  return trips.reduce((sum, trip) => sum + countedMiles(trip), 0);
+export function countedMilesTotal(trips: readonly Pick<MileageTripFields, 'miles' | 'roundTrip' | 'vehicleId' | 'tripType' | 'needsReview'>[]): number {
+  return trips.reduce((sum, trip) => trip.needsReview ? sum : sum + countedMiles(trip), 0);
 }
 
 export function mileageDeductionTotal(trips: readonly MileageTripFields[], vehicles: readonly VehicleRecord[], ratePerMile: number): number {
@@ -552,21 +558,27 @@ export function tripTypeFromBusinessPurpose(businessPurpose: string | null | und
   return null;
 }
 
-export function normalizeStoredTrip(raw: Partial<MileageTripFields>): MileageTripFields {
+export function normalizeStoredTrip(raw: Omit<Partial<MileageTripFields>, 'miles'> & { miles?: unknown }): MileageTripFields {
   const tripType = raw.tripType === 'business' || raw.tripType === 'commute' || raw.tripType === 'personal' ? raw.tripType : null;
   const homeDestination = raw.homeDestination === 'regular_work' || raw.homeDestination === 'temporary_work' || raw.homeDestination === 'second_work' ? raw.homeDestination : null;
-  return {
+  const milesReadable = typeof raw.miles === 'number' && Number.isFinite(raw.miles);
+  const trip: MileageTripFields = {
     id: typeof raw.id === 'string' ? raw.id : '',
     date: typeof raw.date === 'string' ? raw.date : '',
     startLocation: typeof raw.startLocation === 'string' ? raw.startLocation : '',
     endLocation: typeof raw.endLocation === 'string' ? raw.endLocation : '',
-    miles: typeof raw.miles === 'number' && Number.isFinite(raw.miles) ? raw.miles : 0,
+    miles: milesReadable ? raw.miles as number : 0,
     businessPurpose: typeof raw.businessPurpose === 'string' ? raw.businessPurpose : '',
     roundTrip: raw.roundTrip === true,
     vehicleId: typeof raw.vehicleId === 'string' && raw.vehicleId.trim() ? raw.vehicleId.trim() : null,
     tripType,
     homeDestination,
   };
+  if (!milesReadable || raw.needsReview === true) {
+    trip.needsReview = true;
+    trip.reviewReason = typeof raw.reviewReason === 'string' && raw.reviewReason ? raw.reviewReason : UNREADABLE_TRIP_MILES;
+  }
+  return trip;
 }
 
 export function sortFinished(trips: readonly Pick<MileageTripFields, 'vehicleId' | 'tripType'>[]): boolean {
@@ -720,7 +732,7 @@ export function groupTrips(trips: readonly MileageTripFields[]): { repeated: Tri
       endLocation: display.end,
       tripIds: members.map(trip => trip.id),
       tripCount: members.length,
-      miles: members.reduce((sum, trip) => sum + (trip.roundTrip ? trip.miles * 2 : trip.miles), 0),
+      miles: members.reduce((sum, trip) => trip.needsReview ? sum : sum + (trip.roundTrip ? trip.miles * 2 : trip.miles), 0),
       dateStart: dates[0] ?? '',
       dateEnd: dates[dates.length - 1] ?? '',
     });

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
 import { ACTUAL_EXPENSE_BUSINESS_SHARE } from '@/lib/ai/actual-expense-share';
-import { HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
+import { HIRED_FARE_OVERNIGHT, HIRED_FARE_PERSONAL, HIRED_FARE_PURPOSE, SEPARATE_VEHICLE_COST_SHARE } from '@/lib/ai/vehicle-separate-costs';
 import { analysisSuggestionUpdate, STANDARD_MILEAGE_RUNNING_COST_GATE, VEHICLE_METHOD_GATE, withheldApprovalGate, withheldMissingField } from '@/lib/ai/analysis-persistence';
 import { blankVehicle, saveVehicle } from '@/lib/mileage/vehicles';
 import type { OutputType } from '@/lib/ai/analyzeTransaction';
@@ -177,17 +177,35 @@ describe('an engine approval the review path cannot consume is stored as the que
     for (const merchant of ['Uber', 'Lyft', 'TAXI SVC']) {
       const fare = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9', deductible_percent: 40 }), 1,
         record({ amount: 28, merchant_name: merchant, business_purpose: 'Ride to the client meeting' }), undefined, null, facts);
-      expect(fare.deductionStatus).toBe('Likely Deductible');
-      expect(fare.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, category: 'travel' });
+      expect(fare.deductionStatus).toBe('Needs more information');
+      expect(fare.ai_schedule_c_line).toBeNull();
+      expect(fare.ai.schedule_c_line).toBeNull();
+      expect(fare.ai_suggestion.scheduleCLine).toBeUndefined();
+      expect(fare.ai_suggestion.category).toBeNull();
+      expect(fare.ai_suggestion.questions).toEqual([HIRED_FARE_OVERNIGHT.question]);
+      expect(fare.ai_suggestion.questions.join(' ')).not.toContain('27b');
+      expect(JSON.stringify(fare.ai_explanation)).not.toContain('24a');
+      expect(JSON.stringify(fare.ai_explanation)).not.toContain('27b');
       expect(fare.ai_suggestion.questions.join(' ')).not.toContain(STANDARD_MILEAGE_RUNNING_COST_GATE.question);
       expect(fare.ai_suggestion.questions.join(' ')).not.toContain(ACTUAL_EXPENSE_BUSINESS_SHARE.question);
-      expect(fare.ai_suggestion.reasoning).not.toContain('already included');
     }
+    const overnightPurpose = 'Ride from the airport during an overnight business trip away from home';
+    for (const merchant of ['Uber', 'Lyft', 'Yellow Taxi']) {
+      const overnight = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9', deductible_percent: 40 }), 1,
+        record({ amount: 28, merchant_name: merchant, business_purpose: overnightPurpose }), undefined, null, facts);
+      expect(overnight.deductionStatus).toBe('Likely Deductible');
+      expect(overnight.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, category: 'travel', scheduleCLine: '24a' });
+      expect(overnight.ai_schedule_c_line).toBe('24a');
+    }
+    const commute = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
+      record({ amount: 16, merchant_name: 'Uber', business_purpose: 'Commuting to my regular workplace' }), undefined, null, facts);
+    expect(commute.deductionStatus).toBe('Unlikely Deductible');
+    expect(commute.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: false, deductiblePercent: 0, category: 'travel' });
     const actualCars = withShare.map(vehicle => ({ ...vehicle, method: 'actual_expense' as const, methodByYear: { '2026': 'actual_expense' as const } }));
     const actualFare = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', deductible_percent: 40, schedule_c_line: '9' }), 1,
-      record({ amount: 28, merchant_name: 'Uber', business_purpose: 'Ride to the client meeting' }), undefined, null,
+      record({ amount: 28, merchant_name: 'Uber', business_purpose: overnightPurpose }), undefined, null,
       { vehicles: actualCars, taxYear: 2026, vehicleId: 'legacy-vehicle-1' });
-    expect(actualFare.ai_suggestion).toMatchObject({ status: 'ok', deductiblePercent: 100, category: 'travel' });
+    expect(actualFare.ai_suggestion).toMatchObject({ status: 'ok', deductiblePercent: 100, category: 'travel', scheduleCLine: '24a' });
     const personal = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
       record({ amount: 18, merchant_name: 'Uber', business_purpose: 'Ride home from a concert' }), undefined, null, facts);
     expect(personal.deductionStatus).toBe('Unlikely Deductible');

@@ -3,6 +3,7 @@ import {
   assignTrips,
   normalizeStoredTrip,
   tripCreateRecord,
+  UNREADABLE_TRIP_MILES,
   type HomeDestination,
   type HomeOfficeTripFacts,
   type TripType,
@@ -16,12 +17,14 @@ export interface MileageTrip {
   date: string;
   startLocation: string;
   endLocation: string;
-  miles: number;
+  miles: number | null;
   businessPurpose: string;
   roundTrip: boolean;
   vehicleId?: string | null;
   tripType?: TripType | null;
   homeDestination?: HomeDestination | null;
+  needsReview?: boolean;
+  reviewReason?: string;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -44,22 +47,41 @@ export interface MileageWriteError {
   status?: number;
 }
 
-/** Shared read for get, create, and sort. Missing miles become 0. Purpose text never becomes a trip type. */
+/** Shared read for get, create, and sort. Purpose text never becomes a trip type. */
 export function mileageTripFromDocument(id: string, userId: string, data: DocumentData): MileageTrip {
+  const createdAt = data.createdAt?.toDate?.() || data.createdAt;
+  const updatedAt = data.updatedAt?.toDate?.() || data.updatedAt;
+  if (!mileageVehicleCopyEnabled()) {
+    return {
+      id,
+      userId: data.userId || userId,
+      date: data.date || '',
+      startLocation: data.startLocation || '',
+      endLocation: data.endLocation || '',
+      miles: data.miles ?? 0,
+      businessPurpose: data.businessPurpose || '',
+      roundTrip: data.roundTrip ?? false,
+      createdAt,
+      updatedAt,
+    };
+  }
   const normalized = normalizeStoredTrip({ ...data, id, businessPurpose: data.businessPurpose });
-  const copyOn = mileageVehicleCopyEnabled();
+  const milesReadable = typeof data.miles === 'number' && Number.isFinite(data.miles);
   return {
     id: normalized.id,
     userId: typeof data.userId === 'string' ? data.userId : userId,
     date: normalized.date,
     startLocation: normalized.startLocation,
     endLocation: normalized.endLocation,
-    miles: normalized.miles,
+    miles: milesReadable ? normalized.miles : null,
     businessPurpose: normalized.businessPurpose,
     roundTrip: normalized.roundTrip,
-    createdAt: data.createdAt?.toDate?.() || data.createdAt,
-    updatedAt: data.updatedAt?.toDate?.() || data.updatedAt,
-    ...(copyOn ? { vehicleId: normalized.vehicleId, tripType: normalized.tripType, homeDestination: normalized.homeDestination } : {}),
+    createdAt,
+    updatedAt,
+    vehicleId: normalized.vehicleId,
+    tripType: normalized.tripType,
+    homeDestination: normalized.homeDestination,
+    ...(normalized.needsReview ? { needsReview: true, reviewReason: normalized.reviewReason || UNREADABLE_TRIP_MILES } : {}),
   };
 }
 
@@ -92,7 +114,8 @@ export async function getMileageTrips(
   year?: number | null
 ): Promise<{ data: MileageTrip[]; error: MileageWriteError | null }> {
   try {
-    const targetYear = year === null ? null : year ?? new Date().getFullYear();
+    const copyOn = mileageVehicleCopyEnabled();
+    const targetYear = copyOn && year === null ? null : year ?? new Date().getFullYear();
     const querySnapshot = await tripsCollection(userId).get();
     const trips: MileageTrip[] = [];
     querySnapshot.forEach((doc) => {
@@ -118,6 +141,35 @@ export async function createMileageTrip(
   try {
     const collectionRef = tripsCollection(input.userId);
     const copyOn = mileageVehicleCopyEnabled();
+    if (!copyOn) {
+      const docData = {
+        userId: input.userId,
+        date: input.date,
+        startLocation: input.startLocation,
+        endLocation: input.endLocation,
+        miles: input.miles,
+        businessPurpose: input.businessPurpose,
+        roundTrip: input.roundTrip,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const docRef = await collectionRef.add(docData);
+      return {
+        data: {
+          id: docRef.id,
+          userId: input.userId,
+          date: input.date,
+          startLocation: input.startLocation,
+          endLocation: input.endLocation,
+          miles: input.miles,
+          businessPurpose: input.businessPurpose,
+          roundTrip: input.roundTrip,
+          createdAt: docData.createdAt,
+          updatedAt: docData.updatedAt,
+        },
+        error: null,
+      };
+    }
     const createdAt = new Date();
     const docRef = collectionRef.doc();
     const written = await adminDb.runTransaction(async tx => {
@@ -163,7 +215,7 @@ export async function assignMileageTrips(
         date: trip.date,
         startLocation: trip.startLocation,
         endLocation: trip.endLocation,
-        miles: trip.miles,
+        miles: typeof trip.miles === 'number' && Number.isFinite(trip.miles) ? trip.miles : 0,
         businessPurpose: trip.businessPurpose,
         roundTrip: trip.roundTrip,
         vehicleId: trip.vehicleId ?? null,
@@ -171,7 +223,10 @@ export async function assignMileageTrips(
         homeDestination: trip.homeDestination ?? null,
       }));
       const next = assignTrips(fields, [update.tripId], update, homeOffice);
-      trips = next.map(trip => ({ ...trips.find(item => item.id === trip.id), ...trip, userId }));
+      trips = next.map(assigned => {
+        const previous = trips.find(item => item.id === assigned.id);
+        return { ...previous, ...assigned, userId, miles: previous?.miles ?? assigned.miles };
+      });
     }
     const batch = adminDb.batch();
     const updatedAt = new Date();
