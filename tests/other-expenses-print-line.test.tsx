@@ -1,9 +1,29 @@
 import React from 'react';
 import { readFileSync } from 'node:fs';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { NextRequest } from 'next/server';
+import { PDFDocument, PDFPage } from 'pdf-lib';
+import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
 
-vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
+const form1040State = vi.hoisted(() => ({ organizer: null as Record<string, unknown> | null }));
+vi.mock('@/lib/firebase/admin', () => ({ adminDb: {
+  collection: (name: string) => ({
+    where() { return this; }, limit() { return this; },
+    get: async () => name === 'tax_organizers' && form1040State.organizer
+      ? { empty: false, docs: [{ id: 'organizer', data: () => form1040State.organizer }] }
+      : { empty: true, docs: [] },
+  }),
+  doc: () => ({ get: async () => ({ exists: false, data: () => null }) }),
+} }));
+vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: async () => ({ uid: 'form-1040-owner' }) }));
+vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'form-1040-owner' }, error: null }) }));
+vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
+vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
+vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { name: 'Synthetic Taxpayer', filing_status: 'single' }, error: null }) }));
+vi.mock('@/lib/firebase/settings-server', () => ({ getScheduleCSettings: async () => ({ data: { assets: [], homeOffice: null, depreciationElections: { deMinimisSafeHarborYears: [] } }, error: null }) }));
+vi.mock('@/lib/firebase/quarterly-payments-server', () => ({ getRecordedQuarterlyPayments: async () => [], totalRecordedPayments: () => 0 }));
+vi.mock('@/lib/reports/tax-export-transactions', () => ({ readTaxExportTransactions: async () => [] }));
 
 import { ExplanationCard } from '@/components/ai/explanation-card';
 import { composeExplanation, normalizeExplanation, scheduleCLineFor, type ExplainableResult } from '@/lib/ai/explanation';
@@ -11,7 +31,8 @@ import { PROFESSION_PRIORS, type ProfessionMerchantHint } from '@/lib/ai/profess
 import { CATEGORY_SCHEDULE_C_LINE, TRANSACTION_TAX_EVIDENCE } from '@/lib/ai/transaction-tax-policy';
 import { assembleAuditSupportPacket, auditSupportPacketCSV, buildEvidenceRecord, type AuditSupportPacket } from '@/lib/reports/audit-support-packet';
 import { convertTransactionsToCSV, type ExportRecord } from '@/lib/reports/transaction-export';
-import { OTHER_EXPENSES_YEAR_FREE_LINE, scheduleCExportLine } from '@/lib/schedule-c/export-lines';
+import { OTHER_EXPENSES_YEAR_FREE_LINE, printedScheduleCLine, scheduleCExportLine } from '@/lib/schedule-c/export-lines';
+import { POST as form1040 } from '@/app/api/tax/form-1040/route';
 import { guidanceSource, GUIDANCE_SOURCES } from '@/lib/tax-assistant/knowledge';
 
 /**
@@ -86,6 +107,8 @@ function whereItGoes(charge: ExportRecord, taxYear: number | null, result: Expla
   return composeExplanation({ result, transaction: charge, profile: { income: 80000, filing_status: 'single' }, taxYear }).scheduleCLine;
 }
 
+afterEach(() => { vi.useRealTimers(); });
+
 describe('printed Other expenses line', () => {
   it('prints 27b for 2025 and 2026 and 27a for 2024 in both transaction export columns', () => {
     for (const date of ['2025-03-01', '2026-03-02']) {
@@ -123,7 +146,9 @@ describe('printed Other expenses line', () => {
     expect(whereItGoes(posted, 2025)).toBe('Schedule C line 27a (Other expenses)');
   });
 
-  it('prints the year-free wording when the charge date is missing or invalid', () => {
+  it.each(['2024-07-01', '2026-10-23'])('prints the year-free wording when the charge date is missing or invalid (system time %s)', (day) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(`${day}T12:00:00.000Z`));
     expect(OTHER_EXPENSES_YEAR_FREE_LINE).toBe(YEAR_FREE);
     const missing = dues();
     delete missing.date;
@@ -136,6 +161,20 @@ describe('printed Other expenses line', () => {
     expect(auditLine(invalid)).toBe(YEAR_FREE);
     expect(whereItGoes({ date: '2025-13-40', datetime: '2026-01-01', created_at: '2026-10-23T00:00:00Z' }, 2026)).toBe(YEAR_FREE);
     expect(whereItGoes({ merchant_name: 'AIGA' }, new Date().getFullYear())).toBe(YEAR_FREE);
+  });
+
+  it('maps a stored code 27b through the same Other expenses printer as 27a', () => {
+    expect(printedScheduleCLine('27b', 2024)).toBe('27a');
+    expect(printedScheduleCLine('27b', 2025)).toBe('27b');
+    expect(printedScheduleCLine('27b', null)).toBe(YEAR_FREE);
+    expect(exportColumns(dues({ date: '2024-06-15', schedule_c_line: '27b' }))).toEqual({ recorded: '27a', mapped: '27a' });
+    expect(exportColumns(dues({ date: '2025-04-01', schedule_c_line: '27b' }))).toEqual({ recorded: '27b', mapped: '27b' });
+    const missing = dues({ schedule_c_line: '27b' });
+    delete missing.date;
+    delete missing.datetime;
+    expect(exportColumns(missing)).toEqual({ recorded: YEAR_FREE, mapped: YEAR_FREE });
+    expect(printedScheduleCLine('18', 2024)).toBe('18');
+    expect(printedScheduleCLine('18', null)).toBe('18');
   });
 
   it('keeps a non-27a line when the charge date is missing', () => {
@@ -197,6 +236,31 @@ describe('stored and supplied Other expenses sentences', () => {
     }
     expect(exportColumns(dues({ date: '', datetime: '2024-12-31' }))).toEqual({ recorded: YEAR_FREE, mapped: YEAR_FREE });
   });
+
+  it('treats a supplied 27b as Other expenses on every result path', () => {
+    for (const supplied of ['27b', '27B', 'line 27b', 'LINE 27B (other expenses)', 'Schedule C line 27b', 'schedule c line 27b (Other expenses)']) {
+      expect(scheduleCLineFor(duesResult({ schedule_c_line: supplied }), '2024-06-15')).toBe('Schedule C line 27a (Other expenses)');
+      expect(scheduleCLineFor(duesResult({ schedule_c_line: supplied }), '2025-04-01')).toBe('Schedule C line 27b (Other expenses)');
+      expect(scheduleCLineFor(duesResult({ schedule_c_line: supplied }), undefined)).toBe(YEAR_FREE);
+    }
+    expect(scheduleCLineFor(duesResult({ status: 'blocked', schedule_c_line: '27b', missing_fields: ['supported_tax_year'] }), '2024-12-31')).toBe('Schedule C line 27a (Other expenses)');
+    expect(scheduleCLineFor(duesResult({ is_deductible: false, schedule_c_line: 'line 27b' }), '2025-04-01')).toBe('Schedule C line 27b (Other expenses)');
+    expect(scheduleCLineFor(duesResult({ transaction_kind: undefined, schedule_c_line: 'Schedule C line 27b' }), undefined)).toBe(YEAR_FREE);
+    expect(scheduleCLineFor(duesResult({ schedule_c_line: '18' }), '2024-06-15')).toBe('Schedule C line 18 (Office expense)');
+    expect(scheduleCLineFor(duesResult({ schedule_c_line: 'Schedule C line 18 (Office expense)' }), '2025-04-01')).toBe('Schedule C line 18 (Office expense)');
+  });
+
+  it('reprints a stored 27b sentence from the charge date and leaves the year-free sentence unchanged', () => {
+    expect(shown('Schedule C line 27b (Other expenses)', '2024-06-15')).toBe('Schedule C line 27a (Other expenses)');
+    expect(shown('schedule c line 27b', '2025-04-01')).toBe('Schedule C line 27b (Other expenses)');
+    expect(shown('Schedule C line 27b (other expenses)', undefined)).toBe(YEAR_FREE);
+    expect(shown('Schedule C line 18 (Office expense)', '2025-04-01')).toBe('Schedule C line 18 (Office expense)');
+    for (const chargeDate of ['2024-06-15', '2025-04-01', undefined]) {
+      let line: string | null | undefined = YEAR_FREE;
+      for (let pass = 0; pass < 3; pass += 1) line = shown(line!, chargeDate);
+      expect(line).toBe(YEAR_FREE);
+    }
+  });
 });
 
 describe('year-free Other expenses copy', () => {
@@ -241,5 +305,20 @@ describe('Form 1040 earned income credit', () => {
     expect(route).toContain("y = row(p, eicLine, 'Earned income credit (EIC)', y, d.eitcCredit, f, bf, true);");
     expect(scheduleCExportLine('27a', 2024)).toBe('27a');
     expect(scheduleCExportLine('27a', 2025)).toBe('27b');
+  });
+
+  it('prints line 27a on the 2025 Earned income credit row', async () => {
+    form1040State.organizer = { userId: 'form-1040-owner', ...reviewedPersonalDeductionOrganizer(2025) };
+    const spy = vi.spyOn(PDFPage.prototype, 'drawText');
+    const response = await form1040(new NextRequest('http://localhost/api/tax/form-1040', { method: 'POST', body: JSON.stringify({ year: 2025 }) }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('application/pdf');
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThanOrEqual(2);
+    const drawn = spy.mock.calls.map(call => String(call[0]));
+    const eic = drawn.indexOf('Earned income credit (EIC)');
+    expect(eic).toBeGreaterThan(0);
+    expect(drawn[eic - 1]).toBe('27a');
+    expect(drawn).toContain('Total payments. Add lines 25d, 26, 27a, 28.');
   });
 });

@@ -185,14 +185,18 @@ function lineSentence(internalLine: string, chargeDate: unknown): string {
   return `Schedule C line ${printed}${name ? ` (${name})` : ''}`;
 }
 
-/** Bare 27a, "line 27a", or "Schedule C line 27a", with or without a parenthetical. */
+/**
+ * Bare 27a or 27b, "line 27b", or "Schedule C line 27b", with or without one parenthetical.
+ * A supplied 27b is Other expenses: 2024 returns use line 27b for energy-efficient commercial buildings, and WriteOff has no Form 7205 category.
+ * The exact year-free sentence is not a line token.
+ */
 function isSuppliedOtherExpenses(value: string): boolean {
-  return /^(?:schedule\s+c\s+line\s+|line\s+)?27a(?:\s*\([^)]*\))?$/i.test(value);
+  return value !== OTHER_EXPENSES_YEAR_FREE_LINE && /^(?:schedule\s+c\s+line\s+|line\s+)?27[ab](?:\s*\([^)]*\))?$/i.test(value);
 }
 
-/** A saved card sentence from before Other expenses printed as 27b. */
+/** A saved card sentence that names Other expenses as 27a or 27b. The exact year-free sentence stays as stored. */
 function isStoredOtherExpensesSentence(value: string): boolean {
-  return /^schedule\s+c\s+line\s+27a(?:\s*\([^)]*\))?$/i.test(value);
+  return value !== OTHER_EXPENSES_YEAR_FREE_LINE && /^schedule\s+c\s+line\s+27[ab](?:\s*\([^)]*\))?$/i.test(value);
 }
 
 /** Prefer the policy's placement; otherwise the export taxonomy line for the suggested category. */
@@ -367,8 +371,8 @@ export function composeExplanation({ result, transaction, profile, taxYear }: Co
 
 /**
  * Validates a stored `ai_explanation` payload before the UI renders it; any malformed record renders nothing.
- * Pass `{ chargeDate }` when rendering. A stored "Schedule C line 27a" sentence is reprinted from that date.
- * Other stored lines stay as saved. Omitting the display argument leaves every stored line unchanged, so this does not rewrite records.
+ * Pass `{ chargeDate }` when rendering. A stored "Schedule C line 27a" or "Schedule C line 27b" sentence is reprinted from that date as Other expenses.
+ * The exact year-free sentence is never rewritten. Other stored lines stay as saved. Omitting the display argument leaves every stored line unchanged, so this does not rewrite records.
  */
 export function normalizeExplanation(value: unknown, display?: { chargeDate: unknown }): TransactionExplanation | null {
   const data = record(value);
