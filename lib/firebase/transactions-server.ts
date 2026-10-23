@@ -1,4 +1,5 @@
 import { FieldPath } from 'firebase-admin/firestore';
+import { chargeDay } from '@/lib/schedule-c/taxDate';
 import { saveTransactionChanges } from '@/lib/transactions/save-changes';
 import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
@@ -79,29 +80,6 @@ export interface Transaction {
   merchant_entity_id?: string;
 }
 
-/** Helper: convert possible Firestore timestamp or string to ISO date string (safe) */
-function parseDateToISO(dateLike: any): string {
-  try {
-    if (!dateLike) return '';
-    // Firestore Timestamp has toDate()
-    if (typeof dateLike?.toDate === 'function') {
-      return dateLike.toDate().toISOString();
-    }
-    // If it's a Date
-    if (dateLike instanceof Date) return dateLike.toISOString();
-    // If it's numeric (epoch millis)
-    if (typeof dateLike === 'number') return new Date(dateLike).toISOString();
-    // If it's string already
-    if (typeof dateLike === 'string') {
-      const d = new Date(dateLike);
-      return isNaN(d.getTime()) ? dateLike : d.toISOString();
-    }
-    return String(dateLike);
-  } catch {
-    return String(dateLike);
-  }
-}
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object') return false;
   const proto = Object.getPrototypeOf(value);
@@ -131,10 +109,14 @@ function stripUndefinedDeep<T>(value: T): T {
   return out as T;
 }
 
-/** Normalize a single Firestore doc into Transaction shape */
-function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction {
+/**
+ * Normalize a single Firestore doc into Transaction shape.
+ * The charge day is `date` when that field is present, otherwise `datetime`.
+ * created_at, updated_at, and today never fill `date`.
+ */
+export function normalizeDoc(doc: { id: string; data(): Record<string, any> }): Transaction {
   const data: any = doc.data();
-  const dateIso = parseDateToISO(data.date ?? data.created_at ?? data.updated_at);
+  const dateIso = chargeDay({ date: data.date, datetime: data.datetime }) ?? '';
   const amount = typeof data.amount === 'number' ? data.amount : Number(data.amount) || 0;
 
   return {
@@ -144,6 +126,7 @@ function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction
     amount,
     category: data.category || '',
     date: dateIso,
+    datetime: data.datetime,
     type: recordedTransactionType({ ...data, amount }),
     is_deductible: data.is_deductible ?? data.deductible ?? null,
     pending: data.pending ?? null,
@@ -241,7 +224,7 @@ export const MAX_TRANSACTIONS_PAGE_SIZE = 500;
 // Record-scope fields (superseded_by, pending, bank_removed) travel with every projection: the
 // in-reader superseded filter and the callers' countable checks read them, and a select() that
 // omitted them would silently let excluded rows back into totals.
-const PROJECTION_IDENTITY_FIELDS = ['trans_id', 'account_id', 'accountId', 'userId', 'user_id', 'date', 'created_at', 'updated_at', 'amount',
+const PROJECTION_IDENTITY_FIELDS = ['trans_id', 'account_id', 'accountId', 'userId', 'user_id', 'date', 'datetime', 'created_at', 'updated_at', 'amount',
   'superseded_by', 'pending', 'bank_removed'];
 
 interface TransactionsCursor { date: string; path: string }
@@ -708,7 +691,8 @@ export async function getPaginatedTransactionsServer(
         merchant_name: data.merchant_name || '',
         amount: data.amount || 0,
         category: data.category || '',
-        date: data.date || '',
+        date: chargeDay({ date: data.date, datetime: data.datetime }) ?? '',
+        datetime: data.datetime,
         type: data.amount < 0 ? 'income' : 'expense',
         is_deductible: data.is_deductible,
         deductible_reason: data.deductible_reason || null,

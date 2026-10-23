@@ -3,45 +3,56 @@ export function pad2(n: number): string {
 }
 
 /**
- * Extract a YYYY-MM-DD "tax date" from a transaction date string without
- * timezone-sensitive Date parsing.
- *
- * Rationale: JS `new Date('YYYY-MM-DD')` interprets as UTC midnight, then
- * `getFullYear()`/`getMonth()` use local time, which can shift the year around
- * year-boundaries for users in negative timezones.
+ * Calendar day of a charge, using the same rules as the transaction export Tax Date.
+ * A real YYYY-MM-DD (or an ISO/Date/Timestamp whose first calendar day round-trips
+ * through noon UTC) is kept. Impossible days, blanks, and junk are undated.
+ * Save time, upload time, and today's date are not inputs to this function.
  */
-export function safeYMD(dateLike: unknown): string | null {
-  if (dateLike === null || dateLike === undefined) return null;
-  if (typeof dateLike !== 'string') {
-    // Last-resort fallback: use UTC getters to avoid local timezone drift.
-    const d = new Date(dateLike as any);
-    if (Number.isNaN(d.getTime())) return null;
-    return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+export function calendarChargeDay(value: unknown): string | null {
+  try {
+    if (value instanceof Date) value = value.toISOString();
+    else if (value && typeof value === 'object' && 'toDate' in value && typeof (value as { toDate?: unknown }).toDate === 'function') {
+      value = (value as { toDate: () => Date }).toDate().toISOString();
+    }
+  } catch {
+    return null;
   }
-
-  const s = dateLike.trim();
-  if (!s) return null;
-
-  // Most of our tx dates come in as `YYYY-MM-DD` or an ISO string where the
-  // first 10 chars encode the date intended for tax-year grouping.
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
-    return s.slice(0, 10);
-  }
-
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return null;
-  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}(?:$|T)/.test(value)) return null;
+  const day = value.slice(0, 10);
+  const parsed = new Date(`${day}T12:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
 }
 
 /**
- * Extract a tax year number from a transaction date string.
- * Returns null if the input can't be parsed.
+ * Cash-method charge day (Treas. Reg. 1.461-1(a)(1)): `date` when it is present
+ * (including an empty or invalid string), otherwise `datetime`. No valid day
+ * means the charge is undated. created_at, updated_at, and today are never read.
+ */
+export function chargeDay(record: { date?: unknown; datetime?: unknown } | null | undefined): string | null {
+  if (record == null || typeof record !== 'object') return null;
+  const source = record.date !== undefined && record.date !== null ? record.date : record.datetime;
+  return calendarChargeDay(source);
+}
+
+/** Year of the charge day, or null when the charge is undated. Never the current year. */
+export function chargeYear(record: { date?: unknown; datetime?: unknown } | null | undefined): number | null {
+  const day = chargeDay(record);
+  if (!day) return null;
+  const year = Number(day.slice(0, 4));
+  return Number.isFinite(year) ? year : null;
+}
+
+/** YYYY-MM-DD tax date. Impossible calendar days are null. */
+export function safeYMD(dateLike: unknown): string | null {
+  return calendarChargeDay(dateLike);
+}
+
+/**
+ * Tax year of one date value. Returns null when the value is not a real calendar day.
  */
 export function safeTaxYear(dateLike: unknown): number | null {
   const ymd = safeYMD(dateLike);
   if (!ymd) return null;
-  const yearStr = ymd.slice(0, 4);
-  const year = Number(yearStr);
+  const year = Number(ymd.slice(0, 4));
   return Number.isFinite(year) ? year : null;
 }
-

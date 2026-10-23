@@ -1,5 +1,5 @@
 import { aggregateScheduleC, CATEGORY_MAP, isConfirmedScheduleCExpense, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
-import { exportDate } from '@/lib/reports/transaction-export';
+import { chargeDay } from '@/lib/schedule-c/taxDate';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
 
@@ -20,7 +20,7 @@ export function summarizeConfirmedDeductions<T extends object>(records: readonly
   for (const original of records) {
     const record = original as Record<string, unknown>;
     if (!isConfirmedScheduleCExpense(record as unknown as ScheduleCTransactionLike)) continue;
-    const date = exportDate(record.date ?? record.datetime);
+    const date = chargeDay(record);
     if (!date) {
       reviewMessage = 'Review missing or invalid transaction dates before showing confirmed deduction totals.';
       continue;
@@ -78,5 +78,5 @@ export function isReviewableBusinessOutflow(record: object): boolean {
     && typeof value.amount === 'number' && Number.isFinite(value.amount) && value.amount > 0
     && Number.isSafeInteger(Math.round(value.amount * 100))
     && value.iso_currency_code === 'USD' && !value.unofficial_currency_code
-    && exportDate(value.date ?? value.datetime) !== null;
+    && chargeDay(value) !== null;
 }

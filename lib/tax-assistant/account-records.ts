@@ -1,6 +1,6 @@
 import { adminDb } from '@/lib/firebase/admin';
 import { ownedExportRecord } from '@/lib/reports/export-records';
-import { exportDate } from '@/lib/reports/transaction-export';
+import { chargeDay } from '@/lib/schedule-c/taxDate';
 import { ACCOUNT_FIELDS, ACCOUNT_SCAN_LIMIT } from './account-tools';
 
 /**
@@ -16,9 +16,10 @@ export async function readAssistantTransactions(uid: string): Promise<Record<str
   for (const snapshot of snapshots) for (const doc of snapshot.docs) {
     // Validates every owner spelling and any inherited user_profiles/users path.
     const record = ownedExportRecord(doc, uid);
-    const day = exportDate(record.date);
-    if (!day) throw new Error('Invalid dated record in assistant checklist');
-    records.set(doc.ref.path, { ...record, date: day });
+    const day = chargeDay(record);
+    records.set(doc.ref.path, day ? { ...record, date: day } : {
+      ...record, date: '', needsMoreInformation: true, deductionStatus: 'Needs more information',
+    });
   }
   return [...records.values()].sort((a, b) => String(b.date).localeCompare(String(a.date)) ||
     String(a.recordPath).localeCompare(String(b.recordPath))).slice(0, ACCOUNT_SCAN_LIMIT);

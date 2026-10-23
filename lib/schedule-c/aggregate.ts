@@ -13,10 +13,14 @@
  * - Superseded records (`superseded_by`, set by historical-overlap reconciliation)
  *   are excluded in both modes; see lib/transactions/record-scope.ts.
  *
- * PDF generation path: route → getTransactionsServer(uid) → aggregateScheduleC → pdf-lib.
+ * PDF generation path: app/api/tax/schedule-c/export/route.ts reads
+ * readTaxExportTransactions, then aggregateScheduleC, then pdf-lib.
+ * Schedule C totals have no Needs more information bucket. That label is the
+ * AI deduction status in lib/ai/analysis-persistence.ts. Charges with no valid
+ * charge day are listed on `undated` and counted in no year.
  */
 
-import { safeTaxYear } from './taxDate';
+import { chargeYear } from './taxDate';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
 import { isCountableRecord, isSupersededRecord } from '@/lib/transactions/record-scope';
 
@@ -176,12 +180,14 @@ export interface LineItemSummary {
   transactions: ScheduleCTransactionLike[];
 }
 
-export interface AggregateScheduleCResult {
+export interface AggregateScheduleCResult<T = ScheduleCTransactionLike> {
   totalExpenses: number;
   totalDeductible: number;
   lineItems: Record<string, LineItemSummary>;
   lineItemsArray: LineItemSummary[];
   counts: { deductible: number; year: number };
+  /** Non-superseded charges with no valid charge day. They are in no year's totals. */
+  undated: T[];
 }
 
 export type AggregateScheduleCMode = 'default' | 'confirmed-only';
@@ -197,17 +203,22 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
   year: string,
   categoryMap: Record<string, CategoryMapEntry> = CATEGORY_MAP,
   options: AggregateScheduleCOptions = {}
-): AggregateScheduleCResult {
+): AggregateScheduleCResult<T> {
   const yearStr = year.toString();
   // Omitted mode fails closed to server-confirmed decisions. Callers must opt into
   // the legacy potential-category view explicitly; it is never a tax total.
   const mode: AggregateScheduleCMode = options.mode ?? 'confirmed-only';
-  // Use timezone-safe year extraction (avoid local Date parsing shifting around year boundaries).
-  // Superseded duplicates of an earlier reviewed record never reach either mode.
+  // Charge year comes from the cash-method charge day only. Superseded duplicates
+  // of an earlier reviewed record never reach either mode or the undated list.
+  const undated: T[] = [];
   const yearTransactions = transactions.filter((t) => {
     if (isSupersededRecord(t)) return false;
-    const y = safeTaxYear(t.date);
-    return y !== null && y.toString() === yearStr;
+    const y = chargeYear(t);
+    if (y === null) {
+      undated.push(t);
+      return false;
+    }
+    return y.toString() === yearStr;
   });
 
   // CPA-grade logic:
@@ -281,5 +292,6 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
     lineItems,
     lineItemsArray,
     counts: { deductible: deductibleTransactions.length, year: yearTransactions.length },
+    undated,
   };
 }

@@ -1,11 +1,9 @@
 import { summarizeConfirmedDeductions } from './display-deductions';
-import { exportDate, ExportReviewRequiredError } from '@/lib/reports/transaction-export';
+import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
+import { chargeDay } from '@/lib/schedule-c/taxDate';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 
-const recordDate = (record: object) => {
-  const value = record as Record<string, unknown>;
-  return exportDate(value.date ?? value.datetime);
-};
+const recordDate = (record: object) => chargeDay(record as { date?: unknown; datetime?: unknown });
 
 /** A labeled income-tax planning estimate, never a refund or complete return calculation. */
 export function buildMonthlySavings(records: readonly object[], taxYear: number, rate: number, now = new Date()) {

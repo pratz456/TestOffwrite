@@ -1,10 +1,10 @@
 import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
+import { chargeDay } from '@/lib/schedule-c/taxDate';
 import type { AccountResult } from './account-contract';
-import { exportDate } from '@/lib/reports/transaction-export';
 
 export const ACCOUNT_SCAN_LIMIT = 500;
-export const ACCOUNT_FIELDS = ['merchant_name', 'merchant', 'name', 'amount', 'date', 'type', 'transaction_kind', 'category',
+export const ACCOUNT_FIELDS = ['merchant_name', 'merchant', 'name', 'amount', 'date', 'datetime', 'type', 'transaction_kind', 'category',
   'iso_currency_code', 'currency', 'expense_type', 'pending', 'is_deductible', 'review_status', 'review_source', 'review_suggestion_id',
   'reviewed_at', 'user_classification_reason', 'tax_review_required', 'ai_suggestion', 'receipt_url', 'business_purpose',
   'analysisStatus', 'analysis_status', 'superseded_by', 'bank_removed', 'unofficial_currency_code'];
@@ -15,11 +15,14 @@ export function transactionAccountResult(options: {
   intent: 'review_transactions' | 'missing_receipts'; rows: Record<string, any>[]; uid: string; taxYear: number; now: Date;
 }): { reply: string; account: AccountResult } {
   const { intent, uid, taxYear, now } = options;
-  const rows: Array<Record<string, any> & { date: string }> = options.rows.slice(0, ACCOUNT_SCAN_LIMIT).flatMap(row => {
-    const date = exportDate(row.date);
+  const owned = options.rows.slice(0, ACCOUNT_SCAN_LIMIT).flatMap(row => {
     const owners = [row.userId, row.user_id].filter(value => value != null);
-    return owners.length > 0 && owners.every(value => value === uid) && !isSupersededRecord(row) && row.bank_removed !== true &&
-      date?.startsWith(`${taxYear}-`) ? [{ ...row, date }] : [];
+    return owners.length > 0 && owners.every(value => value === uid) && !isSupersededRecord(row) && row.bank_removed !== true ? [row] : [];
+  });
+  const undated = owned.filter(row => !chargeDay(row));
+  const rows: Array<Record<string, any> & { date: string }> = owned.flatMap(row => {
+    const date = chargeDay(row);
+    return date?.startsWith(`${taxYear}-`) ? [{ ...row, date }] : [];
   });
   const needsReceipt = (row: Record<string, any>) => !row.pending && typeof row.amount === 'number' && Number.isFinite(row.amount) && row.amount > 0 &&
     !['income', 'transfer', 'refund', 'personal'].includes(row.transaction_kind) && row.type !== 'income' && row.expense_type !== 'personal' && row.is_deductible !== false &&
@@ -43,10 +46,12 @@ export function transactionAccountResult(options: {
     account: {
       title: intent === 'missing_receipts' ? 'Collect supporting records' : 'Your next reviews', asOf: now.toISOString(),
       scope: `Checked ${rows.length} records dated ${taxYear} in a scan of up to ${ACCOUNT_SCAN_LIMIT} dated records with owner metadata. Older records and legacy records without owner metadata are outside this scan.`,
-      metrics: [{ label: intent === 'missing_receipts' ? 'Without attached receipt' : 'Need review', value: String(matching.length) }], items,
+      metrics: [{ label: intent === 'missing_receipts' ? 'Without attached receipt' : 'Need review', value: String(matching.length) },
+        ...(undated.length ? [{ label: 'Needs more information', value: String(undated.length) }] : [])], items,
       actions: [{ label: 'Open transaction review', href: '/protected?screen=review-transactions' }],
       notes: [intent === 'missing_receipts' ? 'An absent attachment does not establish whether a receipt is legally required or a purchase is deductible. Personal, pending and known non-expense records are excluded.' :
-        'Your confirmations are unchanged. Open a record to answer its questions or confirm the suggestion.'],
+        'Your confirmations are unchanged. Open a record to answer its questions or confirm the suggestion.',
+        ...(undated.length ? [`${undated.length} charge${undated.length === 1 ? '' : 's'} ${undated.length === 1 ? 'has' : 'have'} no valid charge date, so ${undated.length === 1 ? 'it is' : 'they are'} in no tax year and ${undated.length === 1 ? 'needs' : 'need'} more information.`] : [])],
     },
   };
 }

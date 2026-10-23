@@ -1,4 +1,5 @@
 import { learningMerchantKey } from '@/lib/ai/learning-engine';
+import { chargeYear } from '@/lib/schedule-c/taxDate';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { guidanceSource } from './knowledge';
 
@@ -25,9 +26,12 @@ export interface AssistantMerchantFacts {
   unreviewedCount: number;
 }
 
+/** Optional. Absent or zero means no undated sentence is added to For you. */
+
 export interface AssistantContext {
   profile: AssistantProfileFacts;
   merchant: AssistantMerchantFacts | null;
+  undatedCount?: number;
 }
 
 export interface ForYou {
@@ -43,6 +47,7 @@ export interface AssistantTransactionRow {
   name?: unknown;
   amount?: unknown;
   date?: unknown;
+  datetime?: unknown;
   type?: unknown;
   pending?: unknown;
   is_deductible?: boolean | null;
@@ -165,10 +170,8 @@ export function merchantCandidates(message: string): string[] {
   return [...found];
 }
 
-function rowYear(value: unknown): number | null {
-  if (typeof value !== 'string') return null;
-  const match = /^(\d{4})-\d{2}-\d{2}/.exec(value.trim());
-  return match ? Number(match[1]) : null;
+function rowYear(row: { date?: unknown; datetime?: unknown }): number | null {
+  return chargeYear(row);
 }
 
 function cents(value: unknown): number | null {
@@ -189,7 +192,7 @@ export function mentionedMerchantFacts(input: { message: string; rows: readonly 
     const owner = row.userId ?? row.user_id;
     if (typeof owner === 'string' && owner && owner !== input.uid) continue;
     if (row.pending === true || row.type === 'income') continue;
-    if (rowYear(row.date) !== input.taxYear) continue;
+    if (rowYear(row) !== input.taxYear) continue;
     const key = learningMerchantKey(row);
     if (!key) continue;
     const keyTokens = tokens(key).filter(token => !STOPWORDS.has(token));
@@ -290,6 +293,11 @@ export function composeForYou(context: AssistantContext | null | undefined, topi
   }
   if (!merchant && !HOME_TOPICS.has(topic) && !VEHICLE_TOPICS.has(topic) && profile.profession && packet?.placement && !/^Not /.test(packet.placement)) {
     sentences.push(`For your ${work}, the placement above (${packet.placement}) is where a qualifying cost is reported.`);
+  }
+
+  const undatedCount = context.undatedCount ?? 0;
+  if (undatedCount > 0) {
+    sentences.push(`${undatedCount} saved charge${undatedCount === 1 ? '' : 's'} ${undatedCount === 1 ? 'has' : 'have'} no valid charge date, so ${undatedCount === 1 ? 'it is' : 'they are'} in no tax year and ${undatedCount === 1 ? 'needs' : 'need'} more information before a deduction method applies.`);
   }
 
   if (!sentences.length) return null;

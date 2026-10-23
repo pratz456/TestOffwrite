@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { adminDb } from '@/lib/firebase/admin';
+import { chargeYear } from '@/lib/schedule-c/taxDate';
 import { analysisInputHash } from '@/lib/ai/analysis-persistence';
 import { analysisProfileHash } from '@/lib/ai/profile-context';
 import { invalidateTaxpayerContextCache } from '@/lib/ai/taxpayer-context-server';
@@ -17,6 +18,35 @@ export const transactionReviewInput = z.discriminatedUnion('action', [
 
 export class TransactionReviewError extends Error {
   constructor(readonly code: string, message: string, readonly status = 422) { super(message); }
+}
+
+const VEHICLE_METHODS = ['standard_mileage', 'actual_expense'] as const;
+export type VehicleDeductionMethod = typeof VEHICLE_METHODS[number];
+
+/**
+ * Year of the cash-method charge day (`date`, otherwise `datetime`).
+ * A missing or invalid charge day has no year. Today's year is never used.
+ */
+export function taxYearOf(record: { date?: unknown; datetime?: unknown } | null | undefined): number | null {
+  return chargeYear(record);
+}
+
+/**
+ * A saved vehicle method applies only in a year that has a real charge day.
+ * With no charge year the method stays unset and the row needs more information.
+ * An undated row is not assigned a method from today's year.
+ * Dated rows with no saved method stay unresolved: lib/ai/transaction-tax-policy.ts asks
+ * `vehicle_method`, and lib/ai/taxpayer-context.ts records the `vehicle_deduction_method` gap.
+ */
+export function vehicleMethodForCharge(
+  record: { date?: unknown; datetime?: unknown } | null | undefined,
+  savedMethod: unknown,
+): { taxYear: number | null; method: VehicleDeductionMethod | null; needsMoreInformation: boolean } {
+  const taxYear = taxYearOf(record);
+  const method = VEHICLE_METHODS.find(candidate => candidate === savedMethod) ?? null;
+  if (taxYear === null) return { taxYear: null, method: null, needsMoreInformation: true };
+  if (!method) return { taxYear, method: null, needsMoreInformation: true };
+  return { taxYear, method, needsMoreInformation: false };
 }
 
 /** Safe response fields shared by read and review APIs. Financial data never comes from the caller. */
@@ -58,6 +88,7 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
     let category: string;
     let kind: Exclude<AiReviewSuggestion['transactionKind'], 'unknown'>;
     let deduction: boolean | null;
+    let deductionStatus: string | undefined;
     let reason: string;
     let suggestionId: string | null = null;
     let source: 'ai_confirmed' | 'user_corrected';
@@ -106,6 +137,16 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       const mapped = reviewCategory(category);
       if (!mapped) throw new TransactionReviewError('INVALID_CATEGORY', 'Choose a supported category.');
       recordedCategory = mapped.recordedCategory;
+      if (recordedCategory === 'VEHICLE_REVIEW_REQUIRED') {
+        const profileData = profile.exists ? profile.data() as Record<string, any> | undefined : undefined;
+        const savedMethod = profileData?.vehicle_deduction_method ?? profileData?.business_vehicle?.deduction_method;
+        // No charge year: do not apply a vehicle method and do not record a deduction.
+        // The status label matches lib/ai/analysis-persistence.ts.
+        if (vehicleMethodForCharge(data, savedMethod).taxYear === null) {
+          deduction = null;
+          deductionStatus = 'Needs more information';
+        }
+      }
       if (deduction === true && recordedCategory.endsWith('_REVIEW_REQUIRED')) {
         throw new TransactionReviewError('DEDUCTION_REVIEW_REQUIRED', 'This category needs a separate tax method review. Save the category without claiming a deduction.');
       }
@@ -120,6 +161,7 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       review_status: 'confirmed', review_source: source, review_suggestion_id: suggestionId,
       reviewed_at: new Date().toISOString(), tax_review_required: deduction === null,
       updated_at: new Date(),
+      ...(deductionStatus ? { deductionStatus } : {}),
     };
     tx.update(ref, update);
     return hydrateReviewTransaction({ ...data, ...update }, id);

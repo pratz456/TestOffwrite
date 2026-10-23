@@ -1,4 +1,5 @@
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { calendarChargeDay, chargeDay } from '@/lib/schedule-c/taxDate';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 
@@ -12,20 +13,14 @@ export function exportYear(value: unknown): number | undefined {
   return Number(value);
 }
 export function exportDate(value: unknown): string | null {
-  try {
-    if (value instanceof Date) value = value.toISOString();
-    if (value && typeof value === 'object' && 'toDate' in value && typeof value.toDate === 'function') value = value.toDate().toISOString();
-  } catch { return null; }
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}(?:$|T)/.test(value)) return null;
-  const day = value.slice(0, 10), parsed = new Date(`${day}T12:00:00Z`);
-  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
+  return calendarChargeDay(value);
 }
 export function selectExportYear(records: ExportRecord[], year?: number): ExportRecord[] {
   if (year === undefined) return [...records];
-  if (records.some(record => !exportDate(record.date ?? record.datetime))) {
+  if (records.some(record => !chargeDay(record))) {
     throw new ExportReviewRequiredError('Some saved transactions have missing or invalid dates. Correct them before exporting a selected year, or download all records for review.');
   }
-  return records.filter(record => exportDate(record.date ?? record.datetime)?.startsWith(`${year}-`));
+  return records.filter(record => chargeDay(record)?.startsWith(`${year}-`));
 }
 export function csvCell(value: unknown): string {
   if (value === undefined || value === null) return '';
@@ -54,7 +49,7 @@ export const TRANSACTION_CSV_HEADERS = [
 ];
 export function convertTransactionsToCSV(records: ExportRecord[]): string {
   return [TRANSACTION_CSV_HEADERS.map(csvCell).join(','), ...records.map(record => {
-    const amount = transactionAmount(record), date = exportDate(record.date ?? record.datetime), deductible = recordedDeductibility(record);
+    const amount = transactionAmount(record), date = chargeDay(record), deductible = recordedDeductibility(record);
     const category = categoryText(record.category);
     const rawPath = record.receipt_url;
     const businessUse = Object.fromEntries(['business_percent', 'business_use_percent', 'business_use_percentage', 'businessUsePercent'].filter(key => record[key] !== undefined).map(key => [key, record[key]]));
