@@ -3,6 +3,7 @@ import type { DocumentReference } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import { mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import { vehicleFromDocument, vehicleMethodForTaxYear, type LegacyVehicleProfile, type VehicleRecord } from '@/lib/mileage/vehicles';
+import { standardMileageSeparateCost } from '@/lib/ai/vehicle-separate-costs';
 import type { OutputType } from './analyzeTransaction';
 import { composeExplanation, type ExplainableResult, type ExplanationProfile } from './explanation';
 import { getOpenAIModel } from '@/lib/openai/client';
@@ -61,11 +62,19 @@ export const VEHICLE_METHOD_GATE = {
   reason: 'Vehicle costs depend on the method chosen for the vehicle. Fuel, repairs and insurance are included in the standard mileage rate; with actual expenses they are allocated by business-use share. Record the method and your mileage log in Settings before this charge can count.',
 } as const;
 
-/** Standard mileage already covers running costs. Parking and tolls stay a separate category and are not held here. */
+/** Standard mileage already covers running costs. Parking, tolls, car loan interest, and vehicle personal property tax stay deductible on their own. */
 export const STANDARD_MILEAGE_RUNNING_COST_GATE = {
-  question: 'Fuel, repairs and insurance are included in the standard mileage rate. Only parking and tolls are added on their own.',
-  reason: 'This car uses the standard mileage rate, so fuel, repairs, insurance and other running costs are already included and are not deducted again. Parking and tolls on a business trip can still count.',
+  question: 'Fuel, repairs, insurance and depreciation are included in the standard mileage rate. Parking, tolls, and the business share of car loan interest and personal property tax on the car are added on their own.',
+  reason: 'This car uses the standard mileage rate, so fuel, repairs, insurance and depreciation are already included and are not deducted again. Parking, tolls, and the business share of car loan interest and personal property tax on the car are added on their own.',
 } as const;
+
+function approvalText(data: Record<string, unknown> | undefined): string {
+  if (!data) return '';
+  return ['merchant_name', 'name', 'description', 'notes', 'note', 'business_purpose']
+    .map(key => typeof data[key] === 'string' ? data[key] as string : '')
+    .filter(Boolean)
+    .join(' ');
+}
 
 /** Call only after resolving and authorizing the transaction's actual document reference. */
 export async function claimAnalysisLease(ref: DocumentReference) {
@@ -92,7 +101,7 @@ export interface VehicleMethodGateFacts {
   vehicleId?: string | null;
 }
 
-export function withheldApprovalGate(input: { category: string | null; deductiblePercent: number | null; transactionKind: TransactionKind; amount?: unknown },
+export function withheldApprovalGate(input: { category: string | null; deductiblePercent: number | null; transactionKind: TransactionKind; amount?: unknown; text?: string },
   expectedPercent: number, facts?: VehicleMethodGateFacts): { question: string; reason: string } | null {
   const category = reviewCategory(input.category);
   if (input.transactionKind === 'unknown') {
@@ -112,7 +121,11 @@ export function withheldApprovalGate(input: { category: string | null; deductibl
         taxYear: typeof dated === 'number' ? dated : new Date().getFullYear(),
         vehicleId: facts?.vehicleId,
       });
-      if (fact.status === 'known' && fact.method === 'standard_mileage') return { ...STANDARD_MILEAGE_RUNNING_COST_GATE };
+      if (fact.status === 'known' && fact.method === 'standard_mileage') {
+        // Loan interest and vehicle personal property tax are still deducted at the business share.
+        if (standardMileageSeparateCost(input.text ?? '')) return null;
+        return { ...STANDARD_MILEAGE_RUNNING_COST_GATE };
+      }
     }
     return { ...VEHICLE_METHOD_GATE };
   }
@@ -195,7 +208,9 @@ export function analysisSuggestionUpdate(result: OutputType, now = Date.now(), c
         suggestion.deductiblePercent !== expectedPercent))) {
     const savedDate = typeof canonicalData.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(canonicalData.date) ? Number(canonicalData.date.slice(0, 4)) : null;
     const vehicleId = typeof canonicalData.vehicleId === 'string' ? canonicalData.vehicleId : typeof canonicalData.vehicle_id === 'string' ? canonicalData.vehicle_id : vehicleFacts?.vehicleId;
-    withheld = withheldApprovalGate({ category: suggestion.category, deductiblePercent: suggestion.deductiblePercent, transactionKind, amount: canonicalData.amount }, expectedPercent, {
+    withheld = withheldApprovalGate({
+      category: suggestion.category, deductiblePercent: suggestion.deductiblePercent, transactionKind, amount: canonicalData.amount, text: approvalText(canonicalData),
+    }, expectedPercent, {
       ...vehicleFacts,
       taxYear: vehicleFacts?.taxYear ?? evidence.tax_year ?? savedDate ?? undefined,
       vehicleId,

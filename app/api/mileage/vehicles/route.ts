@@ -10,9 +10,9 @@ export async function GET(request: NextRequest) {
     const userId = new URL(request.url).searchParams.get('userId') || user.uid;
     if (userId !== user.uid) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     if (!mileageVehicleCopyEnabled()) return NextResponse.json({ error: 'Internal server error' }, { status: 400 });
-    const { data, error } = await ensureUserVehicles(userId);
+    const { data, fiveAtOnce, error } = await ensureUserVehicles(userId);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ vehicles: data });
+    return NextResponse.json({ vehicles: data, fiveAtOnce });
   } catch (error) {
     console.error('vehicle list failed', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

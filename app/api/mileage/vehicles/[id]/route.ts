@@ -24,6 +24,7 @@ const patchInput = z.object({
     hasEvidence: yesNo.optional(),
     evidenceWritten: yesNo.optional(),
   }).strict().optional(),
+  fiveAtOnce: z.enum(['yes', 'no']).nullable().optional(),
 }).strict();
 
 export async function PATCH(
@@ -40,9 +41,9 @@ export async function PATCH(
     if (!parsed.success) return NextResponse.json({ error: MILEAGE_VEHICLE_COPY.invalidVehicleUpdate }, { status: 400 });
     if (parsed.data.userId !== user.uid) return NextResponse.json({ error: 'Invalid or unauthorized userId' }, { status: 403 });
     const { userId, ...patch } = parsed.data;
-    const { data, error } = await saveUserVehicle(userId, id, patch as VehiclePatch);
+    const { data, fiveAtOnce, question, error } = await saveUserVehicle(userId, id, patch as VehiclePatch);
     if (error || !data) return NextResponse.json({ error: error?.message || MILEAGE_VEHICLE_COPY.saveFailed }, { status: error?.status || 500 });
-    return NextResponse.json({ vehicle: data });
+    return NextResponse.json({ vehicle: data, fiveAtOnce, question });
   } catch (error) {
     console.error('vehicle update failed', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

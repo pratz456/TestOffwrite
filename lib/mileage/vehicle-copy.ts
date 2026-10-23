@@ -62,6 +62,7 @@ export const MILEAGE_VEHICLE_COPY = {
   leaseStay: 'A leased car on the standard mileage rate has to stay on it for the whole lease, including renewals.',
   leaseWhole: 'A leased car can use the standard mileage rate only when that rate is used for the whole lease, including renewals.',
   fiveVehicles: 'Five or more vehicles in business use at the same time cannot use the standard mileage rate.',
+  fiveAtOnceQuestion: 'Do you use 5 or more of these for business at the same time?',
   banner(count: number) {
     return `You have ${count} trips to sort. Pick a car and a trip type so they can count.`;
   },
@@ -81,7 +82,7 @@ const STATIC_COPY_KEYS = [
   'standardMileage', 'actualExpense', 'owned', 'leased', 'notAnswered', 'yes', 'no', 'regularWork',
   'temporaryWork', 'secondWork', 'vehicleFallbackName', 'miles', 'to', 'enterName', 'vehicleMissing',
   'invalidMethod', 'invalidOwnership', 'invalidDate', 'invalidOdometer', 'invalidAnswer', 'saveFailed',
-  'addFailed', 'loadFailed', 'sortFailed', 'invalidVehicleUpdate', 'invalidSort', 'macrsLock', 'ownedFirstYear', 'leaseStay', 'leaseWhole', 'fiveVehicles',
+  'addFailed', 'loadFailed', 'sortFailed', 'invalidVehicleUpdate', 'invalidSort', 'macrsLock', 'ownedFirstYear', 'leaseStay', 'leaseWhole', 'fiveVehicles', 'fiveAtOnceQuestion',
 ] as const;
 
 /** Every new user visible string. Empty when the copy flag is off. */

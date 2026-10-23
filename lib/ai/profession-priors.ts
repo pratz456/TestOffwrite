@@ -216,7 +216,7 @@ export const PROFESSION_PRIORS: readonly ProfessionPrior[] = [
     keywords: ['rideshare', 'ride share', 'uber driver', 'lyft driver', 'uber', 'lyft', 'doordash', 'dasher', 'delivery driver', 'delivery', 'courier', 'instacart', 'grubhub', 'gig driver', 'driver', 'amazon flex', 'spark driver'],
     summary: 'Platform driving reported on a 1099-K/1099-NEC; the vehicle is the main deduction and the standard mileage rate usually dominates.',
     typical: [
-      t('vehicle_expense', 'Standard mileage covers fuel, repairs, insurance, depreciation and car washes; only tolls and parking are added. App-on and en-route miles need a contemporaneous log; personal and commuting miles are out', E.mileage),
+      t('vehicle_expense', 'Standard mileage covers fuel, repairs, insurance, depreciation and car washes. Parking, tolls, and the business share of car loan interest and personal property tax on the car are added on their own. App-on and en-route miles need a contemporaneous log; personal and commuting miles are out', E.mileage),
       t('supplies_small_tools', 'Phone mounts, chargers, insulated bags and passenger amenities are supplies (line 22)', E.supplies),
       N.phoneSplit, N.platformFees,
       t('meals_50', 'Your own meals and drinks during a shift are personal; no per diem applies to local driving', E.meals.concat(E.personal)),

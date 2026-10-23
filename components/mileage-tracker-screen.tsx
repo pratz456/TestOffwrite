@@ -34,6 +34,7 @@ import {
   type TripType,
   type VehiclePatch,
   type VehicleRecord,
+  type YesNo,
 } from "@/lib/mileage/vehicles";
 import { businessMileageRateForDate, summarizeBusinessMileage } from "@/lib/tax-rules/mileage-rates";
 
@@ -84,6 +85,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
   const [tripVehicleId, setTripVehicleId] = useState<string | null>(null);
   const [tripType, setTripType] = useState<TripType | null>(null);
   const [vehicles, setVehicles] = useState<VehicleRecord[]>([]);
+  const [fiveAtOnce, setFiveAtOnce] = useState<YesNo | null>(null);
   const [vehicleErrors, setVehicleErrors] = useState<Record<string, string>>({});
   const [sorting, setSorting] = useState(false);
   const [openGroupKey, setOpenGroupKey] = useState<string | null>(null);
@@ -183,7 +185,10 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
     (async () => {
       const response = await makeAuthenticatedRequest(`/api/mileage/vehicles?userId=${encodeURIComponent(user.id)}`);
       const body = await response.json().catch(() => ({}));
-      if (!cancelled && response.ok && Array.isArray(body.vehicles)) setVehicles(body.vehicles as VehicleRecord[]);
+      if (!cancelled && response.ok && Array.isArray(body.vehicles)) {
+        setVehicles(body.vehicles as VehicleRecord[]);
+        setFiveAtOnce(body.fiveAtOnce === "yes" || body.fiveAtOnce === "no" ? body.fiveAtOnce : null);
+      }
     })().catch(() => undefined);
     return () => { cancelled = true; };
   }, [copyEnabled, user.id]);
@@ -221,6 +226,13 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
     }
     setVehicleErrors(current => ({ ...current, [vehicleId]: "" }));
     setVehicles(current => current.map(vehicle => vehicle.id === vehicleId ? body.vehicle as VehicleRecord : vehicle));
+    if (body.fiveAtOnce === "yes" || body.fiveAtOnce === "no" || body.fiveAtOnce === null) setFiveAtOnce(body.fiveAtOnce);
+  };
+
+  const saveFiveAtOnce = (value: YesNo | null) => {
+    const vehicleId = vehicles[0]?.id;
+    if (!vehicleId) return;
+    void saveVehicle(vehicleId, { fiveAtOnce: value });
   };
 
   const addVehicle = async () => {
@@ -405,7 +417,9 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
             selectedVehicleByGroup={selectedVehicleByGroup}
             selectedTypeByGroup={selectedTypeByGroup}
             vehicleErrors={vehicleErrors}
+            fiveAtOnce={fiveAtOnce}
             onChangeVehicle={(vehicleId, patch) => { void saveVehicle(vehicleId, patch); }}
+            onFiveAtOnce={saveFiveAtOnce}
             onAddVehicle={() => { void addVehicle(); }}
             onOpenGroup={key => setOpenGroupKey(current => current === key ? null : key)}
             onSelectVehicle={(key, vehicleId) => setSelectedVehicleByGroup(current => ({ ...current, [key]: vehicleId }))}

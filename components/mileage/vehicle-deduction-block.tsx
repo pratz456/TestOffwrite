@@ -4,11 +4,12 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { VehicleCards } from '@/components/mileage/vehicle-cards';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { MILEAGE_VEHICLE_COPY, mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
-import type { VehiclePatch, VehicleRecord } from '@/lib/mileage/vehicles';
+import type { VehiclePatch, VehicleRecord, YesNo } from '@/lib/mileage/vehicles';
 
 export function VehicleDeductionBlock({ userId, taxYear }: { userId: string; taxYear: number }) {
   const copyEnabled = mileageVehicleCopyEnabled();
   const [vehicles, setVehicles] = useState<VehicleRecord[]>([]);
+  const [fiveAtOnce, setFiveAtOnce] = useState<YesNo | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState('');
 
@@ -18,6 +19,7 @@ export function VehicleDeductionBlock({ userId, taxYear }: { userId: string; tax
       const body = await response.json().catch(() => ({}));
       if (!response.ok || !Array.isArray(body.vehicles)) throw new Error(MILEAGE_VEHICLE_COPY.loadFailed);
       setVehicles(body.vehicles as VehicleRecord[]);
+      setFiveAtOnce(body.fiveAtOnce === 'yes' || body.fiveAtOnce === 'no' ? body.fiveAtOnce : null);
       setLoadError('');
     } catch {
       setLoadError(MILEAGE_VEHICLE_COPY.loadFailed);
@@ -38,6 +40,13 @@ export function VehicleDeductionBlock({ userId, taxYear }: { userId: string; tax
     }
     setErrors(current => ({ ...current, [vehicleId]: '' }));
     if (body.vehicle) setVehicles(current => current.map(vehicle => vehicle.id === vehicleId ? body.vehicle as VehicleRecord : vehicle));
+    if (body.fiveAtOnce === 'yes' || body.fiveAtOnce === 'no' || body.fiveAtOnce === null) setFiveAtOnce(body.fiveAtOnce);
+  };
+
+  const onFiveAtOnce = (value: YesNo | null) => {
+    const vehicleId = vehicles[0]?.id;
+    if (!vehicleId) return;
+    void onChange(vehicleId, { fiveAtOnce: value });
   };
 
   const onAdd = async () => {
@@ -57,7 +66,7 @@ export function VehicleDeductionBlock({ userId, taxYear }: { userId: string; tax
   return (
     <div className="space-y-2">
       {loadError ? <p role="alert" className="text-sm text-destructive">{loadError}</p> : null}
-      <VehicleCards copyEnabled={copyEnabled} vehicles={vehicles} taxYear={taxYear} errors={errors} onChange={onChange} onAdd={onAdd} />
+      <VehicleCards copyEnabled={copyEnabled} vehicles={vehicles} taxYear={taxYear} errors={errors} fiveAtOnce={fiveAtOnce} onChange={onChange} onAdd={onAdd} onFiveAtOnce={onFiveAtOnce} />
     </div>
   );
 }

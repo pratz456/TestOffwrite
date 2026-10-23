@@ -1,5 +1,6 @@
 import type { OutputType, TransactionInput, UserContext } from './analyzeTransaction';
 import { findMerchantEntry, merchantDescriptor, merchantIntelligence, type MerchantIntelligenceResult } from './merchant-intelligence';
+import { standardMileageSeparateCost } from './vehicle-separate-costs';
 import { matchProfessions, professionHint } from './profession-priors';
 import { redactIdentifierText } from '@/lib/security/identifier-redaction';
 import { BUSINESS_STANDARD_MILEAGE_RATES } from '@/lib/tax-rules/mileage-rates';
@@ -403,6 +404,7 @@ export function groundTransactionAnalysis(
   // Saved context, merchant descriptor and the model's own item description. Only review
   // gates read this; nothing here can approve a deduction.
   const savedAndMerchant = `${saved} ${text(transaction.merchant)} ${text(transaction.merchant_name)}`;
+  const separateVehicleCost = standardMileageSeparateCost(savedAndMerchant);
   const reviewText = `${savedAndMerchant} ${explanation}`;
   const itemContext = categoryContext(input, transaction);
   // Merchant and profession intelligence choose the gate and its question; they never approve.
@@ -456,6 +458,9 @@ export function groundTransactionAnalysis(
       result.category = 'legal_professional';
     }
     if ((remittedBusinessTax || federalBusinessTax || stateFilingFee) && (!result.category || ['other', 'legal_professional'].includes(result.category))) {
+      result.category = 'taxes_licenses';
+    }
+    if (separateVehicleCost === 'property_tax' && (!result.category || ['other', 'vehicle_expense', 'home_office'].includes(result.category))) {
       result.category = 'taxes_licenses';
     }
   }
@@ -660,7 +665,7 @@ export function groundTransactionAnalysis(
     } else if (result.is_deductible === true && !context?.business_entity) {
       requireInfo(result, 'business_entity', 'Is this for your sole-proprietor business or a disregarded single-member LLC?',
         'Confirm your business tax structure before applying this self-employed expense treatment.');
-    } else if (result.is_deductible === true && merchant.disposition === 'not_an_expense' && !(remittedBusinessTax && taxAgencyPayee)) {
+    } else if (result.is_deductible === true && merchant.disposition === 'not_an_expense' && !separateVehicleCost && !(remittedBusinessTax && taxAgencyPayee)) {
       // Tax payments, loan principal, investments, fines and donations are not expenses whatever the note says;
       // only a sales, payroll or business property tax the taxpayer names to a state or local agency is a line 23 expense.
       addEvidence(taxAgencyPayee ? 'taxes-licenses-sch-c' : 'records-334');
@@ -715,7 +720,7 @@ export function groundTransactionAnalysis(
       addEvidence('taxes-licenses-sch-c');
       requireInfo(result, 'expense_review', 'Was this a fine, penalty or ticket paid to a government, or a business permit, licence or filing fee?',
         'Fines, penalties and tickets paid to a government (parking and traffic tickets, late-filing penalties) are not deductible business expenses; permits, licences and filing fees are. Confirm which this was before it is included.');
-    } else if (result.is_deductible === true && result.category !== 'vehicle_expense' &&
+    } else if (result.is_deductible === true && result.category !== 'vehicle_expense' && !separateVehicleCost &&
       (VEHICLE_COST_PATTERN.test(savedAndMerchant) || (result.category === 'repairs_maintenance' && VEHICLE_NOUNS.test(purpose))) &&
       // A carrier that also sells auto policies (Allstate, State Farm) is not an auto cost when the taxpayer names business coverage.
       !(result.category === 'insurance' && businessCoverageStated)) {
@@ -759,7 +764,7 @@ export function groundTransactionAnalysis(
       addEvidence('home-587');
       requireInfo(result, 'home_office_eligibility', 'Is this rent for a separate business location, or for the home where you live? If it is your home, is a space used regularly and exclusively for business?',
         'Rent for the home you live in is not a business rent expense; only a qualifying home office deduction can include part of it. Rent for a separate business location is generally deductible as business rent.');
-    } else if (result.is_deductible === true && propertyTax && !remittedBusinessTax) {
+    } else if (result.is_deductible === true && propertyTax && !remittedBusinessTax && separateVehicleCost !== 'property_tax') {
       // Property tax on the home is a Form 8829 item; on business assets or a business location it is line 23 (approved below).
       addEvidence('home-587'); addEvidence('taxes-licenses-sch-c');
       result.category = 'home_office';
@@ -784,7 +789,8 @@ export function groundTransactionAnalysis(
       addEvidence('capital-263');
       requireInfo(result, 'asset_treatment', hint?.question ?? 'What was purchased, when was it first used for business, and have you recorded the de minimis safe harbor election or a depreciation election for this year?',
         `This purchase needs item-level review to distinguish supplies from assets. The de minimis safe harbor generally uses a $${DE_MINIMIS_ITEM_CEILING.toLocaleString('en-US')} per-item or per-invoice ceiling without an applicable financial statement ($5,000 with one), plus consistent book-expensing and an annual election. A bank-charge total does not establish item cost or capitalization: qualifying materials, supplies and repairs may be current expenses without that election, while assets may need depreciation or a separate expensing election. Review the asset treatment before deducting it in full.`);
-    } else if (result.is_deductible === true && ['equipment', 'home_office', 'vehicle_expense', 'travel'].includes(result.category ?? '')) {
+    } else if (result.is_deductible === true && ['equipment', 'home_office', 'vehicle_expense', 'travel'].includes(result.category ?? '') &&
+      !(result.category === 'vehicle_expense' && separateVehicleCost)) {
       const questions: Record<string, [string, string]> = {
         equipment: ['asset_treatment', 'What was purchased, when was it first used for business, and what business-use records and depreciation elections apply?'],
         home_office: ['home_office_eligibility', 'Is the space used regularly and exclusively for business, and which eligible method and business area apply?'],

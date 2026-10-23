@@ -1,6 +1,7 @@
 import React from 'react';
 import { MILEAGE_VEHICLE_COPY, mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
 import {
+  fiveBusinessCarsOverlap,
   methodForYear,
   odometerForYear,
   partIVForYear,
@@ -26,19 +27,24 @@ export function VehicleCards({
   taxYear,
   detail = 'full',
   errors = {},
+  fiveAtOnce = null,
   onChange,
   onAdd,
+  onFiveAtOnce,
 }: {
   copyEnabled: boolean;
   vehicles: readonly VehicleRecord[];
   taxYear: number;
   detail?: 'full' | 'trip';
   errors?: Record<string, string>;
+  fiveAtOnce?: YesNo | null;
   onChange: (vehicleId: string, patch: VehiclePatch) => void;
   onAdd: () => void;
+  onFiveAtOnce?: (value: YesNo | null) => void;
 }) {
   if (!copyEnabled || !mileageVehicleCopyEnabled()) return null;
   const copy = MILEAGE_VEHICLE_COPY;
+  const askFiveAtOnce = fiveBusinessCarsOverlap(vehicles);
   return (
     <section className="space-y-3 rounded-xl border border-border bg-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -47,6 +53,21 @@ export function VehicleCards({
           {copy.addCar}
         </button>
       </div>
+      {askFiveAtOnce ? (
+        <label className="block space-y-1">
+          <span className="text-sm text-foreground">{copy.fiveAtOnceQuestion}</span>
+          <select
+            className="h-11 w-full rounded-lg border border-border bg-background px-3 text-base"
+            aria-label={copy.fiveAtOnceQuestion}
+            value={answerValue(fiveAtOnce)}
+            onChange={event => onFiveAtOnce?.(answerPatch(event.target.value))}
+          >
+            <option value="">{copy.notAnswered}</option>
+            <option value="yes">{copy.yes}</option>
+            <option value="no">{copy.no}</option>
+          </select>
+        </label>
+      ) : null}
       <div className="grid gap-4 md:grid-cols-2">
         {vehicles.map(vehicle => {
           const readings = odometerForYear(vehicle, taxYear);

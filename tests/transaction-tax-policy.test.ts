@@ -583,4 +583,25 @@ describe('2026-09-23 source-audit regressions', () => {
     expect(result?.customized_reason).toContain('may be current expenses without that election');
     expect(result?.customized_reason).not.toContain('looks like an asset');
   });
+  it('car loan interest and vehicle personal property tax are not treated as costs already in the standard mileage rate', () => {
+    const interest = analyze(
+      { category: 'vehicle_expense', evidence_ids: ['travel-463'], schedule_c_line: '9' },
+      { merchant: 'Toyota Financial', amount_usd: 180, business_purpose: 'Interest on the car loan for business miles this year.' },
+    );
+    expect(interest).toMatchObject({ status: 'ok', is_deductible: true, category: 'vehicle_expense', deductible_percent: 100 });
+    expect(`${interest?.customized_reason} ${interest?.questions?.join(' ')}`).not.toContain('cannot be deducted again');
+    const propertyTax = analyze(
+      { category: 'vehicle_expense', evidence_ids: ['taxes-licenses-sch-c'], schedule_c_line: '9' },
+      { merchant: 'County Treasurer', amount_usd: 90, business_purpose: 'Personal property tax on the car for the business share.' },
+    );
+    expect(propertyTax).toMatchObject({ status: 'ok', is_deductible: true, category: 'taxes_licenses', deductible_percent: 100 });
+    expect(propertyTax?.questions?.join(' ') ?? '').not.toContain('home office');
+    expect(`${propertyTax?.customized_reason}`).not.toContain('cannot be deducted again');
+    const fuel = analyze(
+      { category: 'other' },
+      { merchant: 'Jiffy Lube', amount_usd: 40, business_purpose: 'Oil change on the work car this month.' },
+    );
+    expect(fuel).toMatchObject({ status: 'needs_more_info', category: 'vehicle_expense' });
+    expect(fuel?.customized_reason).toContain('cannot be deducted again');
+  });
 });

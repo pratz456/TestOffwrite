@@ -1,6 +1,6 @@
 import React from 'react';
 import { MILEAGE_VEHICLE_COPY, mileageVehicleCopyEnabled } from '@/lib/mileage/vehicle-copy';
-import type { HomeDestination, MileageTripFields, TripGroupView, TripType, VehiclePatch, VehicleRecord } from '@/lib/mileage/vehicles';
+import type { HomeDestination, MileageTripFields, TripGroupView, TripType, VehiclePatch, VehicleRecord, YesNo } from '@/lib/mileage/vehicles';
 import { VehicleCards } from './vehicle-cards';
 
 const TYPE_CHOICES = [
@@ -153,8 +153,10 @@ export function TripSortScreen({
   selectedVehicleByGroup,
   selectedTypeByGroup,
   vehicleErrors = {},
+  fiveAtOnce = null,
   onChangeVehicle,
   onAddVehicle,
+  onFiveAtOnce,
   onOpenGroup,
   onSelectVehicle,
   onSelectType,
@@ -177,8 +179,10 @@ export function TripSortScreen({
   selectedVehicleByGroup: Record<string, string | null>;
   selectedTypeByGroup: Record<string, TripType | 'unsure' | null>;
   vehicleErrors?: Record<string, string>;
+  fiveAtOnce?: YesNo | null;
   onChangeVehicle: (vehicleId: string, patch: VehiclePatch) => void;
   onAddVehicle: () => void;
+  onFiveAtOnce?: (value: YesNo | null) => void;
   onOpenGroup: (key: string) => void;
   onSelectVehicle: (key: string, vehicleId: string) => void;
   onSelectType: (key: string, tripType: TripType | 'unsure') => void;
@@ -211,7 +215,7 @@ export function TripSortScreen({
   );
   return (
     <section className="space-y-4">
-      <VehicleCards copyEnabled={copyEnabled} vehicles={vehicles} taxYear={taxYear} detail="trip" errors={vehicleErrors} onChange={onChangeVehicle} onAdd={onAddVehicle} />
+      <VehicleCards copyEnabled={copyEnabled} vehicles={vehicles} taxYear={taxYear} detail="trip" errors={vehicleErrors} fiveAtOnce={fiveAtOnce} onChange={onChangeVehicle} onAdd={onAddVehicle} onFiveAtOnce={onFiveAtOnce} />
       <div className="space-y-2">
         <h1 className="text-xl font-semibold text-foreground">{copy.sortTitle}</h1>
         <p className="text-sm text-muted-foreground">{copy.pickTripType}</p>

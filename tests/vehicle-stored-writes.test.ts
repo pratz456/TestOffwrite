@@ -96,5 +96,22 @@ describe('vehicle list writes', () => {
     const stamp = sets.find(entry => entry.path === 'user_profiles/owner')?.data.vehicles as Array<{ id: string; method: string }>;
     expect(stamp.map(vehicle => vehicle.id)).toEqual(['legacy-vehicle-1']);
     expect(stamp[0].method).toBe('standard_mileage');
+    expect(sets.find(entry => entry.path === 'user_profiles/owner')?.data.vehiclesFiveAtOnce).toBeNull();
+  });
+
+  it('stores the five at once answer with the vehicle stamp when the switch is on', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    const saved = await saveUserVehicle('owner', 'legacy-vehicle-1', { fiveAtOnce: 'no' });
+    expect(saved.error).toBeNull();
+    expect(saved.fiveAtOnce).toBe('no');
+    expect(saved.question).toBeNull();
+    const profile = sets.find(entry => entry.path === 'user_profiles/owner')?.data;
+    expect(profile?.vehiclesFiveAtOnce).toBe('no');
+    expect(writes).toEqual([
+      'user_profiles/owner/vehicles/legacy-vehicle-1',
+      'user_profiles/owner/vehicles/legacy-vehicle-1',
+      'user_profiles/owner',
+      'profile_analysis_refresh/owner',
+    ]);
   });
 });

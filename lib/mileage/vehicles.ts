@@ -91,9 +91,11 @@ export interface VehiclePatch {
   odometerStart?: number | null;
   odometerEnd?: number | null;
   partIV?: Partial<PartIVAnswers>;
+  /** Per user, not per car. Yes blocks the standard rate when five business cars overlap. */
+  fiveAtOnce?: YesNo | null;
 }
 
-export type SaveVehicleResult = { ok: true; vehicles: VehicleRecord[] } | { ok: false; reason: string };
+export type SaveVehicleResult = { ok: true; vehicles: VehicleRecord[]; question: string | null } | { ok: false; reason: string };
 
 const METHODS = new Set<DeductionMethod>(['standard_mileage', 'actual_expense', 'unset']);
 const OWNERSHIP = new Set<VehicleOwnership>(['owned', 'leased', 'not_answered']);
@@ -255,6 +257,9 @@ function validatePatch(patch: VehiclePatch): string | null {
     const reason = reading(patch.odometerEnd);
     if (reason) return reason;
   }
+  if (patch.fiveAtOnce !== undefined && patch.fiveAtOnce !== null && patch.fiveAtOnce !== 'yes' && patch.fiveAtOnce !== 'no') {
+    return MILEAGE_VEHICLE_COPY.invalidAnswer;
+  }
   if (patch.partIV) {
     for (const key of PART_IV_KEYS) {
       if (patch.partIV[key] !== undefined && patch.partIV[key] !== null && patch.partIV[key] !== 'yes' && patch.partIV[key] !== 'no') {
@@ -327,29 +332,42 @@ function servicePeriodsOverlap(
   return true;
 }
 
-function carsOverlapping(vehicles: readonly VehicleRecord[], subject: VehicleRecord): VehicleRecord[] {
-  return vehicles.filter(vehicle => servicePeriodsOverlap(vehicle, subject));
+/** Business cars whose service dates overlap this one, including this one when it is in business use. */
+function overlappingBusinessCars(vehicles: readonly VehicleRecord[], subject: VehicleRecord): VehicleRecord[] {
+  return vehicles.filter(vehicle => vehicleInBusinessUse(vehicle) && servicePeriodsOverlap(vehicle, subject));
 }
 
-function businessUseCount(vehicles: readonly VehicleRecord[], subject: VehicleRecord): number {
-  return carsOverlapping(vehicles, subject).length;
+/** Five or more business cars have overlapping service dates. Dates alone do not choose the method. */
+export function fiveBusinessCarsOverlap(vehicles: readonly VehicleRecord[]): boolean {
+  return vehicles.some(vehicle => overlappingBusinessCars(vehicles, vehicle).length >= SIMULTANEOUS_STANDARD_MILEAGE_LIMIT);
 }
 
-function methodRuleReason(current: VehicleRecord, next: VehicleRecord, fleet: readonly VehicleRecord[]): string | null {
+/**
+ * Shown while five business cars overlap and the user has not said whether they are used at the same time.
+ * An answer of no leaves the standard rate available. An answer of yes is what blocks it.
+ */
+export function fiveAtOnceQuestion(vehicles: readonly VehicleRecord[], answer: YesNo | null): string | null {
+  if (answer !== null || !fiveBusinessCarsOverlap(vehicles)) return null;
+  return MILEAGE_VEHICLE_COPY.fiveAtOnceQuestion;
+}
+
+function chosenFiveAtOnce(patch: VehiclePatch, stored: YesNo | null): YesNo | null {
+  return patch.fiveAtOnce !== undefined ? patch.fiveAtOnce ?? null : stored;
+}
+
+function methodRuleReason(current: VehicleRecord, next: VehicleRecord, fleet: readonly VehicleRecord[], fiveAtOnce: YesNo | null): string | null {
   const startedOnActual = current.firstBusinessMethod === 'actual_expense' || current.depreciationMethod === 'macrs';
-  const simultaneous = carsOverlapping(fleet, next);
   if (next.method === 'standard_mileage') {
-    if (simultaneous.length >= SIMULTANEOUS_STANDARD_MILEAGE_LIMIT) return MILEAGE_VEHICLE_COPY.fiveVehicles;
+    // Pub 463 blocks the standard rate only when five or more cars are used for business at the same time.
+    if (fiveAtOnce === 'yes' && overlappingBusinessCars(fleet, next).length >= SIMULTANEOUS_STANDARD_MILEAGE_LIMIT) {
+      return MILEAGE_VEHICLE_COPY.fiveVehicles;
+    }
     if (next.ownership === 'leased' && startedOnActual) return MILEAGE_VEHICLE_COPY.leaseWhole;
     // Actual expenses in the first business year include MACRS, section 179, and bonus depreciation.
     if (next.ownership !== 'leased' && startedOnActual) return MILEAGE_VEHICLE_COPY.macrsLock;
   }
   if (next.method === 'actual_expense' && (current.leasedStandardLock || (next.ownership === 'leased' && current.standardMileageSelected))) {
     return MILEAGE_VEHICLE_COPY.leaseStay;
-  }
-  const enteredBusinessUse = !vehicleInBusinessUse(current) && vehicleInBusinessUse(next);
-  if (enteredBusinessUse && businessUseCount(fleet, next) >= SIMULTANEOUS_STANDARD_MILEAGE_LIMIT && simultaneous.some(vehicle => vehicle.method === 'standard_mileage')) {
-    return MILEAGE_VEHICLE_COPY.fiveVehicles;
   }
   return null;
 }
@@ -389,21 +407,32 @@ function replaceVehicle(vehicles: readonly VehicleRecord[], saved: VehicleRecord
   return vehicles.map(vehicle => vehicle.id === saved.id ? saved : vehicle);
 }
 
-export function saveVehicle(vehicles: readonly VehicleRecord[], vehicleId: string, patch: VehiclePatch): SaveVehicleResult {
+export function saveVehicle(
+  vehicles: readonly VehicleRecord[],
+  vehicleId: string,
+  patch: VehiclePatch,
+  storedFiveAtOnce: YesNo | null = null,
+): SaveVehicleResult {
   const current = vehicles.find(vehicle => vehicle.id === vehicleId);
   if (!current) return { ok: false, reason: MILEAGE_VEHICLE_COPY.vehicleMissing };
   const invalid = validatePatch(patch);
   if (invalid) return { ok: false, reason: invalid };
+  const fiveAtOnce = chosenFiveAtOnce(patch, storedFiveAtOnce);
+  const savedFleet = (next: VehicleRecord[]): SaveVehicleResult => ({
+    ok: true,
+    vehicles: next,
+    question: fiveAtOnceQuestion(next, fiveAtOnce),
+  });
   const patched = applyPatch(current, patch);
   if (patch.method === undefined) {
     const touchesRules = patch.ownership !== undefined || patch.datePlacedInService !== undefined;
     if (touchesRules) {
       const fleet = replaceVehicle(vehicles, patched);
-      const reason = methodRuleReason(current, patched, fleet);
+      const reason = methodRuleReason(current, patched, fleet, fiveAtOnce);
       if (reason) return { ok: false, reason };
     }
     const saved = touchesRules ? withMethodHistory(current, patched) : patched;
-    return { ok: true, vehicles: replaceVehicle(vehicles, saved) };
+    return savedFleet(replaceVehicle(vehicles, saved));
   }
   const taxYear = patch.taxYear ?? null;
   if (patch.methodEffectiveDate && taxYear === null) return { ok: false, reason: MILEAGE_VEHICLE_COPY.invalidMethodDate };
@@ -413,7 +442,7 @@ export function saveVehicle(vehicles: readonly VehicleRecord[], vehicleId: strin
   const candidate = { ...patched, method: patch.method, methodByYear: { ...patched.methodByYear } };
   if (taxYear !== null) candidate.methodByYear[String(taxYear)] = patch.method;
   const fleet = replaceVehicle(vehicles, candidate);
-  const reason = methodRuleReason(current, candidate, fleet);
+  const reason = methodRuleReason(current, candidate, fleet, fiveAtOnce);
   if (reason) return { ok: false, reason };
   if (taxYear !== null && patch.methodEffectiveDate && patch.method !== methodForYear(patched, taxYear)) {
     const bounds = odometerReadingDates(patched, taxYear);
@@ -423,14 +452,14 @@ export function saveVehicle(vehicles: readonly VehicleRecord[], vehicleId: strin
     if (patch.methodEffectiveDate > bounds.startDate) {
       const reviewItems = patched.reviewItems.filter(item => !(item.id === 'mid_year_method_change' && item.taxYear === taxYear));
       reviewItems.push({ id: 'mid_year_method_change', taxYear, message: MILEAGE_VEHICLE_COPY.midYearMethod });
-      return { ok: true, vehicles: replaceVehicle(vehicles, { ...patched, reviewItems }) };
+      return savedFleet(replaceVehicle(vehicles, { ...patched, reviewItems }));
     }
   }
   const saved = withMethodHistory(current, candidate);
   if (saved.method !== 'unset') {
     saved.reviewItems = saved.reviewItems.filter(item => item.id !== 'mid_year_method_change' || item.taxYear !== taxYear);
   }
-  return { ok: true, vehicles: replaceVehicle(vehicles, saved) };
+  return savedFleet(replaceVehicle(vehicles, saved));
 }
 
 export interface VehicleMethodFact {

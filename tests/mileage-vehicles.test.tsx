@@ -27,6 +27,7 @@ import {
   odometerForYear,
   partIVForYear,
   planLegacyVehicle,
+  fiveAtOnceQuestion,
   saveVehicle,
   sortProgress,
   tripCreateRecord,
@@ -332,31 +333,48 @@ describe('mileage vehicles, trip types, and sorting', () => {
     expect(switched[0].depreciationMethod).toBe('straight_line');
   });
 
-  it('fifth simultaneous vehicle blocks standard', () => {
+  function overlappingFleet(): VehicleRecord[] {
     let fleet: VehicleRecord[] = [];
     for (let index = 0; index < 4; index += 1) {
-      const id = `car-${index}`;
+      const id = `overlap-${index}`;
       fleet = [...fleet, blankVehicle(id, fleet.length)];
-      fleet = mustSave(fleet, id, { ownership: 'owned', method: 'standard_mileage' });
+      fleet = mustSave(fleet, id, { ownership: 'owned', method: 'standard_mileage', datePlacedInService: '2024-01-01' });
     }
-    fleet = [...fleet, blankVehicle('car-4', fleet.length)];
-    const asStandard = saveVehicle(fleet, 'car-4', { ownership: 'owned', method: 'standard_mileage' });
-    expect(asStandard.ok).toBe(false);
-    if (!asStandard.ok) expect(asStandard.reason).toBe(copy.fiveVehicles);
-    const asActual = saveVehicle(fleet, 'car-4', { ownership: 'owned', method: 'actual_expense' });
-    expect(asActual.ok).toBe(false);
-    if (!asActual.ok) expect(asActual.reason).toBe(copy.fiveVehicles);
-    let actualFleet: VehicleRecord[] = [];
-    for (let index = 0; index < 4; index += 1) {
-      const id = `actual-${index}`;
-      actualFleet = [...actualFleet, blankVehicle(id, actualFleet.length)];
-      actualFleet = mustSave(actualFleet, id, { ownership: 'owned', method: 'actual_expense' });
-    }
-    actualFleet = [...actualFleet, blankVehicle('actual-4', actualFleet.length)];
-    const fifthActual = saveVehicle(actualFleet, 'actual-4', { ownership: 'owned', method: 'actual_expense' });
-    expect(fifthActual.ok).toBe(true);
-    const fifthStandard = saveVehicle(actualFleet, 'actual-4', { ownership: 'owned', method: 'standard_mileage' });
-    expect(fifthStandard.ok).toBe(false);
+    return [...fleet, blankVehicle('overlap-4', fleet.length)];
+  }
+
+  it('five overlapping business cars with the answer no can use the standard rate', () => {
+    const saved = saveVehicle(overlappingFleet(), 'overlap-4', {
+      ownership: 'owned', method: 'standard_mileage', datePlacedInService: '2024-06-01', fiveAtOnce: 'no',
+    });
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    expect(saved.vehicles.find(vehicle => vehicle.id === 'overlap-4')?.method).toBe('standard_mileage');
+    expect(saved.question).toBeNull();
+    expect(fiveAtOnceQuestion(saved.vehicles, 'no')).toBeNull();
+  });
+
+  it('five overlapping business cars with the answer yes cannot use the standard rate', () => {
+    const fleet = overlappingFleet();
+    const saved = saveVehicle(fleet, 'overlap-4', { ownership: 'owned', method: 'standard_mileage', datePlacedInService: '2024-06-01' }, 'yes');
+    expect(saved.ok).toBe(false);
+    if (!saved.ok) expect(saved.reason).toBe(copy.fiveVehicles);
+    const actual = saveVehicle(fleet, 'overlap-4', { ownership: 'owned', method: 'actual_expense', datePlacedInService: '2024-06-01' }, 'yes');
+    expect(actual.ok).toBe(true);
+  });
+
+  it('five overlapping business cars with no answer show the question and do not refuse', () => {
+    const saved = saveVehicle(overlappingFleet(), 'overlap-4', {
+      ownership: 'owned', method: 'standard_mileage', datePlacedInService: '2024-06-01',
+    });
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    expect(saved.vehicles.find(vehicle => vehicle.id === 'overlap-4')?.method).toBe('standard_mileage');
+    expect(saved.question).toBe('Do you use 5 or more of these for business at the same time?');
+    expect(fiveAtOnceQuestion(saved.vehicles, null)).toBe(saved.question);
+    const answerOnly = saveVehicle(saved.vehicles, 'overlap-4', { fiveAtOnce: 'yes' });
+    expect(answerOnly.ok).toBe(true);
+    if (answerOnly.ok) expect(answerOnly.question).toBeNull();
   });
 
   it('five cars used one after another is allowed', () => {
@@ -382,25 +400,10 @@ describe('mileage vehicles, trip types, and sorting', () => {
     fleet = [...fleet, blankVehicle('year-2026', fleet.length)];
     const saved = saveVehicle(fleet, 'year-2026', { ownership: 'owned', method: 'standard_mileage', datePlacedInService: '2026-01-01', taxYear: 2026 });
     expect(saved.ok).toBe(true);
-    if (saved.ok) expect(saved.vehicles.find(vehicle => vehicle.id === 'year-2026')?.method).toBe('standard_mileage');
-  });
-
-  it('five cars in service at the same time is refused', () => {
-    const open = Array.from({ length: 5 }, (_, index) => blankVehicle(`open-${index}`, index));
-    const undated = saveVehicle(open, 'open-4', { ownership: 'owned', method: 'standard_mileage' });
-    expect(undated.ok).toBe(false);
-    if (!undated.ok) expect(undated.reason).toBe(copy.fiveVehicles);
-
-    let dated: VehicleRecord[] = [];
-    for (let index = 0; index < 4; index += 1) {
-      const id = `dated-${index}`;
-      dated = [...dated, blankVehicle(id, dated.length)];
-      dated = mustSave(dated, id, { ownership: 'owned', method: 'standard_mileage', datePlacedInService: '2024-01-01' });
-    }
-    dated = [...dated, blankVehicle('dated-4', dated.length)];
-    const overlap = saveVehicle(dated, 'dated-4', { ownership: 'owned', method: 'standard_mileage', datePlacedInService: '2024-06-01' });
-    expect(overlap.ok).toBe(false);
-    if (!overlap.ok) expect(overlap.reason).toBe(copy.fiveVehicles);
+    if (!saved.ok) return;
+    expect(saved.vehicles.find(vehicle => vehicle.id === 'year-2026')?.method).toBe('standard_mileage');
+    expect(saved.question).toBeNull();
+    expect(fiveAtOnceQuestion(saved.vehicles, null)).toBeNull();
   });
 
   it('untyped and commute count zero, and home to a temporary work location typed business counts', () => {
@@ -542,6 +545,7 @@ describe('mileage vehicles, trip types, and sorting', () => {
     for (const sentence of [copy.yourCars, copy.addCar, copy.vehicleName, copy.deductionMethod, copy.ownedOrLeased, copy.dateFirstUsed, copy.dateSold, copy.odometerJan1, copy.odometerDec31, copy.partIVOffDuty, copy.partIVOtherCar, copy.partIVEvidence, copy.partIVWritten, copy.methodDisagree, copy.odometerReview, copy.legacyPercentage, copy.review]) {
       expect(shownText).toContain(sentence);
     }
+    expect(shownText).not.toContain(copy.fiveAtOnceQuestion);
     const nodes = walk(shown);
     expect(nodes.find(node => node.props['aria-label'] === copy.deductionMethod)?.props.value).toBe('unset');
     expect(nodes.find(node => node.props['aria-label'] === copy.odometerJan1)?.props.defaultValue).toBe('');
@@ -567,6 +571,18 @@ describe('mileage vehicles, trip types, and sorting', () => {
     const pressed = walk(TripSortScreen({ copyEnabled: true, ...sortProps })).filter(node => node.props['aria-pressed'] === true);
     expect(pressed).toHaveLength(0);
     expect(mileageVehicleCopyCatalog(true).length).toBeGreaterThan(20);
+    expect(mileageVehicleCopyCatalog(true)).toContain(copy.fiveAtOnceQuestion);
+    expect(mileageVehicleCopyCatalog(false)).not.toContain(copy.fiveAtOnceQuestion);
+    const overlapping = Array.from({ length: 5 }, (_, index) => {
+      const car = blankVehicle(`fleet-${index}`, index);
+      car.method = 'standard_mileage';
+      car.datePlacedInService = '2024-01-01';
+      return car;
+    });
+    const asked = VehicleCards({ copyEnabled: true, vehicles: overlapping, taxYear: 2026, fiveAtOnce: null, onChange: vi.fn(), onAdd: vi.fn(), onFiveAtOnce: vi.fn() });
+    expect(text(asked)).toContain('Do you use 5 or more of these for business at the same time?');
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '0');
+    expect(text(VehicleCards({ copyEnabled: true, vehicles: overlapping, taxYear: 2026, onChange: vi.fn(), onAdd: vi.fn() }))).not.toContain(copy.fiveAtOnceQuestion);
     vi.unstubAllEnvs();
   });
 
@@ -593,7 +609,7 @@ describe('mileage vehicles, trip types, and sorting', () => {
     const gate = withheldApprovalGate({ category: 'vehicle_expense', deductiblePercent: 100, transactionKind: 'expense', amount: 40 }, 100, {
       vehicles: [linked], profile: stale, taxYear: 2026, vehicleId: linked.id,
     });
-    expect(gate?.question).toBe('Fuel, repairs and insurance are included in the standard mileage rate. Only parking and tolls are added on their own.');
+    expect(gate?.question).toBe('Fuel, repairs, insurance and depreciation are included in the standard mileage rate. Parking, tolls, and the business share of car loan interest and personal property tax on the car are added on their own.');
     const enhanced = convertToEnhancedContext(stale, '2026-08-01', { vehicles: [linked], vehicleId: linked.id });
     expect(enhanced.vehicle_deduction_method).toBe('standard_mileage');
     expect(enhanced.business_vehicle).toMatchObject({ make: 'Ford', model: 'Focus', year: 2014, deduction_method: 'standard_mileage', business_use_percentage: 40 });

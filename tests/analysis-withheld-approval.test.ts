@@ -112,6 +112,33 @@ describe('an engine approval the review path cannot consume is stored as the que
     vi.unstubAllEnvs();
   });
 
+  it('standard mileage still deducts car loan interest and vehicle personal property tax', () => {
+    vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
+    const savedCars = saveVehicle([blankVehicle('legacy-vehicle-1', 0)], 'legacy-vehicle-1', { method: 'standard_mileage', taxYear: 2026 });
+    if (!savedCars.ok) throw new Error(savedCars.reason);
+    const facts = { vehicles: savedCars.vehicles, taxYear: 2026, vehicleId: 'legacy-vehicle-1' };
+    const interest = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9', evidence_ids: ['travel-463'] }), 1,
+      record({ amount: 180, merchant_name: 'Toyota Financial', business_purpose: 'Interest on the car loan for business miles' }), undefined, null, facts);
+    const propertyTax = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9', evidence_ids: ['travel-463'] }), 1,
+      record({ amount: 90, merchant_name: 'County Treasurer', business_purpose: 'Personal property tax on the car' }), undefined, null, facts);
+    const payment = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
+      record({ amount: 420, merchant_name: 'Toyota Financial', business_purpose: 'Car loan payment for the work car' }), undefined, null, facts);
+    expect(interest.deductionStatus).toBe('Likely Deductible');
+    expect(interest.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, deductiblePercent: 100, category: 'vehicle_expense' });
+    expect(interest.ai_suggestion.questions.join(' ')).not.toContain(STANDARD_MILEAGE_RUNNING_COST_GATE.question);
+    expect(propertyTax.deductionStatus).toBe('Likely Deductible');
+    expect(propertyTax.ai_suggestion).toMatchObject({ status: 'ok', isDeductible: true, category: 'vehicle_expense' });
+    expect(propertyTax.ai_suggestion.questions.join(' ')).not.toContain(STANDARD_MILEAGE_RUNNING_COST_GATE.question);
+    expect(payment.deductionStatus).toBe('Needs more information');
+    expect(payment.ai_suggestion.questions[0]).toBe(STANDARD_MILEAGE_RUNNING_COST_GATE.question);
+    vi.unstubAllEnvs();
+    const off = analysisSuggestionUpdate(approval({ category: 'vehicle_expense', schedule_c_line: '9' }), 1,
+      record({ amount: 180, merchant_name: 'Toyota Financial', business_purpose: 'Interest on the car loan for business miles' }), undefined, null, facts);
+    expect(off.deductionStatus).toBe('Needs more information');
+    expect(off.ai_suggestion.questions[0]).toBe(VEHICLE_METHOD_GATE.question);
+    expect(off.deductionStatus).not.toBe('Likely Deductible');
+  });
+
   it('actual expenses keep the base vehicle question', () => {
     vi.stubEnv('NEXT_PUBLIC_MILEAGE_VEHICLE_COPY', '1');
     const savedCars = saveVehicle([blankVehicle('legacy-vehicle-1', 0)], 'legacy-vehicle-1', { method: 'actual_expense', taxYear: 2026 });
