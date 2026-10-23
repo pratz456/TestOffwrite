@@ -1,4 +1,7 @@
+import { getSocialSecurityWageBase } from '@/lib/tax-rules/federal-year-rules';
 import { TAX_YEAR_2027_STATUS } from '@/lib/tax-rules/tax-year-2027';
+
+const socialSecurityWageBase2027 = getSocialSecurityWageBase(2027);
 
 /** Compact progressive disclosure: annual calculation readiness is not topic coverage. */
 export function TaxYear2027Readiness() {
@@ -24,7 +27,8 @@ export function TaxYear2027Readiness() {
         </ul>
         <p className="text-xs leading-relaxed text-muted-foreground">
           <strong className="font-medium text-foreground">Awaiting official figures:</strong>{' '}
-          tax brackets, standard deductions, indexed credits and QBI limits, Social Security wage base, retirement and Section 179 limits, and mileage rates.
+          tax brackets, standard deductions, indexed credits and QBI limits, retirement and Section 179 limits, and mileage rates.
+          {' '}The 2027 Social Security wage base is ${socialSecurityWageBase2027.toLocaleString('en-US')}.
           {' '}2026 amounts are not treated as final 2027 figures.
         </p>
         <p className="text-xs leading-relaxed text-muted-foreground">{TAX_YEAR_2027_STATUS.coverage}</p>

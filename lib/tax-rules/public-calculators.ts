@@ -5,7 +5,8 @@
  * Sources (reviewed 2026-09-17):
  *   - Schedule SE: 92.35% net-earnings factor, 12.4% OASDI to the wage base, 2.9% Medicare,
  *     $400 filing threshold — https://www.irs.gov/instructions/i1040sse
- *   - OASDI wage base $176,100 (2025) / $184,500 (2026) — https://www.ssa.gov/oact/COLA/cbb.html
+ *   - OASDI wage base $176,100 (2025) / $184,500 (2026) / $192,300 (2027) — https://www.ssa.gov/oact/cola/cbb.html
+ *     2027 is published for the wage base only. This calculator still requires a complete parameter set.
  *   - Additional Medicare Tax 0.9% above $200,000 / $250,000 MFJ / $125,000 MFS (not indexed) —
  *     https://www.irs.gov/taxtopics/tc560
  *   - Standard deductions and brackets — Rev. Proc. 2024-40 as amended by P.L. 119-21 (2025) and

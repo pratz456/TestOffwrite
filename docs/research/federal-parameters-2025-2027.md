@@ -254,14 +254,14 @@ Derived from the formula (COMPUTED): 2025 cap fully phased down to $10,000 at MA
 
 | Item | 2025 | 2026 | 2027 | Source |
 |---|---|---|---|---|
-| OASDI contribution & benefit base (wage base) | $176,100 | $184,500 | **NOT PUBLISHED** — SSA announces with the COLA; expected Oct. 14, 2026 (statutory deadline Nov. 1, 42 U.S.C. §430(a)) | SSA-FR-2025 (§"OASDI Contribution and Benefit Base"); SSA-FR-2026 (same section); SSA-FS-2026; SSA-CBB — VERIFIED |
+| OASDI contribution & benefit base (wage base) | $176,100 | $184,500 | **$192,300** — announced October 14, 2026. https://www.ssa.gov/oact/cola/cbb.html | SSA-CBB — VERIFIED |
 | OASDI rate employee / employer / SE | 6.2% / 6.2% / 12.4% | same | same (statutory) | SSA-CBB; USC §1401(a) — VERIFIED |
-| Max OASDI tax, employee | $10,918.20 (COMPUTED) | $11,439.00 | NOT PUBLISHED | 2026: SSA-CBB, SSA-FS-2026 — VERIFIED; 2025 computed 6.2% × $176,100 |
+| Max OASDI tax, employee | $10,918.20 (COMPUTED) | $11,439.00 | **$11,922.60** — SSA: wages at or above $192,300 contribute $11,922.60. https://www.ssa.gov/oact/cola/cbb.html | SSA-CBB — VERIFIED; 2025 computed 6.2% × $176,100 |
 | Medicare (HI) rate employee / employer / SE | 1.45% / 1.45% / 2.9% on all earnings (no cap) | same | same | USC §3101(b)(1), §1401(b)(1); SSA-CBB — VERIFIED |
 | Additional Medicare Tax (§3101(b)(2), §1401(b)(2)) | 0.9% on wages + SE income above: $250,000 MFJ; $125,000 MFS; $200,000 single/HOH/QSS — **not indexed** | same | same | USC §3101(b)(2); TC560; IRS-AMT-QA — VERIFIED |
 | Employer withholding trigger for Additional Medicare | Wages > $200,000 in the calendar year from that employer, regardless of filing status | same | same | TC560 — VERIFIED |
-| SE tax rate (Schedule SE) | 15.3% (12.4% OASDI up to wage base + 2.9% HI, no cap), applied to 92.35% of net SE earnings; filing threshold: net SE earnings ≥ $400; deduction for one-half of SE tax | same | same rates; OASDI cap follows the 2027 wage base (NOT PUBLISHED) | IRS-SE; USC §1401, §1402 — VERIFIED (IRS-SE page text still shows an example with the $168,600 2024 base — the statutory base is the SSA figure above) |
-| Quarter of coverage | $1,810 | $1,890 | NOT PUBLISHED | SSA-FS-2026; SSA-FR-2026 — VERIFIED |
+| SE tax rate (Schedule SE) | 15.3% (12.4% OASDI up to wage base + 2.9% HI, no cap), applied to 92.35% of net SE earnings; filing threshold: net SE earnings ≥ $400; deduction for one-half of SE tax | same | same rates; OASDI cap follows the 2027 wage base ($192,300) | IRS-SE; USC §1401, §1402 — VERIFIED (IRS-SE page text still shows an example with the $168,600 2024 base — the statutory base is the SSA figure above) |
+| Quarter of coverage | $1,810 | $1,890 | **$1,970** — https://www.ssa.gov/oact/COLA/QC.html | SSA QC table — VERIFIED |
 | Domestic employee coverage threshold (§3121(x)) | — | $3,000 | NOT PUBLISHED | SSA-FR-2026 — VERIFIED (2025 value not pulled from a primary source — UNVERIFIED) |
 | COLA | 2.5% | 2.8% | NOT PUBLISHED | SSA-FR-2025; SSA-FR-2026 — VERIFIED |
 
@@ -418,7 +418,7 @@ Sources — VERIFIED: RP24-25 §2; RP25-19 §2; RP26-24 §3 (Rev. Proc. 2026-24,
 | Item | Expected |
 |---|---|
 | Tax brackets, standard deduction (basic, additional, dependent), LTCG 0%/15% amounts, AMT exemptions and the newly-indexed $1,000,000/$500,000 phaseout thresholds, CTC maximum ($2,200 indexed, round-down to $100), ACTC refundable max, EITC table, QBI thresholds, QBI $400/$1,000 minimum-deduction amounts (first indexing year), §6041 1099-NEC/MISC threshold (first indexing year; nearest $100), kiddie tax, estate exclusion, §179 | IRS annual inflation Rev. Proc. — typically mid-October to mid-November 2026 |
-| Social Security wage base, quarter of coverage, COLA, retirement earnings test | SSA announcement expected Oct. 14, 2026 (with Sept. CPI-W); Federal Register determination by Nov. 1, 2026 |
+| COLA, retirement earnings test | SSA announcement with the COLA; wage base ($192,300) and quarter of coverage ($1,970) are published at https://www.ssa.gov/oact/cola/cbb.html and https://www.ssa.gov/oact/COLA/QC.html |
 | §6621 underpayment rate Q1 2027 | IRS news release late Nov./early Dec. 2026 |
 | SSTB rules for tips deduction (§1.224-1(g)) | Proposed regs promised; until finalized, N2025-69 transition relief continues |
 
