@@ -56,9 +56,41 @@ beforeEach(() => {
   vi.stubGlobal('window', { URL: { createObjectURL: (blob: Blob) => { harness.blob = blob; return 'blob:synthetic'; }, revokeObjectURL: vi.fn() } });
   vi.stubGlobal('document', { createElement: () => harness.download, body: { appendChild: vi.fn(), removeChild: vi.fn() } });
 });
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(async () => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  const lines = await import('@/lib/schedule-c/export-lines');
+  if (typeof lines.setCurrentScheduleCRulesForTests === 'function') lines.setCurrentScheduleCRulesForTests(null);
+});
 
 describe('Schedule C supported-year selection', () => {
+  it('shows each lowering rule on its own line for a held year', async () => {
+    const lines = await import('@/lib/schedule-c/export-lines');
+    const frozen = lines.frozenScheduleCRules();
+    const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: '24b', name: 'Meals', code: '24b' }, SERVICE_SUBSCRIPTION: { line: '24b', name: 'Meals', code: '24b' } };
+    lines.setCurrentScheduleCRulesForTests({
+      version: 'v1', categoryMap, readDate: frozen.readDate, readYear: frozen.readYear,
+      aggregate: (txs, year, map = categoryMap, options) => frozen.aggregate(txs, year, map, options),
+    });
+    const input = {
+      ...props,
+      transactions: [
+        { id: 'ad', merchant_name: 'Synthetic ads', amount: 200, category: 'SERVICE_ADVERTISING', date: '2025-06-01', is_deductible: true, review_status: 'confirmed', tax_review_required: false },
+        { id: 'sub', merchant_name: 'Synthetic software', amount: 40, category: 'SERVICE_SUBSCRIPTION', date: '2025-06-02', is_deductible: true, review_status: 'confirmed', tax_review_required: false },
+      ],
+    };
+    const select = walk(render(input)).find(node => node.type === 'select');
+    select.props.onChange({ target: { value: '2025' } });
+    const body = text(render(input));
+    expect(body).toContain('draft, awaiting copy approval');
+    expect(body).toContain('your 2025 total under the rules at the time, on your current data');
+    expect(body).toContain('Line changed lowered the total by $100.00.');
+    expect(body).toContain('Line changed lowered the total by $20.00.');
+    expect(body).not.toContain('lowered the total by $120.00');
+    expect(body.toLowerCase()).not.toContain('what you filed');
+    expect(body.toLowerCase()).not.toContain('amend');
+  });
+
   it('offers 2026, 2025 and 2024 and defaults to the latest supported year', () => {
     const select = walk(render()).find(node => node.type === 'select');
     expect(walk(select).filter(node => node.type === 'option').map(node => node.props.value)).toEqual(['2026', '2025', '2024']);

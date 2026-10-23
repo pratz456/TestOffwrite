@@ -1,6 +1,6 @@
 "use client";
 
-import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
+import { comparisonScreenWording, currentCalendarYear, decideScheduleCExport, FILED_YEAR_COPY_MARKER, loweringRuleSentence, scheduleCExportLine, shouldHoldYear } from '@/lib/schedule-c/export-lines';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,8 @@ interface Transaction {
   date: string;
   type?: 'expense' | 'income';
   is_deductible?: boolean | null;
+  review_status?: string;
+  tax_review_required?: boolean;
   deductible_reason?: string;
   deduction_score?: number;
   description?: string;
@@ -79,6 +81,28 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   const transactionsKey = useMemo(() => {
     return transactions.map(t => `${t.id}-${t.date}-${t.amount}-${t.is_deductible}-${String(t.pending ?? '')}`).join('|');
   }, [transactions]);
+
+  const heldComparison = useMemo(() => {
+    const year = Number(selectedYear);
+    if (!Number.isInteger(year) || year >= currentCalendarYear() || !shouldHoldYear(user.id, year)) return null;
+    return decideScheduleCExport({
+      uid: user.id,
+      year,
+      transactions: transactions.map(tx => ({
+        id: tx.id,
+        amount: tx.amount,
+        date: tx.date,
+        category: tx.category,
+        is_deductible: tx.is_deductible,
+        pending: tx.pending,
+        merchant_name: tx.merchant_name,
+        review_status: tx.review_status,
+        tax_review_required: tx.tax_review_required,
+      })),
+      prior: null,
+      confirmedRulesVersion: null,
+    }).comparison;
+  }, [selectedYear, transactions, user.id]);
 
   // Memoize calculateDeductions to prevent recreation on every render
   const calculateDeductions = useCallback((overrideYearTx?: Transaction[]) => {
@@ -313,6 +337,16 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
           <h3 className="text-lg font-semibold text-foreground mb-4">
             Schedule C Preview - Tax Year {selectedYear}
           </h3>
+
+          {heldComparison ? (
+            <div className="mb-4 space-y-1 text-sm text-foreground">
+              <p>{FILED_YEAR_COPY_MARKER}</p>
+              <p>{comparisonScreenWording(Number(selectedYear))}</p>
+              {heldComparison.loweringRules.map((rule, index) => (
+                <p key={`${rule.reason}-${rule.amount}-${index}`}>{loweringRuleSentence(rule)}</p>
+              ))}
+            </div>
+          ) : null}
 
           {/* Enhanced Form Style Preview */}
           {categorySummaries.length > 0 && (

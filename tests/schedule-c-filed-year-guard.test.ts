@@ -64,7 +64,8 @@ const CLOCK = new Date('2026-07-15T15:00:00.000Z');
 const clock = () => CLOCK;
 
 type GuardModule = {
-  shouldHoldYear: (uid: string, year: number) => boolean;
+  shouldHoldYear: (uid: string, year: number, state?: { hasExportRecord?: boolean; confirmed?: boolean }) => boolean;
+  comparisonScreenWording: (year: number) => string;
   setScheduleCClockForTests: (next: (() => Date) | null) => void;
   setCurrentScheduleCRulesForTests: (rules: RuleSet | null) => void;
   decideScheduleCExport: (input: {
@@ -73,7 +74,7 @@ type GuardModule = {
     transactions: ScheduleCTransactionLike[];
     prior: { rulesVersion: string; lineTotals: { line: string; amount: number }[]; totalDeductible: number; charges: { id: string; line: string; amount: number }[] } | null;
     confirmedRulesVersion: string | null;
-  }) => { comparison: { notice: string; movedCharges: { id: string; reason: string }[]; lineChanges: { line: string; oldAmount: number; newAmount: number; change: number }[] } | null };
+  }) => { held: boolean; totalDeductible: number; comparison: { notice: string; loweringRules: { reason: string; amount: number }[]; movedCharges: { id: string; reason: string }[]; lineChanges: { line: string; oldAmount: number; newAmount: number; change: number }[] } | null };
   frozenScheduleCRules: () => RuleSet;
   currentScheduleCRules: () => RuleSet;
   registerScheduleCRules: (rules: RuleSet) => void;
@@ -395,5 +396,100 @@ describe('filed year guard', () => {
     expect(decision.comparison?.notice).toContain('awaiting copy approval');
     expect(decision.comparison?.notice).not.toContain('what you filed');
     expect(decision.comparison?.notice).not.toMatch(/[-–—]/);
+  });
+
+  it('lists each rule that lowers 2025 on its own line', async () => {
+    const guard = await loadGuard();
+    expect(typeof guard.comparisonScreenWording).toBe('function');
+    expect(guard.comparisonScreenWording(2025)).toBe('your 2025 total under the rules at the time, on your current data');
+    const frozen = guard.frozenScheduleCRules();
+    const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: '24b', name: 'Meals', code: '24b' } };
+    const readDate = (value: unknown) => value === '2025-04-01' ? '2024-04-01' : frozen.readDate(value);
+    const readYear = (value: unknown) => {
+      const ymd = readDate(value);
+      return ymd ? Number(ymd.slice(0, 4)) : null;
+    };
+    guard.setCurrentScheduleCRulesForTests({
+      version: 'v1', categoryMap, readDate, readYear,
+      aggregate: (txs, year, map = categoryMap, options) => frozen.aggregate(txs.map(tx => (
+        tx.date === '2025-04-01' ? { ...tx, date: '2024-04-01' } : tx
+      )), year, map, options),
+    });
+    harness.transactions = [
+      confirmed({ id: 'ad', amount: 100, date: '2025-06-01', category: 'SERVICE_ADVERTISING' }),
+      confirmed({ id: 'fuel', amount: 30, date: '2025-04-01', category: 'TRANSPORTATION_FUEL' }),
+    ];
+    const decision = guard.decideScheduleCExport({
+      uid: 'owner', year: 2025, confirmedRulesVersion: null, prior: null, transactions: harness.transactions,
+    });
+    expect(decision.comparison?.loweringRules).toEqual([
+      { reason: 'line changed', amount: 50 },
+      { reason: 'date read differently', amount: 30 },
+    ]);
+    const notice = decision.comparison?.notice ?? '';
+    expect(notice).toContain('draft, awaiting copy approval');
+    expect(notice).toContain('your 2025 total under the rules at the time, on your current data');
+    expect(notice).toContain('Line changed lowered the total by $50.00.');
+    expect(notice).toContain('Date read differently lowered the total by $30.00.');
+    expect(notice).not.toContain('lowered the total by $80.00');
+    expect(notice.toLowerCase()).not.toContain('what you filed');
+    expect(notice.toLowerCase()).not.toContain('amend');
+    const view = capturePdf();
+    expect((await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }))).status).toBe(200);
+    const flat = view.flat();
+    expect(flat).toContain('draft, awaiting copy approval');
+    expect(flat).toContain('Line changed lowered the total by $50.00.');
+    expect(flat).toContain('Date read differently lowered the total by $30.00.');
+    expect(flat).not.toContain('lowered the total by $80.00');
+    expect(flat.toLowerCase()).not.toContain('what you filed');
+    expect(flat.toLowerCase()).not.toContain('amend');
+  });
+
+  it('ends the hold after an export record is written', async () => {
+    const guard = await loadGuard();
+    expect(guard.shouldHoldYear('owner', 2025)).toBe(true);
+    expect(guard.shouldHoldYear('owner', 2024)).toBe(true);
+    const frozen = guard.frozenScheduleCRules();
+    const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: '24b', name: 'Meals', code: '24b' } };
+    guard.setCurrentScheduleCRulesForTests({
+      version: 'v1', categoryMap, readDate: frozen.readDate, readYear: frozen.readYear,
+      aggregate: (txs, year, map = categoryMap, options) => frozen.aggregate(txs, year, map, options),
+    });
+    harness.transactions = [confirmed({ id: 'ad1', amount: 100, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    const before = guard.decideScheduleCExport({
+      uid: 'owner', year: 2025, transactions: harness.transactions, prior: null, confirmedRulesVersion: null,
+    });
+    expect(before.held).toBe(true);
+    expect(before.totalDeductible).toBe(100);
+    const view = capturePdf();
+    expect((await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }))).status).toBe(200);
+    expect(subtotal(view.text())).toBe('$100.00');
+    const saved = savedExports()[0];
+    expect(saved.lineTotals).toEqual([{ line: '8', amount: 100 }]);
+    expect(saved.charges).toEqual([{ id: 'ad1', line: '8', amount: 100 }]);
+    expect(typeof saved.sha256).toBe('string');
+    expect(guard.shouldHoldYear('owner', 2025, { hasExportRecord: true })).toBe(false);
+    expect(guard.shouldHoldYear('owner', 2025, { confirmed: true })).toBe(false);
+    const prior = {
+      rulesVersion: String(saved.rulesVersion),
+      lineTotals: saved.lineTotals as { line: string; amount: number }[],
+      totalDeductible: Number(saved.totalDeductible),
+      charges: saved.charges as { id: string; line: string; amount: number }[],
+    };
+    const after = guard.decideScheduleCExport({
+      uid: 'owner', year: 2025, transactions: harness.transactions, prior, confirmedRulesVersion: null,
+    });
+    expect(after.held).toBe(false);
+    expect(after.totalDeductible).toBe(100);
+    const currentYear = guard.decideScheduleCExport({
+      uid: 'owner', year: 2026, transactions: harness.transactions, prior: null, confirmedRulesVersion: null,
+    });
+    expect(currentYear.held).toBe(false);
+    const route = await import('@/app/api/tax/schedule-c/export/route');
+    expect((await route.confirmTaxYear(exportBody({ uid: 'owner', year: 2025 }))).status).toBe(200);
+    const confirmedView = capturePdf();
+    expect((await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }))).status).toBe(200);
+    expect(subtotal(confirmedView.text())).toBe('$50.00');
+    expect(confirmedView.flat()).not.toContain('awaiting copy approval');
   });
 });

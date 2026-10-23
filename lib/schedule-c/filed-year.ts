@@ -1,6 +1,8 @@
 /**
- * Filed year guard. Past tax years keep the totals already exported, or v0
- * when nothing was exported, until the owner confirms the current rules.
+ * Filed year guard. A past year stays on hold until that user's first export
+ * record for the year or their confirmation, whichever comes first. The
+ * current year never holds. While a past year is unconfirmed, the download
+ * prints the stored export when one exists, otherwise v0 on current data.
  */
 
 import type { LineItemSummary, ScheduleCTransactionLike } from './aggregate';
@@ -21,7 +23,7 @@ export {
   type ScheduleCRuleSet,
 } from './rules-registry';
 
-export const FILED_YEAR_COPY_MARKER = 'awaiting copy approval';
+export const FILED_YEAR_COPY_MARKER = 'draft, awaiting copy approval';
 export const NEEDS_MORE_INFORMATION = 'Needs more information';
 
 export type MoveReason =
@@ -60,12 +62,18 @@ export interface ScheduleCLineChange {
   change: number;
 }
 
+export interface ScheduleCLoweringRule {
+  reason: MoveReason;
+  amount: number;
+}
+
 export interface ScheduleCComparisonSection {
   baseline: 'stored-export' | 'rules-at-the-time';
   notice: string;
   oldTotal: number;
   newTotal: number;
   lineChanges: ScheduleCLineChange[];
+  loweringRules: ScheduleCLoweringRule[];
   movedCharges: ScheduleCMovedCharge[];
 }
 
@@ -94,11 +102,30 @@ export function currentCalendarYear(now: Date = scheduleCNow()): number {
   return now.getUTCFullYear();
 }
 
-export function shouldHoldYear(uid: string, year: number): boolean {
-  // TODO: limit this hold to users with an export record for the year.
+export function shouldHoldYear(
+  uid: string,
+  year: number,
+  state?: { hasExportRecord?: boolean; confirmed?: boolean },
+): boolean {
+  // Every prior year stays on hold until the first export record or a confirmation.
+  // Callers still refuse the current calendar year even though this returns true.
   void uid;
   void year;
+  if (state?.hasExportRecord || state?.confirmed) return false;
   return true;
+}
+
+/** Exact comparison sentence. The year is filled in. Draft until copy is approved. */
+export function comparisonScreenWording(year: number): string {
+  return `your ${year} total under the rules at the time, on your current data`;
+}
+
+export function loweringRuleSentence(rule: ScheduleCLoweringRule): string {
+  const reason = rule.reason === 'date read differently' ? 'Date read differently'
+    : rule.reason === 'line changed' ? 'Line changed'
+    : rule.reason === 'moved to Needs more information' ? 'Moved to Needs more information'
+    : 'Amount changed';
+  return `${reason} lowered the total by ${copyMoney(rule.amount)}.`;
 }
 
 export function roundMoney(value: number): number {
@@ -115,6 +142,14 @@ export function chargeKey(tx: { id?: unknown; trans_id?: unknown }, index: numbe
 
 function moneyCents(value: number): number {
   return Math.round(value * 100);
+}
+
+function placementDeductible(line: string, amount: number): number {
+  const cents = moneyCents(amount);
+  if (line !== '24b') return cents / 100;
+  const abs = Math.abs(cents);
+  const rounded = Math.floor(abs / 2) + (abs % 2);
+  return (cents < 0 ? -rounded : rounded) / 100;
 }
 
 function publishedLine(line: string, taxYear: number): string {
@@ -242,7 +277,7 @@ function buildNotice(year: number, section: Omit<ScheduleCComparisonSection, 'no
   const charges = count === 0 ? ''
     : count === 1 ? `1 charge changed${since} because its ${reasonText}.`
     : `${count} charges changed${since}. Reasons: ${reasonText}.`;
-  return [
+  const head = [
     `${FILED_YEAR_COPY_MARKER}.`,
     'Totals changed.',
     baseline,
@@ -251,6 +286,8 @@ function buildNotice(year: number, section: Omit<ScheduleCComparisonSection, 'no
     ...lines,
     charges,
   ].filter(Boolean).join(' ');
+  const rules = section.loweringRules.map(loweringRuleSentence);
+  return rules.length ? `${head}\n${rules.join('\n')}` : head;
 }
 
 function buildComparison(input: {
@@ -276,9 +313,15 @@ function buildComparison(input: {
   });
   const ids = [...new Set([...oldPlacements.keys(), ...input.currentPlacements.keys()])].sort();
   const movedCharges: ScheduleCMovedCharge[] = [];
+  const loweringRules: ScheduleCLoweringRule[] = [];
   for (const id of ids) {
-    const reason = reasonFor(txById.get(id), oldPlacements.get(id), input.currentPlacements.get(id), input.current, input.frozen);
-    if (reason) movedCharges.push({ id, reason });
+    const oldPlacement = oldPlacements.get(id);
+    const newPlacement = input.currentPlacements.get(id);
+    const reason = reasonFor(txById.get(id), oldPlacement, newPlacement, input.current, input.frozen);
+    if (!reason) continue;
+    movedCharges.push({ id, reason });
+    const delta = roundMoney(placementDeductible(newPlacement?.line ?? '', newPlacement?.amount ?? 0) - placementDeductible(oldPlacement?.line ?? '', oldPlacement?.amount ?? 0));
+    if (delta < 0) loweringRules.push({ reason, amount: roundMoney(-delta) });
   }
   const oldLines = new Map<string, number>();
   for (const row of input.oldSnapshot.lineTotals) oldLines.set(row.line, roundMoney((oldLines.get(row.line) ?? 0) + row.amount));
@@ -298,7 +341,7 @@ function buildComparison(input: {
   const oldTotal = roundMoney(input.oldSnapshot.totalDeductible);
   const newTotal = roundMoney(input.newTotal);
   if (!movedCharges.length && !lineChanges.length && moneyCents(oldTotal) === moneyCents(newTotal)) return null;
-  const partial = { baseline: input.baseline, oldTotal, newTotal, lineChanges, movedCharges };
+  const partial = { baseline: input.baseline, oldTotal, newTotal, lineChanges, loweringRules, movedCharges };
   return { ...partial, notice: buildNotice(input.year, partial) };
 }
 
@@ -335,11 +378,13 @@ export function decideScheduleCExport(input: {
   const frozen = frozenScheduleCRules();
   const past = input.year < currentCalendarYear(now);
   const confirmed = input.confirmedRulesVersion === current.version;
-  const held = past && shouldHoldYear(input.uid, input.year) && !confirmed;
+  const hasExportRecord = input.prior != null;
+  const held = past && shouldHoldYear(input.uid, input.year, { hasExportRecord, confirmed }) && !confirmed;
+  const replayStored = past && !confirmed && hasExportRecord;
   const keys = keysFor(input.transactions);
   const currentResult = current.aggregate(input.transactions, String(input.year), current.categoryMap, { mode: 'confirmed-only' });
 
-  if (!held) {
+  if (!held && !replayStored) {
     const lineItems = currentResult.lineItemsArray;
     return {
       held: false,
@@ -373,7 +418,7 @@ export function decideScheduleCExport(input: {
   });
   const rulesVersion = input.prior?.rulesVersion ?? frozen.version;
   return {
-    held: true,
+    held,
     rulesVersion,
     lineItems,
     totalDeductible: roundMoney(lineItems.reduce((sum, line) => sum + line.deductible, 0)),
