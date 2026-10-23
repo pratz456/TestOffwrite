@@ -41,7 +41,6 @@ import {
   possibleRefundNotice,
   ruledCategory,
   transferPurposeLine,
-  userPickedChargeId,
   type FuelProfile,
   type RuledCategory,
 } from './category-rules';
@@ -587,31 +586,55 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
 
   if (mode === 'confirmed-only') {
     for (const refund of refunds) {
-      const refundCents = Math.abs(signedCents(refund));
-      const picked = userPickedChargeId(refund);
+      // Automatic tie only: same merchant, this tax year, within 90 days, and no more than each charge still has.
+      // A hand-picked charge is a later item and is not read here.
+      let left = Math.abs(signedCents(refund));
       const merchant = merchantKey(refund);
       const day = dayNumber(refund.date);
-      const match = openCharges.find(charge => {
-        if (charge.remainingGross <= 0 || refundCents > charge.remainingGross) return false;
-        if (picked && charge.id && charge.id === picked) return true;
-        if (!merchant || day === null || charge.day === null || charge.merchant !== merchant) return false;
-        return Math.abs(charge.day - day) <= REFUND_MATCH_DAYS;
-      });
-      if (!match) {
-        addReviewItem(needsMoreInformation, refund);
-        continue;
+      let tiedDeductible = 0;
+      const slices = new Map<string, { gross: number; deductible: number }>();
+      if (merchant && day !== null) {
+        for (const charge of openCharges) {
+          if (left <= 0) break;
+          if (charge.remainingGross <= 0 || charge.merchant !== merchant || charge.day === null) continue;
+          if (Math.abs(charge.day - day) > REFUND_MATCH_DAYS) continue;
+          const line = charge.lineKey ? lineItems[charge.lineKey] : null;
+          const lineRoom = line ? Math.max(0, Math.round(line.total * 100)) : charge.remainingGross;
+          const grossTake = Math.min(left, charge.remainingGross, lineRoom);
+          if (grossTake <= 0) continue;
+          const proportional = grossTake === charge.remainingGross
+            ? charge.remainingDeductible
+            : Math.round(charge.remainingDeductible * grossTake / charge.remainingGross);
+          const dedRoom = line ? Math.max(0, Math.round(line.deductible * 100)) : 0;
+          const dedTake = line ? Math.min(proportional, dedRoom) : 0;
+          charge.remainingGross -= grossTake;
+          charge.remainingDeductible = Math.max(0, charge.remainingDeductible - dedTake);
+          if (line && charge.lineKey) {
+            const grossCents = Math.round(line.total * 100);
+            const dedCents = Math.round(line.deductible * 100);
+            line.total = Math.max(0, grossCents - grossTake) / 100;
+            line.deductible = Math.max(0, dedCents - dedTake) / 100;
+            const prior = slices.get(charge.lineKey) ?? { gross: 0, deductible: 0 };
+            slices.set(charge.lineKey, { gross: prior.gross + grossTake, deductible: prior.deductible + dedTake });
+          }
+          left -= grossTake;
+          tiedDeductible += dedTake;
+        }
       }
-      const take = Math.min(refundCents, match.remainingGross);
-      const dedTake = take === match.remainingGross ? match.remainingDeductible : Math.round(match.remainingDeductible * take / match.remainingGross);
-      refund.confirmedContribution = -(dedTake / 100);
-      if (match.lineKey && lineItems[match.lineKey]) {
-        lineItems[match.lineKey].total -= take / 100;
-        lineItems[match.lineKey].deductible -= dedTake / 100;
-        lineItems[match.lineKey].transactions.push({ ...refund, confirmedContribution: refund.confirmedContribution });
-        match.remainingGross -= take;
-        match.remainingDeductible -= dedTake;
-      } else {
-        match.remainingGross -= take;
+      if (slices.size > 0) refund.confirmedContribution = -(tiedDeductible / 100);
+      for (const [lineKey, slice] of slices) {
+        const line = lineItems[lineKey];
+        if (!line) continue;
+        line.transactions.push({
+          ...refund,
+          amount: -(slice.gross / 100),
+          confirmedContribution: -(slice.deductible / 100),
+        });
+      }
+      if (left > 0) {
+        const untied = { ...refund, amount: -(left / 100) };
+        delete untied.confirmedContribution;
+        addReviewItem(needsMoreInformation, untied);
       }
     }
   }

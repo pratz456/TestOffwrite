@@ -98,10 +98,10 @@ describe('alias head transfers, loans and inflows', () => {
     expect(untied.refundNotice).toContain('awaiting copy approval');
   });
 
-  it('leaves 2025 unchanged when a 2026 refund points at a 2025 charge', () => {
+  it('leaves 2025 unchanged when the same merchant refunds in 2026', () => {
     const rows = [
-      charge({ id: 'ad', amount: 100, date: '2025-11-01', merchant_name: 'Print shop', category: 'SERVICE_ADVERTISING' }),
-      charge({ id: 'back', amount: -100, date: '2026-02-01', merchant_name: 'Print shop', category: 'SERVICE_ADVERTISING', refund_of: 'ad' }),
+      charge({ id: 'ad', amount: 100, date: '2025-12-01', merchant_name: 'Print shop', category: 'SERVICE_ADVERTISING' }),
+      charge({ id: 'back', amount: -100, date: '2026-01-15', merchant_name: 'Print shop', category: 'SERVICE_ADVERTISING' }),
     ];
     const year2025 = totals(rows, '2025');
     expect(year2025.totalDeductible).toBe(100);
@@ -109,7 +109,61 @@ describe('alias head transfers, loans and inflows', () => {
     const year2026 = totals(rows, '2026');
     expect(year2026.totalDeductible).toBe(0);
     expect(year2026.needsMoreInformation.map(row => row.id)).toEqual(['back']);
-    expect(year2026.possibleRefunds).toEqual([{ amount: 100, merchant: 'Print shop', date: '2026-02-01', category: 'SERVICE_ADVERTISING' }]);
+    expect(year2026.possibleRefunds).toEqual([{ amount: 100, merchant: 'Print shop', date: '2026-01-15', category: 'SERVICE_ADVERTISING' }]);
+  });
+
+  it('nets a $300 printer bought and returned in 2026 to $0 on its line', () => {
+    const res = totals([
+      charge({ id: 'printer', amount: 300, date: '2026-03-02', merchant_name: 'Printer store', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }),
+      charge({ id: 'return', amount: -300, date: '2026-04-01', merchant_name: 'Printer store', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }),
+    ], '2026');
+    expect(res.lineItems['22']?.total).toBe(0);
+    expect(res.lineItems['22']?.deductible).toBe(0);
+    expect(res.totalDeductible).toBe(0);
+    expect(res.totalExpenses).toBe(0);
+    expect(res.possibleRefunds).toEqual([]);
+    expect(res.needsMoreInformation).toEqual([]);
+  });
+
+  it('adds $0 for a $300 return with no matching purchase and lists it as a possible refund', () => {
+    const res = totals([
+      charge({ id: 'return', amount: -300, date: '2026-04-01', merchant_name: 'Printer store', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }),
+    ], '2026');
+    expect(res.totalDeductible).toBe(0);
+    expect(res.totalExpenses).toBe(0);
+    expect(res.lineItems['22']).toBeUndefined();
+    expect(res.needsMoreInformation.map(row => row.id)).toEqual(['return']);
+    expect(res.possibleRefunds).toEqual([{ amount: 300, merchant: 'Printer store', date: '2026-04-01', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }]);
+  });
+
+  it('caps a refund at that merchant\'s tied charges and keeps every line at $0 or above', () => {
+    const over = totals([
+      charge({ id: 'printer', amount: 300, date: '2026-03-02', merchant_name: 'Printer store', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }),
+      charge({ id: 'return', amount: -400, date: '2026-04-01', merchant_name: 'Printer store', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }),
+    ], '2026');
+    expect(over.lineItems['22']?.total).toBe(0);
+    expect(over.lineItems['22']?.deductible).toBe(0);
+    expect(over.totalDeductible).toBe(0);
+    expect(over.possibleRefunds).toEqual([{ amount: 100, merchant: 'Printer store', date: '2026-04-01', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }]);
+
+    const shared = totals([
+      charge({ id: 'printer', amount: 300, date: '2026-03-02', merchant_name: 'Printer store', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }),
+      charge({ id: 'paper', amount: 100, date: '2026-03-03', merchant_name: 'Paper shop', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }),
+      charge({ id: 'return', amount: -400, date: '2026-04-01', merchant_name: 'Printer store', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }),
+    ], '2026');
+    expect(shared.lineItems['22']?.total).toBe(100);
+    expect(shared.lineItems['22']?.deductible).toBe(100);
+    expect(shared.totalDeductible).toBe(100);
+    expect(shared.possibleRefunds).toEqual([{ amount: 100, merchant: 'Printer store', date: '2026-04-01', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }]);
+
+    const split = totals([
+      charge({ id: 'a', amount: 100, date: '2026-03-02', merchant_name: 'Printer store', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }),
+      charge({ id: 'b', amount: 200, date: '2026-03-04', merchant_name: 'Printer store', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }),
+      charge({ id: 'return', amount: -300, date: '2026-04-01', merchant_name: 'Printer store', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' }),
+    ], '2026');
+    expect(split.lineItems['22']?.total).toBe(0);
+    expect(split.lineItems['22']?.deductible).toBe(0);
+    expect(split.possibleRefunds).toEqual([]);
   });
 
   it('routes savings to zero, an unnamed transfer to needs more information, and a contractor pick to line 11', () => {

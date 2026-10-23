@@ -310,16 +310,6 @@ export function isTransferLike(tx: { [key: string]: unknown }, category: string)
   return true;
 }
 
-const USER_PICKED_CHARGE_KEYS = ['refund_of', 'refundOf', 'original_charge_id', 'originalChargeId', 'tied_charge_id', 'linked_transaction_id', 'linkedTransactionId'];
-
-export function userPickedChargeId(tx: { [key: string]: unknown }): string | null {
-  for (const key of USER_PICKED_CHARGE_KEYS) {
-    const value = tx[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
-  }
-  return null;
-}
-
 export function merchantKey(tx: { merchant_name?: unknown; merchant?: unknown; name?: unknown }): string {
   const value = tx.merchant_name ?? tx.merchant ?? tx.name;
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
