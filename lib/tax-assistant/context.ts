@@ -242,17 +242,23 @@ const STATE_TOPICS = new Set(['state-taxes-licenses', 'estimated-taxes', 'when-t
 // These packets need topic-specific context before any personalized placement advice is appropriate.
 const PERSONAL_CREDIT_TOPICS = new Set(['marketplace-premium-credit', 'savers-match', 'scholarship-contribution-credit']);
 
-/** No transaction date: name the schedule part and do not print a line number. */
-function forYouPlacement(placement: string, year: number | null): string {
+/** No transaction date: name the schedule part and do not print a line number. Longest phrases first. */
+export function forYouPlacement(placement: string, year: number | null): string {
   if (typeof year === 'number' && Number.isFinite(year)) return withOtherExpensesLine(placement, year);
+  const part = 'other expenses (Part V)';
   return placement
-    .replaceAll(OTHER_EXPENSES_LINE_TOKEN, 'other expenses (Part V)')
-    .replaceAll('line 27b (other expenses)', 'other expenses (Part V)')
-    .replaceAll('line 27a (other expenses)', 'other expenses (Part V)')
-    .replaceAll('line 27b', 'other expenses (Part V)')
-    .replaceAll('line 27a', 'other expenses (Part V)')
-    .replaceAll(' or 27b', ' or other expenses (Part V)')
-    .replaceAll(' or 27a', ' or other expenses (Part V)');
+    .replaceAll(`line ${OTHER_EXPENSES_LINE_TOKEN} (other expenses)`, part)
+    .replaceAll(`Schedule C line ${OTHER_EXPENSES_LINE_TOKEN}`, `Schedule C ${part}`)
+    .replaceAll(`line ${OTHER_EXPENSES_LINE_TOKEN}`, part)
+    .replaceAll(OTHER_EXPENSES_LINE_TOKEN, part)
+    .replaceAll('line 27b (other expenses)', part)
+    .replaceAll('line 27a (other expenses)', part)
+    .replaceAll('Schedule C line 27b', `Schedule C ${part}`)
+    .replaceAll('Schedule C line 27a', `Schedule C ${part}`)
+    .replaceAll('line 27b', part)
+    .replaceAll('line 27a', part)
+    .replaceAll(' or 27b', ` or ${part}`)
+    .replaceAll(' or 27a', ` or ${part}`);
 }
 
 /**

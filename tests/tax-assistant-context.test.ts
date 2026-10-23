@@ -118,11 +118,7 @@ describe('for-you paragraph', () => {
 
   it('uses other expenses (Part V) when no year is known', () => {
     const forYou = composeForYou({ profile: assistantProfileFacts(profile), merchant: null }, 'software-subscriptions');
-    expect(forYou?.paragraph).toContain('other expenses (Part V)');
-    expect(forYou?.paragraph).not.toContain('OTHER_EXPENSES_LINE');
-    expect(forYou?.paragraph).not.toContain('line 27a');
-    expect(forYou?.paragraph).not.toContain('line 27b');
-    expect(forYou?.paragraph).not.toContain('27a for');
+    expect(forYou?.paragraph).toBe('For your graphic designer work, the placement above (Schedule C line 18 (office expense) or other expenses (Part V)) is where a qualifying cost is reported.');
   });
 
   it('uses saved methods for home and vehicle topics without a merchant', () => {
