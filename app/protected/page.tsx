@@ -823,6 +823,8 @@ export default function ProtectedPage() {
           user={{ id: user.id, email: user.email ?? undefined }}
           onBack={handleGoBack}
           onNavigate={handleNavigate}
+          vehicleBusinessUsePercentage={userProfile?.vehicle_business_use_percentage}
+          businessVehicleBusinessUsePercentage={userProfile?.business_vehicle?.business_use_percentage}
         />
       );
     }

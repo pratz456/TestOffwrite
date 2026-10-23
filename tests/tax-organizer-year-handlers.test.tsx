@@ -296,4 +296,31 @@ describe('compact organizer sections', () => {
     expect(text(OBBBADeductionFields(switched.props))).toContain('Your saved answers belong to another tax year');
     expect(text(section(tree, 'Working Families Tax Cuts deductions').props.children[0])).not.toContain('charitable gifts');
   });
+
+  it('shows a blank placement choice only for a qualifying car', () => {
+    const qualifying = reviewedOBBBADeductionFacts(2026, {
+      hasVehicleLoanInterest: 'yes', vehicleLoanInterestAmount: '1000', vehicleLoanAfter2024: 'yes', vehicleNewUSAssembled: 'yes',
+      vehicleExpectedPersonalUseOver50AtPurchase: 'yes', vehicleLoanQualified: 'yes', vehicleVIN: SYNTHETIC_VIN,
+    });
+    const fields = (percent: number, extra: Record<string, string> = {}) => OBBBADeductionFields({
+      taxYear: 2026, filingStatus: 'single', onChange() {},
+      vehicleBusinessUsePercentage: percent,
+      value: extra.vehicleExpectedPersonalUseOver50AtPurchase || extra.vehicleNewUSAssembled
+        ? reviewedOBBBADeductionFacts(2026, {
+          hasVehicleLoanInterest: 'yes', vehicleLoanInterestAmount: '1000', vehicleLoanAfter2024: 'yes', vehicleNewUSAssembled: 'yes',
+          vehicleExpectedPersonalUseOver50AtPurchase: 'yes', vehicleLoanQualified: 'yes', vehicleVIN: SYNTHETIC_VIN, ...extra,
+        })
+        : qualifying,
+    });
+    const choiceLabel = 'Where should this car loan interest be deducted?';
+    const shown = fields(30);
+    expect(text(shown)).toContain(choiceLabel);
+    expect(text(shown)).toContain('draft, awaiting copy approval. This choice starts blank.');
+    const select = walk(shown).find(node => node.props['aria-label'] === choiceLabel);
+    expect(select?.props.value).toBe('');
+    expect(text(fields(60))).not.toContain(choiceLabel);
+    expect(text(fields(50))).not.toContain(choiceLabel);
+    expect(text(fields(30, { vehicleExpectedPersonalUseOver50AtPurchase: 'no' }))).not.toContain(choiceLabel);
+    expect(text(fields(30, { vehicleNewUSAssembled: 'no' }))).not.toContain(choiceLabel);
+  });
 });

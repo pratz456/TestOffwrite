@@ -36,6 +36,13 @@ export interface OBBBADeductionAnswers {
   vehiclePersonalUse?: string;
   /** Treas. Reg. 1.163-16(f)(1): expectation when the loan was incurred, not current use. */
   vehicleExpectedPersonalUseOver50AtPurchase?: string;
+  /**
+   * Qualifying cars only. Omitted on older saves, which keep the split.
+   * `split`: business share on Schedule C line 16b and the rest on Schedule 1-A.
+   * `schedule_1a`: all interest on Schedule 1-A and $0 on line 16b.
+   * A blank value is unanswered and is not a default.
+   */
+  vehicleLoanInterestPlacement?: string;
   vehicleLoanQualified?: string;
   hasNonItemizerCharity?: string;
   nonItemizerCashCharity?: string;
@@ -65,8 +72,13 @@ export const VEHICLE_LOAN_INTEREST_LIMIT = 10000;
 /**
  * Schedule 1-A requires personal use above this percent. Exactly this percent is not enough.
  * Primary source is pending confirmation.
+ * This is not the loan-date expectation. That test is `vehicleExpectedPersonalUseOver50AtPurchase`.
  */
 export const VEHICLE_SCHEDULE_1A_PERSONAL_USE_THRESHOLD = 50;
+/** Business share on Schedule C line 16b and the rest on Schedule 1-A. */
+export const VEHICLE_LOAN_INTEREST_PLACEMENT_SPLIT = 'split';
+/** All interest on Schedule 1-A and $0 on Schedule C line 16b. */
+export const VEHICLE_LOAN_INTEREST_PLACEMENT_SCHEDULE_1A = 'schedule_1a';
 export const VEHICLE_LOAN_PHASEOUT_THRESHOLD = 100000;
 export const VEHICLE_LOAN_PHASEOUT_THRESHOLD_JOINT = 200000;
 export const VEHICLE_LOAN_PHASEOUT_PER_THOUSAND = 200;
@@ -170,6 +182,7 @@ export const VEHICLE_BUSINESS_SHARE_NOTE = `${DRAFT_COPY}. Enter the vehicle bus
 export const VEHICLE_EXPECTED_PERSONAL_USE_NOTE = `${DRAFT_COPY}. This interest qualifies for Schedule 1-A only if the buyer expected more than 50% personal use on the loan date. WriteOff puts the business share on Schedule C. The same dollar is never counted in both places.`;
 const VEHICLE_EXPECTED_PERSONAL_USE_NO_REASON = `${DRAFT_COPY}. An answer of no leaves this interest off Schedule 1-A. WriteOff puts the business share on Schedule C line 16b. The same dollar is never counted in both places.`;
 const VEHICLE_ACTUAL_PERSONAL_USE_REASON = `${DRAFT_COPY}. Schedule 1-A requires personal use above ${VEHICLE_SCHEDULE_1A_PERSONAL_USE_THRESHOLD} percent. WriteOff puts the business share on Schedule C line 16b. The same dollar is never counted in both places.`;
+const VEHICLE_PLACEMENT_NOTE = `${DRAFT_COPY}. Choose the business share on Schedule C line 16b and the rest on Schedule 1-A, or all of the interest on Schedule 1-A. The same dollar is never counted in both places.`;
 
 function readVehicleBusinessPercent(value: unknown): { state: 'unset' } | { state: 'invalid' } | { state: 'set'; value: number } {
   if (value === undefined || value === null || value === '') return { state: 'unset' };
@@ -189,6 +202,29 @@ export function resolveVehicleBusinessUsePercentage(profilePercent: unknown, veh
   if (left.state === 'unset' && right.state === 'unset') return null;
   if (left.state === 'set' && right.state === 'set' && left.value !== right.value) return null;
   return left.state === 'set' ? left.value : right.state === 'set' ? right.value : null;
+}
+
+/**
+ * A qualifying car is new, the loan-date answer is yes, and personal use is above the threshold.
+ * The loan-date question is the expectation. It is not computed from later actual use.
+ */
+function vehicleLoanInterestElectionAvailable(facts: OBBBADeductionAnswers, businessPercent: number): boolean {
+  if (facts.vehicleExpectedPersonalUseOver50AtPurchase !== 'yes') return false;
+  if (facts.vehicleLoanAfter2024 !== 'yes') return false;
+  if (facts.vehicleNewUSAssembled !== 'yes') return false;
+  if (facts.vehicleLoanQualified !== 'yes') return false;
+  return 100 - businessPercent > VEHICLE_SCHEDULE_1A_PERSONAL_USE_THRESHOLD;
+}
+
+/** The placement choice is shown only for a qualifying car. Percentages are the profile fields. */
+export function vehicleLoanInterestChoiceShown(
+  facts: OBBBADeductionAnswers,
+  vehicleBusinessUsePercentage: unknown,
+  businessVehicleBusinessUsePercentage: unknown,
+): boolean {
+  const businessPercent = resolveVehicleBusinessUsePercentage(vehicleBusinessUsePercentage, businessVehicleBusinessUsePercentage);
+  if (businessPercent === null) return false;
+  return vehicleLoanInterestElectionAvailable(facts, businessPercent);
 }
 
 /** One rounding to cents. The other share is not the remainder. */
@@ -226,6 +262,12 @@ export function scheduleCLine16bVehicleInterest(input: {
   const interest = money(facts.vehicleLoanInterestAmount, 'passenger vehicle loan interest paid');
   const businessPercent = resolveVehicleBusinessUsePercentage(input.vehicleBusinessUsePercentage, input.businessVehicleBusinessUsePercentage);
   if (businessPercent === null) return 0;
+  if (vehicleLoanInterestElectionAvailable(facts, businessPercent)) {
+    const placement = facts.vehicleLoanInterestPlacement;
+    // All on Schedule 1-A, or a blank new answer, leaves line 16b at $0. An omitted field keeps the split.
+    if (placement === VEHICLE_LOAN_INTEREST_PLACEMENT_SCHEDULE_1A) return 0;
+    if (placement !== undefined && placement !== VEHICLE_LOAN_INTEREST_PLACEMENT_SPLIT) return 0;
+  }
   return roundedPercentShare(interest, businessPercent);
 }
 
@@ -385,18 +427,23 @@ export function calculateOBBBADeductions(input: OBBBADeductionInput): OBBBADeduc
     } else {
       const businessShare = roundedPercentShare(lenderInterest, businessPercent);
       const personalShare = personalShareWithinInterest(lenderInterest, businessShare, roundedPercentShare(lenderInterest, 100 - businessPercent));
-      result.scheduleCLine16b = businessShare;
-      if (businessShare !== 0) lineItems.push({ line: '16b', amount: businessShare });
+      const placeBusinessShare = () => {
+        result.scheduleCLine16b = businessShare;
+        if (businessShare !== 0) lineItems.push({ line: '16b', amount: businessShare });
+      };
       const personalPercent = 100 - businessPercent;
       const expectation = facts.vehicleExpectedPersonalUseOver50AtPurchase;
       if (personalPercent <= VEHICLE_SCHEDULE_1A_PERSONAL_USE_THRESHOLD) {
-        // Actual personal use must be more than half. Line 16b already has the business share. Never throw.
+        // Actual personal use must be more than half. The loan-date question is a separate test. Never throw.
+        placeBusinessShare();
         result.vehicleLoanInterest = { ...none(VEHICLE_ACTUAL_PERSONAL_USE_REASON), amountReported: 0 };
       } else if (expectation === 'no') {
         // A no is final: $0 on Schedule 1-A and no needs-more-information entry. Never throw.
+        placeBusinessShare();
         result.vehicleLoanInterest = { ...none(VEHICLE_EXPECTED_PERSONAL_USE_NO_REASON), amountReported: personalShare };
       } else if (expectation !== 'yes') {
         // A missing answer is the only expected-use case that files needs more information. Never throw.
+        placeBusinessShare();
         result.vehicleLoanInterest = { ...none(VEHICLE_EXPECTED_PERSONAL_USE_NOTE), amountReported: personalShare };
         needsMoreInformation.push({ amount: personalShare, note: VEHICLE_EXPECTED_PERSONAL_USE_NOTE });
       } else {
@@ -404,17 +451,41 @@ export function calculateOBBBADeductions(input: OBBBADeductionInput): OBBBADeduc
         const newUS = yesNo(facts.vehicleNewUSAssembled, 'whether the vehicle is new (original use began with you) with final assembly in the United States');
         const qualifiedLoan = yesNo(facts.vehicleLoanQualified, 'whether the loan is a first-lien purchase loan from an unrelated lender for a vehicle under 14,000 pounds (not a lease)');
         const vin = typeof facts.vehicleVIN === 'string' ? facts.vehicleVIN.trim().toUpperCase() : '';
-        if (!after2024) result.vehicleLoanInterest = { ...none('Only loans incurred after December 31, 2024 qualify (section 163(h)(4)).'), amountReported: personalShare };
-        else if (!newUS) result.vehicleLoanInterest = { ...none('Only new vehicles with final assembly in the United States qualify (section 163(h)(4)).'), amountReported: personalShare };
-        else if (!qualifiedLoan) result.vehicleLoanInterest = { ...none('Leases, related-party loans and loans that are not a first lien on a qualifying vehicle do not qualify (section 163(h)(4)).'), amountReported: personalShare };
-        else {
-          if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) review('enter the 17-character vehicle identification number; the VIN must be reported on Schedule 1-A line 22 to claim the deduction.');
-          const limitedAmount = round(Math.min(personalShare, VEHICLE_LOAN_INTEREST_LIMIT));
-          const phaseout = phaseoutReduction(magi, joint ? VEHICLE_LOAN_PHASEOUT_THRESHOLD_JOINT : VEHICLE_LOAN_PHASEOUT_THRESHOLD, VEHICLE_LOAN_PHASEOUT_PER_THOUSAND, 'ceil');
-          const deduction = personalShareWithinInterest(lenderInterest, businessShare, round(Math.max(0, limitedAmount - phaseout)));
-          result.vehicleLoanInterest = { deduction, amountReported: personalShare, limitedAmount, phaseoutReduction: phaseout };
-          if (result.vehicleLoanInterest.deduction > 0) {
-            warnings.push(`Qualified passenger vehicle loan interest deduction of ${usd(result.vehicleLoanInterest.deduction)} applied on Schedule 1-A Part IV for VIN ${vin}. ${DRAFT_COPY}. WriteOff puts the business share on Schedule C line 16b. The same dollar is never counted in both places. Keep the lender interest statement and the final-assembly evidence (dealer label or NHTSA VIN decoder).`);
+        if (!after2024) {
+          placeBusinessShare();
+          result.vehicleLoanInterest = { ...none('Only loans incurred after December 31, 2024 qualify (section 163(h)(4)).'), amountReported: personalShare };
+        } else if (!newUS) {
+          placeBusinessShare();
+          result.vehicleLoanInterest = { ...none('Only new vehicles with final assembly in the United States qualify (section 163(h)(4)).'), amountReported: personalShare };
+        } else if (!qualifiedLoan) {
+          placeBusinessShare();
+          result.vehicleLoanInterest = { ...none('Leases, related-party loans and loans that are not a first lien on a qualifying vehicle do not qualify (section 163(h)(4)).'), amountReported: personalShare };
+        } else {
+          const placement = facts.vehicleLoanInterestPlacement;
+          const allOnSchedule1A = placement === VEHICLE_LOAN_INTEREST_PLACEMENT_SCHEDULE_1A;
+          const split = placement === undefined || placement === VEHICLE_LOAN_INTEREST_PLACEMENT_SPLIT;
+          if (!split && !allOnSchedule1A) {
+            // A saved blank is a new unanswered choice. It is not the legacy split and not all on Schedule 1-A.
+            result.vehicleLoanInterest = { ...none(VEHICLE_PLACEMENT_NOTE), amountReported: 0 };
+            needsMoreInformation.push({ amount: lenderInterest, note: VEHICLE_PLACEMENT_NOTE });
+          } else {
+            if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) review('enter the 17-character vehicle identification number; the VIN must be reported on Schedule 1-A line 22 to claim the deduction.');
+            const reported = allOnSchedule1A ? lenderInterest : personalShare;
+            const line16b = allOnSchedule1A ? 0 : businessShare;
+            if (line16b !== 0) {
+              result.scheduleCLine16b = line16b;
+              lineItems.push({ line: '16b', amount: line16b });
+            }
+            const limitedAmount = round(Math.min(reported, VEHICLE_LOAN_INTEREST_LIMIT));
+            const phaseout = phaseoutReduction(magi, joint ? VEHICLE_LOAN_PHASEOUT_THRESHOLD_JOINT : VEHICLE_LOAN_PHASEOUT_THRESHOLD, VEHICLE_LOAN_PHASEOUT_PER_THOUSAND, 'ceil');
+            const deduction = personalShareWithinInterest(lenderInterest, line16b, round(Math.max(0, limitedAmount - phaseout)));
+            result.vehicleLoanInterest = { deduction, amountReported: reported, limitedAmount, phaseoutReduction: phaseout };
+            if (result.vehicleLoanInterest.deduction > 0) {
+              const placementSentence = allOnSchedule1A
+                ? `${DRAFT_COPY}. All of this interest is on Schedule 1-A. Schedule C line 16b is $0. The same dollar is never counted in both places.`
+                : `${DRAFT_COPY}. WriteOff puts the business share on Schedule C line 16b. The same dollar is never counted in both places.`;
+              warnings.push(`Qualified passenger vehicle loan interest deduction of ${usd(result.vehicleLoanInterest.deduction)} applied on Schedule 1-A Part IV for VIN ${vin}. ${placementSentence} Keep the lender interest statement and the final-assembly evidence (dealer label or NHTSA VIN decoder).`);
+            }
           }
         }
       }

@@ -185,13 +185,45 @@ describe('car loan interest is deducted in one place', () => {
     expect(result.lineItems).toEqual([{ line: '16b', amount: 600 }]);
   });
 
-  it('puts 300 on line 16b and at most 700 on Schedule 1-A when a new car is 30 percent business', () => {
+  it('keeps the split when an older saved answer has no placement choice', () => {
     const result = place(vehicle('1000'), { vehicleBusinessUsePercentage: 30 });
     expect(result.scheduleCLine16b).toBe(300);
     expect(result.vehicleLoanInterest.amountReported).toBe(700);
     expect(result.vehicleLoanInterest.deduction).toBeLessThanOrEqual(700);
     expect(result.vehicleLoanInterest.deduction).toBe(700);
     expect(result.needsMoreInformation).toEqual([]);
+    expect(JSON.parse(reviewedOBBBADeductionFacts(2026, vehicle('1000')))).not.toHaveProperty('vehicleLoanInterestPlacement');
+  });
+
+  it('puts 300 on line 16b and at most 700 on Schedule 1-A when the split choice is saved', () => {
+    const result = place(vehicle('1000', { vehicleLoanInterestPlacement: 'split' }), { vehicleBusinessUsePercentage: 30 });
+    expect(result.scheduleCLine16b).toBe(300);
+    expect(result.vehicleLoanInterest.amountReported).toBe(700);
+    expect(result.vehicleLoanInterest.deduction).toBeLessThanOrEqual(700);
+    expect(result.vehicleLoanInterest.deduction).toBe(700);
+    expect(result.needsMoreInformation).toEqual([]);
+  });
+
+  it('puts 0 on line 16b and at most 1000 on Schedule 1-A when all interest is placed there', () => {
+    const result = place(vehicle('1000', { vehicleLoanInterestPlacement: 'schedule_1a' }), { vehicleBusinessUsePercentage: 30 });
+    expect(result.scheduleCLine16b).toBe(0);
+    expect(result.lineItems).toEqual([]);
+    expect(result.vehicleLoanInterest.amountReported).toBe(1000);
+    expect(result.vehicleLoanInterest.deduction).toBeLessThanOrEqual(1000);
+    expect(result.vehicleLoanInterest.deduction).toBe(1000);
+    expect(result.scheduleCLine16b + result.vehicleLoanInterest.deduction).toBeLessThanOrEqual(1000);
+    expect(result.needsMoreInformation).toEqual([]);
+  });
+
+  it('does not default a blank placement choice', () => {
+    const result = place(vehicle('1000', { vehicleLoanInterestPlacement: '' }), { vehicleBusinessUsePercentage: 30 });
+    expect(result.scheduleCLine16b).toBe(0);
+    expect(result.vehicleLoanInterest.deduction).toBe(0);
+    expect(result.vehicleLoanInterest.amountReported).toBe(0);
+    expect(result.needsMoreInformation).toEqual([{
+      amount: 1000,
+      note: 'draft, awaiting copy approval. Choose the business share on Schedule C line 16b and the rest on Schedule 1-A, or all of the interest on Schedule 1-A. The same dollar is never counted in both places.',
+    }]);
   });
 
   it('puts 600 on line 16b and 0 on Schedule 1-A when a new car is 60 percent business', () => {

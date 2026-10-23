@@ -173,6 +173,7 @@ describe('Schedule C real PDF and request integrity', () => {
       scheduleOneA: body.form1040.scheduleOneADeductions as number,
       profit: body.income.scheduleCNetProfit as number,
       needsMoreInformation: body.form1040.obbbaDeductions.needsMoreInformation as { amount: number; note: string }[],
+      line16b: body.form1040.obbbaDeductions.scheduleCLine16b as number,
     };
   };
 
@@ -188,7 +189,7 @@ describe('Schedule C real PDF and request integrity', () => {
     expect(schedule1A.profit).toBe(99400);
   });
 
-  it('exports 300 on line 16b and at most 700 on Schedule 1-A for a new car at 30 percent business', async () => {
+  it('exports 300 on line 16b and at most 700 on Schedule 1-A when an older save has no placement choice', async () => {
     prepareInterest('1000', 30);
     expect(await exportedLine16b('Other interest - 0 confirmed records')).toBe('$300.00');
     const schedule1A = await scheduleOneA();
@@ -199,6 +200,35 @@ describe('Schedule C real PDF and request integrity', () => {
     expect(schedule1A.scheduleOneA).toBe(700);
     expect(schedule1A.needsMoreInformation).toEqual([]);
     expect(schedule1A.profit).toBe(99700);
+  });
+
+  it('exports 300 on line 16b and at most 700 on Schedule 1-A for the split choice', async () => {
+    prepareInterest('1000', 30, { vehicleLoanInterestPlacement: 'split' });
+    expect(await exportedLine16b('Other interest - 0 confirmed records')).toBe('$300.00');
+    const schedule1A = await scheduleOneA();
+    expect(schedule1A.reported).toBe(700);
+    expect(schedule1A.deduction).toBeLessThanOrEqual(700);
+    expect(schedule1A.deduction).toBe(700);
+    expect(schedule1A.scheduleOneA).toBe(700);
+    expect(schedule1A.needsMoreInformation).toEqual([]);
+    expect(schedule1A.profit).toBe(99700);
+  });
+
+  it('exports 0 on line 16b and at most 1000 on Schedule 1-A when all interest is placed there', async () => {
+    prepareInterest('1000', 30, { vehicleLoanInterestPlacement: 'schedule_1a' });
+    const view = inspectText();
+    const response = await scheduleC(request({ year: 2026, includeAppendix: false }));
+    expect(response.status).toBe(200);
+    expect(view.text()).not.toContain('Other interest');
+    const schedule1A = await scheduleOneA();
+    expect(schedule1A.reported).toBe(1000);
+    expect(schedule1A.reported).toBeLessThanOrEqual(1000);
+    expect(schedule1A.deduction).toBeLessThanOrEqual(1000);
+    expect(schedule1A.deduction).toBe(1000);
+    expect(schedule1A.scheduleOneA).toBe(1000);
+    expect(schedule1A.profit).toBe(100000);
+    expect(schedule1A.needsMoreInformation).toEqual([]);
+    expect(schedule1A.line16b).toBe(0);
   });
 
   it('exports 600 on line 16b and 0 on Schedule 1-A for a new car at 60 percent business', async () => {

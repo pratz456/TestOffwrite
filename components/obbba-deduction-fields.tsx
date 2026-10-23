@@ -4,7 +4,7 @@ import React from 'react';
 import { normalizeFilingStatus } from '@/lib/tax-rules/filing-status';
 import {
   NON_ITEMIZER_CHARITY_FIRST_YEAR, SCHEDULE_1A_FIRST_YEAR, SCHEDULE_1A_LAST_YEAR,
-  readOBBBADeductionAnswers, type OBBBADeductionAnswers,
+  readOBBBADeductionAnswers, vehicleLoanInterestChoiceShown, type OBBBADeductionAnswers,
 } from '@/lib/tax-rules/obbba-deductions';
 
 interface Props {
@@ -13,11 +13,15 @@ interface Props {
   /** Saved JSON text for the `obbbaDeductionFacts` organizer field. */
   value: string;
   onChange: (value: string) => void;
+  /** Profile `vehicle_business_use_percentage`. The choice stays hidden when this share is unknown. */
+  vehicleBusinessUsePercentage?: unknown;
+  /** Profile `business_vehicle.business_use_percentage`. */
+  businessVehicleBusinessUsePercentage?: unknown;
 }
 type AnswerKey = Exclude<keyof OBBBADeductionAnswers, 'version' | 'taxYear'>;
 
 /** Schedule 1-A (tips, overtime, vehicle loan interest) and §170(p) intake; unanswered items are not deducted. */
-export function OBBBADeductionFields({ taxYear, filingStatus, value, onChange }: Props) {
+export function OBBBADeductionFields({ taxYear, filingStatus, value, onChange, vehicleBusinessUsePercentage, businessVehicleBusinessUsePercentage }: Props) {
   let facts: OBBBADeductionAnswers = { version: 1, taxYear };
   let stale = false;
   try {
@@ -78,7 +82,7 @@ export function OBBBADeductionFields({ taxYear, filingStatus, value, onChange }:
 
     <div className="space-y-3 border-t pt-4">
       <h4 className="font-medium">Car loan interest (draft, awaiting copy approval)</h4>
-      {yesNo('hasVehicleLoanInterest', 'Did you pay interest on a loan for a car you use?', 'draft, awaiting copy approval. WriteOff puts the business share on Schedule C line 16b under either car method, whether the car is new or used. The Schedule 1-A questions apply only to the personal share. The same dollar is never counted in both places.')}
+      {yesNo('hasVehicleLoanInterest', 'Did you pay interest on a loan for a car you use?', 'draft, awaiting copy approval. WriteOff puts the business share on Schedule C line 16b under either car method, whether the car is new or used. A qualifying car can instead put all of the interest on Schedule 1-A. The same dollar is never counted in both places.')}
       {facts.hasVehicleLoanInterest === 'yes' && <>
         {amount('vehicleLoanInterestAmount', 'Vehicle loan interest paid in the year', 'draft, awaiting copy approval. Use the lender statement. Enter only interest on this car loan.')}
         <p className="text-xs text-muted-foreground">draft, awaiting copy approval. These questions decide only whether the personal share goes on Schedule 1-A. Schedule C line 16b still receives the business share when these answers are no.</p>
@@ -86,6 +90,14 @@ export function OBBBADeductionFields({ taxYear, filingStatus, value, onChange }:
         {yesNo('vehicleLoanAfter2024', 'Was the loan taken out after December 31, 2024?', 'Refinancing an eligible loan qualifies up to the refinanced balance.')}
         {yesNo('vehicleNewUSAssembled', 'Is the vehicle new (original use began with you) with final assembly in the United States?', 'Check the dealer label or the NHTSA VIN decoder. Cars, minivans, vans, SUVs, pickups and motorcycles under 14,000 pounds qualify.')}
         {yesNo('vehicleLoanQualified', 'Is the loan a first-lien purchase loan from an unrelated lender (not a lease)?', 'Leases, related-party loans, fleet or commercial purchases and salvage-title vehicles do not qualify.')}
+        {vehicleLoanInterestChoiceShown(facts, vehicleBusinessUsePercentage, businessVehicleBusinessUsePercentage) && <div className="space-y-1">
+          <label className="block text-sm font-medium">Where should this car loan interest be deducted?<select aria-label="Where should this car loan interest be deducted?" value={facts.vehicleLoanInterestPlacement || ''} onChange={event => set('vehicleLoanInterestPlacement', event.target.value)} className="mt-1 w-full rounded-md border bg-background p-2">
+            <option value="">Choose after review</option>
+            <option value="split">Business share on Schedule C line 16b and the rest on Schedule 1-A</option>
+            <option value="schedule_1a">All of the interest on Schedule 1-A and $0 on Schedule C line 16b</option>
+          </select></label>
+          <p className="text-xs text-muted-foreground">draft, awaiting copy approval. This choice starts blank. A saved answer from before this choice keeps the split. The same dollar is never counted in both places.</p>
+        </div>}
         <label className="block text-sm font-medium">Vehicle identification number (VIN)<input aria-label="Vehicle identification number (VIN)" value={facts.vehicleVIN || ''} onChange={event => set('vehicleVIN', event.target.value.toUpperCase().slice(0, 17))} placeholder="17 characters" className="mt-1 w-full rounded-md border bg-background p-2 font-mono" maxLength={17} /></label>
         <p className="text-xs text-muted-foreground">The VIN must be reported on Schedule 1-A to claim the deduction.</p>
       </>}
