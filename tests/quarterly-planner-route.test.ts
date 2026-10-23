@@ -122,6 +122,15 @@ describe('quarterly summary returns planner figures from reviewed facts', () => 
     const matched = result.planner.installments[0].paymentsMatched as { paidDate: string; matchedQuarter: number }[];
     expect(matched[0]).toMatchObject({ paidDate: '2026-04-15', matchedQuarter: 1 });
   });
+  it('returns the possibleDuplicates count and still sums the flagged payment', async () => {
+    state.payments = [{ quarter: 3, paidAmount: 750, record: { paidAmount: 750, paidDate: '2026-07-01', possibleDuplicate: true } }];
+    const result = await (await quarterly(req())).json();
+    expect(result.planner.status).toBe('ready');
+    expect(result.possibleDuplicates).toBe(1);
+    expect(result.planner.possibleDuplicates).toBe(1);
+    expect(result.recordedEstimatedPayments).toBe(750);
+    expect(result.planner.totals.recordedPayments).toBe(750);
+  });
   it('matches recorded payments by their saved payment date and reports unpublished 2027 rates as unavailable', async () => {
     state.payments = [{ quarter: 1, paidAmount: 2500, record: { paidDate: '2026-06-10' } }];
     const result = await (await quarterly(req('year=2026&asOf=2027-02-01'))).json();

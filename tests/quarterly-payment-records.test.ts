@@ -694,6 +694,105 @@ describe('recorded quarterly payments', () => {
     expect((await getRecordedQuarterlyPayments('owner-a', 2026)).filter(payment => payment.paidAmount > 0)).toHaveLength(1);
     expect(state.docs.get(pathFor(idA))?.supersededBy).toBeUndefined();
   });
+
+  it('same amount and date in the same quarter without expectedLiveId sets possibleDuplicate', async () => {
+    state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15', estimatedAmount: 0 });
+    const summed = await POST(request('POST', {
+      quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15',
+    }));
+    expect(summed.status).toBe(200);
+    const summedBody = await summed.json();
+    expect({
+      possibleDuplicate: summedBody.possibleDuplicate ?? null,
+      paidAmount: summedBody.paidAmount,
+      counted: await counted(),
+    }).toEqual({ possibleDuplicate: true, paidAmount: 1000, counted: 1000 });
+
+    state.docs.clear();
+    state.docs.set(pathFor(idA), { quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15' });
+    const added = await POST(request('POST', {
+      paymentId: idB, quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15',
+    }));
+    expect(added.status).toBe(200);
+    const addedBody = await added.json();
+    expect({
+      possibleDuplicate: addedBody.possibleDuplicate ?? null,
+      paidAmount: addedBody.paidAmount,
+      counted: await counted(),
+      earlier: state.docs.get(pathFor(idA))?.possibleDuplicate ?? null,
+    }).toEqual({ possibleDuplicate: true, paidAmount: 500, counted: 1000, earlier: null });
+  });
+
+  it('a different date or a different quarter does not set possibleDuplicate', async () => {
+    state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15', estimatedAmount: 0 });
+    const differentDate = await POST(request('POST', {
+      quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-10',
+    }));
+    expect(differentDate.status).toBe(200);
+    const differentDateBody = await differentDate.json();
+    expect({
+      possibleDuplicate: differentDateBody.possibleDuplicate ?? null,
+      paidAmount: state.docs.get(key)?.paidAmount,
+    }).toEqual({ possibleDuplicate: null, paidAmount: 1000 });
+
+    state.docs.clear();
+    state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15', estimatedAmount: 0 });
+    const differentQuarter = await POST(request('POST', {
+      quarter: 2, year: 2026, paidAmount: 500, paidDate: '2026-04-15',
+    }));
+    expect(differentQuarter.status).toBe(200);
+    const quarterTwo = 'user_profiles/owner-a/quarterly_payments/Q2_2026';
+    const differentQuarterBody = await differentQuarter.json();
+    expect({
+      possibleDuplicate: differentQuarterBody.possibleDuplicate ?? null,
+      paidAmount: state.docs.get(quarterTwo)?.paidAmount,
+      original: state.docs.get(key)?.paidAmount,
+    }).toEqual({ possibleDuplicate: null, paidAmount: 500, original: 500 });
+  });
+
+  it('a save with expectedLiveId never sets possibleDuplicate', async () => {
+    state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15', estimatedAmount: 0 });
+    state.docs.set(pathFor(idB), { quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15' });
+    const saved = await POST(request('POST', {
+      recordId: 'Q1_2026', expectedLiveId: 'Q1_2026', paymentId: idA, quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15',
+    }));
+    expect(saved.status).toBe(200);
+    const body = await saved.json();
+    expect({
+      possibleDuplicate: body.possibleDuplicate ?? null,
+      paidAmount: body.paidAmount,
+      stored: state.docs.get(pathFor(idA))?.possibleDuplicate ?? null,
+    }).toEqual({ possibleDuplicate: null, paidAmount: 500, stored: null });
+    expect(state.docs.get(key)?.supersededBy).toBe(idA);
+  });
+
+  it('the route returns the possibleDuplicates count', async () => {
+    state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15', estimatedAmount: 0 });
+    const before = await (await GET(request('GET'))).json();
+    expect((await POST(request('POST', {
+      quarter: 1, year: 2026, paidAmount: 500, paidDate: '2026-04-15',
+    }))).status).toBe(200);
+    const listed = await (await GET(request('GET'))).json();
+    const saved = await getRecordedQuarterlyPayments('owner-a', 2026);
+    const plan = buildQuarterlyPlan({
+      taxYear: 2026, filingStatus: 'single', currentYearTax: null, withholding: 0,
+      priorYear: { available: true, totalTax: 8500, agi: 100000, coveredTwelveMonths: true },
+      asOf: '2026-10-22',
+      payments: saved.filter(payment => payment.paidAmount > 0).map(payment => ({
+        amount: payment.paidAmount,
+        paidDate: typeof payment.record?.paidDate === 'string' ? payment.record.paidDate : null,
+        recordedQuarter: payment.quarter,
+        possibleDuplicate: payment.record?.possibleDuplicate === true,
+      })),
+    });
+    expect({
+      before: before.summary.possibleDuplicates,
+      route: listed.summary.possibleDuplicates,
+      planner: plan.possibleDuplicates,
+      recorded: plan.totals.recordedPayments,
+      totalPaid: listed.summary.totalPaid,
+    }).toEqual({ before: 0, route: 1, planner: 1, recorded: 1000, totalPaid: 1000 });
+  });
 });
 
 describe('standard individual estimated-tax deadlines', () => {

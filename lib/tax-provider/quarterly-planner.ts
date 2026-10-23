@@ -362,6 +362,8 @@ export interface RecordedEstimatedPayment {
   /** Applied-from-last-year credits count only after that return is filed, on installment 1's due date. */
   paymentType?: 'estimated' | 'prior_year_overpayment' | null;
   priorReturnFiled?: boolean | null;
+  /** Same amount and paid date as another live payment. Still included in the recorded total. */
+  possibleDuplicate?: boolean;
 }
 
 export interface MatchedPayment extends RecordedEstimatedPayment {
@@ -656,6 +658,8 @@ export interface QuarterlyPlan {
   pastDue: PastDueAllocation | null;
   afterFinalDueDate: { returnDueDate: IsoDate; remainingShortfall: number } | null;
   totals: { requiredInstallments: number; withholdingCredited: number; recordedPayments: number; remainingEstimatedPayments: number };
+  /** Flagged records. Their amounts stay in totals.recordedPayments. */
+  possibleDuplicates: number;
   underpaymentInterestIllustration: InterestIllustration;
   annualizedIncomeMethod: { available: false; note: string };
   assumptions: string[];
@@ -698,6 +702,8 @@ export function buildQuarterlyPlan(input: QuarterlyPlanInput): QuarterlyPlan {
   const requiredTotal = installments.reduce((sum, item) => sum + toCents(item.requiredInstallment), 0);
   const withholdingTotal = installments.reduce((sum, item) => sum + toCents(item.withholdingCredited), 0);
   const recordedTotal = installments.reduce((sum, item) => sum + toCents(item.paymentsMatchedTotal), 0);
+  // Flagged possible duplicates stay in the recorded total. The count is not customer copy.
+  const possibleDuplicates = payments.filter(payment => payment.possibleDuplicate === true).length;
   const remaining = Math.max(0, requiredTotal - withholdingTotal - recordedTotal);
   const illustration = illustrateUnderpaymentInterest({ taxYear: input.taxYear, installments, withholding, payments, asOf: input.asOf, deMinimisApplies: required.deMinimis.applies });
   const priorPhrase = required.priorYear
@@ -726,6 +732,7 @@ export function buildQuarterlyPlan(input: QuarterlyPlanInput): QuarterlyPlan {
     requiredAnnualPayment: required, installments, nextDue, pastDue,
     afterFinalDueDate: nextDue ? null : { returnDueDate: penaltyPeriodEnd(input.taxYear), remainingShortfall: fromCents(remaining) },
     totals: { requiredInstallments: fromCents(requiredTotal), withholdingCredited: fromCents(withholdingTotal), recordedPayments: fromCents(recordedTotal), remainingEstimatedPayments: fromCents(remaining) },
+    possibleDuplicates,
     underpaymentInterestIllustration: illustration,
     annualizedIncomeMethod: { available: false, note: ANNUALIZED_INCOME_METHOD_NOTE },
     assumptions, sources: QUARTERLY_PLANNER_SOURCES,
