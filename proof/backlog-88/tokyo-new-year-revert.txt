@@ -1,0 +1,19 @@
+HEAD c2262275f930b687a410f128df5d89c252f85fb6
+SOURCE 52f5788d36114cb3a9e611dd2f551672b80edb9c
+TZ Asia/Tokyo
+DATE 2026-10-23T20:14:06Z
+FILES lib/ocr/receipt-processor.ts lib/schedule-c/taxDate.ts lib/firebase/transactions.ts
+TEST tests/receipt-new-year-save.test.ts
+EXIT 1
+
+FAIL tests/receipt-new-year-save.test.ts
+AssertionError: expected '2025-12-31' to be '2026-01-01'
+Expected: "2026-01-01"
+Received: "2025-12-31"
+at tests/receipt-new-year-save.test.ts:68:30
+  expect(saved.data?.date).toBe('2026-01-01');
+
+Test Files  1 failed (1)
+Tests  1 failed (1)
+Start at  05:14:07
+Duration  297ms

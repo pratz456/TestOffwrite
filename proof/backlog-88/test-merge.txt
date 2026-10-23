@@ -1,5 +1,0 @@
-Test merge of origin/codex/cursor-latest-preview-20260924 into cursor/receipt-calendar-day-8217
-HEAD fa199337897d0d39f403a2ace9793ed86dc80724
-BASE 52f5788d36114cb3a9e611dd2f551672b80edb9c
-Result: Already up to date.
-MERGE_EXIT:0
