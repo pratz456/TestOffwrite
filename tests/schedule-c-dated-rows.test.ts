@@ -149,3 +149,18 @@ describe('offset timestamps keep the date written in the string', () => {
     expect(selectExportYear([row], 2025)).toHaveLength(0);
   });
 });
+
+describe('a space and a time, or a trailing Z, keep the written day', () => {
+  it.each(['2025-01-05 10:00:00', '2025-01-05Z'])('counts %s on 2025-01-05 in the 2025 total', (date) => {
+    const row = confirmed({ id: 'written-day', date, amount: 55 });
+    expect(chargeDay(row)).toBe('2025-01-05');
+    expect(chargeYear(row)).toBe(2025);
+    const year2025 = aggregateScheduleC([row], '2025', CATEGORY_MAP, { mode: 'confirmed-only' });
+    const year2024 = aggregateScheduleC([row], '2024', CATEGORY_MAP, { mode: 'confirmed-only' });
+    expect(year2025.totalDeductible).toBe(55);
+    expect(year2025.needsMoreInformation).toBe(0);
+    expect(year2025.undated).toEqual([]);
+    expect(year2024.totalDeductible).toBe(0);
+    expect(year2024.counts.year).toBe(0);
+  });
+});

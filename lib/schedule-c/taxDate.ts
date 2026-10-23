@@ -4,8 +4,9 @@ export function pad2(n: number): string {
 
 /**
  * Calendar day of a charge, using the same rules as the transaction export Tax Date.
- * A real YYYY-MM-DD (or an ISO/Date/Timestamp whose first calendar day round-trips
- * through noon UTC) is kept. Impossible days, blanks, and junk are undated.
+ * A real YYYY-MM-DD is kept. An ISO timestamp, a trailing Z, or a space and a
+ * time uses that same written day when the first ten characters round-trip
+ * through noon UTC. Impossible days, blanks, and junk are undated.
  * Save time, upload time, and today's date are not inputs to this function.
  */
 export function calendarChargeDay(value: unknown): string | null {
@@ -17,7 +18,7 @@ export function calendarChargeDay(value: unknown): string | null {
   } catch {
     return null;
   }
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}(?:$|T)/.test(value)) return null;
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}(?:$|T|Z$| \d{2}:\d{2}:\d{2})/.test(value)) return null;
   const day = value.slice(0, 10);
   const parsed = new Date(`${day}T12:00:00Z`);
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
