@@ -37,6 +37,7 @@ function getDocId(quarter: number, year: number): string {
 
 const LEGACY_DOC_ID = /^Q([1-4])_(\d{4})$/;
 const CLIENT_PAYMENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+const EDIT_ALREADY_SAVED = 'Another edit already saved this payment.';
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
@@ -247,14 +248,21 @@ export async function POST(request: NextRequest) {
     if (paymentId) {
       const paymentRef = collectionRef.doc(paymentId);
       const legacyRef = recordId ? collectionRef.doc(recordId) : null;
+      let attempt = 0;
       const saved = await adminDb.runTransaction(async transaction => {
+        attempt += 1;
         const snapshot = await transaction.get(paymentRef);
         let liveId: string | null = null;
         let liveExists = false;
         if (legacyRef) {
           const legacy = await transaction.get(legacyRef);
-          if (!legacy.exists) return { missing: true, record: null };
-          let cursor: unknown = legacy.data()?.supersededBy;
+          if (!legacy.exists) return { missing: true, conflict: false, record: null };
+          const claimedBy = legacy.data()?.supersededBy;
+          // A retried transaction saw another id win this record. Do not add a second copy.
+          if (attempt > 1 && typeof claimedBy === 'string' && claimedBy.length > 0 && claimedBy !== paymentId) {
+            return { missing: false, conflict: true, record: null };
+          }
+          let cursor: unknown = claimedBy;
           for (let guard = 0; typeof cursor === 'string' && cursor.length > 0 && guard < 8; guard += 1) {
             liveId = cursor;
             const live = await transaction.get(collectionRef.doc(cursor));
@@ -266,8 +274,12 @@ export async function POST(request: NextRequest) {
             }
             break;
           }
+          // Hold the read open only for the emulator race test, so both edits observe the same record.
+          if (attempt === 1 && process.env.WRITEOFF_RULES_EMULATOR_TESTS === '1') {
+            await new Promise(resolve => setTimeout(resolve, 750));
+          }
         } else if (snapshot.exists) {
-          return { missing: false, record: snapshot.data()! };
+          return { missing: false, conflict: false, record: snapshot.data()! };
         }
         const priorPaid = !legacyRef && snapshot.exists ? roundMoney(Number(snapshot.data()?.paidAmount) || 0) : 0;
         const paidAmount = legacyRef ? roundMoney(amount) : roundMoney(priorPaid + amount);
@@ -289,8 +301,11 @@ export async function POST(request: NextRequest) {
           }
           transaction.set(legacyRef, { supersededBy: paymentId, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         }
-        return { missing: false, record };
+        return { missing: false, conflict: false, record };
       });
+      if (saved.conflict) {
+        return NextResponse.json({ error: EDIT_ALREADY_SAVED }, { status: 409 });
+      }
       if (saved.missing || !saved.record) {
         return NextResponse.json({ error: 'Payment record not found' }, { status: 404 });
       }

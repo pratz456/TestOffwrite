@@ -246,6 +246,26 @@ describe('recorded quarterly payments', () => {
     expect(state.docs.get(key)?.supersededBy).toBe(idB);
   });
 
+  it('counts a legacy payment once after it is edited three times', async () => {
+    state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 2125, paidDate: '2026-04-01', estimatedAmount: 0 });
+    const edits = [
+      { paymentId: idA, paidAmount: 1800, paidDate: '2026-04-10' },
+      { paymentId: idB, paidAmount: 900, paidDate: '2026-04-12' },
+      { paymentId: '33333333-3333-4333-8333-333333333333', paidAmount: 400, paidDate: '2026-04-14' },
+    ];
+    for (const edit of edits) {
+      const response = await POST(request('POST', { recordId: 'Q1_2026', quarter: 1, year: 2026, ...edit }));
+      expect(response.status).toBe(200);
+      const saved = await getRecordedQuarterlyPayments('owner-a', 2026);
+      const active = saved.filter(payment => payment.paidAmount > 0);
+      expect(active).toHaveLength(1);
+      expect(totalRecordedPayments(saved)).toBe(edit.paidAmount);
+      expect(active[0]?.record?.paidAmount).toBe(edit.paidAmount);
+    }
+    expect(state.docs.get(key)?.paidAmount).toBe(2125);
+    expect(state.docs.get(key)?.supersededBy).toBe(edits[2].paymentId);
+  });
+
   it('saves a same-id re-edit instead of keeping the first amount', async () => {
     state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 2125, paidDate: '2026-04-01' });
     expect((await POST(request('POST', {
