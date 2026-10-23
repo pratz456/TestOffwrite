@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import dynamic from "next/dynamic";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { getUserProfile } from "@/lib/firebase/profiles";
@@ -93,6 +94,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useTransactions } from "@/lib/firebase/hooks";
 import { useTransactionPolling } from "@/lib/hooks/use-transaction-polling";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { readStoredConfirmedRulesVersions } from "@/lib/schedule-c/held-year-client";
 import type { Transaction as FirebaseTransaction } from "@/lib/firebase/transactions";
 
 interface UserProfile {
@@ -133,6 +135,16 @@ export default function ProtectedPage() {
   const {
     transactions
   } = useTransactions(user?.id || '');
+  const [confirmedRulesVersion, setConfirmedRulesVersion] = useState<Record<string, string> | null>(null);
+
+  useEffect(() => {
+    if (!user?.id || currentScreen !== 'schedule-c-export') return;
+    let cancel = false;
+    readStoredConfirmedRulesVersions().then(versions => {
+      if (!cancel) setConfirmedRulesVersion(versions);
+    });
+    return () => { cancel = true; };
+  }, [user?.id, currentScreen]);
 
   // No background polling; rely on webhooks + one sync on visit when bank connected
   const {
@@ -610,6 +622,7 @@ export default function ProtectedPage() {
           user={safeUser}
           onBack={handleGoBack}
           transactions={transactions}
+          confirmedRulesVersion={confirmedRulesVersion}
         />
       );
     }

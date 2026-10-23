@@ -1,6 +1,7 @@
 "use client";
 
-import { comparisonScreenWording, currentCalendarYear, decideScheduleCExport, FILED_YEAR_COPY_MARKER, loweringRuleSentence, scheduleCExportLine, shouldHoldYear } from '@/lib/schedule-c/export-lines';
+import { currentCalendarYear, decideScheduleCExport, scheduleCExportLine, shouldHoldYear } from '@/lib/schedule-c/export-lines';
+import { readStoredScheduleCPrior, type ScheduleCExportSnapshot } from '@/lib/schedule-c/held-year-client';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -41,11 +42,22 @@ interface ScheduleCExportScreenProps {
   onBack: () => void;
   transactions: Transaction[];
   /**
-   * Rules version this user confirmed for the selected year.
+   * Rules version stored for this user. A string applies to the selected year.
+   * A map is the year to version record from user_tax_year_confirmations.
    * A match with the current rules shows that total and hides the hold notice.
    * Nothing in the app calls the confirm route yet, and this screen has no confirm control.
    */
-  confirmedRulesVersion?: string | null;
+  confirmedRulesVersion?: string | null | Readonly<Record<string, string>>;
+}
+
+function confirmedVersionForYear(
+  value: string | null | Readonly<Record<string, string>> | undefined,
+  year: number,
+): string | null {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object') return null;
+  const found = value[String(year)];
+  return typeof found === 'string' ? found : null;
 }
 
 interface CategorySummary {
@@ -82,6 +94,8 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [includeAppendix, setIncludeAppendix] = useState(true);
   const [lineDetails, setLineDetails] = useState<Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }>>({});
+  const [prior, setPrior] = useState<ScheduleCExportSnapshot | null>(null);
+  const confirmedForYear = confirmedVersionForYear(confirmedRulesVersion, Number(selectedYear));
 
 
   // Memoize transactions array reference to prevent unnecessary re-renders
@@ -106,10 +120,10 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
         review_status: tx.review_status,
         tax_review_required: tx.tax_review_required,
       })),
-      prior: null,
-      confirmedRulesVersion,
+      prior,
+      confirmedRulesVersion: confirmedForYear,
     }).comparison;
-  }, [selectedYear, transactions, user.id, confirmedRulesVersion]);
+  }, [selectedYear, transactions, user.id, confirmedForYear, prior]);
 
   // Memoize calculateDeductions to prevent recreation on every render
   const calculateDeductions = useCallback((overrideYearTx?: Transaction[]) => {
@@ -130,8 +144,8 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
         review_status: tx.review_status,
         tax_review_required: tx.tax_review_required,
       })),
-      prior: null,
-      confirmedRulesVersion,
+      prior,
+      confirmedRulesVersion: confirmedForYear,
     });
 
     const nextLineDetails: Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }> = {};
@@ -161,7 +175,20 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
     setDeductibleCount(deductible);
     setConfirmedCount(deductible);
     setPotentialCount(0);
-  }, [transactions, selectedYear, user.id, confirmedRulesVersion]);
+  }, [transactions, selectedYear, user.id, confirmedForYear, prior]);
+
+  useEffect(() => {
+    const year = Number(selectedYear);
+    if (!Number.isInteger(year) || year >= currentCalendarYear() || !shouldHoldYear(user.id, year)) {
+      setPrior(null);
+      return;
+    }
+    let cancel = false;
+    readStoredScheduleCPrior(year).then(value => {
+      if (!cancel) setPrior(value);
+    });
+    return () => { cancel = true; };
+  }, [selectedYear, user.id]);
 
   useEffect(() => {
     calculateDeductions();
@@ -363,10 +390,8 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 
           {heldComparison ? (
             <div className="mb-4 space-y-1 text-sm text-foreground">
-              <p>{FILED_YEAR_COPY_MARKER}</p>
-              <p>{comparisonScreenWording(Number(selectedYear))}</p>
-              {heldComparison.loweringRules.map((rule, index) => (
-                <p key={`${rule.reason}-${rule.amount}-${index}`}>{loweringRuleSentence(rule)}</p>
+              {heldComparison.notice.split('\n').map((line, index) => (
+                <p key={`${index}-${line.slice(0, 24)}`}>{line}</p>
               ))}
             </div>
           ) : null}

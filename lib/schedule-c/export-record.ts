@@ -20,9 +20,10 @@ export const TAX_YEAR_CONFIRMATIONS = 'user_tax_year_confirmations';
 export const EXPORT_RECORDS = 'user_export_records';
 
 /**
- * Only a Schedule C CSV or PDF is written, and only those kinds are read
- * back as a held year's old total. Any other record, including one with a
- * missing kind, is ignored.
+ * Only schedule-c-pdf and schedule-c-csv are written. Those are the only
+ * kinds read back as a held year's old total. A data export and a planning
+ * PDF are not written, and they are not logged under their own kinds.
+ * A record with a missing or unknown kind is ignored.
  */
 export type ExportRecordKind = 'schedule-c-pdf' | 'schedule-c-csv';
 
@@ -105,7 +106,7 @@ export async function readTaxYearConfirmation(uid: string, year: number): Promis
   return { uid, year, rulesVersion: data.rulesVersion, confirmedAt: typeof data.confirmedAt === 'string' ? data.confirmedAt : '' };
 }
 
-/** Kinds that may serve as the held year's old total. Every other logged download is ignored. */
+/** Kinds that may serve as the held year's old total. */
 const SCHEDULE_C_EXPORT_KINDS = new Set<ExportRecordKind>(['schedule-c-pdf', 'schedule-c-csv']);
 
 export async function readLatestExportRecord(uid: string, year: number): Promise<ScheduleCExportSnapshot | null> {

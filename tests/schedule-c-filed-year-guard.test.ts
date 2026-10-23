@@ -563,6 +563,7 @@ describe('filed year guard', () => {
     const scheduleCExportedAt = String(savedExports().find(row => row.kind === 'schedule-c-pdf')?.exportedAt ?? '');
     const laterThanScheduleC = '2026-07-15T16:00:00.000Z';
     expect(laterThanScheduleC > scheduleCExportedAt).toBe(true);
+    expect(savedExports().some(row => row.kind === 'data-export' || row.kind === 'planning-pdf')).toBe(false);
     const { adminDb } = await import('@/lib/firebase/admin');
     await adminDb.collection('user_export_records').doc('aaa-missing-kind').set({
       uid: 'owner', taxYear: 2025, rulesVersion: 'v0', exportedAt: laterThanScheduleC, sha256: 'missing-kind',
@@ -572,12 +573,40 @@ describe('filed year guard', () => {
     const nextPdf = capturePdf();
     expect((await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }))).status).toBe(200);
     expect(subtotal(nextPdf.text())).toBe('$100.00');
+    const csvClock = new Date(Date.parse(scheduleCExportedAt || CLOCK.toISOString()) + 1000);
+    filedYear?.setScheduleCClockForTests(() => csvClock);
     const csv = await (await scheduleCExport(exportBody({ year: 2025, format: 'csv' }))).text();
     expect(csv).toContain('SERVICE_ADVERTISING,8,100,100');
+    const csvRecord = savedExports().find(row => row.kind === 'schedule-c-csv');
+    expect(csvRecord?.totalDeductible).toBe(100);
+    expect(Date.parse(String(csvRecord?.exportedAt ?? '')) - Date.parse(scheduleCExportedAt)).toBe(1000);
+    expect(laterThanScheduleC > String(csvRecord?.exportedAt ?? '')).toBe(true);
     const scheduleC = savedExports().filter(row => row.kind === 'schedule-c-pdf' || row.kind === 'schedule-c-csv');
     expect(scheduleC.length).toBeGreaterThan(1);
     expect(scheduleC.every(row => row.totalDeductible === 100)).toBe(true);
     expect(savedExports().some(row => row.kind === undefined && row.totalDeductible === 0 && row.exportedAt === laterThanScheduleC)).toBe(true);
+  });
+
+  it('a saved older rules version leaves the 2025 export held', async () => {
+    const guard = await loadGuard();
+    if (canInjectRules(guard)) filedYear!.setCurrentScheduleCRulesForTests(mealsRules(guard));
+    const { adminDb } = await import('@/lib/firebase/admin');
+    await adminDb.collection('user_tax_year_confirmations').doc('owner_2025').set({
+      uid: 'owner', year: 2025, rulesVersion: 'v0', confirmedAt: CLOCK.toISOString(),
+    });
+    const filedYearRoute = join(dirname(fileURLToPath(import.meta.url)), '../app/api/tax/schedule-c/filed-year/route.ts');
+    if (existsSync(filedYearRoute)) {
+      const readRoute = await import('@/app/api/tax/schedule-c/filed-year/route');
+      const read = await readRoute.GET(new NextRequest('http://localhost/api/tax/schedule-c/filed-year?year=2025'));
+      expect(read.status).toBe(200);
+      expect(await read.json()).toMatchObject({ confirmedRulesVersion: 'v0' });
+    }
+    harness.transactions = [confirmed({ id: 'ad1', amount: 100, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    const view = capturePdf();
+    expect((await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }))).status).toBe(200);
+    expect(subtotal(view.text())).toBe('$100.00');
+    expect(view.flat()).toContain('awaiting copy approval');
+    expect(view.flat()).not.toContain('Meals');
   });
 
   it('a transactions CSV download writes no export record', async () => {

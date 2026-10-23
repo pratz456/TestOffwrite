@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Real component handlers with a minimal hook scheduler; network/downloads are
 // mocked. This verifies selected-year propagation, not browser PDF rendering.
-const harness = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effects: [] as (() => void)[], fetch: vi.fn(), api: vi.fn(), blob: null as Blob | null, error: vi.fn(), download: { href: '', download: '', click: vi.fn() } }));
+const harness = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effects: [] as (() => void | Promise<void>)[], fetch: vi.fn(), api: vi.fn(), blob: null as Blob | null, error: vi.fn(), download: { href: '', download: '', click: vi.fn() }, search: '' }));
 vi.mock('react', async importOriginal => {
   const actual = await importOriginal<typeof import('react')>();
   const same = (a: unknown[] | undefined, b: unknown[] | undefined) => a && b && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
@@ -21,15 +21,29 @@ vi.mock('react', async importOriginal => {
       return harness.slots[index].value;
     },
     useCallback(callback: unknown, deps: unknown[]) { return hooks.useMemo(() => callback, deps); },
-    useEffect(effect: () => void, deps: unknown[]) {
+    useEffect(effect: () => void | Promise<void>, deps: unknown[]) {
       const index = harness.cursor++;
       if (!same(harness.slots[index]?.deps, deps)) { harness.slots[index] = { deps }; harness.effects.push(effect); }
+    },
+    useRef(initial: unknown) {
+      const index = harness.cursor++;
+      if (!(index in harness.slots)) harness.slots[index] = { current: initial };
+      return harness.slots[index];
     },
   };
   return { ...actual, ...hooks, default: { ...actual.default, ...hooks } };
 });
 vi.mock('@/lib/hooks/use-subscription', () => ({ useSubscription: () => ({ canAccess: () => true, isTrial: false, isPaid: true, isLoading: false, status: null }) }));
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  usePathname: () => '/protected',
+  useSearchParams: () => new URLSearchParams(harness.search),
+}));
+vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 'synthetic-user', email: 'synthetic@example.com' }, loading: false }) }));
+vi.mock('@/lib/react-query/hooks', () => ({ useTransactions: () => ({ data: { transactions: [] }, isLoading: false }) }));
+vi.mock('@/lib/firebase/hooks', () => ({ useTransactions: () => ({ transactions: [], isLoading: false, error: null }) }));
+vi.mock('@/lib/firebase/profiles', () => ({ getUserProfile: async () => ({ data: { name: 'Synthetic Taxpayer', profession: 'writer', bankConnected: false }, error: null }) }));
+vi.mock('@/lib/hooks/use-transaction-polling', () => ({ useTransactionPolling: () => ({ isSyncing: false, lastSyncTime: null, syncNow: () => undefined }) }));
 vi.mock('sonner', () => ({ toast: { error: harness.error, warning: vi.fn(), success: vi.fn() } }));
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: harness.api }));
 vi.mock('@/lib/firebase/client', () => ({ auth: { currentUser: { getIdToken: async () => 'synthetic-id-token' } } }));
@@ -51,13 +65,24 @@ function walk(node: any): any[] {
   return [node, ...walk(node.props?.children)];
 }
 function text(node: any): string { return Array.isArray(node) ? node.map(text).join('') : node && typeof node === 'object' ? text(node.props?.children) : String(node ?? ''); }
-beforeEach(() => {
+async function flushEffects() {
+  const effects = harness.effects.splice(0);
+  await Promise.all(effects.map(effect => Promise.resolve().then(() => effect())));
+  for (let i = 0; i < 12; i += 1) await Promise.resolve();
+}
+beforeEach(async () => {
+  for (let i = 0; i < 12; i += 1) await Promise.resolve();
   harness.api.mockReset().mockResolvedValue(new Response(JSON.stringify({ transactions: [] }))); harness.blob = null;
+  harness.search = '';
   harness.slots = []; harness.cursor = 0; harness.effects = []; harness.fetch.mockReset(); harness.error.mockReset(); harness.download.download = ''; harness.download.click.mockClear();
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.stubGlobal('fetch', harness.fetch.mockResolvedValue(new Response('synthetic-pdf', { headers: { 'content-type': 'application/pdf' } })));
   vi.stubGlobal('window', { URL: { createObjectURL: (blob: Blob) => { harness.blob = blob; return 'blob:synthetic'; }, revokeObjectURL: vi.fn() } });
   vi.stubGlobal('document', { createElement: () => harness.download, body: { appendChild: vi.fn(), removeChild: vi.fn() } });
+  if (existsSync(filedYearSource)) {
+    const hooks = await import('@/lib/schedule-c/filed-year');
+    if (typeof hooks.setScheduleCClockForTests === 'function') hooks.setScheduleCClockForTests(() => new Date('2026-07-15T15:00:00.000Z'));
+  }
 });
 const filedYearSource = join(dirname(fileURLToPath(import.meta.url)), '../lib/schedule-c/filed-year.ts');
 afterEach(async () => {
@@ -66,6 +91,7 @@ afterEach(async () => {
   if (!existsSync(filedYearSource)) return;
   const hooks = await import('@/lib/schedule-c/filed-year');
   if (typeof hooks.setCurrentScheduleCRulesForTests === 'function') hooks.setCurrentScheduleCRulesForTests(null);
+  if (typeof hooks.setScheduleCClockForTests === 'function') hooks.setScheduleCClockForTests(() => new Date('2026-07-15T15:00:00.000Z'));
 });
 
 describe('Schedule C supported-year selection', () => {
@@ -114,8 +140,125 @@ describe('Schedule C supported-year selection', () => {
     expect(buttons.join('\n').toLowerCase()).not.toContain('confirm');
     const stale = await showYear({ ...input, confirmedRulesVersion: 'v0' }, '2025');
     expect(stale).toContain('draft, awaiting copy approval');
-    expect(stale).toContain('$240.00');
-    expect(stale).not.toContain('$120.00');
+    expect(stale).toContain('That total was $240.00.');
+    expect(stale).not.toContain('Meals');
+  });
+
+  async function paint(input = props) {
+    harness.cursor = 0;
+    ScheduleCExportScreen(input);
+    await flushEffects();
+    harness.cursor = 0;
+    ScheduleCExportScreen(input);
+    await flushEffects();
+    harness.cursor = 0;
+    return ScheduleCExportScreen(input);
+  }
+
+  async function openYear(input: typeof props, year: string) {
+    harness.slots = [];
+    harness.effects = [];
+    harness.cursor = 0;
+    const first = ScheduleCExportScreen(input);
+    await flushEffects();
+    walk(first).find(node => node.type === 'select').props.onChange({ target: { value: year } });
+    return text(await paint(input));
+  }
+
+  it('keeps a saved $100.00 total after the current total becomes $120.00, and a missing record does not mention an export', async () => {
+    const edited = {
+      ...props,
+      transactions: [{ id: 'ad', merchant_name: 'Synthetic ads', amount: 120, category: 'SERVICE_ADVERTISING', date: '2025-06-01', is_deductible: true, review_status: 'confirmed', tax_review_required: false }],
+    };
+    const saved = { rulesVersion: 'v0', totalDeductible: 100, lineTotals: [{ line: '8', amount: 100 }], charges: [{ id: 'ad', line: '8', amount: 100 }] };
+    harness.fetch.mockImplementation(async (url: string) => {
+      if (String(url).startsWith('/api/tax/schedule-c/filed-year')) {
+        return new Response(JSON.stringify({ prior: saved }), { headers: { 'content-type': 'application/json' } });
+      }
+      return new Response('synthetic-pdf', { headers: { 'content-type': 'application/pdf' } });
+    });
+    const held = await openYear(edited, '2025');
+    expect(held).toContain('That total was $100.00.');
+    expect(held).toContain('The total under the current rules is $120.00.');
+    expect(held).toContain('This comparison uses the total saved from your last export for 2025.');
+    expect(held.toLowerCase()).not.toContain('what you filed');
+
+    harness.fetch.mockImplementation(async (url: string) => {
+      if (String(url).startsWith('/api/tax/schedule-c/filed-year')) {
+        return new Response(JSON.stringify({ prior: null }), { headers: { 'content-type': 'application/json' } });
+      }
+      return new Response('synthetic-pdf', { headers: { 'content-type': 'application/pdf' } });
+    });
+    const lines = await import('@/lib/schedule-c/export-lines');
+    const hooks = existsSync(filedYearSource) ? await import('@/lib/schedule-c/filed-year') : null;
+    if (typeof lines.frozenScheduleCRules === 'function' && hooks) {
+      const frozen = lines.frozenScheduleCRules();
+      const categoryMap = { ...frozen.categoryMap, SERVICE_ADVERTISING: { line: '24b', name: 'Meals', code: '24b' } };
+      hooks.setCurrentScheduleCRulesForTests({
+        version: 'v1', categoryMap, readDate: frozen.readDate, readYear: frozen.readYear,
+        aggregate: (txs, yearArg, map = categoryMap, options) => frozen.aggregate(txs, yearArg, map, options),
+      });
+    }
+    const fallback = await openYear(edited, '2025');
+    expect(fallback).toContain('your 2025 total under the rules at the time, on your current data');
+    expect(fallback.toLowerCase()).not.toContain('last export');
+    expect(fallback.toLowerCase()).not.toContain('since export');
+    expect(fallback.toLowerCase()).not.toContain('saved from your');
+  });
+
+  async function confirmationFrom(load: () => Promise<{ default: (props?: unknown) => unknown }>) {
+    const savedSlots = harness.slots;
+    const savedEffects = harness.effects;
+    harness.slots = [];
+    harness.effects = [];
+    harness.cursor = 0;
+    try {
+      const mod = await load();
+      let tree = mod.default();
+      for (let i = 0; i < 4; i += 1) {
+        await flushEffects();
+        harness.cursor = 0;
+        tree = mod.default();
+      }
+      const screen = walk(tree).find(node => node?.props && Object.prototype.hasOwnProperty.call(node.props, 'confirmedRulesVersion'));
+      return screen?.props?.confirmedRulesVersion;
+    } catch (error) {
+      if (!(error instanceof ReferenceError)) throw error;
+      return undefined;
+    } finally {
+      harness.slots = savedSlots;
+      harness.effects = savedEffects;
+      harness.cursor = 0;
+    }
+  }
+
+  it('hides the held notice for a stored current rules version and shows it again for an older version', async () => {
+    let confirmations: Record<string, string> = { '2025': 'v1' };
+    harness.fetch.mockImplementation(async (url: string) => {
+      const href = String(url);
+      if (href === '/api/tax/schedule-c/filed-year') return new Response(JSON.stringify({ confirmations }), { headers: { 'content-type': 'application/json' } });
+      if (href.startsWith('/api/tax/schedule-c/filed-year?')) return new Response(JSON.stringify({ prior: null }), { headers: { 'content-type': 'application/json' } });
+      return new Response('synthetic-pdf', { headers: { 'content-type': 'application/pdf' } });
+    });
+    const fromScheduleCPage = await confirmationFrom(() => import('@/app/protected/schedule-c/page'));
+    harness.search = 'screen=schedule-c-export';
+    const fromProtectedPage = await confirmationFrom(() => import('@/app/protected/page'));
+    expect(fromScheduleCPage).toEqual({ '2025': 'v1' });
+    expect(fromProtectedPage).toEqual({ '2025': 'v1' });
+    const input = { ...props, transactions: heldYearTransactions, confirmedRulesVersion: fromScheduleCPage };
+    const current = await showYear(input, '2025');
+    expect(current).toContain('$120.00');
+    expect(current).toContain('Meals');
+    expect(current).not.toContain('draft, awaiting copy approval');
+    const buttons = walk(render(input)).filter(node => typeof node.props?.onClick === 'function').map(node => text(node));
+    expect(buttons.join('\n').toLowerCase()).not.toContain('confirm');
+
+    confirmations = { '2025': 'v0' };
+    harness.slots = [];
+    const older = await showYear({ ...input, confirmedRulesVersion: await confirmationFrom(() => import('@/app/protected/schedule-c/page')) }, '2025');
+    expect(older).toContain('draft, awaiting copy approval');
+    expect(older).toContain('That total was $240.00.');
+    expect(await confirmationFrom(() => import('@/app/protected/page'))).toEqual({ '2025': 'v0' });
   });
 
   it('offers 2026, 2025 and 2024 and defaults to the latest supported year', () => {
@@ -132,8 +275,10 @@ describe('Schedule C supported-year selection', () => {
     const button = walk(render()).find(node => typeof node.props?.onClick === 'function' && text(node).includes(`Export ${year} Schedule C Data`));
     expect(button.props.disabled).toBe(false);
     await button.props.onClick();
-    expect(harness.fetch).toHaveBeenCalledOnce();
-    const [url, options] = harness.fetch.mock.calls[0];
+    const exportCalls = harness.fetch.mock.calls.filter(call => call[0] === '/api/tax/schedule-c/export');
+    expect(exportCalls).toHaveLength(1);
+    if (year === '2026') expect(harness.fetch).toHaveBeenCalledOnce();
+    const [url, options] = exportCalls[0];
     expect(url).toBe('/api/tax/schedule-c/export');
     expect(JSON.parse(options.body)).toMatchObject({ year, includeAppendix: true });
     expect(harness.download.download).toBe(`Schedule_C_${year}_WriteOff.pdf`);
