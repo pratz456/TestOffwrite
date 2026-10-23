@@ -12,8 +12,8 @@ const OH_SOURCES_2025: StateSource[] = [
     note: '2025 Ohio IT 1040 booklet: 2025 income tax brackets; personal and dependent exemption $2,400 (MAGI $40,000 or less), $2,150 ($40,001–$80,000), $1,900 ($80,001–$749,999), $0 ($750,000 or greater); Schedule of Credits line 9 exemption credit $20 per exemption when MAGI less exemptions is under $30,000; Schedule of Adjustments line 16 deduction for taxable Social Security benefits; business income taxed at a flat 3% after the deduction.',
   },
   {
-    url: 'https://tax.ohio.gov/individual/resources/business-income-deduction',
-    note: 'Ohio Business Income Deduction: the first $250,000 of business income (single or married filing jointly) or $125,000 (married filing separately) included in federal AGI is 100% deductible; remaining business income is taxed at a flat 3%; the federal QBI deduction does not affect the Ohio computation.',
+    url: 'https://codes.ohio.gov/ohio-revised-code/section-5747.01',
+    note: 'ORC 5747.01: Ohio adjusted gross income means federal adjusted gross income, adjusted as provided in that section. Division (A)(28) deducts $250,000 of business income included in federal AGI ($125,000 for each spouse filing separate returns).',
   },
   {
     url: 'https://tax.ohio.gov/help-center/faqs/income-business-income-and-the-business-income-deduction/income-business-income-and-the-business-income-deduction',

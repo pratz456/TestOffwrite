@@ -12,5 +12,6 @@ export {
   isSupportedStateYear, resolveStateCode, stateName, supportedStateYears,
 } from './registry';
 export { estimateStateTax, scheduleTax } from './estimate';
+export { federalAgiForStateEstimate, stateUsesFederalAgiIncomeBase } from './federal-agi';
 export { businessTaxNotices, type BusinessTaxNotice, type BusinessTaxNoticeInput } from './business-notices';
 export { readProfileLocation } from './profile-location';
