@@ -22,6 +22,9 @@ import {
   type QuarterlyPlannerResponse, type RecordedEstimatedPayment,
 } from '@/lib/tax-provider/quarterly-planner';
 import { QUARTERLY_REVIEW_MESSAGE, QuarterlyReviewRequiredError } from '@/lib/tax-provider/regular-estimated-payments';
+import { localIsoDate } from '@/lib/planner/format-due-date';
+import { APPLIED_OVERPAYMENT_CREDIT_NOTE } from '@/lib/planner/planner-copy';
+import { INSTALLMENT_SHARE } from '@/lib/tax-rules/estimated-tax-safe-harbor';
 
 const REVIEW_QUARTER = { recommended: null, status: 'review_required' } as const;
 
@@ -43,7 +46,7 @@ export async function GET(request: NextRequest) {
     const recordedEstimatedPayments = totalRecordedPayments(payments);
     const totalFederalWithheld = annual.payments.totalFederalWithheld ?? annual.payments.w2FederalWithheld;
     const asOfParam = request.nextUrl.searchParams.get('asOf');
-    const asOf = isIsoDate(asOfParam) ? asOfParam : new Date().toISOString().slice(0, 10);
+    const asOf = isIsoDate(asOfParam) ? asOfParam : localIsoDate();
 
     const resolution = resolveQuarterlyPlannerFacts({
       taxYear,
@@ -61,12 +64,22 @@ export async function GET(request: NextRequest) {
         .filter(payment => payment.paidAmount > 0)
         .map(payment => {
           const paidDate = payment.record?.paidDate;
-          return { amount: payment.paidAmount, paidDate: isIsoDate(paidDate) ? paidDate : null, recordedQuarter: payment.quarter };
+          const designatedTaxYear = payment.record?.designatedTaxYear;
+          const paymentType = payment.record?.paymentType === 'prior_year_overpayment' ? 'prior_year_overpayment' as const : null;
+          return {
+            amount: payment.paidAmount, paidDate: isIsoDate(paidDate) ? paidDate : null, recordedQuarter: payment.quarter,
+            designatedTaxYear: typeof designatedTaxYear === 'number' && Number.isInteger(designatedTaxYear) ? designatedTaxYear : null,
+            ...(paymentType ? { paymentType, priorReturnFiled: true as const } : {}),
+          };
         });
       try {
         planner = buildQuarterlyPlan({
           ...resolution.facts, payments: recorded, asOf,
-          assumptions: recorded.length ? ['Each quarter\'s recorded total is treated as paid on the most recent payment date saved for that quarter.'] : [],
+          assumptions: [
+            ...resolution.facts.assumptions,
+            ...(recorded.some(payment => payment.paymentType !== 'prior_year_overpayment') ? ['Credited on the payment date you entered.'] : []),
+            ...(recorded.some(payment => payment.paymentType === 'prior_year_overpayment') ? [APPLIED_OVERPAYMENT_CREDIT_NOTE] : []),
+          ],
         });
       } catch (plannerError) {
         if (!(plannerError instanceof QuarterlyReviewRequiredError)) throw plannerError;
@@ -76,7 +89,7 @@ export async function GET(request: NextRequest) {
       planner = resolution;
     }
 
-    const amountPaid = (quarter: number) => payments.find(payment => payment.quarter === quarter)?.paidAmount ?? 0;
+    const amountPaid = (quarter: number) => Math.round(payments.filter(payment => payment.quarter === quarter).reduce((sum, payment) => sum + Math.round(payment.paidAmount * 100), 0)) / 100;
     const quarters = planner.status === 'ready'
       ? planner.installments.map(installment => ({
         quarter: installment.quarter, label: `Q${installment.quarter}`, dueDate: installment.dueDate, amountPaid: amountPaid(installment.quarter),
@@ -110,7 +123,7 @@ export async function GET(request: NextRequest) {
       perQuarterRecommended: ready?.nextDue?.installmentOnly ?? null,
       remainingTarget: ready ? ready.totals.remainingEstimatedPayments : null,
       safeHarborTotal: ready ? ready.requiredAnnualPayment.requiredAnnualPayment : null,
-      safeHarborPerQuarter: ready ? Math.round(ready.requiredAnnualPayment.requiredAnnualPayment * 25) / 100 : null,
+      safeHarborPerQuarter: ready ? Math.round(ready.requiredAnnualPayment.requiredAnnualPayment * 100 * INSTALLMENT_SHARE) / 100 : null,
       safeHarborBasis: ready ? ready.requiredAnnualPayment.basis : null,
       usingPriorYearSafeHarbor: ready ? ready.requiredAnnualPayment.basis !== 'current_year_90' : false,
       // Timing sufficiency and penalties are never asserted; see planner.underpaymentInterestIllustration.

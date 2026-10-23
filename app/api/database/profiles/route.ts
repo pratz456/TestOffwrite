@@ -85,6 +85,9 @@ export async function POST(request: NextRequest) {
   if (Object.keys(body).some(key => !EDITABLE_PROFILE_FIELDS.has(key))) {
     return NextResponse.json({ error: 'Profile contains fields that cannot be edited' }, { status: 400 });
   }
+  if ('firstRunPlannerCard' in body && body.firstRunPlannerCard !== 'dismissed' && body.firstRunPlannerCard !== 'completed') {
+    return NextResponse.json({ error: 'Shown-once planner status must be dismissed or completed' }, { status: 400 });
+  }
   if (JSON.stringify(body).length > 32_768) return NextResponse.json({ error: 'Profile is too large' }, { status: 413 });
   const stamps: Record<string, unknown> = {};
   if ('consents' in body) {

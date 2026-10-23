@@ -18,6 +18,7 @@ vi.mock('@/lib/firebase/quarterly-payments-server', async importOriginal => ({
   getRecordedQuarterlyPayments: async () => ([1, 2, 3, 4] as const).map(quarter => state.payments.find(payment => payment.quarter === quarter) ?? { quarter, paidAmount: 0, record: null }),
 }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) => ({ where() { return this; }, limit() { return this; }, get: async () => ({ empty: !state.records[name]?.length, docs: (state.records[name] || []).map((data, id) => ({ id: String(id), data: () => data })) }) }) } }));
+import { localIsoDate } from '@/lib/planner/format-due-date';
 import { GET as annual } from '../app/api/tax/compute-1040/route';
 import { GET as quarterly } from '../app/api/tax/quarterly-reminders/route';
 import { POST as legacy } from '../app/api/tax/quarterly-estimates/route';
@@ -37,8 +38,6 @@ beforeEach(() => {
 describe('quarterly summary keeps the review response until every planner fact is saved', () => {
   it.each([
     ['no prior-year facts', {}, ['prior_return_twelve_months', 'prior_year_total_tax', 'prior_year_agi']],
-    ['12-month answer only', { priorReturnCoveredTwelveMonths: 'yes' }, ['prior_year_total_tax', 'prior_year_agi']],
-    ['prior tax without AGI', { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000' }, ['prior_year_agi']],
     ['prior tax and AGI without the 12-month answer', { priorYearTax: '10000', priorYearAGI: '100000' }, ['prior_return_twelve_months']],
   ])('lists the missing facts when the organizer has %s', async (_label, facts, missing) => {
     state.records.tax_organizers = [organizer(facts)];
@@ -56,10 +55,25 @@ describe('quarterly summary keeps the review response until every planner fact i
     const result = await (await quarterly(req())).json();
     expect(result.planner.status).toBe('review_required'); expect(result.paymentReview.missingFacts.map((fact: { key: string }) => fact.key)).toEqual(['prior_return_twelve_months']);
   });
-  it('requires saved current-year income before comparing against the 90% target', async () => {
+  it('plans from a complete prior-year path when no current-year income is saved', async () => {
     state.tx = [];
     const result = await (await quarterly(req())).json();
-    expect(result.planner.status).toBe('review_required'); expect(result.paymentReview.missingFacts.map((fact: { key: string }) => fact.key)).toEqual(['current_year_estimate']);
+    expect(result.planner.status).toBe('ready');
+    expect(result.planner.requiredAnnualPayment).toMatchObject({
+      basis: 'prior_year_100', currentYearTax: null, ninetyPercentOfCurrentYear: null, currentYearCompared: false,
+      deMinimis: { applies: false, evaluated: false, taxLessWithholding: null },
+    });
+    expect(result.planner.requiredAnnualPayment.requiredAnnualPayment).toBe(10000);
+    expect(result.safeHarborBasis).toBe('prior_year_100');
+  });
+  it('uses 90% when the 12-month answer is yes, a prior fact is missing, and income exists', async () => {
+    state.records.tax_organizers = [organizer({ priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000' })];
+    const result = await (await quarterly(req())).json();
+    expect(result.planner.status).toBe('ready');
+    expect(result.planner.requiredAnnualPayment.basis).toBe('current_year_90');
+    expect(result.planner.requiredAnnualPayment.priorYear).toBeNull();
+    expect(result.planner.assumptions.join(' ')).toContain('Prior-year facts are incomplete');
+    expect(result.planner.assumptions.join(' ')).toContain('adjusted gross income');
   });
 });
 
@@ -81,7 +95,8 @@ describe('quarterly summary returns planner figures from reviewed facts', () => 
     expect(result.planner.nextDue).toEqual({ quarter: 3, dueDate: '2026-09-15', amountToPay: 6750, includesEarlierShortfall: true, installmentOnly: 2500 });
     expect(result.planner.underpaymentInterestIllustration.label).toContain('illustration'); expect(result.planner.underpaymentInterestIllustration.total).toBeGreaterThan(0);
     expect(result.planner.annualizedIncomeMethod.available).toBe(false);
-    expect(result.planner.assumptions.join(' ')).toContain('most recent payment date'); expect(result.planner.assumptions.join(' ')).toContain('basis selected: 100% of prior-year tax');
+    expect(result.planner.assumptions.join(' ')).toContain('Credited on the payment date you entered.'); expect(result.planner.assumptions.join(' ')).toContain('basis selected: 100% of prior-year tax');
+    expect(result.planner.assumptions.join(' ')).not.toContain('Overpayment from last year\'s return applied to this year.');
     expect(result.planner.sources.publication505).toBe('https://www.irs.gov/publications/p505');
     expect(result.quarters[0].recommended).not.toBe(Math.round(expected.form1040.totalTax / 4 * 100) / 100);
   });
@@ -96,6 +111,17 @@ describe('quarterly summary returns planner figures from reviewed facts', () => 
     const result = await (await quarterly(req())).json();
     expect(result.planner.status).toBe('ready'); expect(result.planner.requiredAnnualPayment).toMatchObject({ basis: 'prior_year_110', requiredAnnualPayment: 11000 }); expect(result.safeHarborPerQuarter).toBe(2750);
   });
+  it('credits an applied prior year overpayment on the first installment due date', async () => {
+    state.payments = [{ quarter: 4, paidAmount: 400, record: { paidAmount: 400, paidDate: '2026-12-20', paymentType: 'prior_year_overpayment' } }];
+    const result = await (await quarterly(req())).json();
+    const assumptions = result.planner.assumptions.join(' ');
+    expect(assumptions).toContain('Overpayment from last year\'s return applied to this year. Credited on the first payment due date (usually April 15), not the date you filed.');
+    expect(assumptions).not.toContain('Credited on the payment date you entered.');
+    expect(result.quarters[0].paymentsMatchedTotal).toBe(400);
+    expect(result.quarters[3].paymentsMatchedTotal).toBe(0);
+    const matched = result.planner.installments[0].paymentsMatched as { paidDate: string; matchedQuarter: number }[];
+    expect(matched[0]).toMatchObject({ paidDate: '2026-04-15', matchedQuarter: 1 });
+  });
   it('matches recorded payments by their saved payment date and reports unpublished 2027 rates as unavailable', async () => {
     state.payments = [{ quarter: 1, paidAmount: 2500, record: { paidDate: '2026-06-10' } }];
     const result = await (await quarterly(req('year=2026&asOf=2027-02-01'))).json();
@@ -105,7 +131,7 @@ describe('quarterly summary returns planner figures from reviewed facts', () => 
   });
   it('ignores an invalid asOf parameter and plans from today', async () => {
     const result = await (await quarterly(req('year=2026&asOf=tomorrow'))).json();
-    expect(result.asOf).toBe(new Date().toISOString().slice(0, 10)); expect(result.planner.status).toBe('ready');
+    expect(result.asOf).toBe(localIsoDate()); expect(result.planner.status).toBe('ready');
   });
   it('serves the same planner through the legacy POST entrypoint without trusting client totals', async () => {
     const response = await legacy(post({ taxYear: 2026, taxCalculation: { quarterlyAmount: 1 }, userProfile: { prior_year_tax: 1 } }));

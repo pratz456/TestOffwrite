@@ -2,7 +2,7 @@
 export const EDITABLE_PROFILE_FIELDS = new Set([
   'email', 'name', 'profession', 'business_entity_type', 'primary_work_location',
   'work_related_travel_pattern', 'income', 'state', 'filing_status', 'year_of_birth',
-  'onboardingIntroCompleted', 'onboardingPlaidGuideCompleted', 'itemization_status',
+  'onboardingIntroCompleted', 'firstRunPlannerCard', 'onboardingPlaidGuideCompleted', 'itemization_status',
   'business_start_date', 'home_office_sqft', 'total_home_sqft', 'home_office_method',
   'vehicle_business_use_percentage', 'vehicle_deduction_method', 'naics_code',
   'business_purpose', 'ein', 'w2_income', 'w2_federal_withheld', 'health_insurance_premiums',

@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { APPLIED_OVERPAYMENT_CREDIT_NOTE } from "@/lib/planner/planner-copy";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +25,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { newClientPaymentId } from "@/lib/planner/client-payment-id";
 
 interface QuarterlyPaymentTrackingScreenProps {
   user: { id: string; email?: string };
@@ -41,6 +43,12 @@ interface Payment {
   paymentMethod: string | null;
   status: "recorded" | "no_record";
   notes: string;
+  paymentType?: "estimated" | "prior_year_overpayment" | null;
+  designatedTaxYear?: number | null;
+  editRecordId?: string | null;
+  editAmount?: number | null;
+  editPaidDate?: string | null;
+  editVersion?: number | null;
   penalty?: null;
 }
 
@@ -92,6 +100,8 @@ export function QuarterlyPaymentTrackingScreen({
   const [formConfirmation, setFormConfirmation] = useState("");
   const [formPaymentMethod, setFormPaymentMethod] = useState<string>("");
   const [formNotes, setFormNotes] = useState("");
+  const [formPurpose, setFormPurpose] = useState<"add" | "edit" | null>(null);
+  const recordAttemptIds = useRef<Record<number, string>>({});
 
   const fetchPayments = useCallback(async () => {
     setIsLoading(true);
@@ -127,7 +137,27 @@ export function QuarterlyPaymentTrackingScreen({
     setFormConfirmation("");
     setFormPaymentMethod("");
     setFormNotes("");
+    setFormPurpose(null);
     setExpandedQuarter(null);
+  };
+
+  const openForm = (payment: Payment, purpose: "add" | "edit") => {
+    delete recordAttemptIds.current[payment.quarter];
+    setExpandedQuarter(payment.quarter);
+    setFormPurpose(purpose);
+    if (purpose === "edit") {
+      setFormAmount(payment.editAmount != null ? String(payment.editAmount) : "");
+      setFormDate(payment.editPaidDate || new Date().toISOString().split("T")[0]);
+      setFormConfirmation(payment.confirmationNumber ?? "");
+      setFormPaymentMethod(payment.paymentMethod ?? "");
+      setFormNotes(payment.notes ?? "");
+      return;
+    }
+    setFormAmount("");
+    setFormDate(new Date().toISOString().split("T")[0]);
+    setFormConfirmation("");
+    setFormPaymentMethod("");
+    setFormNotes("");
   };
 
   const handleRecordPayment = async (quarter: number) => {
@@ -139,10 +169,17 @@ export function QuarterlyPaymentTrackingScreen({
 
     setSubmittingQuarter(quarter);
     setError(null);
+    const paymentId = recordAttemptIds.current[quarter] ?? newClientPaymentId();
+    recordAttemptIds.current[quarter] = paymentId;
+    const existing = payments.find((payment) => payment.quarter === quarter);
+    const editing = formPurpose === "edit" && Boolean(existing?.editRecordId);
     try {
       const res = await makeAuthenticatedRequest("/api/tax/quarterly-payments", {
         method: "POST",
         body: JSON.stringify({
+          paymentId,
+          ...(editing ? { recordId: existing?.editRecordId, expectedLiveId: existing?.editRecordId, baseVersion: existing?.editVersion ?? 0 } : {}),
+          ...(editing && typeof existing?.designatedTaxYear === "number" ? { designatedTaxYear: existing.designatedTaxYear } : {}),
           quarter,
           year: selectedYear,
           paidAmount: amount,
@@ -152,10 +189,14 @@ export function QuarterlyPaymentTrackingScreen({
           notes: formNotes || undefined,
         }),
       });
+      if (res.status === 409) {
+        await fetchPayments();
+      }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Failed to record payment");
       }
+      delete recordAttemptIds.current[quarter];
       await fetchPayments();
       resetForm();
     } catch (err) {
@@ -185,15 +226,6 @@ export function QuarterlyPaymentTrackingScreen({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update");
     }
-  };
-
-  const expandForm = (quarter: number) => {
-    setExpandedQuarter(quarter);
-    setFormAmount("");
-    setFormDate(new Date().toISOString().split("T")[0]);
-    setFormConfirmation("");
-    setFormPaymentMethod("");
-    setFormNotes("");
   };
 
   return (
@@ -370,6 +402,9 @@ export function QuarterlyPaymentTrackingScreen({
                         )}
                       </div>
                     )}
+                    {payment.paymentType === "prior_year_overpayment" && (
+                      <p className="text-sm text-muted-foreground">{APPLIED_OVERPAYMENT_CREDIT_NOTE}</p>
+                    )}
 
                     {(
                       <>
@@ -458,21 +493,37 @@ export function QuarterlyPaymentTrackingScreen({
                               </Button>
                               <Button
                                 variant="ghost"
-                                onClick={() => setExpandedQuarter(null)}
+                                onClick={() => {
+                                  delete recordAttemptIds.current[payment.quarter];
+                                  setFormPurpose(null);
+                                  setExpandedQuarter(null);
+                                }}
                               >
                                 Cancel
                               </Button>
                             </div>
                           </div>
                         ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => expandForm(payment.quarter)}
-                            className="border-border"
-                          >
-                            Record Payment
-                          </Button>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openForm(payment, "add")}
+                              className="border-border"
+                            >
+                              Record Payment
+                            </Button>
+                            {payment.status === "recorded" && payment.editRecordId && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openForm(payment, "edit")}
+                                className="border-border"
+                              >
+                                Edit Payment
+                              </Button>
+                            )}
+                          </div>
                         )}
                       </>
                     )}

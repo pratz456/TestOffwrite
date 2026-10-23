@@ -18,10 +18,13 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: (name: string) =
   return {
     where() { return this; }, limit() { return this; },
     get: async () => ({ empty: !(state.collections[name]?.length), docs: (state.collections[name] || []).map(data => ({ data: () => data })) }),
-    doc: (uid: string) => ({ collection: (sub: string) => ({ doc: (id: string) => ({ get: async () => {
-      state.reads.push(`${name}/${uid}/${sub}/${id}`);
-      return { exists: id === 'Q1_2026', data: () => ({ paidAmount: state.paid }) };
-    } }) }) }),
+    doc: (uid: string) => ({ collection: (sub: string) => ({
+      get: async () => ({ empty: true, docs: [] }),
+      doc: (id: string) => ({ get: async () => {
+        state.reads.push(`${name}/${uid}/${sub}/${id}`);
+        return { exists: id === 'Q1_2026', data: () => ({ paidAmount: state.paid }) };
+      } }),
+    }) }),
   };
 } } }));
 import { GET } from '../app/api/tax/compute-1040/route';

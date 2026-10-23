@@ -1,3 +1,7 @@
+import {
+  CURRENT_YEAR_SAFE_HARBOR_RATE, DE_MINIMIS_TAX_LESS_WITHHOLDING, HIGH_AGI_PRIOR_YEAR_RATE,
+  HIGH_AGI_THRESHOLD, HIGH_AGI_THRESHOLD_MFS, PRIOR_YEAR_SAFE_HARBOR_RATE,
+} from '@/lib/tax-rules/estimated-tax-safe-harbor';
 import { getFederalTaxRules } from '@/lib/tax-rules/federal-year-rules';
 import { normalizeFilingStatus } from '@/lib/tax-rules/filing-status';
 import { getEstimatedTaxDeadline } from './payment-deadlines';
@@ -34,7 +38,7 @@ export function calculateRegularEstimatedPayments(input: RegularEstimatedPayment
   if (!input.regularMethodConfirmed) fail('Confirm the regular calendar-year method applies. Uneven or later-start income, farming/fishing, nonresident/fiscal-year returns, section 1062 elections and special relief need separate review.');
   const tax = amount(input.expectedTaxAfterCredits, 'full-year tax after refundable credits');
   const withholding = amount(input.expectedAnnualWithholding, 'full-year withholding');
-  const currentTarget = Math.round(tax * .90);
+  const currentTarget = Math.round(tax * CURRENT_YEAR_SAFE_HARBOR_RATE);
   let priorTarget: number | null = null;
   if (!input.priorYear || typeof input.priorYear.available !== 'boolean') fail('Choose whether a prior-year return is available for this calculation.');
   if (!input.priorYear.available && input.priorYear.noPriorTaxExceptionRuledOut !== true) {
@@ -47,12 +51,12 @@ export function calculateRegularEstimatedPayments(input: RegularEstimatedPayment
     }
     const agi = amount(prior.adjustedGrossIncome, 'prior-year adjusted gross income', true);
     const priorTax = amount(prior.taxAfterAdjustments, 'prior-year tax after 1040-ES adjustments');
-    const threshold = (filingStatus === 'married_filing_separately' ? 75000 : 150000) * 100;
-    priorTarget = Math.round(priorTax * (agi > threshold ? 1.10 : 1));
+    const threshold = (filingStatus === 'married_filing_separately' ? HIGH_AGI_THRESHOLD_MFS : HIGH_AGI_THRESHOLD) * 100;
+    priorTarget = Math.round(priorTax * (agi > threshold ? HIGH_AGI_PRIOR_YEAR_RATE : PRIOR_YEAR_SAFE_HARBOR_RATE));
   }
   const required = priorTarget === null ? currentTarget : Math.min(currentTarget, priorTarget);
   // The $1,000 test uses expected tax less withholding, not estimated payments made.
-  const estimated = tax - withholding < 100000 ? 0 : Math.max(0, required - withholding);
+  const estimated = tax - withholding < DE_MINIMIS_TAX_LESS_WITHHOLDING * 100 ? 0 : Math.max(0, required - withholding);
   const installment = Math.ceil(estimated / 4);
   return {
     taxYear: input.taxYear, filingStatus, basis: 'original_regular_installments' as const,
