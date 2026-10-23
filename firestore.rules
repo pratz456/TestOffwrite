@@ -218,6 +218,17 @@ service cloud.firestore {
           allow create, delete: if false;
         }
       }
+
+      // Vehicle records and mileage trips are owner readable. Writes stay on the
+      // authenticated API so method rules cannot be skipped from the client SDK.
+      match /vehicles/{vehicleId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow create, update, delete: if false;
+      }
+      match /mileage_trips/{tripId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow create, update, delete: if false;
+      }
     }
   }
 }
