@@ -1,25 +1,97 @@
-PROOF_HEAD 781585eb9e8cd076fce9fb7c9b62b0be60837483
+PROOF_HEAD fd842b3c9e8fcdf96833456023204f709b5d355c
 ZONE Asia/Tokyo
 METHOD plain checkout of 18 source files at 52f5788d36114cb3a9e611dd2f551672b80edb9c, no shims
 
 
  RUN  v3.2.4 /tmp/charge-day-revert
 
- ❯ tests/account-assistant-records.test.ts (8 tests | 1 failed) 18ms
-   ✓ bounded assistant transaction reader > requires both owner queries, raw owner/currency fields, date ordering and a per-query limit 4ms
-   ✓ bounded assistant transaction reader > propagates failed userId reads rather than returning partial or empty success 1ms
-   ✓ bounded assistant transaction reader > propagates failed user_id reads rather than returning partial or empty success 0ms
-   ✓ bounded assistant transaction reader > rejects conflicting or missing ownership 0ms
-   ✓ bounded assistant transaction reader > rejects conflicting or missing ownership 0ms
-   ✓ bounded assistant transaction reader > rejects conflicting or missing ownership 0ms
-   × bounded assistant transaction reader > returns an invalid charge date as undated instead of dropping it 4ms
-     → invalid charge date is returned: expected Error: Invalid dated record in assistant … to be undefined
-   ✓ bounded assistant transaction reader > takes the newest 500 across both owner spellings without double-counting the same document 8ms
- ❯ tests/charge-day-written-day.test.ts (131 tests | 96 failed) 38ms
+ ❯ tests/unreadable-charge-dates.test.ts (17 tests | 17 failed) 12ms
+   × unreadable charge dates stay in Needs more information and out of totals > counts a slash date that can be read two ways in Needs more information and in no total 5ms
+     → expected undefined to be 1 // Object.is equality
+   × unreadable charge dates stay in Needs more information and out of totals > counts a slash date 1/5/2025 that can be read two ways in Needs more information and in no total 1ms
+     → expected undefined to be 1 // Object.is equality
+   × unreadable charge dates stay in Needs more information and out of totals > counts a slash date 12/1/2025 that can be read two ways in Needs more information and in no total 0ms
+     → expected undefined to be 1 // Object.is equality
+   × unreadable charge dates stay in Needs more information and out of totals > counts a slash date 1/12/2025 that can be read two ways in Needs more information and in no total 0ms
+     → expected undefined to be 1 // Object.is equality
+   × unreadable charge dates stay in Needs more information and out of totals > counts a slash date 11/3/2026 that can be read two ways in Needs more information and in no total 0ms
+     → expected undefined to be 1 // Object.is equality
+   × unreadable charge dates stay in Needs more information and out of totals > counts an epoch number in Needs more information and in no total 0ms
+     → expected undefined to be 1 // Object.is equality
+   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible date in Needs more information and in no total 0ms
+     → expected undefined to be 1 // Object.is equality
+   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible day with a time in Needs more information and in no total 0ms
+     → expected undefined to be 1 // Object.is equality
+   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible written day in Needs more information and in no total 0ms
+     → expected undefined to be 1 // Object.is equality
+   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible year first slash day in Needs more information and in no total 0ms
+     → expected undefined to be 1 // Object.is equality
+   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible year first slash month in Needs more information and in no total 0ms
+     → expected undefined to be 1 // Object.is equality
+   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible year first leap day in Needs more information and in no total 0ms
+     → expected undefined to be 1 // Object.is equality
+   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible written leap day in Needs more information and in no total 0ms
+     → expected undefined to be 1 // Object.is equality
+   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible leap day in Needs more information and in no total 0ms
+     → expected undefined to be 1 // Object.is equality
+   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible numeric slash day in Needs more information and in no total 1ms
+     → expected undefined to be 1 // Object.is equality
+   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible numeric slash month in Needs more information and in no total 0ms
+     → expected undefined to be 1 // Object.is equality
+   × unreadable charge dates stay in Needs more information and out of totals > counts a missing date in Needs more information and in no total 0ms
+     → expected undefined to be 1 // Object.is equality
+ ❯ tests/schedule-c-dated-rows.test.ts (23 tests | 23 failed) 24ms
+   × charge day shared by Schedule C totals and the export > counts a real charge day in that year and lists every other row as undated 11ms
+     → expected 100 to be 200 // Object.is equality
+   × charge day shared by Schedule C totals and the export > uses the same charge day for the export tax date as for the year total 3ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × normalizeDoc charge day > leaves a save timestamp out of the charge date 1ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × normalizeDoc charge day > keeps a December charge in 2024 when the row was saved in January 1ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × normalizeDoc charge day > counts a datetime-only charge on that calendar day 1ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × vehicle method follows the charge year only > gives an undated row no year and no vehicle method while the clock reads 2099 2ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × offset timestamps keep the date written in the string > lands 2024-12-31T20:00:00-08:00 in tax year 2024 and prints 27a (Other expenses) 1ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × a space and a time, a trailing Z, or an English month keeps the written day > counts 2025-01-05 10:00:00 on the written day in the 2025 total 1ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × a space and a time, a trailing Z, or an English month keeps the written day > counts 2025-01-05 10:00 on the written day in the 2025 total 0ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × a space and a time, a trailing Z, or an English month keeps the written day > counts 2025-01-05Z on the written day in the 2025 total 0ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × a space and a time, a trailing Z, or an English month keeps the written day > counts Jan 5, 2025 on the written day in the 2025 total 0ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × a space and a time, a trailing Z, or an English month keeps the written day > counts January 5, 2025 on the written day in the 2025 total 0ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × a space and a time, a trailing Z, or an English month keeps the written day > counts jan 5 2025 on the written day in the 2025 total 0ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × a space and a time, a trailing Z, or an English month keeps the written day > counts JANUARY 5, 2025 on the written day in the 2025 total 0ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × a space and a time, a trailing Z, or an English month keeps the written day > counts 5 January 2025 on the written day in the 2025 total 0ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × a space and a time, a trailing Z, or an English month keeps the written day > counts Sun Jan 05 2025 on the written day in the 2025 total 0ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × a space and a time, a trailing Z, or an English month keeps the written day > counts Sept 5, 2025 on the written day in the 2025 total 0ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × a space and a time, a trailing Z, or an English month keeps the written day > counts Sept. 5, 2025 on the written day in the 2025 total 0ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × a space and a time, a trailing Z, or an English month keeps the written day > counts Jan 5, 2025 10:00 AM on the written day in the 2025 total 0ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × a space and a time, a trailing Z, or an English month keeps the written day > counts January 5 2025 10:00 on the written day in the 2025 total 0ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × a space and a time, a trailing Z, or an English month keeps the written day > counts  2025-01-05 on the written day in the 2025 total 0ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × a space and a time, a trailing Z, or an English month keeps the written day > counts 2025-01-05  on the written day in the 2025 total 0ms
+     → expected 'undefined' to be 'function' // Object.is equality
+   × a space and a time, a trailing Z, or an English month keeps the written day > counts 2025/01/05 on the written day in the 2025 total 0ms
+     → expected 'undefined' to be 'function' // Object.is equality
+ ❯ tests/charge-day-written-day.test.ts (137 tests | 102 failed) 75ms
    ✓ written charge days keep the day and the tax year > '2025-01-05' is '2025-01-05' in that tax year 1ms
    ✓ written charge days keep the day and the tax year > '2025-12-31' is '2025-12-31' in that tax year 0ms
-   ✓ written charge days keep the day and the tax year > '2026-01-01' is '2026-01-01' in that tax year 0ms
-   ✓ written charge days keep the day and the tax year > '2025-01-05T10:00:00Z' is '2025-01-05' in that tax year 0ms
+   ✓ written charge days keep the day and the tax year > '2026-01-01' is '2026-01-01' in that tax year 2ms
+   ✓ written charge days keep the day and the tax year > '2025-01-05T10:00:00Z' is '2025-01-05' in that tax year 1ms
    ✓ written charge days keep the day and the tax year > '2025-12-31T15:00:00Z' is '2025-12-31' in that tax year 0ms
    ✓ written charge days keep the day and the tax year > '2026-01-01T15:00:00Z' is '2026-01-01' in that tax year 0ms
    ✓ written charge days keep the day and the tax year > '2024-12-31T20:00:00-08:00' is '2024-12-31' in that tax year 0ms
@@ -31,7 +103,7 @@ METHOD plain checkout of 18 source files at 52f5788d36114cb3a9e611dd2f551672b80e
    ✓ written charge days keep the day and the tax year > '2026-01-01 10:00' is '2026-01-01' in that tax year 0ms
    ✓ written charge days keep the day and the tax year > '2025-01-01 10:00' is '2025-01-01' in that tax year 0ms
    ✓ written charge days keep the day and the tax year > '2025-01-05Z' is '2025-01-05' in that tax year 0ms
-   ✓ written charge days keep the day and the tax year > '2025-12-31Z' is '2025-12-31' in that tax year 0ms
+   ✓ written charge days keep the day and the tax year > '2025-12-31Z' is '2025-12-31' in that tax year 5ms
    ✓ written charge days keep the day and the tax year > '2026-01-01Z' is '2026-01-01' in that tax year 0ms
    ✓ written charge days keep the day and the tax year > ' 2025-01-05' is '2025-01-05' in that tax year 0ms
    ✓ written charge days keep the day and the tax year > '2025-01-05 ' is '2025-01-05' in that tax year 0ms
@@ -40,9 +112,9 @@ METHOD plain checkout of 18 source files at 52f5788d36114cb3a9e611dd2f551672b80e
    ✓ written charge days keep the day and the tax year > ' 2025-01-01' is '2025-01-01' in that tax year 0ms
    ✓ written charge days keep the day and the tax year > '2025-12-31 ' is '2025-12-31' in that tax year 0ms
    ✓ written charge days keep the day and the tax year > '2026-01-01 ' is '2026-01-01' in that tax year 0ms
-   × written charge days keep the day and the tax year > 'Jan 5, 2025' is '2025-01-05' in that tax year 5ms
+   × written charge days keep the day and the tax year > 'Jan 5, 2025' is '2025-01-05' in that tax year 14ms
      → expected '2025-01-04' to be '2025-01-05' // Object.is equality
-   × written charge days keep the day and the tax year > 'January 5, 2025' is '2025-01-05' in that tax year 0ms
+   × written charge days keep the day and the tax year > 'January 5, 2025' is '2025-01-05' in that tax year 1ms
      → expected '2025-01-04' to be '2025-01-05' // Object.is equality
    × written charge days keep the day and the tax year > 'jan 5 2025' is '2025-01-05' in that tax year 0ms
      → expected '2025-01-04' to be '2025-01-05' // Object.is equality
@@ -56,9 +128,9 @@ METHOD plain checkout of 18 source files at 52f5788d36114cb3a9e611dd2f551672b80e
      → expected '2025-12-30' to be '2025-12-31' // Object.is equality
    × written charge days keep the day and the tax year > '1 January 2026' is '2026-01-01' in that tax year 0ms
      → expected '2025-12-31' to be '2026-01-01' // Object.is equality
-   × written charge days keep the day and the tax year > 'Jan 1, 2025' is '2025-01-01' in that tax year 5ms
+   × written charge days keep the day and the tax year > 'Jan 1, 2025' is '2025-01-01' in that tax year 0ms
      → expected '2024-12-31' to be '2025-01-01' // Object.is equality
-   × written charge days keep the day and the tax year > 'Dec 31, 2025' is '2025-12-31' in that tax year 0ms
+   × written charge days keep the day and the tax year > 'Dec 31, 2025' is '2025-12-31' in that tax year 2ms
      → expected '2025-12-30' to be '2025-12-31' // Object.is equality
    × written charge days keep the day and the tax year > 'Jan 1, 2026' is '2026-01-01' in that tax year 0ms
      → expected '2025-12-31' to be '2026-01-01' // Object.is equality
@@ -70,7 +142,7 @@ METHOD plain checkout of 18 source files at 52f5788d36114cb3a9e611dd2f551672b80e
      → expected '2025-12-31' to be '2026-01-01' // Object.is equality
    × written charge days keep the day and the tax year > 'Wed Jan 01 2025' is '2025-01-01' in that tax year 0ms
      → expected '2024-12-31' to be '2025-01-01' // Object.is equality
-   × written charge days keep the day and the tax year > 'Tue Dec 31 2024' is '2024-12-31' in that tax year 0ms
+   × written charge days keep the day and the tax year > 'Tue Dec 31 2024' is '2024-12-31' in that tax year 2ms
      → expected '2024-12-30' to be '2024-12-31' // Object.is equality
    × written charge days keep the day and the tax year > 'Sept 5, 2025' is '2025-09-05' in that tax year 0ms
      → expected '2025-09-04' to be '2025-09-05' // Object.is equality
@@ -124,7 +196,7 @@ METHOD plain checkout of 18 source files at 52f5788d36114cb3a9e611dd2f551672b80e
      → expected '2025-12-11' to be '2025-12-12' // Object.is equality
    × written charge days keep the day and the tax year > '01/13/2025' is '2025-01-13' in that tax year 0ms
      → expected '2025-01-12' to be '2025-01-13' // Object.is equality
-   × written charge days keep the day and the tax year > '13/01/2025' is '2025-01-13' in that tax year 0ms
+   × written charge days keep the day and the tax year > '13/01/2025' is '2025-01-13' in that tax year 9ms
      → expected null to be '2025-01-13' // Object.is equality
    × written charge days keep the day and the tax year > '06/15/2025' is '2025-06-15' in that tax year 0ms
      → expected '2025-06-14' to be '2025-06-15' // Object.is equality
@@ -136,21 +208,15 @@ METHOD plain checkout of 18 source files at 52f5788d36114cb3a9e611dd2f551672b80e
      → expected null to be '2024-02-29' // Object.is equality
    × written charge days keep the day and the tax year > '1/31/2025' is '2025-01-31' in that tax year 0ms
      → expected '2025-01-30' to be '2025-01-31' // Object.is equality
-   × written charge days keep the day and the tax year > '12/1/2025' is '2025-12-01' in that tax year 0ms
-     → expected '2025-11-30' to be '2025-12-01' // Object.is equality
-   × written charge days keep the day and the tax year > '1/12/2025' is '2025-01-12' in that tax year 0ms
-     → expected '2025-01-11' to be '2025-01-12' // Object.is equality
-   × written charge days keep the day and the tax year > '1/05/2025' is '2025-01-05' in that tax year 0ms
-     → expected '2025-01-04' to be '2025-01-05' // Object.is equality
-   × written charge days keep the day and the tax year > '05/1/2025' is '2025-05-01' in that tax year 0ms
-     → expected '2025-04-30' to be '2025-05-01' // Object.is equality
+   × written charge days keep the day and the tax year > '31/1/2025' is '2025-01-31' in that tax year 1ms
+     → expected null to be '2025-01-31' // Object.is equality
    × written charge days keep the day and the tax year > '2025-1-5' is '2025-01-05' in that tax year 0ms
      → expected '2025-01-04' to be '2025-01-05' // Object.is equality
    × written charge days keep the day and the tax year > '1/1/2025' is '2025-01-01' in that tax year 0ms
      → expected '2024-12-31' to be '2025-01-01' // Object.is equality
    × written charge days keep the day and the tax year > '1/1/2026' is '2026-01-01' in that tax year 0ms
      → expected '2025-12-31' to be '2026-01-01' // Object.is equality
-   × written charge days keep the day and the tax year > '9/15/2025' is '2025-09-15' in that tax year 0ms
+   × written charge days keep the day and the tax year > '9/15/2025' is '2025-09-15' in that tax year 1ms
      → expected '2025-09-14' to be '2025-09-15' // Object.is equality
    × written charge days keep the day and the tax year > '15/9/2025' is '2025-09-15' in that tax year 0ms
      → expected null to be '2025-09-15' // Object.is equality
@@ -189,16 +255,24 @@ METHOD plain checkout of 18 source files at 52f5788d36114cb3a9e611dd2f551672b80e
      → expected null to be '2025-12-31' // Object.is equality
    × numeric slash dates on the year boundary > 1/31/2025 counts in 2025 0ms
      → expected '2025-01-30' to be '2025-01-31' // Object.is equality
-   × numeric slash dates on the year boundary > 12/1/2025 counts in 2025 2ms
-     → expected '2025-11-30' to be '2025-12-01' // Object.is equality
+   × numeric slash dates on the year boundary > 31/1/2025 counts in 2025 0ms
+     → expected null to be '2025-01-31' // Object.is equality
+   × numeric slash dates on the year boundary > 1/1/2026 counts in 2026 0ms
+     → expected '2025-12-31' to be '2026-01-01' // Object.is equality
    × numeric slash dates on the year boundary > 2025-1-5 counts in 2025 0ms
      → expected '2025-01-04' to be '2025-01-05' // Object.is equality
    × numeric slash dates on the year boundary > 01/02/2026 goes to Needs more information 0ms
      → expected '2026-01-01' to be null // Object.is equality
    × numeric slash dates on the year boundary > 01/05/2025 goes to Needs more information 0ms
      → expected '2025-01-04' to be null // Object.is equality
-   × numeric slash dates on the year boundary > 1/5/2025 goes to Needs more information 0ms
+   × numeric slash dates on the year boundary > 1/5/2025 goes to Needs more information 11ms
      → expected '2025-01-04' to be null // Object.is equality
+   × numeric slash dates on the year boundary > 12/1/2025 goes to Needs more information 0ms
+     → expected '2025-11-30' to be null // Object.is equality
+   × numeric slash dates on the year boundary > 1/12/2025 goes to Needs more information 0ms
+     → expected '2025-01-11' to be null // Object.is equality
+   × numeric slash dates on the year boundary > 11/3/2026 goes to Needs more information 0ms
+     → expected '2026-11-02' to be null // Object.is equality
    × numeric slash dates on the year boundary > 2025/13/01 goes to Needs more information 0ms
      → expected undefined to be 1 // Object.is equality
    × numeric slash dates on the year boundary > an epoch number stays in Needs more information 0ms
@@ -207,9 +281,19 @@ METHOD plain checkout of 18 source files at 52f5788d36114cb3a9e611dd2f551672b80e
      → expected '2025-01-04' to be null // Object.is equality
    × ruled drop outs stay in Needs more information > 'two way slash 1/5/2025' stays out of totals 0ms
      → expected '2025-01-04' to be null // Object.is equality
+   × ruled drop outs stay in Needs more information > 'two way slash 12/1/2025' stays out of totals 1ms
+     → expected '2025-11-30' to be null // Object.is equality
+   × ruled drop outs stay in Needs more information > 'two way slash 1/12/2025' stays out of totals 0ms
+     → expected '2025-01-11' to be null // Object.is equality
+   × ruled drop outs stay in Needs more information > 'two way slash 11/3/2026' stays out of totals 0ms
+     → expected '2026-11-02' to be null // Object.is equality
+   × ruled drop outs stay in Needs more information > 'two way slash 1/05/2025' stays out of totals 0ms
+     → expected '2025-01-04' to be null // Object.is equality
+   × ruled drop outs stay in Needs more information > 'two way slash 05/1/2025' stays out of totals 0ms
+     → expected '2025-04-30' to be null // Object.is equality
    × ruled drop outs stay in Needs more information > 'two way slash 01/02/2026' stays out of totals 0ms
      → expected '2026-01-01' to be null // Object.is equality
-   × ruled drop outs stay in Needs more information > 'two way slash 11/12/2025' stays out of totals 1ms
+   × ruled drop outs stay in Needs more information > 'two way slash 11/12/2025' stays out of totals 0ms
      → expected '2025-11-11' to be null // Object.is equality
    × ruled drop outs stay in Needs more information > 'two way slash 12/11/2025' stays out of totals 0ms
      → expected '2025-12-10' to be null // Object.is equality
@@ -225,7 +309,7 @@ METHOD plain checkout of 18 source files at 52f5788d36114cb3a9e611dd2f551672b80e
      → expected '2025-02-30' to be null // Object.is equality
    × ruled drop outs stay in Needs more information > 'impossible day with a time' stays out of totals 0ms
      → expected '2025-02-30' to be null // Object.is equality
-   × ruled drop outs stay in Needs more information > 'impossible written day' stays out of totals 1ms
+   × ruled drop outs stay in Needs more information > 'impossible written day' stays out of totals 0ms
      → expected '2025-03-01' to be null // Object.is equality
    × ruled drop outs stay in Needs more information > 'impossible year first slash day' stays out of totals 0ms
      → expected '2025-03-01' to be null // Object.is equality
@@ -237,13 +321,30 @@ METHOD plain checkout of 18 source files at 52f5788d36114cb3a9e611dd2f551672b80e
      → expected '2025-02-28' to be null // Object.is equality
    × ruled drop outs stay in Needs more information > 'impossible leap day' stays out of totals 0ms
      → expected '2025-02-29' to be null // Object.is equality
-   × ruled drop outs stay in Needs more information > 'impossible single digit slash day' stays out of totals 0ms
+   × ruled drop outs stay in Needs more information > 'impossible numeric slash 2/29/2025' stays out of totals 0ms
      → expected '2025-02-28' to be null // Object.is equality
    × ruled drop outs stay in Needs more information > 'impossible unpadded iso day' stays out of totals 0ms
      → expected '2025-03-01' to be null // Object.is equality
    × ruled drop outs stay in Needs more information > 'missing date' stays out of totals 0ms
      → expected undefined to be 1 // Object.is equality
- ❯ tests/plaid-sync-isolation.test.ts (12 tests | 1 failed) 14ms
+ ❯ tests/undated-save-timestamp.test.ts (8 tests | 8 failed) 40ms
+   × undated rows keep save timestamps out of every year and month > withholds tax savings and monthly deductions instead of placing the row in a save-time month 26ms
+     → expected 200 to be 422 // Object.is equality
+   × undated rows keep save timestamps out of every year and month > excludes the row from the transaction list month and year filter 2ms
+     → expected '2025-06-15T18:00:00.000Z' to be '' // Object.is equality
+   × undated rows keep save timestamps out of every year and month > keeps the row out of reports cash flow, the in-year count, and the month drill-down 2ms
+     → expected null to be 'Review missing or invalid dates befor…' // Object.is equality
+   × undated rows keep save timestamps out of every year and month > gives the Schedule C preview no year 1ms
+     → expected 2025 to be null
+   × undated rows keep save timestamps out of every year and month > returns no charge date to the react-query transaction list 1ms
+     → expected '2025-06-15T18:00:00.000Z' to be '' // Object.is equality
+   × undated rows keep save timestamps out of every year and month > does not count the per-account assistant fallback row in a tax year 3ms
+     → expected { merchantKey: 'adobe', …(5) } to be null
+   × trimmed write-back cannot replace the charge day with a save time > keeps a 2025-12-31 charge in 2025 after the API read and a trimmed PUT 4ms
+     → expected '2025-12-31T00:00:00.000Z' to be '2025-12-31' // Object.is equality
+   × trimmed write-back cannot replace the charge day with a save time > gives a UTC save time that is still the previous evening in Pacific time no date and no year 1ms
+     → expected '2026-01-01T03:00:00.000Z' to be '' // Object.is equality
+ ❯ tests/plaid-sync-isolation.test.ts (12 tests | 1 failed) 17ms
    ✓ per-item transaction sync > verifies a repaired provider Item before clearing its login-required flag and syncing 3ms
    ✓ per-item transaction sync > keeps unresolved login errors flagged without trusting a cached sync response (null) 0ms
    ✓ per-item transaction sync > keeps unresolved login errors flagged without trusting a cached sync response ({"item_id":"bank-a","error":{"error_code":"ITEM_LOGIN_REQUIRED"}}) 0ms
@@ -255,110 +356,27 @@ METHOD plain checkout of 18 source files at 52f5788d36114cb3a9e611dd2f551672b80e
    ✓ per-item transaction sync > restarts pagination from the saved cursor after a mutation error 0ms
    ✓ per-item transaction sync > rejects a provider account outside the selected bank before writing or committing its cursor 0ms
    ✓ per-item transaction sync > retains removed transaction decisions and attachments while excluding the row from current Schedule C 1ms
-   × per-item transaction sync > keeps a modified provider date that is not YYYY-MM-DD, and that row is in no year 5ms
+   × per-item transaction sync > keeps a modified provider date that is not YYYY-MM-DD, and that row is in no year 8ms
      → expected '2025-01-04' to be null
- ❯ tests/schedule-c-dated-rows.test.ts (23 tests | 23 failed) 19ms
-   × charge day shared by Schedule C totals and the export > counts a real charge day in that year and lists every other row as undated 7ms
-     → expected 100 to be 200 // Object.is equality
-   × charge day shared by Schedule C totals and the export > uses the same charge day for the export tax date as for the year total 1ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × normalizeDoc charge day > leaves a save timestamp out of the charge date 1ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × normalizeDoc charge day > keeps a December charge in 2024 when the row was saved in January 1ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × normalizeDoc charge day > counts a datetime-only charge on that calendar day 1ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × vehicle method follows the charge year only > gives an undated row no year and no vehicle method while the clock reads 2099 2ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × offset timestamps keep the date written in the string > lands 2024-12-31T20:00:00-08:00 in tax year 2024 and prints 27a (Other expenses) 0ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × a space and a time, a trailing Z, or an English month keeps the written day > counts 2025-01-05 10:00:00 on the written day in the 2025 total 1ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × a space and a time, a trailing Z, or an English month keeps the written day > counts 2025-01-05 10:00 on the written day in the 2025 total 0ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × a space and a time, a trailing Z, or an English month keeps the written day > counts 2025-01-05Z on the written day in the 2025 total 0ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × a space and a time, a trailing Z, or an English month keeps the written day > counts Jan 5, 2025 on the written day in the 2025 total 0ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × a space and a time, a trailing Z, or an English month keeps the written day > counts January 5, 2025 on the written day in the 2025 total 0ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × a space and a time, a trailing Z, or an English month keeps the written day > counts jan 5 2025 on the written day in the 2025 total 0ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × a space and a time, a trailing Z, or an English month keeps the written day > counts JANUARY 5, 2025 on the written day in the 2025 total 0ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × a space and a time, a trailing Z, or an English month keeps the written day > counts 5 January 2025 on the written day in the 2025 total 0ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × a space and a time, a trailing Z, or an English month keeps the written day > counts Sun Jan 05 2025 on the written day in the 2025 total 0ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × a space and a time, a trailing Z, or an English month keeps the written day > counts Sept 5, 2025 on the written day in the 2025 total 1ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × a space and a time, a trailing Z, or an English month keeps the written day > counts Sept. 5, 2025 on the written day in the 2025 total 0ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × a space and a time, a trailing Z, or an English month keeps the written day > counts Jan 5, 2025 10:00 AM on the written day in the 2025 total 0ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × a space and a time, a trailing Z, or an English month keeps the written day > counts January 5 2025 10:00 on the written day in the 2025 total 0ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × a space and a time, a trailing Z, or an English month keeps the written day > counts  2025-01-05 on the written day in the 2025 total 0ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × a space and a time, a trailing Z, or an English month keeps the written day > counts 2025-01-05  on the written day in the 2025 total 0ms
-     → expected 'undefined' to be 'function' // Object.is equality
-   × a space and a time, a trailing Z, or an English month keeps the written day > counts 2025/01/05 on the written day in the 2025 total 0ms
-     → expected 'undefined' to be 'function' // Object.is equality
- ❯ tests/undated-save-timestamp.test.ts (8 tests | 8 failed) 25ms
-   × undated rows keep save timestamps out of every year and month > withholds tax savings and monthly deductions instead of placing the row in a save-time month 15ms
-     → expected 200 to be 422 // Object.is equality
-   × undated rows keep save timestamps out of every year and month > excludes the row from the transaction list month and year filter 2ms
-     → expected '2025-06-15T18:00:00.000Z' to be '' // Object.is equality
-   × undated rows keep save timestamps out of every year and month > keeps the row out of reports cash flow, the in-year count, and the month drill-down 1ms
-     → expected null to be 'Review missing or invalid dates befor…' // Object.is equality
-   × undated rows keep save timestamps out of every year and month > gives the Schedule C preview no year 1ms
-     → expected 2025 to be null
-   × undated rows keep save timestamps out of every year and month > returns no charge date to the react-query transaction list 1ms
-     → expected '2025-06-15T18:00:00.000Z' to be '' // Object.is equality
-   × undated rows keep save timestamps out of every year and month > does not count the per-account assistant fallback row in a tax year 2ms
-     → expected { merchantKey: 'adobe', …(5) } to be null
-   × trimmed write-back cannot replace the charge day with a save time > keeps a 2025-12-31 charge in 2025 after the API read and a trimmed PUT 1ms
-     → expected '2025-12-31T00:00:00.000Z' to be '2025-12-31' // Object.is equality
-   × trimmed write-back cannot replace the charge day with a save time > gives a UTC save time that is still the previous evening in Pacific time no date and no year 1ms
-     → expected '2026-01-01T03:00:00.000Z' to be '' // Object.is equality
- ❯ tests/undated-vehicle-review.test.ts (3 tests | 3 failed) 13ms
+ ❯ tests/account-assistant-records.test.ts (8 tests | 1 failed) 25ms
+   ✓ bounded assistant transaction reader > requires both owner queries, raw owner/currency fields, date ordering and a per-query limit 6ms
+   ✓ bounded assistant transaction reader > propagates failed userId reads rather than returning partial or empty success 1ms
+   ✓ bounded assistant transaction reader > propagates failed user_id reads rather than returning partial or empty success 0ms
+   ✓ bounded assistant transaction reader > rejects conflicting or missing ownership 0ms
+   ✓ bounded assistant transaction reader > rejects conflicting or missing ownership 0ms
+   ✓ bounded assistant transaction reader > rejects conflicting or missing ownership 0ms
+   × bounded assistant transaction reader > returns an invalid charge date as undated instead of dropping it 5ms
+     → invalid charge date is returned: expected Error: Invalid dated record in assistant … to be undefined
+   ✓ bounded assistant transaction reader > takes the newest 500 across both owner spellings without double-counting the same document 11ms
+ ❯ tests/undated-vehicle-review.test.ts (3 tests | 3 failed) 15ms
    × undated vehicle confirmation > saves an undated vehicle expense with no deduction and Needs more information 6ms
      → confirm must not answer with HTTP 422 DEDUCTION_REVIEW_REQUIRED: expected { …(2) } to not deeply equal { …(2) }
    × undated vehicle confirmation > saves a vehicle expense dated 01/05/2025 with no deduction and Needs more information 1ms
      → confirm must not answer with HTTP 422 DEDUCTION_REVIEW_REQUIRED: expected { …(2) } to not deeply equal { …(2) }
-   × undated vehicle confirmation > POST confirm of an undated vehicle charge stays out of every total 5ms
+   × undated vehicle confirmation > POST confirm of an undated vehicle charge stays out of every total 7ms
      → expected 422 not to be 422 // Object.is equality
- ❯ tests/unreadable-charge-dates.test.ts (14 tests | 14 failed) 10ms
-   × unreadable charge dates stay in Needs more information and out of totals > counts a slash date that can be read two ways in Needs more information and in no total 5ms
-     → expected undefined to be 1 // Object.is equality
-   × unreadable charge dates stay in Needs more information and out of totals > counts a single digit slash date that can be read two ways in Needs more information and in no total 1ms
-     → expected undefined to be 1 // Object.is equality
-   × unreadable charge dates stay in Needs more information and out of totals > counts an epoch number in Needs more information and in no total 0ms
-     → expected undefined to be 1 // Object.is equality
-   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible date in Needs more information and in no total 0ms
-     → expected undefined to be 1 // Object.is equality
-   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible day with a time in Needs more information and in no total 0ms
-     → expected undefined to be 1 // Object.is equality
-   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible written day in Needs more information and in no total 0ms
-     → expected undefined to be 1 // Object.is equality
-   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible year first slash day in Needs more information and in no total 0ms
-     → expected undefined to be 1 // Object.is equality
-   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible year first slash month in Needs more information and in no total 0ms
-     → expected undefined to be 1 // Object.is equality
-   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible year first leap day in Needs more information and in no total 0ms
-     → expected undefined to be 1 // Object.is equality
-   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible written leap day in Needs more information and in no total 0ms
-     → expected undefined to be 1 // Object.is equality
-   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible leap day in Needs more information and in no total 0ms
-     → expected undefined to be 1 // Object.is equality
-   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible numeric slash day in Needs more information and in no total 0ms
-     → expected undefined to be 1 // Object.is equality
-   × unreadable charge dates stay in Needs more information and out of totals > counts an impossible numeric slash month in Needs more information and in no total 0ms
-     → expected undefined to be 1 // Object.is equality
-   × unreadable charge dates stay in Needs more information and out of totals > counts a missing date in Needs more information and in no total 0ms
-     → expected undefined to be 1 // Object.is equality
 
-⎯⎯⎯⎯⎯⎯ Failed Tests 146 ⎯⎯⎯⎯⎯⎯
+⎯⎯⎯⎯⎯⎯ Failed Tests 155 ⎯⎯⎯⎯⎯⎯
 
  FAIL  tests/account-assistant-records.test.ts > bounded assistant transaction reader > returns an invalid charge date as undated instead of dropping it
 AssertionError: invalid charge date is returned: expected Error: Invalid dated record in assistant … to be undefined
@@ -379,7 +397,7 @@ Error {
      49|     expect(rows).toEqual([
      50|       expect.objectContaining({ date: '', needsMoreInformation: true, …
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > 'Jan 5, 2025' is '2025-01-05' in that tax year
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > 'January 5, 2025' is '2025-01-05' in that tax year
@@ -389,23 +407,22 @@ Error {
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > 'Sun Jan 05 2025' is '2025-01-05' in that tax year
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '2025/01/05' is '2025-01-05' in that tax year
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > ' 2025/01/05 ' is '2025-01-05' in that tax year
- FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '1/05/2025' is '2025-01-05' in that tax year
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '2025-1-5' is '2025-01-05' in that tax year
 AssertionError: expected '2025-01-04' to be '2025-01-05' // Object.is equality
 
 Expected: "2025-01-05"
 Received: "2025-01-04"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '1 January 2025' is '2025-01-01' in that tax year
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > 'Jan 1, 2025' is '2025-01-01' in that tax year
@@ -422,16 +439,16 @@ AssertionError: expected '2024-12-31' to be '2025-01-01' // Object.is equality
 Expected: "2025-01-01"
 Received: "2024-12-31"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '31 December 2025' is '2025-12-31' in that tax year
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > 'Dec 31, 2025' is '2025-12-31' in that tax year
@@ -444,16 +461,16 @@ AssertionError: expected '2025-12-30' to be '2025-12-31' // Object.is equality
 Expected: "2025-12-31"
 Received: "2025-12-30"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '1 January 2026' is '2026-01-01' in that tax year
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > 'Jan 1, 2026' is '2026-01-01' in that tax year
@@ -474,16 +491,16 @@ AssertionError: expected '2025-12-31' to be '2026-01-01' // Object.is equality
 Expected: "2026-01-01"
 Received: "2025-12-31"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > 'Tue Dec 31 2024' is '2024-12-31' in that tax year
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '12/31/2024' is '2024-12-31' in that tax year
@@ -492,16 +509,16 @@ AssertionError: expected '2024-12-30' to be '2024-12-31' // Object.is equality
 Expected: "2024-12-31"
 Received: "2024-12-30"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > 'Sept 5, 2025' is '2025-09-05' in that tax year
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > 'Sept. 5, 2025' is '2025-09-05' in that tax year
@@ -512,16 +529,16 @@ AssertionError: expected '2025-09-04' to be '2025-09-05' // Object.is equality
 Expected: "2025-09-05"
 Received: "2025-09-04"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '31/12/2025' is '2025-12-31' in that tax year
 AssertionError: expected null to be '2025-12-31' // Object.is equality
@@ -532,16 +549,16 @@ AssertionError: expected null to be '2025-12-31' // Object.is equality
 + Received: 
 null
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '31/12/2024' is '2024-12-31' in that tax year
 AssertionError: expected null to be '2024-12-31' // Object.is equality
@@ -552,16 +569,16 @@ AssertionError: expected null to be '2024-12-31' // Object.is equality
 + Received: 
 null
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '05/05/2025' is '2025-05-05' in that tax year
 AssertionError: expected '2025-05-04' to be '2025-05-05' // Object.is equality
@@ -569,16 +586,16 @@ AssertionError: expected '2025-05-04' to be '2025-05-05' // Object.is equality
 Expected: "2025-05-05"
 Received: "2025-05-04"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '02/02/2025' is '2025-02-02' in that tax year
 AssertionError: expected '2025-02-01' to be '2025-02-02' // Object.is equality
@@ -586,16 +603,16 @@ AssertionError: expected '2025-02-01' to be '2025-02-02' // Object.is equality
 Expected: "2025-02-02"
 Received: "2025-02-01"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '12/12/2025' is '2025-12-12' in that tax year
 AssertionError: expected '2025-12-11' to be '2025-12-12' // Object.is equality
@@ -603,16 +620,16 @@ AssertionError: expected '2025-12-11' to be '2025-12-12' // Object.is equality
 Expected: "2025-12-12"
 Received: "2025-12-11"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '01/13/2025' is '2025-01-13' in that tax year
 AssertionError: expected '2025-01-12' to be '2025-01-13' // Object.is equality
@@ -620,16 +637,16 @@ AssertionError: expected '2025-01-12' to be '2025-01-13' // Object.is equality
 Expected: "2025-01-13"
 Received: "2025-01-12"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '13/01/2025' is '2025-01-13' in that tax year
 AssertionError: expected null to be '2025-01-13' // Object.is equality
@@ -640,16 +657,16 @@ AssertionError: expected null to be '2025-01-13' // Object.is equality
 + Received: 
 null
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '06/15/2025' is '2025-06-15' in that tax year
 AssertionError: expected '2025-06-14' to be '2025-06-15' // Object.is equality
@@ -657,16 +674,16 @@ AssertionError: expected '2025-06-14' to be '2025-06-15' // Object.is equality
 Expected: "2025-06-15"
 Received: "2025-06-14"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '15/06/2025' is '2025-06-15' in that tax year
 AssertionError: expected null to be '2025-06-15' // Object.is equality
@@ -677,16 +694,16 @@ AssertionError: expected null to be '2025-06-15' // Object.is equality
 + Received: 
 null
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '02/29/2024' is '2024-02-29' in that tax year
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '2/29/2024' is '2024-02-29' in that tax year
@@ -695,16 +712,16 @@ AssertionError: expected '2024-02-28' to be '2024-02-29' // Object.is equality
 Expected: "2024-02-29"
 Received: "2024-02-28"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '29/02/2024' is '2024-02-29' in that tax year
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '29/2/2024' is '2024-02-29' in that tax year
@@ -716,16 +733,16 @@ AssertionError: expected null to be '2024-02-29' // Object.is equality
 + Received: 
 null
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '1/31/2025' is '2025-01-31' in that tax year
 AssertionError: expected '2025-01-30' to be '2025-01-31' // Object.is equality
@@ -733,67 +750,36 @@ AssertionError: expected '2025-01-30' to be '2025-01-31' // Object.is equality
 Expected: "2025-01-31"
 Received: "2025-01-30"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/155]⎯
 
- FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '12/1/2025' is '2025-12-01' in that tax year
-AssertionError: expected '2025-11-30' to be '2025-12-01' // Object.is equality
+ FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '31/1/2025' is '2025-01-31' in that tax year
+AssertionError: expected null to be '2025-01-31' // Object.is equality
 
-Expected: "2025-12-01"
-Received: "2025-11-30"
+- Expected: 
+"2025-01-31"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
++ Received: 
+null
+
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/146]⎯
-
- FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '1/12/2025' is '2025-01-12' in that tax year
-AssertionError: expected '2025-01-11' to be '2025-01-12' // Object.is equality
-
-Expected: "2025-01-12"
-Received: "2025-01-11"
-
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
-       |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
-
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/146]⎯
-
- FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '05/1/2025' is '2025-05-01' in that tax year
-AssertionError: expected '2025-04-30' to be '2025-05-01' // Object.is equality
-
-Expected: "2025-05-01"
-Received: "2025-04-30"
-
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
-       |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
-
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '9/15/2025' is '2025-09-15' in that tax year
 AssertionError: expected '2025-09-14' to be '2025-09-15' // Object.is equality
@@ -801,16 +787,16 @@ AssertionError: expected '2025-09-14' to be '2025-09-15' // Object.is equality
 Expected: "2025-09-15"
 Received: "2025-09-14"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > written charge days keep the day and the tax year > '15/9/2025' is '2025-09-15' in that tax year
 AssertionError: expected null to be '2025-09-15' // Object.is equality
@@ -821,16 +807,16 @@ AssertionError: expected null to be '2025-09-15' // Object.is equality
 + Received: 
 null
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:194:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:196:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > numeric slash dates on the year boundary > 12/31/2025 counts in 2025
 AssertionError: expected '2025-12-30' to be '2025-12-31' // Object.is equality
@@ -838,33 +824,34 @@ AssertionError: expected '2025-12-30' to be '2025-12-31' // Object.is equality
 Expected: "2025-12-31"
 Received: "2025-12-30"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:213:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:216:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > numeric slash dates on the year boundary > 01/01/2026 counts in 2026
+ FAIL  tests/charge-day-written-day.test.ts > numeric slash dates on the year boundary > 1/1/2026 counts in 2026
 AssertionError: expected '2025-12-31' to be '2026-01-01' // Object.is equality
 
 Expected: "2026-01-01"
 Received: "2025-12-31"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:213:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:216:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > numeric slash dates on the year boundary > 31/12/2025 counts in 2025
 AssertionError: expected null to be '2025-12-31' // Object.is equality
@@ -875,16 +862,16 @@ AssertionError: expected null to be '2025-12-31' // Object.is equality
 + Received: 
 null
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:213:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:216:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > numeric slash dates on the year boundary > 1/31/2025 counts in 2025
 AssertionError: expected '2025-01-30' to be '2025-01-31' // Object.is equality
@@ -892,33 +879,36 @@ AssertionError: expected '2025-01-30' to be '2025-01-31' // Object.is equality
 Expected: "2025-01-31"
 Received: "2025-01-30"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:213:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:216:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/155]⎯
 
- FAIL  tests/charge-day-written-day.test.ts > numeric slash dates on the year boundary > 12/1/2025 counts in 2025
-AssertionError: expected '2025-11-30' to be '2025-12-01' // Object.is equality
+ FAIL  tests/charge-day-written-day.test.ts > numeric slash dates on the year boundary > 31/1/2025 counts in 2025
+AssertionError: expected null to be '2025-01-31' // Object.is equality
 
-Expected: "2025-12-01"
-Received: "2025-11-30"
+- Expected: 
+"2025-01-31"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
++ Received: 
+null
+
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:213:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:216:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > numeric slash dates on the year boundary > 2025-1-5 counts in 2025
 AssertionError: expected '2025-01-04' to be '2025-01-05' // Object.is equality
@@ -926,16 +916,16 @@ AssertionError: expected '2025-01-04' to be '2025-01-05' // Object.is equality
 Expected: "2025-01-05"
 Received: "2025-01-04"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:213:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:216:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > numeric slash dates on the year boundary > 01/02/2026 goes to Needs more information
 AssertionError: expected '2026-01-01' to be null // Object.is equality
@@ -946,16 +936,16 @@ null
 + Received: 
 "2026-01-01"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:218:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:221:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[31/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > numeric slash dates on the year boundary > 01/05/2025 goes to Needs more information
  FAIL  tests/charge-day-written-day.test.ts > numeric slash dates on the year boundary > 1/5/2025 goes to Needs more information
@@ -967,16 +957,76 @@ null
 + Received: 
 "2025-01-04"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:218:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:221:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[32/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/155]⎯
+
+ FAIL  tests/charge-day-written-day.test.ts > numeric slash dates on the year boundary > 12/1/2025 goes to Needs more information
+AssertionError: expected '2025-11-30' to be null // Object.is equality
+
+- Expected: 
+null
+
++ Received: 
+"2025-11-30"
+
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
+       |                          ^
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:221:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[31/155]⎯
+
+ FAIL  tests/charge-day-written-day.test.ts > numeric slash dates on the year boundary > 1/12/2025 goes to Needs more information
+AssertionError: expected '2025-01-11' to be null // Object.is equality
+
+- Expected: 
+null
+
++ Received: 
+"2025-01-11"
+
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
+       |                          ^
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:221:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[32/155]⎯
+
+ FAIL  tests/charge-day-written-day.test.ts > numeric slash dates on the year boundary > 11/3/2026 goes to Needs more information
+AssertionError: expected '2026-11-02' to be null // Object.is equality
+
+- Expected: 
+null
+
++ Received: 
+"2026-11-02"
+
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
+       |                          ^
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:221:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[33/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > numeric slash dates on the year boundary > 2025/13/01 goes to Needs more information
 AssertionError: expected undefined to be 1 // Object.is equality
@@ -987,15 +1037,15 @@ AssertionError: expected undefined to be 1 // Object.is equality
 + Received: 
 undefined
 
- ❯ tests/charge-day-written-day.test.ts:222:43
-    220|       const totals = aggregateScheduleC([row(input)], year, CATEGORY_M…
-    221|       expect(totals.totalDeductible).toBe(0);
-    222|       expect(totals.needsMoreInformation).toBe(1);
+ ❯ tests/charge-day-written-day.test.ts:225:43
+    223|       const totals = aggregateScheduleC([row(input)], year, CATEGORY_M…
+    224|       expect(totals.totalDeductible).toBe(0);
+    225|       expect(totals.needsMoreInformation).toBe(1);
        |                                           ^
-    223|     }
-    224|   });
+    226|     }
+    227|   });
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[33/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[34/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > numeric slash dates on the year boundary > an epoch number stays in Needs more information
 AssertionError: expected '2025-01-05' to be null // Object.is equality
@@ -1006,19 +1056,20 @@ null
 + Received: 
 "2025-01-05"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:228:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:231:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[34/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[35/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'two way slash 01/05/2025' stays out of totals
  FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'two way slash 1/5/2025' stays out of totals
+ FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'two way slash 1/05/2025' stays out of totals
 AssertionError: expected '2025-01-04' to be null // Object.is equality
 
 - Expected: 
@@ -1027,16 +1078,96 @@ null
 + Received: 
 "2025-01-04"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:239:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:242:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[35/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[36/155]⎯
+
+ FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'two way slash 12/1/2025' stays out of totals
+AssertionError: expected '2025-11-30' to be null // Object.is equality
+
+- Expected: 
+null
+
++ Received: 
+"2025-11-30"
+
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
+       |                          ^
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:242:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[37/155]⎯
+
+ FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'two way slash 1/12/2025' stays out of totals
+AssertionError: expected '2025-01-11' to be null // Object.is equality
+
+- Expected: 
+null
+
++ Received: 
+"2025-01-11"
+
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
+       |                          ^
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:242:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[38/155]⎯
+
+ FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'two way slash 11/3/2026' stays out of totals
+AssertionError: expected '2026-11-02' to be null // Object.is equality
+
+- Expected: 
+null
+
++ Received: 
+"2026-11-02"
+
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
+       |                          ^
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:242:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[39/155]⎯
+
+ FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'two way slash 05/1/2025' stays out of totals
+AssertionError: expected '2025-04-30' to be null // Object.is equality
+
+- Expected: 
+null
+
++ Received: 
+"2025-04-30"
+
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
+       |                          ^
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:242:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[40/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'two way slash 01/02/2026' stays out of totals
 AssertionError: expected '2026-01-01' to be null // Object.is equality
@@ -1047,16 +1178,16 @@ null
 + Received: 
 "2026-01-01"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:239:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:242:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[36/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[41/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'two way slash 11/12/2025' stays out of totals
 AssertionError: expected '2025-11-11' to be null // Object.is equality
@@ -1067,16 +1198,16 @@ null
 + Received: 
 "2025-11-11"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:239:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:242:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[37/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[42/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'two way slash 12/11/2025' stays out of totals
 AssertionError: expected '2025-12-10' to be null // Object.is equality
@@ -1087,16 +1218,16 @@ null
 + Received: 
 "2025-12-10"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:239:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:242:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[38/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[43/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'impossible numeric slash day' stays out of totals
  FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'impossible written day' stays out of totals
@@ -1110,21 +1241,21 @@ null
 + Received: 
 "2025-03-01"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:239:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:242:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[39/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[44/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'impossible numeric slash 02/29/2025' stays out of totals
  FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'impossible year first leap day' stays out of totals
  FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'impossible written leap day' stays out of totals
- FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'impossible single digit slash day' stays out of totals
+ FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'impossible numeric slash 2/29/2025' stays out of totals
 AssertionError: expected '2025-02-28' to be null // Object.is equality
 
 - Expected: 
@@ -1133,16 +1264,16 @@ null
 + Received: 
 "2025-02-28"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:239:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:242:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[40/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[45/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'impossible numeric slash month' stays out of totals
  FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'impossible year first slash month' stays out of totals
@@ -1155,15 +1286,15 @@ AssertionError: expected undefined to be 1 // Object.is equality
 + Received: 
 undefined
 
- ❯ tests/charge-day-written-day.test.ts:242:41
-    240|     const totals = aggregateScheduleC([row(input)], '2025', CATEGORY_M…
-    241|     expect(totals.totalDeductible).toBe(0);
-    242|     expect(totals.needsMoreInformation).toBe(1);
+ ❯ tests/charge-day-written-day.test.ts:245:41
+    243|     const totals = aggregateScheduleC([row(input)], '2025', CATEGORY_M…
+    244|     expect(totals.totalDeductible).toBe(0);
+    245|     expect(totals.needsMoreInformation).toBe(1);
        |                                         ^
-    243|   });
-    244| });
+    246|   });
+    247| });
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[41/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[46/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'epoch number' stays out of totals
 AssertionError: expected '2025-01-05' to be null // Object.is equality
@@ -1174,16 +1305,16 @@ null
 + Received: 
 "2025-01-05"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:239:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:242:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[42/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[47/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'impossible day' stays out of totals
  FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'impossible day with a time' stays out of totals
@@ -1195,16 +1326,16 @@ null
 + Received: 
 "2025-02-30"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:239:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:242:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[43/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[48/155]⎯
 
  FAIL  tests/charge-day-written-day.test.ts > ruled drop outs stay in Needs more information > 'impossible leap day' stays out of totals
 AssertionError: expected '2025-02-29' to be null // Object.is equality
@@ -1215,16 +1346,16 @@ null
 + Received: 
 "2025-02-29"
 
- ❯ expectReadersAgree tests/charge-day-written-day.test.ts:172:26
-    170| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
-    171| function expectReadersAgree(input: unknown, day: string | null, year: …
-    172|   expect(safeYMD(input)).toBe(day);
+ ❯ expectReadersAgree tests/charge-day-written-day.test.ts:174:26
+    172| /** On this head, chargeDay and chargeYear match safeYMD and safeTaxYe…
+    173| function expectReadersAgree(input: unknown, day: string | null, year: …
+    174|   expect(safeYMD(input)).toBe(day);
        |                          ^
-    173|   expect(safeTaxYear(input)).toBe(year);
-    174|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
- ❯ tests/charge-day-written-day.test.ts:239:5
+    175|   expect(safeTaxYear(input)).toBe(year);
+    176|   if (typeof taxDate.chargeDay !== 'function' || typeof taxDate.charge…
+ ❯ tests/charge-day-written-day.test.ts:242:5
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[44/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[49/155]⎯
 
  FAIL  tests/plaid-sync-isolation.test.ts > per-item transaction sync > keeps a modified provider date that is not YYYY-MM-DD, and that row is in no year
 AssertionError: expected '2025-01-04' to be null
@@ -1243,7 +1374,7 @@ null
     124|     expect(safeTaxYear(stored.date)).toBeNull();
     125|     expect(safeYMD(' 2025-01-05')).toBe('2025-01-05');
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[45/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[50/155]⎯
 
  FAIL  tests/schedule-c-dated-rows.test.ts > charge day shared by Schedule C totals and the export > counts a real charge day in that year and lists every other row as undated
 AssertionError: expected 100 to be 200 // Object.is equality
@@ -1262,7 +1393,7 @@ AssertionError: expected 100 to be 200 // Object.is equality
      59|     expect(year2024.lineItemsArray.flatMap(item => item.transactions).…
      60|     expect(year2025.totalDeductible).toBe(200);
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[46/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[51/155]⎯
 
  FAIL  tests/schedule-c-dated-rows.test.ts > charge day shared by Schedule C totals and the export > uses the same charge day for the export tax date as for the year total
 AssertionError: expected 'undefined' to be 'function' // Object.is equality
@@ -1280,7 +1411,7 @@ Received: "undefined"
  ❯ tests/schedule-c-dated-rows.test.ts:71:38
  ❯ tests/schedule-c-dated-rows.test.ts:71:24
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[47/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[52/155]⎯
 
  FAIL  tests/schedule-c-dated-rows.test.ts > normalizeDoc charge day > leaves a save timestamp out of the charge date
 AssertionError: expected 'undefined' to be 'function' // Object.is equality
@@ -1297,7 +1428,7 @@ Received: "undefined"
      23| }
  ❯ tests/schedule-c-dated-rows.test.ts:102:17
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[48/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[53/155]⎯
 
  FAIL  tests/schedule-c-dated-rows.test.ts > normalizeDoc charge day > keeps a December charge in 2024 when the row was saved in January
 AssertionError: expected 'undefined' to be 'function' // Object.is equality
@@ -1314,7 +1445,7 @@ Received: "undefined"
      23| }
  ❯ tests/schedule-c-dated-rows.test.ts:114:17
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[49/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[54/155]⎯
 
  FAIL  tests/schedule-c-dated-rows.test.ts > normalizeDoc charge day > counts a datetime-only charge on that calendar day
 AssertionError: expected 'undefined' to be 'function' // Object.is equality
@@ -1331,7 +1462,7 @@ Received: "undefined"
      23| }
  ❯ tests/schedule-c-dated-rows.test.ts:125:17
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[50/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[55/155]⎯
 
  FAIL  tests/schedule-c-dated-rows.test.ts > vehicle method follows the charge year only > gives an undated row no year and no vehicle method while the clock reads 2099
 AssertionError: expected 'undefined' to be 'function' // Object.is equality
@@ -1348,7 +1479,7 @@ Received: "undefined"
      27| }
  ❯ tests/schedule-c-dated-rows.test.ts:138:12
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[51/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[56/155]⎯
 
  FAIL  tests/schedule-c-dated-rows.test.ts > offset timestamps keep the date written in the string > lands 2024-12-31T20:00:00-08:00 in tax year 2024 and prints 27a (Other expenses)
 AssertionError: expected 'undefined' to be 'function' // Object.is equality
@@ -1365,7 +1496,7 @@ Received: "undefined"
      15| }
  ❯ tests/schedule-c-dated-rows.test.ts:157:12
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[52/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[57/155]⎯
 
  FAIL  tests/schedule-c-dated-rows.test.ts > a space and a time, a trailing Z, or an English month keeps the written day > counts 2025-01-05 10:00:00 on the written day in the 2025 total
  FAIL  tests/schedule-c-dated-rows.test.ts > a space and a time, a trailing Z, or an English month keeps the written day > counts 2025-01-05 10:00 on the written day in the 2025 total
@@ -1397,7 +1528,7 @@ Received: "undefined"
      15| }
  ❯ tests/schedule-c-dated-rows.test.ts:197:12
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[53/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[58/155]⎯
 
  FAIL  tests/undated-save-timestamp.test.ts > undated rows keep save timestamps out of every year and month > withholds tax savings and monthly deductions instead of placing the row in a save-time month
 AssertionError: expected 200 to be 422 // Object.is equality
@@ -1416,7 +1547,7 @@ AssertionError: expected 200 to be 422 // Object.is equality
     156|       expect(body).toMatchObject({ code: 'EXPORT_REVIEW_REQUIRED' });
     157|       expect(body.error).toContain(MISSING_DATE);
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[54/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[59/155]⎯
 
  FAIL  tests/undated-save-timestamp.test.ts > undated rows keep save timestamps out of every year and month > excludes the row from the transaction list month and year filter
 AssertionError: expected '2025-06-15T18:00:00.000Z' to be '' // Object.is equality
@@ -1434,7 +1565,7 @@ AssertionError: expected '2025-06-15T18:00:00.000Z' to be '' // Object.is equali
     175|     for (const query of ['?month=5&year=2025', '?month=5&year=2026', '…
     176|       const filtered = await (await list(query)).json();
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[55/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[60/155]⎯
 
  FAIL  tests/undated-save-timestamp.test.ts > undated rows keep save timestamps out of every year and month > keeps the row out of reports cash flow, the in-year count, and the month drill-down
 AssertionError: expected null to be 'Review missing or invalid dates befor…' // Object.is equality
@@ -1453,7 +1584,7 @@ null
     187|       expect(screen.cash.months).toEqual([]);
     188|       expect(screen.totalCount).toBe(0);
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[56/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[61/155]⎯
 
  FAIL  tests/undated-save-timestamp.test.ts > undated rows keep save timestamps out of every year and month > gives the Schedule C preview no year
 AssertionError: expected 2025 to be null
@@ -1472,7 +1603,7 @@ null
     199|     for (const year of ['2025', '2026']) {
     200|       const result = aggregateScheduleC([row], year, CATEGORY_MAP, { m…
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[57/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[62/155]⎯
 
  FAIL  tests/undated-save-timestamp.test.ts > undated rows keep save timestamps out of every year and month > returns no charge date to the react-query transaction list
 AssertionError: expected '2025-06-15T18:00:00.000Z' to be '' // Object.is equality
@@ -1490,7 +1621,7 @@ AssertionError: expected '2025-06-15T18:00:00.000Z' to be '' // Object.is equali
     211|     expect(apiTransactions[0].date).not.toMatch(/2025|2026/);
     212|     expect(String(apiTransactions[0].created_at)).toContain('2025');
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[58/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[63/155]⎯
 
  FAIL  tests/undated-save-timestamp.test.ts > undated rows keep save timestamps out of every year and month > does not count the per-account assistant fallback row in a tax year
 AssertionError: expected { merchantKey: 'adobe', …(5) } to be null
@@ -1516,7 +1647,7 @@ null
     219|       const paragraph = composeForYou(context, 'software-subscriptions…
     220|       expect(paragraph).not.toMatch(/\bin 2025\b/);
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[59/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[64/155]⎯
 
  FAIL  tests/undated-save-timestamp.test.ts > trimmed write-back cannot replace the charge day with a save time > keeps a 2025-12-31 charge in 2025 after the API read and a trimmed PUT
 AssertionError: expected '2025-12-31T00:00:00.000Z' to be '2025-12-31' // Object.is equality
@@ -1532,7 +1663,7 @@ Received: "2025-12-31T00:00:00.000Z"
     250|     expect(trimmed).toBe('2025-12-31');
     251|     expect(dateAccepted(trimmed)).toBe(true);
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[60/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[65/155]⎯
 
  FAIL  tests/undated-save-timestamp.test.ts > trimmed write-back cannot replace the charge day with a save time > gives a UTC save time that is still the previous evening in Pacific time no date and no year
 AssertionError: expected '2026-01-01T03:00:00.000Z' to be '' // Object.is equality
@@ -1550,7 +1681,7 @@ AssertionError: expected '2026-01-01T03:00:00.000Z' to be '' // Object.is equali
     282|     expect(chargeYear(read)).toBeNull();
     283|     expect(safeTaxYear(read.date)).toBeNull();
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[61/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[66/155]⎯
 
  FAIL  tests/undated-vehicle-review.test.ts > undated vehicle confirmation > saves an undated vehicle expense with no deduction and Needs more information
  FAIL  tests/undated-vehicle-review.test.ts > undated vehicle confirmation > saves a vehicle expense dated 01/05/2025 with no deduction and Needs more information
@@ -1566,7 +1697,7 @@ Compared values have no visual difference.
      85|     expect(thrown).not.toBeInstanceOf(TransactionReviewError);
      86|     expect(reviewed).toMatchObject({ is_deductible: null, deductionSta…
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[62/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[67/155]⎯
 
  FAIL  tests/undated-vehicle-review.test.ts > undated vehicle confirmation > POST confirm of an undated vehicle charge stays out of every total
 AssertionError: expected 422 not to be 422 // Object.is equality
@@ -1578,10 +1709,13 @@ AssertionError: expected 422 not to be 422 // Object.is equality
     103|     expect(response.status).toBe(200);
     104|     const body = await response.json();
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[63/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[68/155]⎯
 
  FAIL  tests/unreadable-charge-dates.test.ts > unreadable charge dates stay in Needs more information and out of totals > counts a slash date that can be read two ways in Needs more information and in no total
- FAIL  tests/unreadable-charge-dates.test.ts > unreadable charge dates stay in Needs more information and out of totals > counts a single digit slash date that can be read two ways in Needs more information and in no total
+ FAIL  tests/unreadable-charge-dates.test.ts > unreadable charge dates stay in Needs more information and out of totals > counts a slash date 1/5/2025 that can be read two ways in Needs more information and in no total
+ FAIL  tests/unreadable-charge-dates.test.ts > unreadable charge dates stay in Needs more information and out of totals > counts a slash date 12/1/2025 that can be read two ways in Needs more information and in no total
+ FAIL  tests/unreadable-charge-dates.test.ts > unreadable charge dates stay in Needs more information and out of totals > counts a slash date 1/12/2025 that can be read two ways in Needs more information and in no total
+ FAIL  tests/unreadable-charge-dates.test.ts > unreadable charge dates stay in Needs more information and out of totals > counts a slash date 11/3/2026 that can be read two ways in Needs more information and in no total
  FAIL  tests/unreadable-charge-dates.test.ts > unreadable charge dates stay in Needs more information and out of totals > counts an epoch number in Needs more information and in no total
  FAIL  tests/unreadable-charge-dates.test.ts > unreadable charge dates stay in Needs more information and out of totals > counts an impossible date in Needs more information and in no total
  FAIL  tests/unreadable-charge-dates.test.ts > unreadable charge dates stay in Needs more information and out of totals > counts an impossible day with a time in Needs more information and in no total
@@ -1602,19 +1736,20 @@ AssertionError: expected undefined to be 1 // Object.is equality
 + Received: 
 undefined
 
- ❯ tests/unreadable-charge-dates.test.ts:58:43
-     56|     for (const year of ['2025', '2026']) {
-     57|       const totals = aggregateScheduleC(rows as never, year, CATEGORY_…
-     58|       expect(totals.needsMoreInformation).toBe(1);
+ ❯ tests/unreadable-charge-dates.test.ts:61:43
+     59|     for (const year of ['2025', '2026']) {
+     60|       const totals = aggregateScheduleC(rows as never, year, CATEGORY_…
+     61|       expect(totals.needsMoreInformation).toBe(1);
        |                                           ^
-     59|       expect(totals.undated.map(row => row.id)).toEqual(['unreadable']…
-     60|       expect(totals.totalDeductible).toBe(year === '2025' ? 40 : 0);
+     62|       expect(totals.undated.map(row => row.id)).toEqual(['unreadable']…
+     63|       expect(totals.totalDeductible).toBe(year === '2025' ? 40 : 0);
 
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[64/146]⎯
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[69/155]⎯
 
 
  Test Files  7 failed (7)
-      Tests  146 failed | 53 passed (199)
-   Start at  04:37:18
-   Duration  1.23s (transform 630ms, setup 0ms, collect 1.72s, tests 137ms, environment 1ms, prepare 418ms)
+      Tests  155 failed | 53 passed (208)
+   Start at  04:49:01
+   Duration  1.87s (transform 1.01s, setup 0ms, collect 2.93s, tests 209ms, environment 1ms, prepare 812ms)
 
+EXIT:1
