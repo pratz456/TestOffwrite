@@ -433,6 +433,57 @@ describe('legacy 1099-NEC year split', () => {
     expect(JSON.stringify([forms, saved])).toBe(before);
   });
 
+  it('N5 keeps a saved two 1099-NEC same-payments decision while the guided switch is off and reopens it while the switch is on', () => {
+    const forms = necPair();
+    const saved = decision('d1', 'same_payments', necSources(), { version: 1, countedAmount: 12000 });
+    const before = JSON.stringify([forms, saved]);
+    const records = { transactions: [], receipts: [], forms, decisions: [saved] };
+    const resolution = () => {
+      const { candidates } = listIncomeSourceCandidates(2026, [], [], forms);
+      return resolveIncomeSources(2026, candidates, [saved]);
+    };
+    process.env.legacyNecReopen = '1';
+    try {
+      for (const guided of [undefined, '0', 'true'] as const) {
+        if (guided === undefined) delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
+        else process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = guided;
+        const kept = reconcileBusinessIncome(2026, [], [], forms, [saved]);
+        expect(kept.grossReceipts, String(guided)).toBe(12000);
+        expect(kept.netReceipts, String(guided)).toBe(12000);
+        expect(kept.warnings, String(guided)).toContain(LEGACY_NEC_WARNING);
+        expect(kept.warnings.join('\n'), String(guided)).not.toContain(LEGACY_NEC_REOPEN_REASON);
+        expect(kept.warnings.join('\n'), String(guided)).not.toContain(ERR_SAME_NEEDS_K);
+        const summary = summarizeIncomeReconciliation(2026, records);
+        expect(summary.grossReceipts, String(guided)).toBe(12000);
+        expect(summary.conflicts, String(guided)).toEqual([]);
+        expect(summary.decisions[0].applied, String(guided)).toBe(true);
+        expect(summary.decisions[0].changeNotice, String(guided)).toBeUndefined();
+        expect(summary.decisions[0].legacyNecWarning, String(guided)).toBe(LEGACY_NEC_WARNING);
+        const resolved = resolution();
+        expect(resolved.reopenedNecDecisionIds, String(guided)).toEqual([]);
+        expect(resolved.conflicts, String(guided)).toEqual([]);
+        expect(resolved.appliedDecisionIds, String(guided)).toEqual(['d1']);
+      }
+      process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
+      const error = blocked(() => reconcileBusinessIncome(2026, [], [], forms, [saved]));
+      expect(error.conflicts[0]).toMatchObject({ reason: 'stale_decision', decisionId: 'd1' });
+      expect(error.conflicts[0].message).toContain(LEGACY_NEC_REOPEN_REASON);
+      expect(error.conflicts[0].message).toContain(ERR_SAME_NEEDS_K);
+      const summary = summarizeIncomeReconciliation(2026, records);
+      expect(summary.grossReceipts).toBe(24000);
+      expect(summary.decisions[0].applied).toBe(false);
+      expect(summary.decisions[0].changeNotice).toBe(LEGACY_NEC_CHANGE_NOTICE);
+      const resolved = resolution();
+      expect(resolved.reopenedNecDecisionIds).toEqual(['d1']);
+      expect(resolved.appliedDecisionIds).toEqual([]);
+      expect(resolved.reconciledCents).toBe(2_400_000);
+      expect(JSON.stringify([forms, saved])).toBe(before);
+    } finally {
+      delete process.env.legacyNecReopen;
+      delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
+    }
+  });
+
   it('reopens the current year with the reason and shows $24,000 only alongside it', () => {
     const forms = necPair();
     const saved = decision('d1', 'same_payments', necSources(), { version: 1, countedAmount: 12000 });

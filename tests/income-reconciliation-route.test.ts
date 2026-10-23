@@ -511,6 +511,26 @@ describe('explicit choice and save rules', () => {
     }
   });
 
+  it('returns the guided decision list as one sentence when the choice is not recognized', async () => {
+    const body = { taxYear: 2026, decision: 'merge', explicitChoice: true, sources: [ref('form_1099', 'k1', 12000)] };
+    process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1 = '1';
+    delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
+    try {
+      const guided = await json(await POST(request('POST', { body })));
+      expect(guided.status).toBe(400);
+      expect(guided.body.error).toBe('Provide the tax year, a decision type (Same payments, Separate income, 1099-K includes fees or a client sent a corrected 1099-NEC) and the records it covers with their current amounts.');
+      expect(state.writes).toEqual([]);
+      process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME = '1';
+      const withK = await json(await POST(request('POST', { body })));
+      expect(withK.status).toBe(400);
+      expect(withK.body.error).toBe('Provide the tax year, a decision type (Same payments, Separate income, 1099-K includes fees, 1099-K includes amounts that are not business income, Part of the 1099-K is also on the 1099-NEC or a client sent a corrected 1099-NEC) and the records it covers with their current amounts.');
+      expect(state.writes).toEqual([]);
+    } finally {
+      delete process.env.NEXT_PUBLIC_RECONCILIATION_GUIDED_V1;
+      delete process.env.NEXT_PUBLIC_RECONCILIATION_K_NOT_BUSINESS_INCOME;
+    }
+  });
+
   it('names an unknown decision in plain text and never shows the corrected-form code', async () => {
     const hidden = await json(await POST(request('POST', { body: {
       taxYear: 2026, decision: 'merge', explicitChoice: true, sources: [ref('form_1099', 'k1', 12000)],
@@ -530,7 +550,8 @@ describe('explicit choice and save rules', () => {
         taxYear: 2026, decision: 'merge', explicitChoice: true, sources: [ref('form_1099', 'k1', 12000)],
       } })));
       expect(shown.status).toBe(400);
-      expect(shown.body.error).toContain(DECISION_LABEL_CORRECTED);
+      expect(shown.body.error).toContain('a client sent a corrected 1099-NEC');
+      expect(shown.body.error).not.toContain('or A ');
       expect(String(shown.body.error)).not.toContain('corrected_form_replaces');
       expect(String(shown.body.error)).not.toContain('same_payments');
       expect(String(shown.body.error)).not.toContain('separate_income');
