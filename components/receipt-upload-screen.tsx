@@ -9,7 +9,6 @@ import type { ReceiptMatchCandidate } from '@/lib/ocr/receipt-processor';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { receiptCommitForm, type ReceiptDraft } from '@/lib/receipts/receipt-review';
-import { localCalendarYMD } from '@/lib/transactions/calendar-date';
 
 interface ReceiptUploadScreenProps {
   user: {
@@ -102,7 +101,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
   const editManually = () => {
     if (!selectedFile || operationRef.current) return;
     if (!extractedData) {
-      const date = localCalendarYMD();
+      const date = new Date().toISOString().slice(0, 10);
       setDraft({ merchant: '', amount: '', date, category: 'other' });
       setExtractedData({ merchant: '', amount: 0, date, category: 'other', confidence: 0, items: [], matchCandidates: [], suggestedReceiptType: 'expense', suggestedReceiptConfidence: 0 });
       setAttachmentChoice('create');
@@ -377,7 +376,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                       </div>
                       <div className="space-y-1">
                         <Label htmlFor="receipt-date">Date</Label>
-                        <Input id="receipt-date" type="date" value={draft.date}
+                        <Input id="receipt-date" type="date" value={draft.date} required
                           onChange={event => setDraft(value => ({ ...value, date: event.target.value }))} />
                       </div>
                     </div>

@@ -1,4 +1,3 @@
-import { NEEDS_MORE_INFORMATION, UNREADABLE_DATE_REASON } from '@/lib/receipts/receipt-date';
 import { safeYMD } from '@/lib/schedule-c/taxDate';
 import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
@@ -138,8 +137,6 @@ export interface Transaction {
 
   // New AI Analysis Fields (for re-run analysis)
   deductionStatus?: 'Likely Deductible' | 'Possibly Deductible' | 'Non-Deductible';
-  /** Why deductionStatus is Needs more information, when the date itself could not be read. */
-  statusReason?: string;
   confidence?: number; // 0-1 confidence score
   reasoning?: string; // Short IRS-aligned explanation (≤280 chars)
   irsPublication?: string; // IRS publication reference
@@ -303,7 +300,6 @@ export const hydrateTransactionRecord = (data: DocumentData, fallbackId: string)
 
     // New AI Analysis Fields (combine existing with normalized values)
     deductionStatus: data.deductionStatus || normalizedAi.deductionStatus,
-    statusReason: typeof data.statusReason === 'string' ? data.statusReason : undefined,
     confidence: data.confidence ?? normalizedAi.confidence,
     reasoning: data.reasoning || normalizedAi.reasoning,
     irsPublication: data.irsPublication || normalizedAi.irsPublication,
@@ -460,14 +456,8 @@ export async function createTransaction(
     const docRef = doc(db, "user_profiles", userId, "accounts", accountId, "transactions", transId);
 
     const rawDate = transactionData.date;
-    const hasDate = rawDate !== undefined && rawDate !== null && !(typeof rawDate === 'string' && rawDate.trim() === '');
-    const parsed = hasDate ? safeYMD(rawDate) : null;
-    // An unreadable day is not an error and is not dropped. The amount and receipt stay, with no tax date.
-    const normalized = hasDate && !parsed
-      ? { ...transactionData, date: '' }
-      : hasDate
-        ? { ...transactionData, date: parsed as string }
-        : transactionData;
+    const parsed = typeof rawDate === 'string' && rawDate.trim() !== '' ? safeYMD(rawDate) : null;
+    const normalized = parsed ? { ...transactionData, date: parsed } : transactionData;
 
     const newTransaction = {
       ...normalized,
@@ -476,7 +466,6 @@ export async function createTransaction(
       account_id: accountId,
       created_at: serverTimestamp(),
       updated_at: serverTimestamp(),
-      ...(hasDate && !parsed ? { deductionStatus: NEEDS_MORE_INFORMATION, statusReason: UNREADABLE_DATE_REASON } : {}),
     };
 
     await setDoc(docRef, newTransaction);
@@ -499,10 +488,6 @@ export async function createTransaction(
             deduction_score: data.deduction_score,
             description: data.description,
             notes: data.notes,
-            receipt_url: data.receipt_url,
-            receipt_filename: data.receipt_filename,
-            deductionStatus: data.deductionStatus,
-            statusReason: data.statusReason,
 
             account_id: data.account_id,
             userId: data.userId || data.user_id,

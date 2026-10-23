@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { safeYMD } from '@/lib/schedule-c/taxDate';
 
 const text = z.string().max(5000).nullable().transform(value => value ?? '').optional();
 export const transactionIdInput = z.string().min(1).max(256).regex(/^[^/\\\x00-\x1f\x7f]+$/);
@@ -15,7 +14,6 @@ export const transactionUpdatesInput = z.object({
     business_use_percentage: z.number().finite().min(0).max(100).optional(),
     depreciation_method: z.enum(['straight_line', 'declining_balance', 'section_179']).optional() }).strict().optional(),
   mileage_details: z.object({ start_location: text, end_location: text, miles: z.number().finite().nonnegative().optional(), business_purpose: text }).strict().optional(),
-  date: z.string().refine(value => safeYMD(value) === value).optional(),
 }).strict().refine(value => Object.keys(value).length > 0, 'Provide at least one editable field');
 
 export const transactionCreateInput = z.object({

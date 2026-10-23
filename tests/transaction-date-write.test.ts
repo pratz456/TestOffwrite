@@ -23,8 +23,7 @@ vi.mock('firebase/firestore', () => ({
 }));
 vi.mock('@/lib/firebase/client', () => ({ db: { kind: 'synthetic' } }));
 
-import { createTransaction, getTransactions, updateTransaction } from '@/lib/firebase/transactions';
-import { placeReceiptDate, summarizeReceiptYears } from '@/lib/receipts/receipt-date';
+import { createTransaction, updateTransaction } from '@/lib/firebase/transactions';
 
 beforeEach(() => {
   firestore.stored = null;
@@ -56,41 +55,6 @@ describe('client transaction create stores a calendar day', () => {
     expect(firestore.setDoc).toHaveBeenCalledTimes(1);
     expect(firestore.stored?.date).toBe(stored);
     expect(result.data?.date).toBe(stored);
-  });
-
-  it.each(['12/1/2025', '1/12/2025', '11/3/2026', '1/5/2025', '01/05/2025', '02/30/2025', '2025/13/01', '31/2/2025', '29/2/2025', '0/12/2025'])('saves the amount and receipt when %s is unreadable', async (printed) => {
-    const result = await createTransaction('synthetic-owner', 'manual', {
-      merchant_name: 'Synthetic Cafe',
-      amount: 18.5,
-      date: printed,
-      receipt_url: '/api/receipts/synthetic',
-      receipt_filename: 'receipt.png',
-      trans_id: 'synthetic-tx',
-    });
-    expect(result.error).toBeNull();
-    expect(result.data?.amount).toBe(18.5);
-    expect(result.data?.date).toBe('');
-    expect(result.data?.receipt_url).toBe('/api/receipts/synthetic');
-    expect(firestore.setDoc).toHaveBeenCalledTimes(1);
-    expect(firestore.stored?.date).toBe('');
-    expect(firestore.stored?.deductionStatus).toBe('Needs more information');
-    expect(firestore.stored?.statusReason).toBe('unreadable_date');
-    expect(placeReceiptDate(result.data?.date)).toEqual({ date: '', taxYear: null, status: 'Needs more information', statusReason: 'unreadable_date' });
-
-    const queryModule = await import('firebase/firestore');
-    vi.mocked(queryModule.getDocs).mockResolvedValue({
-      size: 1,
-      forEach: (visit: (doc: { id: string; data: () => Record<string, unknown> }) => void) => {
-        visit({ id: 'synthetic-doc', data: () => firestore.stored! });
-      },
-    } as never);
-    const listed = await getTransactions('synthetic-owner');
-    expect(listed.error).toBeNull();
-    expect(listed.data).toEqual([expect.objectContaining({
-      trans_id: 'synthetic-tx', amount: 18.5, date: '', receipt_url: '/api/receipts/synthetic',
-      deductionStatus: 'Needs more information', statusReason: 'unreadable_date',
-    })]);
-    expect(summarizeReceiptYears(listed.data).needsMoreInformation).toEqual({ label: 'Needs more information', count: 1, amount: 18.5 });
   });
 });
 

@@ -4,7 +4,6 @@ import { adminDb } from '@/lib/firebase/admin';
 import { analysisTaskId, staleAnalysisUpdate } from '@/lib/ai/analysis-jobs';
 import { taxDecisionUpdate } from './tax-decision';
 import { hasTransactionFactChange, TRANSACTION_FACT_FIELDS } from './fact-changes';
-import { clearUnreadableDateHold } from './unreadable-date';
 
 /** A fact edit and its durable revision are committed together, so closing the app cannot lose analysis. */
 export async function saveTransactionChanges(ref: DocumentReference, userId: string, updates: Record<string, unknown>) {
@@ -29,15 +28,7 @@ export async function saveTransactionChanges(ref: DocumentReference, userId: str
       analysisInputRevision: randomUUID(), analysisRefreshReason: 'transaction_changed',
       analysisJobId: analysisTaskId({ userId, accountId: parts[3], transactionId: parts[5] }),
     } : {};
-    // Clear the unreadable-date hold first. A fact change then re-runs the
-    // normal analysis status. A date alone leaves the status unset.
-    const update = {
-      ...changes,
-      ...clearUnreadableDateHold(record, changes),
-      ...taxDecisionUpdate(record, changes),
-      ...refresh,
-      updated_at: new Date(),
-    };
+    const update = { ...changes, ...taxDecisionUpdate(record, changes), ...refresh, updated_at: new Date() };
     tx.update(ref, update);
     return { ...record, ...update, id: snapshot.id, trans_id: record.trans_id || snapshot.id };
   });
