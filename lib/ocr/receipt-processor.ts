@@ -110,6 +110,9 @@ const SKIP_PHRASES = [
   'print date',
   'ship date',
   'visit by',
+  'returns by',
+  'return by',
+  'expire on',
   'check-in',
   'due date',
   'ship by',
@@ -117,6 +120,7 @@ const SKIP_PHRASES = [
   'delivered',
   'delivery',
   'expiring',
+  'expired',
   'printed',
   'returns',
   'shipped',
@@ -124,6 +128,7 @@ const SKIP_PHRASES = [
   'written',
   'arrival',
   'expires',
+  'expire',
   'invoice #',
   'order #',
   'statement',
@@ -205,16 +210,61 @@ function dateIsSkipped(line: string, dateStart: number, dateEnd: number): boolea
   return SKIP_PHRASES.some(phrase => adjacentMatchLength(line, dateStart, dateEnd, phrase, phrase === 'invoice #') > 0);
 }
 
+/** "Date" is not a purchase label when one of these skip words sits directly in front of it. */
+const DATE_LABEL_BLOCKERS = [
+  'valid until',
+  'check-in',
+  'delivery',
+  'statement',
+  'arrival',
+  'expiry',
+  'return',
+  'order',
+  'print',
+  'ship',
+  'due',
+  'exp',
+];
+
+function adjacentPhraseStart(line: string, dateStart: number, dateEnd: number, phrase: string): number | null {
+  const pattern = new RegExp(phraseSource(phrase), 'gi');
+  let match: RegExpExecArray | null;
+  let found: number | null = null;
+  let longest = 0;
+  while ((match = pattern.exec(line)) !== null) {
+    const start = match.index;
+    const end = start + match[0].length;
+    const before = end <= dateStart && gapAllows(line.slice(end, dateStart), false);
+    const after = start >= dateEnd && gapAllows(line.slice(dateEnd, start), false);
+    if ((before || after) && match[0].length > longest) {
+      longest = match[0].length;
+      found = start;
+    }
+    if (match[0].length === 0) break;
+  }
+  return found;
+}
+
+function dateLabelBlocked(line: string, dateStart: number, dateEnd: number): boolean {
+  const wordStart = adjacentPhraseStart(line, dateStart, dateEnd, 'date');
+  if (wordStart === null) return false;
+  const before = line.slice(0, wordStart);
+  return DATE_LABEL_BLOCKERS.some(word => new RegExp(`${phraseSource(word)}[ \\t]*$`, 'i').test(before));
+}
+
 function labelTier(line: string, dateStart: number, dateEnd: number): number {
   let tier = 0;
   let length = 0;
+  let winning = '';
   for (const label of LABEL_PHRASES) {
     const size = adjacentMatchLength(line, dateStart, dateEnd, label.text, false);
     if (size > length) {
       length = size;
       tier = label.tier;
+      winning = label.text;
     }
   }
+  if (winning === 'date' && dateLabelBlocked(line, dateStart, dateEnd)) return 0;
   return tier;
 }
 
@@ -241,12 +291,26 @@ function highestTier(candidates: TieredDate[]): TieredDate[] {
   return candidates.filter(candidate => candidate.tier === best);
 }
 
-function hasPaidOrPayment(text: string): boolean {
-  return /\b(?:paid|payment)\b/i.test(text);
+const NOT_A_PAID_LINE = /\b(?:unpaid|payment\s+due|payment\s+method|payment\s+terms|payment\s+options|pay\s+by)\b/i;
+const DUE_DATE_PHRASES = ['payment due', 'due date', 'due'];
+
+function lineStatesMoneyPaid(line: string): boolean {
+  if (NOT_A_PAID_LINE.test(line)) return false;
+  const amountPaid = /\bamount\s+paid\b[^0-9$]*\$?\s*(\d+(?:\.\d+)?)/i.exec(line);
+  if (amountPaid) return Number(amountPaid[1]) > 0;
+  if (/\b(?:paid\s+in\s+full|payment\s+received)\b/i.test(line)) return true;
+  return /\bpaid\b/i.test(line);
 }
 
-function hasDueLine(text: string): boolean {
-  return text.split('\n').some(line => /\bdue\b/i.test(line));
+function moneyWasPaid(text: string): boolean {
+  return text.split('\n').some(lineStatesMoneyPaid);
+}
+
+function hasAdjacentDueDate(text: string, candidates: ReceiptDateCandidate[]): boolean {
+  return candidates.some(candidate => {
+    const { dateStart, dateEnd } = spanOf(text, candidate);
+    return DUE_DATE_PHRASES.some(phrase => adjacentMatchLength(candidate.line, dateStart, dateEnd, phrase, false) > 0);
+  });
 }
 
 function balanceDueAboveZero(text: string): boolean {
@@ -254,10 +318,11 @@ function balanceDueAboveZero(text: string): boolean {
   return amount !== null && Number(amount[1]) > 0;
 }
 
-/** An invoice date alone is not a purchase date when the bill is still due and nothing was paid. */
-function dropUnpaidInvoice(text: string, candidates: TieredDate[]): TieredDate[] {
+/** An invoice date alone is not a purchase date when a due date or a balance due above zero is present and nothing was paid. */
+function dropUnpaidInvoice(text: string, candidates: TieredDate[], allCandidates: ReceiptDateCandidate[]): TieredDate[] {
   const onlyInvoiceDate = candidates.length > 0 && candidates.every(candidate => candidate.tier === 3);
-  if (onlyInvoiceDate && !hasPaidOrPayment(text) && (hasDueLine(text) || balanceDueAboveZero(text))) return [];
+  const unpaid = hasAdjacentDueDate(text, allCandidates) || balanceDueAboveZero(text);
+  if (onlyInvoiceDate && unpaid && !moneyWasPaid(text)) return [];
   return candidates;
 }
 
@@ -487,7 +552,7 @@ export class ReceiptProcessor {
 
   private extractDate(text: string): string {
     const candidates = this.dateCandidates(text);
-    const kept = datesInOneYear(dropUnpaidInvoice(text, highestTier(withoutAdjacentSkips(text, candidates))));
+    const kept = datesInOneYear(dropUnpaidInvoice(text, highestTier(withoutAdjacentSkips(text, candidates)), candidates));
     return earliestDateText(kept);
   }
 
