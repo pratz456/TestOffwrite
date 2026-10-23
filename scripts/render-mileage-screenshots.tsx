@@ -19,7 +19,7 @@ const saved = saveVehicle(fleet, second.id, { ownership: 'owned', method: 'stand
 if (!saved.ok) throw new Error(saved.reason);
 fleet = saved.vehicles;
 
-const trips: MileageTripFields[] = [
+const tripRows = [
   ['t1', 'Home', 'Office', '2026-01-06', 12],
   ['t2', 'Office', 'Home', '2026-01-07', 12],
   ['t3', 'Home', 'Office', '2026-01-14', 11],
@@ -30,8 +30,9 @@ const trips: MileageTripFields[] = [
   ['t8', 'Client', 'Studio', '2026-02-11', 8],
   ['t9', 'Studio', 'Client', '2026-03-09', 9],
   ['t10', 'Airport', 'Hotel', '2026-04-02', 18],
-].map(([id, startLocation, endLocation, date, miles]) => ({
-  id, date, startLocation, endLocation, miles: Number(miles), businessPurpose: '', roundTrip: false,
+] as const;
+const trips: MileageTripFields[] = tripRows.map(([id, startLocation, endLocation, date, miles]) => ({
+  id, date, startLocation, endLocation, miles, businessPurpose: '', roundTrip: false,
   vehicleId: null, tripType: null, homeDestination: null,
 }));
 const groups = groupTrips(trips);

@@ -94,7 +94,9 @@ export function mileageVehicleCopyCatalog(enabled: boolean): string[] {
 }
 
 export function mileageVehicleCopyEnabled(
-  env: { NEXT_PUBLIC_MILEAGE_VEHICLE_COPY?: string } = process.env,
+  env: { NEXT_PUBLIC_MILEAGE_VEHICLE_COPY?: string } = {
+    NEXT_PUBLIC_MILEAGE_VEHICLE_COPY: process.env.NEXT_PUBLIC_MILEAGE_VEHICLE_COPY,
+  },
 ): boolean {
   return env.NEXT_PUBLIC_MILEAGE_VEHICLE_COPY === '1';
 }
