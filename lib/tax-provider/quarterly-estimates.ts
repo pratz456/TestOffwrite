@@ -149,9 +149,16 @@ export type EstimateDateReview = {
  * and amount kept. Undated income is flagged and is not dropped. A datetime-only
  * income row is placed by incomeEstimateDay. The estimate is not blocked.
  */
+/** Earliest estimate day for income, or the written day. Null when the row is not income or cannot be placed. */
+export function estimateIncomeDate(transaction: QuarterlyTransactionLike, userTimezone: string): string | null {
+  if (!isIncomeCategory(transaction) || !(typeof transaction.amount === 'number' && transaction.amount < 0)) return null;
+  return incomeEstimateDay(transaction, userTimezone)?.ymd ?? null;
+}
+
 export function reviewEstimateDates(
   transactions: QuarterlyTransactionLike[],
   userTimezone: string,
+  year?: number,
 ): EstimateDateReview {
   let expenseCents = 0;
   let expenseNeedsDateCount = 0;
@@ -161,6 +168,8 @@ export function reviewEstimateDates(
     if (!isPosted(transaction) || !Number.isFinite(transaction.amount)) continue;
     if (getLocalTransactionDate(transaction, userTimezone)) continue;
     if (isIncomeCategory(transaction) && transaction.amount < 0) {
+      const placed = incomeEstimateDay(transaction, userTimezone);
+      if (year !== undefined && placed?.year !== year) continue;
       incomeNeedsDateCount += 1;
       incomeCents += toCents(-transaction.amount);
       continue;

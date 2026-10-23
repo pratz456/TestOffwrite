@@ -96,6 +96,7 @@ export async function GET(request: NextRequest) {
       agi: annual.form1040.agi, taxableIncome: annual.form1040.taxableIncome,
       incomeTax: annual.form1040.incomeTax, totalEstimatedTax: annual.form1040.totalTax,
       calculationWarnings: annual.form1040.calculationWarnings,
+      chargesNeedingDate: annual.chargesNeedingDate,
       totalPaid: recordedEstimatedPayments + totalFederalWithheld,
       recordedEstimatedPayments,
       w2Withheld: annual.payments.w2FederalWithheld,
