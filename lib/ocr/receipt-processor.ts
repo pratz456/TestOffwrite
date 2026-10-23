@@ -97,7 +97,6 @@ function allowsMonthPeriod(token: string, dotted: boolean): boolean {
 /**
  * A skip phrase drops a date only when it sits on the same line, directly before
  * the date or directly after it. The gap may be spaces and : # , . - only.
- * "invoice #" may also have its invoice number in that gap. "order #" and "check #" may not.
  */
 const SKIP_PHRASES = [
   'returns accepted until',
@@ -185,21 +184,20 @@ function phraseSource(phrase: string): string {
   return `${start}${escaped}${end}`;
 }
 
-/** Spaces and : # , . - only, or an invoice number when this phrase is "invoice #". */
-function gapAllows(gap: string, invoiceNumber: boolean): boolean {
-  if (/^[ \t:#,\.\-]*$/.test(gap)) return true;
-  return invoiceNumber && /^[ \t:#,\.\-]*\d+[ \t:#,\.\-]*$/.test(gap);
+/** Spaces and : # , . - only. An invoice number between "invoice #" and the date keeps the date. */
+function gapAllows(gap: string): boolean {
+  return /^[ \t:#,\.\-]*$/.test(gap);
 }
 
-function adjacentMatchLength(line: string, dateStart: number, dateEnd: number, phrase: string, invoiceNumber: boolean): number {
+function adjacentMatchLength(line: string, dateStart: number, dateEnd: number, phrase: string): number {
   const pattern = new RegExp(phraseSource(phrase), 'gi');
   let match: RegExpExecArray | null;
   let longest = 0;
   while ((match = pattern.exec(line)) !== null) {
     const start = match.index;
     const end = start + match[0].length;
-    const before = end <= dateStart && gapAllows(line.slice(end, dateStart), invoiceNumber);
-    const after = start >= dateEnd && gapAllows(line.slice(dateEnd, start), false);
+    const before = end <= dateStart && gapAllows(line.slice(end, dateStart));
+    const after = start >= dateEnd && gapAllows(line.slice(dateEnd, start));
     if ((before || after) && match[0].length > longest) longest = match[0].length;
     if (match[0].length === 0) break;
   }
@@ -207,7 +205,7 @@ function adjacentMatchLength(line: string, dateStart: number, dateEnd: number, p
 }
 
 function dateIsSkipped(line: string, dateStart: number, dateEnd: number): boolean {
-  return SKIP_PHRASES.some(phrase => adjacentMatchLength(line, dateStart, dateEnd, phrase, phrase === 'invoice #') > 0);
+  return SKIP_PHRASES.some(phrase => adjacentMatchLength(line, dateStart, dateEnd, phrase) > 0);
 }
 
 /** "Date" is not a purchase label when one of these skip words sits directly in front of it. */
@@ -234,8 +232,8 @@ function adjacentPhraseStart(line: string, dateStart: number, dateEnd: number, p
   while ((match = pattern.exec(line)) !== null) {
     const start = match.index;
     const end = start + match[0].length;
-    const before = end <= dateStart && gapAllows(line.slice(end, dateStart), false);
-    const after = start >= dateEnd && gapAllows(line.slice(dateEnd, start), false);
+    const before = end <= dateStart && gapAllows(line.slice(end, dateStart));
+    const after = start >= dateEnd && gapAllows(line.slice(dateEnd, start));
     if ((before || after) && match[0].length > longest) {
       longest = match[0].length;
       found = start;
@@ -257,7 +255,7 @@ function labelTier(line: string, dateStart: number, dateEnd: number): number {
   let length = 0;
   let winning = '';
   for (const label of LABEL_PHRASES) {
-    const size = adjacentMatchLength(line, dateStart, dateEnd, label.text, false);
+    const size = adjacentMatchLength(line, dateStart, dateEnd, label.text);
     if (size > length) {
       length = size;
       tier = label.tier;
@@ -309,7 +307,7 @@ function moneyWasPaid(text: string): boolean {
 function hasAdjacentDueDate(text: string, candidates: ReceiptDateCandidate[]): boolean {
   return candidates.some(candidate => {
     const { dateStart, dateEnd } = spanOf(text, candidate);
-    return DUE_DATE_PHRASES.some(phrase => adjacentMatchLength(candidate.line, dateStart, dateEnd, phrase, false) > 0);
+    return DUE_DATE_PHRASES.some(phrase => adjacentMatchLength(candidate.line, dateStart, dateEnd, phrase) > 0);
   });
 }
 
