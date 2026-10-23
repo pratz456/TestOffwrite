@@ -7,7 +7,7 @@ export const HIGH_AGI_THRESHOLD_MFS = 75_000; // §6654(d)(1)(C)(ii), married fi
 export const INSTALLMENT_SHARE = 0.25 as const; // §6654(d)(1)(A)
 export const DE_MINIMIS_TAX_LESS_WITHHOLDING = 1_000; // §6654(e)(1)
 export const Q4_ALTERNATIVE_RETURN_DAY = { month: 1, day: 31 }; // §6654(h); moved to next business day by §7503
-export const PENALTY_PERIOD_END_DAY = { month: 4, day: 15 }; // §6654(c)(2), the following year
+export const PENALTY_PERIOD_END_DAY = { month: 4, day: 15 }; // §6654(b)(2), the following year
 
 /**
  * §6654(e)(2): prior-year tax after refundable credits at or below this amount is zero tax.

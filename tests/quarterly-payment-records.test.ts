@@ -224,8 +224,63 @@ describe('recorded quarterly payments', () => {
       recordId: 'Q1_2026', paymentId: idA, quarter: 1, year: 2026, paidAmount: 2125, paidDate: '2026-04-14',
     }));
     expect(retry.status).toBe(200);
-    expect((await retry.json()).paidDate).toBe('2026-04-10');
+    expect((await retry.json()).paidDate).toBe('2026-04-14');
     expect(totalRecordedPayments(await getRecordedQuarterlyPayments('owner-a', 2026))).toBe(2125);
+    expect((await getRecordedQuarterlyPayments('owner-a', 2026)).filter(payment => payment.paidAmount > 0)).toHaveLength(1);
+  });
+
+  it('counts a legacy payment once after it is edited twice, down to $2,000', async () => {
+    state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 2125, paidDate: '2026-04-01', estimatedAmount: 0 });
+    expect((await POST(request('POST', {
+      recordId: 'Q1_2026', paymentId: idA, quarter: 1, year: 2026, paidAmount: 2125, paidDate: '2026-04-10',
+    }))).status).toBe(200);
+    expect((await POST(request('POST', {
+      recordId: 'Q1_2026', paymentId: idB, quarter: 1, year: 2026, paidAmount: 2000, paidDate: '2026-04-12',
+    }))).status).toBe(200);
+    const saved = await getRecordedQuarterlyPayments('owner-a', 2026);
+    const countedPayments = saved.filter(payment => payment.paidAmount > 0);
+    expect(countedPayments).toHaveLength(1);
+    expect(totalRecordedPayments(saved)).toBe(2000);
+    expect(state.docs.get(pathFor(idA))?.supersededBy).toBe(idB);
+    expect(state.docs.get(key)?.paidAmount).toBe(2125);
+    expect(state.docs.get(key)?.supersededBy).toBe(idB);
+  });
+
+  it('saves a same-id re-edit instead of keeping the first amount', async () => {
+    state.docs.set(key, { quarter: 1, year: 2026, paidAmount: 2125, paidDate: '2026-04-01' });
+    expect((await POST(request('POST', {
+      recordId: 'Q1_2026', paymentId: idA, quarter: 1, year: 2026, paidAmount: 2125, paidDate: '2026-04-10',
+    }))).status).toBe(200);
+    const edited = await POST(request('POST', {
+      recordId: 'Q1_2026', paymentId: idA, quarter: 1, year: 2026, paidAmount: 2000, paidDate: '2026-05-01',
+    }));
+    expect(edited.status).toBe(200);
+    expect(await edited.json()).toMatchObject({ paidAmount: 2000, paidDate: '2026-05-01' });
+    const again = await POST(request('POST', {
+      recordId: 'Q1_2026', paymentId: idA, quarter: 1, year: 2026, paidAmount: 2000, paidDate: '2026-05-01',
+    }));
+    expect(again.status).toBe(200);
+    expect(await again.json()).toMatchObject({ paidAmount: 2000, paidDate: '2026-05-01' });
+    const saved = await getRecordedQuarterlyPayments('owner-a', 2026);
+    expect(saved.filter(payment => payment.paidAmount > 0)).toHaveLength(1);
+    expect(totalRecordedPayments(saved)).toBe(2000);
+    expect(state.docs.get(pathFor(idA))?.supersededBy).toBeUndefined();
+  });
+
+  it('shows confirmation and notes from the current payment, not the superseded record', async () => {
+    state.docs.set(key, {
+      quarter: 1, year: 2026, paidAmount: 2125, paidDate: '2026-04-01', estimatedAmount: 500,
+      confirmationNumber: 'OLD-CONF', paymentMethod: 'Check', notes: 'old note', supersededBy: idA,
+    });
+    state.docs.set(pathFor(idA), {
+      quarter: 1, year: 2026, paidAmount: 2000, paidDate: '2026-04-12',
+      confirmationNumber: 'NEW-CONF', paymentMethod: 'EFTPS', notes: 'new note',
+    });
+    const result = await (await GET(request('GET'))).json();
+    expect(result.payments[0]).toMatchObject({
+      paidAmount: 2000, paidDate: '2026-04-12', estimatedAmount: 500,
+      confirmationNumber: 'NEW-CONF', paymentMethod: 'EFTPS', notes: 'new note',
+    });
   });
 });
 

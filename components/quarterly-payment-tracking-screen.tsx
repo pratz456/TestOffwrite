@@ -24,6 +24,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { newClientPaymentId } from "@/lib/planner/client-payment-id";
 
 interface QuarterlyPaymentTrackingScreenProps {
   user: { id: string; email?: string };
@@ -140,13 +141,15 @@ export function QuarterlyPaymentTrackingScreen({
 
     setSubmittingQuarter(quarter);
     setError(null);
-    const paymentId = recordAttemptIds.current[quarter] ?? crypto.randomUUID();
+    const paymentId = recordAttemptIds.current[quarter] ?? newClientPaymentId();
     recordAttemptIds.current[quarter] = paymentId;
+    const existing = payments.find((payment) => payment.quarter === quarter);
     try {
       const res = await makeAuthenticatedRequest("/api/tax/quarterly-payments", {
         method: "POST",
         body: JSON.stringify({
           paymentId,
+          ...(existing?.status === "recorded" ? { recordId: `Q${quarter}_${selectedYear}` } : {}),
           quarter,
           year: selectedYear,
           paidAmount: amount,

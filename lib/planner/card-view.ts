@@ -1,4 +1,5 @@
 import type { SafeHarborBasis } from '@/lib/tax-provider/quarterly-planner';
+import { getIndividualReturnDueDate } from '@/lib/tax-provider/payment-deadlines';
 import { formatPlannerDueDate, formatPlannerMoney, formatPlannerMonthDay } from '@/lib/planner/format-due-date';
 import type { PastDueAllocation } from '@/lib/planner/past-due';
 import {
@@ -152,6 +153,10 @@ export function buildPlannerCardView(facts: PlannerResultFacts): PlannerCardView
   };
 }
 
+function individualReturnDueLabel(taxYear: number): string {
+  return formatPlannerDueDate(getIndividualReturnDueDate(taxYear).toISOString().slice(0, 10));
+}
+
 function afterPenaltyNote(facts: PlannerResultFacts, pastDue: PastDueAllocation): string | null {
   if (pastDue.window !== 'w3' || pastDue.remaining <= 0) return null;
   if (!(facts.showAfterPenaltyEndNote ?? SHOW_AFTER_PENALTY_END_NOTE)) return null;
@@ -190,7 +195,7 @@ function pastDuePlan(
       kind: 'plan', mode: 'after_final', ...shared, ...blank,
       afterFinalHeading: plannerFill(PLANNER_INSTALLMENTS_PASSED, { taxYear: facts.taxYear }),
       afterFinalDetail: plannerFill(PLANNER_REMAINING_SHORTFALL, {
-        amount: formatPlannerMoney(pastDue.remaining), returnDueDate: formatPlannerDueDate(pastDue.penaltyEnd),
+        amount: formatPlannerMoney(pastDue.remaining), returnDueDate: individualReturnDueLabel(facts.taxYear),
       }),
       deMinimis: deMinimisLine(facts),
       afterPenaltyEndNote: afterPenaltyNote(facts, pastDue),

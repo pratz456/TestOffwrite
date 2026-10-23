@@ -7,6 +7,7 @@ import { buildPlannerCardView, type PlannerCardView, type PlannerResultFacts } f
 import { appliedCreditDate, defaultDesignatedTaxYear, paymentYearChoiceApplies, validatePlannerForm, type PlannerFormInput } from '@/lib/planner/form-input';
 import { formatPlannerDueDate, formatPlannerMoney, localIsoDate } from '@/lib/planner/format-due-date';
 import { allocateOldestFirst, plannerTaxYearForDate } from '@/lib/planner/past-due';
+import { getIndividualReturnDueDate } from '@/lib/tax-provider/payment-deadlines';
 import {
   AFTER_PENALTY_END_NOTE, ALL_DUE_DATES_PASSED_SENTENCE, ANNUALIZED_PAST_DUE_NOTE, PAID_LATE_SENTENCE,
   PAST_DUE_LABEL, PAST_DUE_SENTENCE, PAYMENT_DATE_OUT_OF_RANGE_ERROR, PAYMENT_TAX_YEAR_PICKER_LABEL,
@@ -279,13 +280,20 @@ describe('v1.8 past-due planner', () => {
     extras.forEach(text => samples.push({ text, allowQ4: false }));
     const copy = readFileSync(new URL('../lib/planner/planner-copy.ts', import.meta.url), 'utf8');
     const filingLabel = plannerFill(PLANNER_FILING_STATUS_LABEL, { taxYear: YEAR });
+    const extensionPayClaims = [
+      'an extension helps with paying',
+      'an extension helps you pay',
+      'extension to pay',
+      'more time to pay',
+      'extra time to pay',
+    ];
     expect(copy.toLowerCase()).not.toContain('no penalty if you file early');
-    expect(copy.toLowerCase()).not.toContain('an extension helps with paying');
+    for (const claim of extensionPayClaims) expect(copy.toLowerCase()).not.toContain(claim);
     expect(copy).not.toContain('February 1, 2027');
     expect(copy).not.toContain('§6654(h)');
     for (const sample of samples) {
       expect(sample.text.toLowerCase()).not.toContain('no penalty if you file early');
-      expect(sample.text.toLowerCase()).not.toContain('an extension helps with paying');
+      for (const claim of extensionPayClaims) expect(sample.text.toLowerCase()).not.toContain(claim);
       const stripped = [q4Sentence, filingLabel, PLANNER_FILING_STATUS_LABEL, 'Married Filing Jointly', 'Married Filing Separately', 'planner-filing-status']
         .reduce((text, known) => text.split(known).join(''), sample.text);
       expect(stripped.toLowerCase()).not.toContain('filing');
@@ -688,15 +696,15 @@ describe('v1.8 past-due planner', () => {
     const previousFlag = process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER;
     process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER = 'true';
     try {
-      const open = (timeZone: string) => {
-        const asOf = localIsoDate(new Date(), timeZone);
+      const open = () => {
+        const asOf = localIsoDate();
         const html = decode(renderToStaticMarkup(createElement(EstimatedPaymentPlannerCard, {
-          profile: {}, onNavigate() {}, timeZone, asOf, initialPhase: 'form',
+          profile: {}, onNavigate() {}, initialPhase: 'form',
         })));
         return { asOf, html };
       };
       process.env.TZ = 'America/Los_Angeles';
-      const losAngeles = open('America/Los_Angeles');
+      const losAngeles = open();
       expect(losAngeles.asOf).toBe('2027-01-15');
       expect(losAngeles.html).toContain('January 15, 2027');
       expect(losAngeles.html).toContain('Filing status for 2026');
@@ -707,7 +715,7 @@ describe('v1.8 past-due planner', () => {
       expect(losAngelesPlan.q4FileAndPay).toBeNull();
       expect(markup(losAngelesPlan)).not.toContain('All 2026 due dates have passed');
       process.env.TZ = 'Pacific/Kiritimati';
-      const kiritimati = open('Pacific/Kiritimati');
+      const kiritimati = open();
       expect(kiritimati.asOf).toBe('2027-01-16');
       expect(kiritimati.html).not.toContain('January 15, 2027');
       expect(kiritimati.html).toContain('Filing status for 2026');
@@ -724,8 +732,36 @@ describe('v1.8 past-due planner', () => {
       else process.env.NEXT_PUBLIC_ESTIMATED_PAYMENT_PLANNER = previousFlag;
     }
     const route = readFileSync(new URL('../app/api/tax/quarterly-reminders/route.ts', import.meta.url), 'utf8');
+    const dashboard = readFileSync(new URL('../components/dashboard-screen.tsx', import.meta.url), 'utf8');
     expect(route).toContain('const asOf = isIsoDate(asOfParam) ? asOfParam : localIsoDate()');
     expect(route).not.toContain('new Date().toISOString().slice(0, 10)');
+    expect(dashboard).toContain('const plannerAsOf = localIsoDate()');
+  });
+
+  it('uses the shifted individual return due date for tax year 2027', () => {
+    expect(new Date(Date.UTC(2028, 3, 15, 12)).getUTCDay()).toBe(6);
+    const due = getIndividualReturnDueDate(2027).toISOString().slice(0, 10);
+    expect(due).toBe('2028-04-18');
+    const dues = getInstallmentDueDates(2027).map(item => item.dueDate);
+    const installmentCents = [212500, 212500, 212500, 212500];
+    const pastDue = allocateOldestFirst({
+      dueDates: dues,
+      installmentCents,
+      credits: dues.map((date, index) => ({ date, cents: installmentCents[index] })),
+      asOf: '2028-03-01',
+      rolledForwardCents: null,
+    });
+    expect(pastDue.window).toBe('w2');
+    expect(pastDue.remaining).toBe(0);
+    expect(pastDue.penaltyEnd).toBe('2028-04-15');
+    const view = buildPlannerCardView({
+      line24: 8500, credits: 0, twelveMonth: 'yes', citizenOrResident: 'yes', taxYear: 2027,
+      hasCurrentYearFigure: false, basis: 'prior_year_100', annualAmount: 8500,
+      nextAmount: pastDue.nextOnly, nextDueDate: pastDue.nextDueDate, pastDue,
+      deMinimisApplies: false, deMinimisEvaluated: false,
+    });
+    expect(view.afterFinalDetail).toContain(formatPlannerDueDate(due));
+    expect(view.afterFinalDetail).not.toContain('April 15, 2028');
   });
 
   it('shows tax year 2026 on the card for January 5 and March 1 2027', () => {

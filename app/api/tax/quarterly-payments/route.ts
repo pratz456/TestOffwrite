@@ -117,19 +117,24 @@ export async function GET(request: NextRequest) {
 
       if (docSnap.exists) {
         const data = docSnap.data()!;
+        const latestPaidDate = paidDates.at(-1) ?? null;
+        const current = counted.find(payment => payment.record?.paidDate === latestPaidDate) ?? counted.at(-1);
+        const detail = current?.record;
+        const legacySuperseded = typeof data.supersededBy === 'string' && data.supersededBy.length > 0;
+        const source = detail ?? (legacySuperseded ? null : data);
         record = {
           quarter: data.quarter ?? q,
           year: data.year ?? y,
           deadline: getDeadlineForQuarter(q, y).toISOString(),
           estimatedAmount: data.estimatedAmount ?? 0,
           paidAmount,
-          paidDate: paidDates.at(-1) ?? null,
-          designatedTaxYear: Number.isInteger(data.designatedTaxYear) ? data.designatedTaxYear : null,
-          paymentType: data.paymentType === 'prior_year_overpayment' ? 'prior_year_overpayment' : null,
-          confirmationNumber: data.confirmationNumber ?? null,
-          paymentMethod: data.paymentMethod ?? null,
+          paidDate: latestPaidDate,
+          designatedTaxYear: Number.isInteger(source?.designatedTaxYear) ? source.designatedTaxYear : null,
+          paymentType: source?.paymentType === 'prior_year_overpayment' ? 'prior_year_overpayment' : null,
+          confirmationNumber: typeof source?.confirmationNumber === 'string' ? source.confirmationNumber : null,
+          paymentMethod: typeof source?.paymentMethod === 'string' ? source.paymentMethod : null,
           status: paidAmount > 0 ? 'recorded' : 'no_record',
-          notes: data.notes ?? '',
+          notes: typeof source?.notes === 'string' ? source.notes : '',
         };
       } else {
         record = { ...createDefaultPayment(q, y), paidAmount, paidDate: paidDates.at(-1) ?? null };
@@ -243,15 +248,28 @@ export async function POST(request: NextRequest) {
       const legacyRef = recordId ? collectionRef.doc(recordId) : null;
       const saved = await adminDb.runTransaction(async transaction => {
         const snapshot = await transaction.get(paymentRef);
-        const priorPaid = snapshot.exists ? roundMoney(Number(snapshot.data()?.paidAmount) || 0) : 0;
-        if (snapshot.exists) {
-          return { missing: false, record: snapshot.data()! };
-        }
+        let liveId: string | null = null;
+        let liveExists = false;
         if (legacyRef) {
           const legacy = await transaction.get(legacyRef);
           if (!legacy.exists) return { missing: true, record: null };
+          let cursor: unknown = legacy.data()?.supersededBy;
+          for (let guard = 0; typeof cursor === 'string' && cursor.length > 0 && guard < 8; guard += 1) {
+            liveId = cursor;
+            const live = await transaction.get(collectionRef.doc(cursor));
+            liveExists = live.exists;
+            const next: unknown = live.exists ? live.data()?.supersededBy : null;
+            if (typeof next === 'string' && next.length > 0 && next !== cursor) {
+              cursor = next;
+              continue;
+            }
+            break;
+          }
+        } else if (snapshot.exists) {
+          return { missing: false, record: snapshot.data()! };
         }
-        const paidAmount = roundMoney(priorPaid + amount);
+        const priorPaid = !legacyRef && snapshot.exists ? roundMoney(Number(snapshot.data()?.paidAmount) || 0) : 0;
+        const paidAmount = legacyRef ? roundMoney(amount) : roundMoney(priorPaid + amount);
         const record = {
           ...createDefaultPayment(q, taxYearFor),
           quarter: q, year: taxYearFor, paidAmount, paidDate: effectiveDateFor(taxYearFor),
@@ -265,6 +283,9 @@ export async function POST(request: NextRequest) {
         };
         transaction.set(paymentRef, { ...record, updatedAt: FieldValue.serverTimestamp() });
         if (legacyRef) {
+          if (liveId && liveId !== paymentId && liveExists) {
+            transaction.set(collectionRef.doc(liveId), { supersededBy: paymentId, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+          }
           transaction.set(legacyRef, { supersededBy: paymentId, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         }
         return { missing: false, record };

@@ -7,6 +7,7 @@ import { type PlannerCardView } from '@/lib/planner/card-view';
 import { formatPlannerDueDate, formatPlannerMoney, localIsoDate } from '@/lib/planner/format-due-date';
 import { plannerTaxYearForDate } from '@/lib/planner/past-due';
 import { appliedCreditDate, defaultDesignatedTaxYear, paymentDateMax, paymentYearChoiceApplies, plannerFormHasLastYearNumbers, validatePlannerForm, type PlannerPaymentDraft } from '@/lib/planner/form-input';
+import { newClientPaymentId } from '@/lib/planner/client-payment-id';
 import { estimatedPaymentPlannerEnabled } from '@/lib/planner/planner-flag';
 import {
   PLANNER_ADD_PAYMENT, PLANNER_AGI_HELPER, PLANNER_AGI_LABEL, PLANNER_ANSWER_NO, PLANNER_ANSWER_NOT_SURE,
@@ -270,8 +271,8 @@ export function EstimatedPaymentPlannerCard({ profile, onNavigate, transport, ta
             {fieldErrors[`payment-date-${payment.clientId}`] && <p className="text-sm text-red-700 sm:col-span-2">{fieldErrors[`payment-date-${payment.clientId}`]}</p>}
           </div>;
           })}
-          <button type="button" className="min-h-11 text-sm font-semibold text-blue-700" onClick={() => setPayments(rows => [...rows, { clientId: crypto.randomUUID(), date: '', amount: '' }])}>{PLANNER_ADD_PAYMENT}</button>
-          <button type="button" className="min-h-11 text-sm font-semibold text-blue-700" onClick={() => setPayments(rows => [...rows, { clientId: crypto.randomUUID(), date: appliedCreditDate(taxYear), amount: '', kind: 'prior_year_overpayment', priorReturnFiled: '' }])}>{PAYMENT_TYPE_PRIOR_YEAR_OVERPAYMENT_LABEL}</button>
+          <button type="button" className="min-h-11 text-sm font-semibold text-blue-700" onClick={() => setPayments(rows => [...rows, { clientId: newClientPaymentId(), date: '', amount: '' }])}>{PLANNER_ADD_PAYMENT}</button>
+          <button type="button" className="min-h-11 text-sm font-semibold text-blue-700" onClick={() => setPayments(rows => [...rows, { clientId: newClientPaymentId(), date: appliedCreditDate(taxYear), amount: '', kind: 'prior_year_overpayment', priorReturnFiled: '' }])}>{PAYMENT_TYPE_PRIOR_YEAR_OVERPAYMENT_LABEL}</button>
           <p className="text-xs leading-5 text-slate-500">{PLANNER_PAYMENTS_HELPER}</p>
         </div>
         <AmountField id="planner-projected" label={PLANNER_PROJECTED_INCOME_LABEL} helper="" value={projected} onChange={setProjected} error={fieldErrors.projectedIncome} />
