@@ -20,6 +20,7 @@ import {
   type HandOffRequest,
   type SaveDisclosureConsentInput,
 } from '@/lib/filing-consent';
+import { resetFilingConsentClock, setFilingConsentClock } from '@/lib/filing-consent/clock';
 
 const db = adminDb as unknown as FakeFirestore;
 const PARTNER = PARTNER_RECIPIENT_LEGAL_NAMES[0];
@@ -56,6 +57,8 @@ function handOff(recordId: string): HandOffRequest {
 
 beforeEach(async () => {
   resetDraftDisclosureConsentText();
+  resetFilingConsentClock();
+  setFilingConsentClock(() => new Date(SIGNED_AT));
   db.records.clear();
   fetchSpy.mockClear();
   await db.collection(FILING_CONSENT_TEXT_COLLECTION).doc(CURRENT_CONSENT_TEXT_VERSION).set({
@@ -66,12 +69,13 @@ beforeEach(async () => {
 
 afterEach(() => {
   resetDraftDisclosureConsentText();
+  resetFilingConsentClock();
   expect(fetchSpy).not.toHaveBeenCalled();
 });
 
 describe('draft disclosure consent text', () => {
   it('refuses an old consent when the draft text changes without a version bump', async () => {
-    const saved = await saveDisclosureConsent(saveInput(), new Date(SIGNED_AT));
+    const saved = await saveDisclosureConsent(saveInput());
     expect(saved.ok).toBe(true);
     if (!saved.ok) throw new Error('expected a stored disclosure consent');
     expect(saved.record.consentTextVersion).toBe(CURRENT_CONSENT_TEXT_VERSION);
@@ -80,7 +84,8 @@ describe('draft disclosure consent text', () => {
     expect(CURRENT_CONSENT_TEXT_VERSION).toBe('draft-2026-10-23');
 
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff(saved.id), stub, NOW);
+    setFilingConsentClock(() => NOW);
+    const result = await sendFilingHandOff(handOff(saved.id), stub);
     expect(result).toMatchObject({ sent: false, code: 'consent_text_mismatch' });
     expect(stub.deliveries).toEqual([]);
   });

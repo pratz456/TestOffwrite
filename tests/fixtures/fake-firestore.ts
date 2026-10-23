@@ -2,7 +2,9 @@
  * Minimal in-memory stand-in for the Admin Firestore surface used by route
  * handlers: document get/set/update/delete/create, filtered/ordered/paged
  * collection and collection-group queries, `batch`, `getAll`, `count` and
- * `runTransaction` with buffered writes.
+ * `runTransaction` with buffered writes. A transaction remembers the
+ * generation of each document it reads. A write from outside that attempt
+ * bumps the generation, the commit is refused, and the attempt runs again.
  * Synthetic records only; behaviour matches the SDK closely enough for
  * ownership and rate-limit tests without a running emulator.
  */
@@ -50,10 +52,13 @@ export const fakeFieldValue = { delete: () => DELETE_FIELD as unknown as never }
 
 export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
   const records: FakeRecords = options.records ?? new Map();
+  const generations = new Map<string, number>();
   let generated = 0;
   const fail = () => { const error = options.failure?.(); if (error) throw error; };
   const clone = (data: Record<string, any> | undefined) => data === undefined ? undefined : { ...data };
   const nextId = () => `generated-${++generated}`;
+  const generation = (path: string) => generations.get(path) ?? 0;
+  const bump = (path: string) => generations.set(path, generation(path) + 1);
 
   const snapshot = (path: string) => ({
     id: path.split('/').at(-1), ref: ref(path), exists: records.has(path), data: () => clone(records.get(path)),
@@ -66,7 +71,7 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
     set: async (data: Record<string, any>, setOptions?: { merge?: boolean }) => { fail(); write(path, data, setOptions); },
     update: async (data: Record<string, any>) => { fail(); if (!records.has(path)) throw new Error(`No document at ${path}`); write(path, data, { merge: true }); },
     create: async (data: Record<string, any>) => { fail(); if (records.has(path)) throw new Error(`Document exists at ${path}`); write(path, data); },
-    delete: async () => { fail(); records.delete(path); },
+    delete: async () => { fail(); records.delete(path); bump(path); },
     collection: (name: string) => query(`${path}/${name}`),
     listCollections: async () => { fail(); const depth = path.split('/').length + 1; const names = new Set<string>();
       for (const key of records.keys()) if (key.startsWith(`${path}/`) && key.split('/').length >= depth + 1) names.add(key.split('/')[depth - 1]);
@@ -76,6 +81,7 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
     const next: Record<string, any> = { ...(setOptions?.merge ? records.get(path) : {}) };
     for (const [key, value] of Object.entries(data)) { if (value === DELETE_FIELD) delete next[key]; else next[key] = value; }
     records.set(path, next);
+    bump(path);
   };
   const select = (entries: Array<[string, Record<string, any>]>, state: QueryState) => {
     let rows = entries.filter(([, data]) => state.filters.every(filter => matches(data, filter)));
@@ -119,17 +125,25 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
     builder(name, () => [...records].filter(([key]) => key.split('/').at(-2) === name), initialState());
   const runTransaction = async <T>(work: (tx: any) => Promise<T>): Promise<T> => {
     fail();
-    const writes: Array<() => void> = [];
-    const result = await work({
-      get: (target: any) => target.get(),
-      getAll: (...targets: any[]) => Promise.all(targets.map(target => target.get())),
-      set: (target: any, data: Record<string, any>, setOptions?: { merge?: boolean }) => writes.push(() => write(target.path, data, setOptions)),
-      update: (target: any, data: Record<string, any>) => writes.push(() => write(target.path, data, { merge: true })),
-      create: (target: any, data: Record<string, any>) => writes.push(() => { if (records.has(target.path)) throw new Error(`Document exists at ${target.path}`); write(target.path, data); }),
-      delete: (target: any) => writes.push(() => { records.delete(target.path); }),
-    });
-    writes.forEach(apply => apply());
-    return result;
+    const maxAttempts = 5;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const seen = new Map<string, number>();
+      const writes: Array<() => void> = [];
+      const mark = (target: any) => { if (target?.path) seen.set(target.path, generation(target.path)); };
+      const result = await work({
+        get: (target: any) => { mark(target); return target.get(); },
+        getAll: (...targets: any[]) => { targets.forEach(mark); return Promise.all(targets.map(target => target.get())); },
+        set: (target: any, data: Record<string, any>, setOptions?: { merge?: boolean }) => writes.push(() => write(target.path, data, setOptions)),
+        update: (target: any, data: Record<string, any>) => writes.push(() => write(target.path, data, { merge: true })),
+        create: (target: any, data: Record<string, any>) => writes.push(() => { if (records.has(target.path)) throw new Error(`Document exists at ${target.path}`); write(target.path, data); }),
+        delete: (target: any) => writes.push(() => { records.delete(target.path); bump(target.path); }),
+      });
+      const conflict = [...seen].some(([path, readAt]) => generation(path) !== readAt);
+      if (conflict) continue;
+      writes.forEach(apply => apply());
+      return result;
+    }
+    throw new Error('Firestore transaction aborted after 5 attempts');
   };
   const batch = () => {
     const writes: Array<() => void> = [];
@@ -144,7 +158,7 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
   };
   return { records, doc: ref, collection: query, collectionGroup, runTransaction, batch,
     getAll: async (...targets: any[]) => { fail(); return targets.map(target => snapshot(target.path)); },
-    recursiveDelete: async (target: any) => { for (const key of [...records.keys()]) if (key === target.path || key.startsWith(`${target.path}/`)) records.delete(key); } };
+    recursiveDelete: async (target: any) => { for (const key of [...records.keys()]) if (key === target.path || key.startsWith(`${target.path}/`)) { records.delete(key); bump(key); } } };
 }
 
 export type FakeFirestore = ReturnType<typeof createFakeFirestore>;

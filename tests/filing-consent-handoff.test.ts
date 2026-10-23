@@ -19,6 +19,7 @@ import {
   SIGNATURE_METHODS,
   consentTextSha256,
   createPartnerSendStub,
+  evaluateFilingHandOff,
   expiresAtFor,
   hashSignatureValue,
   noteInFirmPreparerReassignment,
@@ -32,6 +33,7 @@ import {
   type HandOffReturn,
   type SaveDisclosureConsentInput,
 } from '@/lib/filing-consent';
+import { resetFilingConsentClock, setFilingConsentClock } from '@/lib/filing-consent/clock';
 
 const db = adminDb as unknown as FakeFirestore;
 const PARTNER = PARTNER_RECIPIENT_LEGAL_NAMES[0];
@@ -57,7 +59,6 @@ function saveInput(overrides: Partial<SaveDisclosureConsentInput> = {}): SaveDis
     signatureMethod: 'typed_name',
     signatureValue: 'Test Taxpayer',
     userTypedNotPrefilled: true,
-    signedAt: SIGNED_AT,
     kind: 'disclosure',
     ...overrides,
   };
@@ -85,8 +86,14 @@ async function seedConsentText(): Promise<void> {
   });
 }
 
-async function saveValid(overrides: Partial<SaveDisclosureConsentInput> = {}, now: Date = new Date(SIGNED_AT)) {
-  const saved = await saveDisclosureConsent(saveInput(overrides), now);
+function at(iso: string): void {
+  setFilingConsentClock(() => new Date(iso));
+}
+
+async function saveValid(overrides: Partial<SaveDisclosureConsentInput> = {}) {
+  at(SIGNED_AT);
+  const saved = await saveDisclosureConsent(saveInput(overrides));
+  at(NOW.toISOString());
   expect(saved.ok).toBe(true);
   if (!saved.ok) throw new Error('expected a stored disclosure consent');
   return saved;
@@ -142,31 +149,34 @@ async function plant(record: Record<string, unknown>, id: string): Promise<strin
 }
 
 beforeEach(async () => {
+  resetFilingConsentClock();
+  at(SIGNED_AT);
   db.records.clear();
   fetchSpy.mockClear();
   await seedConsentText();
 });
 
 afterEach(() => {
+  resetFilingConsentClock();
   expect(fetchSpy).not.toHaveBeenCalled();
 });
 
 describe('disclosure consent hand off gate', () => {
   it('refuses a send when no consent record is stored', async () => {
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff('', { consentRecordId: undefined }), stub, NOW);
+    const result = await sendFilingHandOff(handOff('', { consentRecordId: undefined }), stub);
     expect(result).toMatchObject({ sent: false, code: 'no_record' });
     expect(stub.deliveries).toEqual([]);
 
     const missing = createPartnerSendStub();
-    const missingResult = await sendFilingHandOff(handOff('does-not-exist'), missing, NOW);
+    const missingResult = await sendFilingHandOff(handOff('does-not-exist'), missing);
     expect(missingResult).toMatchObject({ sent: false, code: 'no_record' });
     expect(missing.deliveries).toEqual([]);
   });
 
   it('refuses a browser consent checked flag when no record is stored', async () => {
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff('', { consentRecordId: undefined, browserConsentChecked: true }), stub, NOW);
+    const result = await sendFilingHandOff(handOff('', { consentRecordId: undefined, browserConsentChecked: true }), stub);
     expect(result).toMatchObject({ sent: false, code: 'no_record' });
     expect(stub.deliveries).toEqual([]);
   });
@@ -175,7 +185,7 @@ describe('disclosure consent hand off gate', () => {
     const saved = await saveValid();
     const id = await plant({ ...copyStored(saved.id), consentTextVersion: 'draft-old' }, 'stale-version');
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff(id), stub, NOW);
+    const result = await sendFilingHandOff(handOff(id), stub);
     expect(result).toMatchObject({ sent: false, code: 'text_version_not_current' });
     expect(stub.deliveries).toEqual([]);
   });
@@ -183,12 +193,12 @@ describe('disclosure consent hand off gate', () => {
   it('refuses a recipient that is not on the signed list, including another firm and a subcontractor', async () => {
     const saved = await saveValid();
     const otherFirm = createPartnerSendStub();
-    const otherFirmResult = await sendFilingHandOff(handOff(saved.id, { recipientLegalName: 'Other Draft Firm LLC' }), otherFirm, NOW);
+    const otherFirmResult = await sendFilingHandOff(handOff(saved.id, { recipientLegalName: 'Other Draft Firm LLC' }), otherFirm);
     expect(otherFirmResult).toMatchObject({ sent: false, code: 'recipient_not_on_list' });
     expect(otherFirm.deliveries).toEqual([]);
 
     const subcontractor = createPartnerSendStub();
-    const subcontractorResult = await sendFilingHandOff(handOff(saved.id, { recipientLegalName: 'North Review Subcontractor LLC' }), subcontractor, NOW);
+    const subcontractorResult = await sendFilingHandOff(handOff(saved.id, { recipientLegalName: 'North Review Subcontractor LLC' }), subcontractor);
     expect(subcontractorResult).toMatchObject({ sent: false, code: 'recipient_not_on_list' });
     expect(subcontractor.deliveries).toEqual([]);
   });
@@ -203,14 +213,14 @@ describe('disclosure consent hand off gate', () => {
       uid: 'user-1',
       firmLegalName: PARTNER,
       preparerName: 'Second Draft Preparer',
-    }, NOW);
+    });
     expect(noted).toEqual({ ok: true });
     const afterReassignment = consentBytes(saved.id);
     expect(afterReassignment.equals(before)).toBe(true);
     expect(Buffer.compare(afterReassignment, before)).toBe(0);
 
     const stub = createPartnerSendStub();
-    const sent = await sendFilingHandOff(handOff(saved.id), stub, NOW);
+    const sent = await sendFilingHandOff(handOff(saved.id), stub);
     expect(sent).toEqual({ sent: true });
     expect(stub.deliveries).toHaveLength(1);
     expect(stub.deliveries[0].recipientLegalName).toBe(PARTNER);
@@ -218,7 +228,7 @@ describe('disclosure consent hand off gate', () => {
 
     for (const recipientLegalName of ['Other Draft Firm LLC', 'North Review Subcontractor LLC', 'Draft Return Reviewer LLC']) {
       const refusedStub = createPartnerSendStub();
-      const refused = await sendFilingHandOff(handOff(saved.id, { recipientLegalName }), refusedStub, NOW);
+      const refused = await sendFilingHandOff(handOff(saved.id, { recipientLegalName }), refusedStub);
       expect(refused).toMatchObject({ sent: false, code: 'recipient_not_on_list' });
       expect(refusedStub.deliveries).toEqual([]);
       expect(consentBytes(saved.id).equals(before)).toBe(true);
@@ -234,17 +244,18 @@ describe('disclosure consent hand off gate', () => {
     const base = await saveValid();
     const id = await plant({ ...copyStored(base.id), recipients: ['our filing partner'] }, 'description-recipient');
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff(id, { recipientLegalName: 'our filing partner' }), stub, NOW);
+    const result = await sendFilingHandOff(handOff(id, { recipientLegalName: 'our filing partner' }), stub);
     expect(result).toMatchObject({ sent: false, code: 'recipient_not_legal_name' });
     expect(stub.deliveries).toEqual([]);
   });
 
   it('refuses a withdrawn consent', async () => {
     const saved = await saveValid();
-    const withdrawn = await withdrawDisclosureConsent(saved.id, 'user-1', new Date('2026-03-01T00:00:00.000Z'));
+    at('2026-03-01T00:00:00.000Z');
+    const withdrawn = await withdrawDisclosureConsent(saved.id, 'user-1');
     expect(withdrawn).toEqual({ ok: true });
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff(saved.id, { browserConsentChecked: true }), stub, NOW);
+    const result = await sendFilingHandOff(handOff(saved.id, { browserConsentChecked: true }), stub);
     expect(result).toMatchObject({ sent: false, code: 'withdrawn' });
     expect(stub.deliveries).toEqual([]);
   });
@@ -252,7 +263,7 @@ describe('disclosure consent hand off gate', () => {
   it('refuses a consent whose account is not the signed in user', async () => {
     const saved = await saveValid();
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff(saved.id, { signedInUid: 'user-2' }), stub, NOW);
+    const result = await sendFilingHandOff(handOff(saved.id, { signedInUid: 'user-2' }), stub);
     expect(result).toMatchObject({ sent: false, code: 'uid_mismatch' });
     expect(stub.deliveries).toEqual([]);
   });
@@ -263,7 +274,7 @@ describe('disclosure consent hand off gate', () => {
     const result = await sendFilingHandOff(handOff(saved.id, {
       taxYear: 2025,
       returns: [federal(2025, { wages: 50 })],
-    }), stub, NOW);
+    }), stub);
     expect(result).toMatchObject({ sent: false, code: 'tax_year_mismatch' });
     expect(stub.deliveries).toEqual([]);
   });
@@ -317,13 +328,13 @@ describe('disclosure consent hand off gate', () => {
       delete removed[field];
       const removedId = await plant(removed, `missing-${field}`);
       const removedStub = createPartnerSendStub();
-      const removedResult = await sendFilingHandOff(handOff(removedId), removedStub, NOW);
+      const removedResult = await sendFilingHandOff(handOff(removedId), removedStub);
       expect(removedResult).toMatchObject({ sent: false, code: 'missing_field', field });
       expect(removedStub.deliveries).toEqual([]);
 
       const emptiedId = await plant({ ...base, [field]: emptyValue[field] }, `empty-${field}`);
       const emptiedStub = createPartnerSendStub();
-      const emptiedResult = await sendFilingHandOff(handOff(emptiedId), emptiedStub, NOW);
+      const emptiedResult = await sendFilingHandOff(handOff(emptiedId), emptiedStub);
       expect(emptiedResult).toMatchObject({ sent: false, code: 'missing_field', field });
       expect(emptiedStub.deliveries).toEqual([]);
     }
@@ -334,21 +345,21 @@ describe('disclosure consent hand off gate', () => {
     const stateStub = createPartnerSendStub();
     const stateResult = await sendFilingHandOff(handOff(federalOnly.id, {
       returns: [{ code: 'CA', taxYear: 2026, fields: { wages: 40 } }],
-    }), stateStub, NOW);
+    }), stateStub);
     expect(stateResult).toMatchObject({ sent: false, code: 'return_not_covered' });
     expect(stateStub.deliveries).toEqual([]);
 
     const priorYearStub = createPartnerSendStub();
     const priorYearResult = await sendFilingHandOff(handOff(federalOnly.id, {
       returns: [federal(2025, { wages: 40 })],
-    }), priorYearStub, NOW);
+    }), priorYearStub);
     expect(priorYearResult).toMatchObject({ sent: false, code: 'return_not_covered' });
     expect(priorYearStub.deliveries).toEqual([]);
 
     const mixedStub = createPartnerSendStub();
     const mixedResult = await sendFilingHandOff(handOff(federalOnly.id, {
       returns: [federal(2026), { code: 'CA', taxYear: 2026, fields: { wages: 40 } }],
-    }), mixedStub, NOW);
+    }), mixedStub);
     expect(mixedResult).toMatchObject({ sent: false, code: 'return_not_covered' });
     expect(mixedStub.deliveries).toEqual([]);
 
@@ -358,7 +369,7 @@ describe('disclosure consent hand off gate', () => {
     const bothStub = createPartnerSendStub();
     const bothResult = await sendFilingHandOff(handOff(both.id, {
       returns: [federal(2026, { wages: 100 }), { code: 'CA', taxYear: 2026, fields: { wages: 40 } }],
-    }), bothStub, NOW);
+    }), bothStub);
     expect(bothResult).toEqual({ sent: true });
     expect(bothStub.deliveries).toHaveLength(1);
     expect(bothStub.deliveries[0].payload.returns).toEqual([
@@ -372,16 +383,17 @@ describe('disclosure consent hand off gate', () => {
     const stub = createPartnerSendStub();
     const request = handOff(saved.id);
     const job = { request };
-    const first = await runQueuedFilingHandOff(job, stub, NOW);
+    const first = await runQueuedFilingHandOff(job, stub);
     expect(first).toEqual({ sent: true });
     expect(stub.deliveries).toHaveLength(1);
 
-    const withdrawn = await withdrawDisclosureConsent(saved.id, 'user-1', new Date('2026-03-02T00:00:00.000Z'));
+    at('2026-03-02T00:00:00.000Z');
+    const withdrawn = await withdrawDisclosureConsent(saved.id, 'user-1');
     expect(withdrawn).toEqual({ ok: true });
-    const retry = await runQueuedFilingHandOff(job, stub, NOW);
+    const retry = await runQueuedFilingHandOff(job, stub);
     expect(retry).toMatchObject({ sent: false, code: 'withdrawn' });
     expect(stub.deliveries).toHaveLength(1);
-    const secondRetry = await runQueuedFilingHandOff(job, stub, NOW);
+    const secondRetry = await runQueuedFilingHandOff(job, stub);
     expect(secondRetry).toMatchObject({ sent: false, code: 'withdrawn' });
     expect(stub.deliveries).toHaveLength(1);
     expect(stub.deliveries[0].recipientLegalName).toBe(PARTNER);
@@ -392,7 +404,7 @@ describe('disclosure consent hand off gate', () => {
     expect(saved.record.signatureMethod).toBe('typed_name');
     expect(ACCEPTED_SIGNATURE_METHODS).toEqual(['typed_name']);
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff(saved.id), stub, NOW);
+    const result = await sendFilingHandOff(handOff(saved.id), stub);
     expect(result).toEqual({ sent: true });
     expect(stub.deliveries).toHaveLength(1);
     expect(stub.deliveries[0].payload.returns).toEqual([
@@ -403,7 +415,7 @@ describe('disclosure consent hand off gate', () => {
   it('refuses a send that includes a field the consent does not name', async () => {
     const saved = await saveValid({ scope: { kind: 'fields', fields: ['wages', 'agi'] } });
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff(saved.id), stub, NOW);
+    const result = await sendFilingHandOff(handOff(saved.id), stub);
     expect(result).toMatchObject({ sent: false, code: 'field_not_named' });
     expect(stub.deliveries).toEqual([]);
   });
@@ -413,7 +425,7 @@ describe('disclosure consent hand off gate', () => {
     const stub = createPartnerSendStub();
     const result = await sendFilingHandOff(handOff(saved.id, {
       returns: [federal(2026, { wages: 100, agi: 80, accountNumber: '0000' })],
-    }), stub, NOW);
+    }), stub);
     expect(result).toMatchObject({ sent: false, code: 'field_not_named' });
     expect(stub.deliveries).toEqual([]);
     expect(stub.deliveries.some(delivery => delivery.recipientLegalName === PARTNER)).toBe(false);
@@ -424,7 +436,7 @@ describe('disclosure consent hand off gate', () => {
     const stub = createPartnerSendStub();
     const result = await sendFilingHandOff(handOff(saved.id, {
       returns: [federal(2026, { wages: 100, agi: 80 })],
-    }), stub, NOW);
+    }), stub);
     expect(result).toEqual({ sent: true });
     expect(stub.deliveries).toEqual([{
       recipientLegalName: PARTNER,
@@ -432,14 +444,36 @@ describe('disclosure consent hand off gate', () => {
     }]);
   });
 
-  it('ignores a caller supplied signing time and stores the server clock', async () => {
-    const clock = new Date('2026-06-01T15:00:00.000Z');
-    const saved = await saveDisclosureConsent(saveInput({ signedAt: '2020-01-01T00:00:00.000Z' }), clock);
+  it('the exported API has no way to set signedAt or now', async () => {
+    const api = await import('@/lib/filing-consent');
+    expect(api).not.toHaveProperty('setFilingConsentClock');
+    expect(api).not.toHaveProperty('resetFilingConsentClock');
+    for (const fn of [
+      saveDisclosureConsent,
+      withdrawDisclosureConsent,
+      noteInFirmPreparerReassignment,
+      evaluateFilingHandOff,
+      sendFilingHandOff,
+      runQueuedFilingHandOff,
+    ]) {
+      const source = Function.prototype.toString.call(fn);
+      const params = source.match(/^(?:async\s+)?function[^(]*\(([^)]*)\)/)?.[1] ?? '';
+      expect(params).not.toMatch(/\bnow\b/);
+      expect(params).not.toMatch(/\bsignedAt\b/);
+    }
+    at('2026-06-01T15:00:00.000Z');
+    const save = saveDisclosureConsent as (
+      input: SaveDisclosureConsentInput,
+      supplied?: Date,
+    ) => ReturnType<typeof saveDisclosureConsent>;
+    const saved = await save(
+      { ...saveInput(), signedAt: '2020-01-01T00:00:00.000Z' } as SaveDisclosureConsentInput,
+      new Date('1999-01-01T00:00:00.000Z'),
+    );
     expect(saved.ok).toBe(true);
     if (!saved.ok) throw new Error('expected a stored disclosure consent');
     expect(saved.record.signedAt).toBe('2026-06-01T15:00:00.000Z');
     expect(saved.record.expiresAt).toBe('2027-06-01T15:00:00.000Z');
-    expect(saved.record.signedAt).not.toBe('2020-01-01T00:00:00.000Z');
   });
 
   it('creates the consent document once and refuses a second create', async () => {
@@ -467,7 +501,8 @@ describe('disclosure consent hand off gate', () => {
       const stored = db.records.get(textPath);
       if (stored === undefined) throw new Error('missing consent text');
       const before = Buffer.from(JSON.stringify(stored), 'utf8');
-      const again = await saveDisclosureConsent(saveInput(), new Date(SIGNED_AT));
+      at(SIGNED_AT);
+      const again = await saveDisclosureConsent(saveInput());
       expect(again.ok).toBe(true);
       expect(watched.methods).toEqual(['create']);
       const after = db.records.get(textPath);
@@ -485,10 +520,27 @@ describe('disclosure consent hand off gate', () => {
 
   it('refuses a second withdrawal and keeps the first withdrawal time', async () => {
     const saved = await saveValid();
-    const first = await withdrawDisclosureConsent(saved.id, 'user-1', new Date('2026-03-01T00:00:00.000Z'));
+    at('2026-03-01T00:00:00.000Z');
+    const first = await withdrawDisclosureConsent(saved.id, 'user-1');
     expect(first).toEqual({ ok: true });
-    const second = await withdrawDisclosureConsent(saved.id, 'user-1', new Date('2026-04-01T00:00:00.000Z'));
+    at('2026-04-01T00:00:00.000Z');
+    const second = await withdrawDisclosureConsent(saved.id, 'user-1');
     expect(second).toMatchObject({ ok: false, code: 'withdrawn' });
+    expect(copyStored(saved.id).withdrawnAt).toBe('2026-03-01T00:00:00.000Z');
+  });
+
+  it('lets exactly one of two concurrent withdrawals succeed', async () => {
+    const saved = await saveValid();
+    at('2026-03-01T00:00:00.000Z');
+    const results = await Promise.all([
+      withdrawDisclosureConsent(saved.id, 'user-1'),
+      withdrawDisclosureConsent(saved.id, 'user-1'),
+    ]);
+    const succeeded = results.filter(result => result.ok);
+    const refused = results.filter(result => !result.ok);
+    expect(succeeded).toHaveLength(1);
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).toMatchObject({ ok: false, code: 'withdrawn' });
     expect(copyStored(saved.id).withdrawnAt).toBe('2026-03-01T00:00:00.000Z');
   });
 
@@ -501,7 +553,7 @@ describe('disclosure consent hand off gate', () => {
         uid: 'user-1',
         firmLegalName,
         preparerName: 'Second Draft Preparer',
-      }, NOW);
+      });
       expect(noted).toMatchObject({ ok: false, code: 'recipient_not_on_list' });
       expect(consentBytes(saved.id).equals(before)).toBe(true);
     }
@@ -516,14 +568,15 @@ describe('disclosure consent hand off gate', () => {
       uid: 'user-1',
       firmLegalName: 'North Review Subcontractor LLC',
       preparerName: 'Second Draft Preparer',
-    }, NOW);
+    });
     expect(noted).toMatchObject({ ok: false, code: 'recipient_not_legal_name' });
     expect(consentBytes(id).equals(before)).toBe(true);
   });
 
   it('refuses an in firm reassignment when the consent is withdrawn', async () => {
     const saved = await saveValid();
-    const withdrawn = await withdrawDisclosureConsent(saved.id, 'user-1', new Date('2026-03-01T00:00:00.000Z'));
+    at('2026-03-01T00:00:00.000Z');
+    const withdrawn = await withdrawDisclosureConsent(saved.id, 'user-1');
     expect(withdrawn).toEqual({ ok: true });
     const before = consentBytes(saved.id);
     const noted = await noteInFirmPreparerReassignment({
@@ -531,7 +584,7 @@ describe('disclosure consent hand off gate', () => {
       uid: 'user-1',
       firmLegalName: PARTNER,
       preparerName: 'Second Draft Preparer',
-    }, NOW);
+    });
     expect(noted).toMatchObject({ ok: false, code: 'withdrawn' });
     expect(consentBytes(saved.id).equals(before)).toBe(true);
   });
@@ -539,12 +592,13 @@ describe('disclosure consent hand off gate', () => {
   it('refuses an in firm reassignment when the consent is expired', async () => {
     const saved = await saveValid();
     const before = consentBytes(saved.id);
+    at('2027-01-16T20:00:00.000Z');
     const noted = await noteInFirmPreparerReassignment({
       consentRecordId: saved.id,
       uid: 'user-1',
       firmLegalName: PARTNER,
       preparerName: 'Second Draft Preparer',
-    }, new Date('2027-01-16T20:00:00.000Z'));
+    });
     expect(noted).toMatchObject({ ok: false, code: 'expired' });
     expect(consentBytes(saved.id).equals(before)).toBe(true);
   });
@@ -560,7 +614,7 @@ describe('disclosure consent hand off gate', () => {
     const base = await saveValid();
     const id = await plant({ ...copyStored(base.id), kind: 'disclosure_and_use' }, 'combined-record');
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff(id), stub, NOW);
+    const result = await sendFilingHandOff(handOff(id), stub);
     expect(result).toMatchObject({ sent: false, code: 'combined_use_and_disclosure' });
     expect(stub.deliveries).toEqual([]);
   });
@@ -586,13 +640,13 @@ describe('disclosure consent hand off gate', () => {
     delete removed.expiresAt;
     const removedId = await plant(removed, 'expiry-removed');
     const removedStub = createPartnerSendStub();
-    const removedResult = await sendFilingHandOff(handOff(removedId), removedStub, NOW);
+    const removedResult = await sendFilingHandOff(handOff(removedId), removedStub);
     expect(removedResult).toMatchObject({ sent: false, code: 'missing_field', field: 'expiresAt' });
     expect(removedStub.deliveries).toEqual([]);
 
     const nullId = await plant({ ...base, expiresAt: null }, 'expiry-null');
     const nullStub = createPartnerSendStub();
-    const nullResult = await sendFilingHandOff(handOff(nullId), nullStub, NOW);
+    const nullResult = await sendFilingHandOff(handOff(nullId), nullStub);
     expect(nullResult).toMatchObject({ sent: false, code: 'missing_field', field: 'expiresAt' });
     expect(nullStub.deliveries).toEqual([]);
   });
@@ -601,21 +655,22 @@ describe('disclosure consent hand off gate', () => {
     const saved = await saveValid();
     const id = await plant({ ...copyStored(saved.id), expiresAt: '2028-01-15T20:00:00.000Z' }, 'expiry-mismatch');
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff(id), stub, NOW);
+    const result = await sendFilingHandOff(handOff(id), stub);
     expect(result).toMatchObject({ sent: false, code: 'expiry_mismatch' });
     expect(stub.deliveries).toEqual([]);
   });
 
   it('refuses a send on the day after expiry', async () => {
     const saved = await saveValid();
+    at(ONE_YEAR_EXPIRY);
     const onExpiry = createPartnerSendStub();
-    const onExpiryResult = await sendFilingHandOff(handOff(saved.id), onExpiry, new Date(ONE_YEAR_EXPIRY));
+    const onExpiryResult = await sendFilingHandOff(handOff(saved.id), onExpiry);
     expect(onExpiryResult).toEqual({ sent: true });
     expect(onExpiry.deliveries).toHaveLength(1);
 
-    const dayAfter = new Date('2027-01-16T20:00:00.000Z');
+    at('2027-01-16T20:00:00.000Z');
     const late = createPartnerSendStub();
-    const lateResult = await sendFilingHandOff(handOff(saved.id), late, dayAfter);
+    const lateResult = await sendFilingHandOff(handOff(saved.id), late);
     expect(lateResult).toMatchObject({ sent: false, code: 'expired' });
     expect(late.deliveries).toEqual([]);
   });
@@ -627,7 +682,7 @@ describe('disclosure consent hand off gate', () => {
       text: `${DRAFT_DISCLOSURE_CONSENT_TEXT}\nALTERED AFTER SIGNING`,
     });
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff(saved.id), stub, NOW);
+    const result = await sendFilingHandOff(handOff(saved.id), stub);
     expect(result).toMatchObject({ sent: false, code: 'consent_text_mismatch' });
     expect(stub.deliveries).toEqual([]);
   });
@@ -649,7 +704,7 @@ describe('disclosure consent hand off gate', () => {
     expect(stored.signatureValue).toBe(hashSignatureValue('sample-pin', 'record-salt'));
     expect(String(stored.signatureValue)).not.toContain('sample-pin');
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff(id), stub, NOW);
+    const result = await sendFilingHandOff(handOff(id), stub);
     expect(result).toMatchObject({ sent: false, code: 'signature_method_not_accepted' });
     expect(stub.deliveries).toEqual([]);
   });
@@ -668,7 +723,7 @@ describe('disclosure consent hand off gate', () => {
       identityVerified: true,
     }, 'unique-identifier');
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff(id), stub, NOW);
+    const result = await sendFilingHandOff(handOff(id), stub);
     expect(result).toMatchObject({ sent: false, code: 'signature_method_not_accepted' });
     expect(stub.deliveries).toEqual([]);
   });
@@ -677,7 +732,7 @@ describe('disclosure consent hand off gate', () => {
     const saved = await saveValid();
     const id = await plant({ ...copyStored(saved.id), signatureMethod: 'click' }, 'click-method');
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff(id), stub, NOW);
+    const result = await sendFilingHandOff(handOff(id), stub);
     expect(result).toMatchObject({ sent: false, code: 'invalid_signature_method' });
     expect(stub.deliveries).toEqual([]);
     expect(SIGNATURE_METHODS).toEqual(['assigned_pin', 'typed_name', 'unique_identifier']);
@@ -687,7 +742,7 @@ describe('disclosure consent hand off gate', () => {
     const saved = await saveValid();
     const id = await plant({ ...copyStored(saved.id), userTypedNotPrefilled: false }, 'prefilled-signature');
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff(id), stub, NOW);
+    const result = await sendFilingHandOff(handOff(id), stub);
     expect(result).toMatchObject({ sent: false, code: 'signature_not_user_typed' });
     expect(stub.deliveries).toEqual([]);
   });
@@ -698,7 +753,7 @@ describe('disclosure consent hand off gate', () => {
     expect(DISCLOSING_PREPARER_LEGAL_NAME.startsWith('DRAFT:')).toBe(true);
     const id = await plant({ ...copyStored(saved.id), disclosingPreparerLegalName: 'Some Other Entity LLC' }, 'wrong-preparer');
     const stub = createPartnerSendStub();
-    const result = await sendFilingHandOff(handOff(id), stub, NOW);
+    const result = await sendFilingHandOff(handOff(id), stub);
     expect(result).toMatchObject({ sent: false, code: 'disclosing_preparer_mismatch' });
     expect(stub.deliveries).toEqual([]);
   });

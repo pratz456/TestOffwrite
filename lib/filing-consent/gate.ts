@@ -18,6 +18,7 @@ import {
   type DisclosureScope,
 } from './record';
 import { isAcceptedSignatureMethod, isSignatureMethod } from './signature';
+import { filingConsentNow } from './clock';
 import { consentTextSha256, draftDisclosureConsentText } from './text';
 
 export interface HandOffReturn {
@@ -86,7 +87,7 @@ export type SendResult =
  * Call this immediately before every send, including a retry or a queued job.
  * On any refusal the caller sends nothing.
  */
-export async function evaluateFilingHandOff(request: HandOffRequest, now: Date = new Date()): Promise<HandOffDecision> {
+export async function evaluateFilingHandOff(request: HandOffRequest): Promise<HandOffDecision> {
   const recordId = typeof request.consentRecordId === 'string' ? request.consentRecordId.trim() : '';
   if (!recordId) {
     return refusal('no_record', 'No disclosure consent record is stored. A browser consent flag is not a record.');
@@ -166,7 +167,7 @@ export async function evaluateFilingHandOff(request: HandOffRequest, now: Date =
   if (!expectedExpiry || data.expiresAt !== expectedExpiry) {
     return refusal('expiry_mismatch', 'The expiry does not equal the signing time plus the duration stated in the consent.');
   }
-  if (isPastExpiry(String(data.expiresAt), now)) {
+  if (isPastExpiry(String(data.expiresAt), filingConsentNow())) {
     return refusal('expired', 'The consent is past its expiry. Nothing is sent.');
   }
 
@@ -196,8 +197,8 @@ export async function evaluateFilingHandOff(request: HandOffRequest, now: Date =
  * immediately before delivery. The gate re reads the record inside this call.
  * A refusal returns an error and does not call the stub.
  */
-export async function sendFilingHandOff(request: HandOffRequest, stub: PartnerSendStub, now: Date = new Date()): Promise<SendResult> {
-  const decision = await evaluateFilingHandOff(request, now);
+export async function sendFilingHandOff(request: HandOffRequest, stub: PartnerSendStub): Promise<SendResult> {
+  const decision = await evaluateFilingHandOff(request);
   if (!decision.ok) {
     return decision.field === undefined
       ? { sent: false, code: decision.code, message: decision.message }
@@ -208,6 +209,6 @@ export async function sendFilingHandOff(request: HandOffRequest, stub: PartnerSe
 }
 
 /** Queued jobs and retries must use this, which calls the gate again immediately before delivery. */
-export async function runQueuedFilingHandOff(job: { request: HandOffRequest }, stub: PartnerSendStub, now: Date = new Date()): Promise<SendResult> {
-  return sendFilingHandOff(job.request, stub, now);
+export async function runQueuedFilingHandOff(job: { request: HandOffRequest }, stub: PartnerSendStub): Promise<SendResult> {
+  return sendFilingHandOff(job.request, stub);
 }
