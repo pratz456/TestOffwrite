@@ -39,10 +39,16 @@ export async function createPlanningPDF(title: string, taxYear: number) {
     for (const line of wrap(title, width, 16, bold)) { draw(line, left, y, 16, bold); y -= 19; }
     y -= 8;
   };
-  const ensure = (height: number) => { if (y - height < bottom) newPage(); };
+  let reserved = 0;
+  const ensure = (height: number) => { if (y - height < bottom + reserved) newPage(); };
   newPage();
   return {
     doc,
+    /** Keep this many points free under later draws so the next block stays on that page. */
+    reserve(height: number) { reserved = Math.max(0, height); },
+    textHeight(value: unknown, size = 9, strong = false) {
+      return wrap(value, width, size, strong ? bold : font).length * 13 + 6;
+    },
     paragraph(value: unknown, strong = false) {
       for (const line of wrap(value, width, 9, strong ? bold : font)) { ensure(13); draw(line, left, y, 9, strong ? bold : font); y -= 13; }
       y -= 6;

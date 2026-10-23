@@ -16,8 +16,8 @@
  * PDF generation path: app/api/tax/schedule-c/export/route.ts reads
  * readTaxExportTransactions, then aggregateScheduleC, then pdf-lib.
  * Charges with no valid charge day are listed on `undated` and reported as
- * `needsMoreInformation`. They are in no year's dollar total. The count is
- * what keeps an unreadable date from disappearing out of the totals.
+ * `needsMoreInformation`. They are in no year's dollar total. A selected-year
+ * Schedule C export lists every one of them outside those totals.
  */
 
 import { chargeYear } from './taxDate';

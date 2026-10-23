@@ -1,6 +1,8 @@
 "use client";
 
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
+import { receivedChargeDateText } from '@/lib/schedule-c/received-date-text';
+import { SCHEDULE_C_UNREADABLE_DATE_NOTICE, unreadableChargeOutAndIn } from '@/lib/reports/schedule-c-unreadable-notice';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -71,6 +73,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   const [confirmedCount, setConfirmedCount] = useState(0);
   const [potentialCount, setPotentialCount] = useState(0);
   const [needsMoreInformation, setNeedsMoreInformation] = useState(0);
+  const [omittedCharges, setOmittedCharges] = useState<Transaction[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [includeAppendix, setIncludeAppendix] = useState(true);
   const [lineDetails, setLineDetails] = useState<Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }>>({});
@@ -113,6 +116,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
     setCategorySummaries(summaries);
     setTotalDeductible(aggregation.totalDeductible);
     setNeedsMoreInformation(aggregation.needsMoreInformation);
+    setOmittedCharges(aggregation.undated as Transaction[]);
     setDeductibleCount(aggregation.counts.deductible);
     setConfirmedCount(aggregation.counts.deductible);
     setPotentialCount(0);
@@ -209,6 +213,8 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
       currency: 'USD'
     }).format(amount);
   };
+  const omittedTotals = unreadableChargeOutAndIn(omittedCharges);
+  const omittedNotice = SCHEDULE_C_UNREADABLE_DATE_NOTICE(omittedTotals);
 
   return (
     <div className="min-h-full bg-background min-w-0 overflow-x-hidden">
@@ -388,7 +394,16 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
               <div className="text-sm text-muted-foreground">Total Business Expenses</div>
             </div>
           </div>
-          <p className="mb-8 text-sm text-muted-foreground">Needs more information <span className="font-semibold tabular-nums text-foreground">{needsMoreInformation}</span>. These charges have a date that cannot be read and are in no year total.</p>
+          {needsMoreInformation > 0 ? (
+            <div className="mb-8 space-y-2">
+              {omittedNotice ? <p className="text-sm text-muted-foreground">{omittedNotice}</p> : null}
+              <ul className="space-y-1 text-sm text-foreground">
+                {omittedCharges.map(charge => (
+                  <li key={charge.id}>{charge.merchant_name || 'Unnamed record'}, {formatCurrency(charge.amount)}, {receivedChargeDateText(charge)}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           {/* IRS Schedule C Line Items */}
           <div>

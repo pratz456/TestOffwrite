@@ -65,6 +65,12 @@ describe('Schedule C supported-year selection', () => {
     expect(select.props.value).toBe('2026');
   });
 
+  it('hides Needs more information 0 when every loaded charge date can be read', () => {
+    const page = text(render());
+    expect(page).not.toContain('Needs more information 0');
+    expect(page).not.toContain("couldn't be read");
+  });
+
   it.each(['2026', '2025'])('sends the selected %s year to the real PDF export handler and filename', async year => {
     const selects = walk(render()).filter(node => node.type === 'select');
     selects[0].props.onChange({ target: { value: year } });

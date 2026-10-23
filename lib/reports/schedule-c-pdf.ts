@@ -1,12 +1,22 @@
-import { aggregateScheduleC, CATEGORY_MAP, type LineItemSummary } from '@/lib/schedule-c/aggregate';
+import { aggregateScheduleC, CATEGORY_MAP, type LineItemSummary, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
+import { receivedChargeDateText } from '@/lib/schedule-c/received-date-text';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
+import { SCHEDULE_C_UNREADABLE_DATE_NOTICE, unreadableChargeOutAndIn } from './schedule-c-unreadable-notice';
 
 export interface ScheduleCExportData {
   taxYear: number; grossReceipts: number; lineItems: LineItemSummary[];
   /** `ssn` and `ein` are masked display values (last four digits); callers never pass full identifiers. */
   name?: string; ssn?: string; profession?: string; naicsCode?: string; ein?: string;
   includeAppendix: boolean;
+  /** Every unreadable-date charge for this user. They belong to no year. */
+  needsMoreInformation?: ScheduleCTransactionLike[];
+}
+
+function shownReceivedDate(tx: ScheduleCTransactionLike): string {
+  const saved = tx.received_date_text;
+  if (typeof saved === 'string') return saved.trim() === '' ? 'missing' : saved;
+  return receivedChargeDateText(tx);
 }
 export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   const pdf = await createPlanningPDF('Schedule C - business records for review', data.taxYear);
@@ -22,6 +32,10 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   ], [195, 333]);
   pdf.section('Recorded income and confirmed expenses');
   const total = data.lineItems.reduce((sum, row) => sum + row.deductible, 0);
+  const omitted = data.needsMoreInformation ?? [];
+  const omittedTotals = unreadableChargeOutAndIn(omitted);
+  const notice = SCHEDULE_C_UNREADABLE_DATE_NOTICE(omittedTotals);
+  if (notice) pdf.reserve(pdf.textHeight(notice));
   pdf.table(['Reference', 'Recorded amount / scope', 'Amount'], [
     ['1', 'Reconciled gross receipts in WriteOff', money(data.grossReceipts)],
     ...data.lineItems.map(row => [scheduleCExportLine(row.lineCode, data.taxYear), `${row.lineName} - ${row.transactionCount} confirmed records`, money(row.deductible)]),
@@ -29,6 +43,7 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
     ['Worksheet', 'Receipts minus confirmed expenses, before other adjustments', money(data.grossReceipts - total)],
     ['29-31', 'Final tentative profit, home-office deduction and net profit', 'Not determined'],
   ], [70, 353, 105]);
+  if (notice) { pdf.reserve(0); pdf.paragraph(notice); }
   pdf.paragraph('Credits/refunds are signed and meals use the shared 50% calculation. A confirmed category is not proof of legal deductibility. Review mixed business/personal use, asset purchases, vehicle method, entertainment and contribution classification.');
   pdf.section('Required review before preparing the return');
   pdf.paragraph('Complete returns/allowances, inventory and cost of goods sold, other income, depreciation and elections, home-office eligibility and limits, business details, vehicle records, material participation, at-risk/passive-loss limits and required 1099 filings. This export does not establish these facts or prepare those schedules. Review missing identity details directly with your preparer.');
@@ -40,6 +55,13 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
     }));
     pdf.table(['Date', 'Merchant / record', 'Line', 'Signed amount', 'Contribution'], rows.length ? rows : [['', 'No confirmed records in this year', '', money(0), money(0)]], [68, 235, 35, 95, 95]);
   } else pdf.paragraph('Transaction appendix omitted at your request. Retain the detailed records and receipts with your preparer.');
+  if (omitted.length) {
+    const rows = omitted.map(tx => [tx.merchant_name || tx.id || 'Unnamed record', money(Number(tx.amount)), shownReceivedDate(tx)]);
+    if (omittedTotals.outCount > 0) rows.push(['Charges out', money(omittedTotals.out), '']);
+    if (omittedTotals.inCount > 0) rows.push(['Money in', money(omittedTotals.in), '']);
+    pdf.section('Needs more information');
+    pdf.table(['Merchant', 'Amount', 'Date received'], rows, [248, 120, 160]);
+  }
   pdf.paragraph('Reference: irs.gov/pub/irs-pdf/f1040sc.pdf and irs.gov/pub/irs-prior/f1040sc--2024.pdf. Unsupported font characters are preserved as U+codepoints.');
   return pdf.save();
 }
