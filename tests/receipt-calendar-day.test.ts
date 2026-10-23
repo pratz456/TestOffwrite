@@ -21,6 +21,8 @@ describe('printed calendar days ignore the process time zone', () => {
     ['2025/12/31', '2025-12-31'],
     ['11/11/2025', '2025-11-11'],
     ['2024-02-29', '2024-02-29'],
+    ['29/2/2024', '2024-02-29'],
+    ['2/29/2024', '2024-02-29'],
   ])('reads %s as %s', (printed, stored) => {
     expect(safeYMD(printed)).toBe(stored);
   });
@@ -37,6 +39,11 @@ describe('printed calendar days ignore the process time zone', () => {
     '2025-02-30',
     '2025-13-01',
     '2025/13/01',
+    '31/2/2025',
+    '2/30/2025',
+    '29/2/2025',
+    '13/45/2025',
+    '0/12/2025',
     '2025/31/12',
     '2025/02/30',
     '',

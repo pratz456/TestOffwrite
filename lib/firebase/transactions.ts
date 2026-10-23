@@ -457,14 +457,13 @@ export async function createTransaction(
 
     const rawDate = transactionData.date;
     const hasDate = rawDate !== undefined && rawDate !== null && !(typeof rawDate === 'string' && rawDate.trim() === '');
-    let normalized = transactionData;
-    if (hasDate) {
-      const parsed = safeYMD(rawDate);
-      if (!parsed) {
-        return { data: null, error: new Error('Provide the transaction date as a calendar day.') };
-      }
-      normalized = { ...transactionData, date: parsed };
-    }
+    const parsed = hasDate ? safeYMD(rawDate) : null;
+    // An unreadable day is not an error and is not dropped. The amount and receipt stay, with no tax date.
+    const normalized = hasDate && !parsed
+      ? { ...transactionData, date: '' }
+      : hasDate
+        ? { ...transactionData, date: parsed as string }
+        : transactionData;
 
     const newTransaction = {
       ...normalized,
@@ -473,6 +472,7 @@ export async function createTransaction(
       account_id: accountId,
       created_at: serverTimestamp(),
       updated_at: serverTimestamp(),
+      ...(hasDate && !parsed ? { deductionStatus: 'Needs more information' } : {}),
     };
 
     await setDoc(docRef, newTransaction);
@@ -495,6 +495,9 @@ export async function createTransaction(
             deduction_score: data.deduction_score,
             description: data.description,
             notes: data.notes,
+            receipt_url: data.receipt_url,
+            receipt_filename: data.receipt_filename,
+            deductionStatus: data.deductionStatus,
 
             account_id: data.account_id,
             userId: data.userId || data.user_id,
