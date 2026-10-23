@@ -75,6 +75,7 @@ describe('Schedule C supported-year selection', () => {
     render(input);
     const body = text(render(input));
     expect(body).toContain('$0.00');
+    expect(body).toContain('Needs more information');
     expect(body).not.toContain('$120.00');
   });
   it('offers 2026, 2025 and 2024 and defaults to the latest supported year', () => {

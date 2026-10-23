@@ -34,7 +34,7 @@ function lineDeductible(records: ExportRecord[], year: string, line: string, mod
 }
 
 function reviewCount(records: ExportRecord[], year: string, mode: 'confirmed-only' | 'default' = 'confirmed-only') {
-  return totals(records, year, mode).lineItems.review?.transactionCount ?? 0;
+  return totals(records, year, mode).needsMoreInformation?.length ?? 0;
 }
 
 function softwareResult(amount: number, date: string, extra: Partial<ExplainableResult> = {}): ExplainableResult {
@@ -189,7 +189,7 @@ describe('Schedule C category ruling', () => {
     expect(generateScheduleCCSV(aggregated.lineItemsArray, 2026)).toContain(NOTE);
     expect(convertTransactionsToCSV([charge])).toContain(NOTE);
     const evidence = buildEvidenceRecord(charge, { uid: 'owner', tripsByDate: new Map(), yearTripCount: 0, receiptsByTransaction: new Map() });
-    expect(evidence.scheduleCLine).toBe('27b');
+    expect(evidence.scheduleCLine).toBe('27b (Other expenses)');
     expect(evidence.substantiation.advisories).toContain(NOTE);
     const spy = vi.spyOn(PDFPage.prototype, 'drawText');
     await generateScheduleCPlanningPDF({ taxYear: 2026, grossReceipts: 0, lineItems: aggregated.lineItemsArray, includeAppendix: true });

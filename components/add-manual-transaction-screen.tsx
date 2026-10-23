@@ -59,8 +59,8 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
   // Expense fields
   const [exp, setExp] = useState(() => ({
     merchant_name: "", amount: "", date: localCalendarYMD(),
-    category: "other", notes: "", business_purpose: "",
-    is_deductible: true as boolean,
+    category: "", notes: "", business_purpose: "",
+    is_deductible: false,
   }));
 
   // Income fields
@@ -69,8 +69,13 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
     type: "freelance", description: "",
   }));
 
+  const categoryMissing = !exp.category.trim();
+  const descriptionMissing = exp.category === "other" && !exp.notes.trim();
+
   const handleSaveExpense = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!exp.category.trim()) { setError("Pick a category"); return; }
+    if (exp.category === "other" && !exp.notes.trim()) { setError("Add a description"); return; }
     const amt = parseFloat(exp.amount);
     if (!exp.merchant_name.trim() || isNaN(amt) || amt <= 0) { setError("Name and amount are required."); return; }
     setSaving(true); setError(null);
@@ -91,7 +96,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
       });
       if (!res.ok) { let m = "Failed to save"; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
       setSaved(true);
-      setExp({ merchant_name: "", amount: "", date: localCalendarYMD(), category: "other", notes: "", business_purpose: "", is_deductible: true });
+      setExp({ merchant_name: "", amount: "", date: localCalendarYMD(), category: "", notes: "", business_purpose: "", is_deductible: false });
       setTimeout(() => { setSaved(false); onSaved?.(); }, 1800);
     } catch (err) { setError(err instanceof Error ? err.message : "Failed to save"); }
     finally { setSaving(false); }
@@ -195,8 +200,8 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Schedule C Category</Label>
-                    <Select value={exp.category} onValueChange={v => setExp(p => ({ ...p, category: v }))}>
-                      <SelectTrigger className="min-h-11 bg-background"><SelectValue /></SelectTrigger>
+                    <Select value={exp.category || undefined} onValueChange={v => setExp(p => ({ ...p, category: v }))}>
+                      <SelectTrigger className="min-h-11 bg-background"><SelectValue placeholder="Pick a category" /></SelectTrigger>
                       <SelectContent>
                         {EXPENSE_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
                       </SelectContent>
@@ -210,8 +215,9 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
                     placeholder="Why was this necessary for your business?" className="min-h-11 bg-background" />
                 </div>
 
+                {categoryMissing && <p className="text-xs text-muted-foreground">Pick a category</p>}
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Notes</Label>
+                  <Label className="text-xs text-muted-foreground">{exp.category === "other" ? "Description *" : "Notes"}</Label>
                   <Input value={exp.notes} onChange={e => setExp(p => ({ ...p, notes: e.target.value }))}
                     placeholder="Receipt #, project name, client, etc." className="min-h-11 bg-background" />
                 </div>
@@ -225,7 +231,7 @@ export function AddManualTransactionScreen({ user, onBack, onSaved }: AddManualT
                   </Label>
                 </div>
 
-                <Button type="submit" disabled={saving || !exp.merchant_name.trim() || !exp.amount} className="w-full gap-2 min-h-[44px]">
+                <Button type="submit" disabled={saving || !exp.merchant_name.trim() || !exp.amount || categoryMissing || descriptionMissing} className="w-full gap-2 min-h-[44px]">
                   {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                   Save Expense
                 </Button>

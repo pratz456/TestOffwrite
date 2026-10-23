@@ -1,9 +1,11 @@
-import { aggregateScheduleC, CATEGORY_MAP, type LineItemSummary } from '@/lib/schedule-c/aggregate';
+import { aggregateScheduleC, CATEGORY_MAP, type LineItemSummary, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 
 export interface ScheduleCExportData {
   taxYear: number; grossReceipts: number; lineItems: LineItemSummary[];
+  /** Confirmed rows withheld from every line. Not a line and not part of the expense subtotal. */
+  needsMoreInformation?: ScheduleCTransactionLike[];
   /** `ssn` and `ein` are masked display values (last four digits); callers never pass full identifiers. */
   name?: string; ssn?: string; profession?: string; naicsCode?: string; ein?: string;
   includeAppendix: boolean;
@@ -29,6 +31,10 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
     ['Worksheet', 'Receipts minus confirmed expenses, before other adjustments', money(data.grossReceipts - total)],
     ['29-31', 'Final tentative profit, home-office deduction and net profit', 'Not determined'],
   ], [70, 353, 105]);
+  const withheld = data.needsMoreInformation ?? [];
+  if (withheld.length) {
+    pdf.paragraph(`Needs more information: ${withheld.length} confirmed record${withheld.length === 1 ? '' : 's'} withheld from every Schedule C line. These amounts are not in the expense subtotal.`);
+  }
   pdf.paragraph('Credits/refunds are signed and meals use the shared 50% calculation. A confirmed category is not proof of legal deductibility. Review mixed business/personal use, asset purchases, vehicle method, entertainment and contribution classification.');
   pdf.section('Required review before preparing the return');
   pdf.paragraph('Complete returns/allowances, inventory and cost of goods sold, other income, depreciation and elections, home-office eligibility and limits, business details, vehicle records, material participation, at-risk/passive-loss limits and required 1099 filings. This export does not establish these facts or prepare those schedules. Review missing identity details directly with your preparer.');
@@ -40,6 +46,9 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
       const note = typeof tx.schedule_c_export_note === 'string' ? tx.schedule_c_export_note : '';
       return [tx.date, note ? `${merchant}. ${note}` : merchant, scheduleCExportLine(item.lineCode, data.taxYear), money(tx.amount), money(contribution)];
     }));
+    for (const tx of withheld) {
+      rows.push([tx.date ?? '', tx.merchant_name || tx.id || 'Unnamed record', '', money(tx.amount), money(0)]);
+    }
     pdf.table(['Date', 'Merchant / record', 'Line', 'Signed amount', 'Contribution'], rows.length ? rows : [['', 'No confirmed records in this year', '', money(0), money(0)]], [68, 235, 35, 95, 95]);
   } else pdf.paragraph('Transaction appendix omitted at your request. Retain the detailed records and receipts with your preparer.');
   pdf.paragraph('Reference: irs.gov/pub/irs-pdf/f1040sc.pdf and irs.gov/pub/irs-prior/f1040sc--2024.pdf. Unsupported font characters are preserved as U+codepoints.');

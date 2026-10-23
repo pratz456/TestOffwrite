@@ -119,7 +119,8 @@ describe('selected-year SE source and worksheet', () => {
     const records = await loadScheduleCRecords('export-owner', 2026);
     expect(records.transactions[0]?.schedule_c_line).toBe('27a (179D)');
     expect(records.expense.totalDeductible).toBe(0);
-    expect(records.expense.lineItems.review?.transactionCount).toBe(1);
+    expect(records.expense.needsMoreInformation).toHaveLength(1);
+    expect(records.expense.lineItems.review).toBeUndefined();
     expect(records.expense.lineItems['27a']).toBeUndefined();
   });
   it('shares W2 wage-base reduction and current records with the preview, ignoring saved summaries', async () => {

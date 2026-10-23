@@ -88,6 +88,8 @@ function manualForm() { return AddManualTransactionScreen({ user: { id: 'new-acc
 function enterExpense() {
   walk(render(manualForm)).find(node => node.props?.placeholder === 'e.g. Adobe, Staples, AWS')!.props.onChange!({ target: { value: 'Synthetic office supplies' } });
   walk(render(manualForm)).find(node => node.props?.type === 'number')!.props.onChange!({ target: { value: '42.50' } });
+  walk(render(manualForm)).find(node => typeof node.props?.onValueChange === 'function' && node.props.value !== 'expense' && node.props.value !== 'income')!
+    .props.onValueChange!('SERVICE_ADVERTISING');
   return walk(render(manualForm)).find(node => node.type === 'form')!;
 }
 function unmountDetail() {

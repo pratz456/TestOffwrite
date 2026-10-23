@@ -276,6 +276,15 @@ describe('merchant- and profession-aware grounding (2026-09-17.2)', () => {
     expect(analyze(software(), { merchant: 'Unknown Vendor', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', business_purpose: undefined })?.proposed_purpose).toBeUndefined();
     expect(analyze(software(), { merchant: 'LinkedIn', business_purpose: undefined })).toMatchObject({ missing_fields: ['business_purpose'], questions: [expect.stringContaining('job-search')] });
   });
+  it('keeps a model energy label and sets needs_more_info instead of dropping it', () => {
+    for (const label of ['27a (179D)', 'Line 27a (Form 7205)', '27b (Energy efficient commercial buildings)']) {
+      const result = analyze({ schedule_c_line: label });
+      expect(result?.status, label).toBe('needs_more_info');
+      expect(result?.schedule_c_line, label).toBe(label);
+      expect(result?.is_deductible, label).toBeUndefined();
+      expect(result?.missing_fields, label).toEqual(['energy_efficient_buildings']);
+    }
+  });
   it('caller- or model-supplied proposed_purpose and schedule_c_line are dropped and recomputed', () => {
     const forged = { proposed_purpose: 'Whatever the model says', schedule_c_line: '99' } as Partial<OutputType>;
     const approved = analyze({ ...software(), ...forged }, { merchant: 'Figma' });

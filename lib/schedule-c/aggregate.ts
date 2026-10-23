@@ -165,13 +165,30 @@ export type CategoryTreatment = {
   personal: boolean;
   needsMoreInformation: boolean;
   exportNote: string | null;
+  /**
+   * True only for a category that is not in the map and is not a ruled category.
+   * The aggregate loop then uses the base unmapped fallback. The alias head sends
+   * those categories to Needs more information by changing unmappedCategoryTreatment.
+   */
+  unmapped: boolean;
 };
 
-const NEEDS_MORE: CategoryTreatment = { line: null, name: null, personal: false, needsMoreInformation: true, exportNote: null };
-const PERSONAL_ZERO: CategoryTreatment = { line: null, name: null, personal: true, needsMoreInformation: false, exportNote: null };
+const NEEDS_MORE: CategoryTreatment = { line: null, name: null, personal: false, needsMoreInformation: true, exportNote: null, unmapped: false };
+const PERSONAL_ZERO: CategoryTreatment = { line: null, name: null, personal: true, needsMoreInformation: false, exportNote: null, unmapped: false };
+const NO_LINE: CategoryTreatment = { line: null, name: null, personal: false, needsMoreInformation: false, exportNote: null, unmapped: false };
 
-function partV(exportNote: string | null): CategoryTreatment {
-  return { line: '27a', name: 'Other expenses', personal: false, needsMoreInformation: false, exportNote };
+function partV(exportNote: string | null, unmapped = false): CategoryTreatment {
+  return { line: '27a', name: 'Other expenses', personal: false, needsMoreInformation: false, exportNote, unmapped };
+}
+
+/**
+ * Categories with no map entry and no ruling.
+ * Today they print as Other expenses. The alias head changes this return to Needs more information.
+ * Software, SERVICE_SUBSCRIPTION, and the $2,500 cap are ruled above this helper so that change does not move them.
+ */
+function unmappedCategoryTreatment(category: string): CategoryTreatment {
+  if (!category) return NO_LINE;
+  return partV(null, true);
 }
 
 export function merchantRecurrenceKey(value: unknown): string {
@@ -224,8 +241,9 @@ function softwareTreatment(tx: ScheduleCTransactionLike, peers: readonly Schedul
 /**
  * Shared Schedule C line for one charge. Card, totals, both CSVs, the PDF and the audit packet call this.
  * Year printing of Part V stays in otherExpensesYearPrint. A static map line is returned unchanged.
+ * Ruled categories are pharmacy, home improvement, computers, and SERVICE_SUBSCRIPTION.
  */
-export function resolveCategoryTreatment(tx: ScheduleCTransactionLike, peers: readonly ScheduleCTransactionLike[] = []): CategoryTreatment {
+export function resolveCategoryTreatment(tx: ScheduleCTransactionLike, peers: readonly ScheduleCTransactionLike[] = [], categoryMap: Record<string, CategoryMapEntry> = CATEGORY_MAP): CategoryTreatment {
   const category = typeof tx.category === 'string' ? tx.category.trim() : '';
   if (category === 'GENERAL_MERCHANDISE_PHARMACY') return tx.is_deductible === true ? NEEDS_MORE : PERSONAL_ZERO;
   if (category === 'GENERAL_MERCHANDISE_HOME_IMPROVEMENT') return NEEDS_MORE;
@@ -235,11 +253,10 @@ export function resolveCategoryTreatment(tx: ScheduleCTransactionLike, peers: re
     return NEEDS_MORE;
   }
   if (category === 'SERVICE_SUBSCRIPTION') return softwareTreatment(tx, peers);
-  const mapped = category ? CATEGORY_MAP[category] : undefined;
-  if (mapped) return { line: mapped.line, name: mapped.name, personal: false, needsMoreInformation: false, exportNote: null };
-  if (category.endsWith('_REVIEW_REQUIRED')) return { line: null, name: null, personal: false, needsMoreInformation: false, exportNote: null };
-  if (category) return partV(null);
-  return { line: null, name: null, personal: false, needsMoreInformation: false, exportNote: null };
+  const mapped = category ? categoryMap[category] : undefined;
+  if (mapped) return { line: mapped.line, name: mapped.name, personal: false, needsMoreInformation: false, exportNote: null, unmapped: false };
+  if (category.endsWith('_REVIEW_REQUIRED')) return NO_LINE;
+  return unmappedCategoryTreatment(category);
 }
 
 export interface ScheduleCTransactionLike {
@@ -293,6 +310,8 @@ export interface AggregateScheduleCResult {
   totalDeductible: number;
   lineItems: Record<string, LineItemSummary>;
   lineItemsArray: LineItemSummary[];
+  /** Confirmed rows withheld from every Schedule C line. Not a line item and not part of either total. */
+  needsMoreInformation: ScheduleCTransactionLike[];
   counts: { deductible: number; year: number };
 }
 
@@ -327,13 +346,9 @@ function otherExpensesLineKey(year: number | null): string {
   return print.status === 'line' ? print.code : '27a';
 }
 
-function addReviewItem(lineItems: Record<string, LineItemSummary>, tx: ScheduleCTransactionLike) {
-  const key = 'review';
-  if (!lineItems[key]) {
-    lineItems[key] = { lineCode: '', lineName: NEEDS_MORE_INFORMATION, total: 0, deductible: 0, transactionCount: 0, transactions: [] };
-  }
-  lineItems[key].transactionCount += 1;
-  lineItems[key].transactions.push({ ...tx, deductionStatus: NEEDS_MORE_INFORMATION, reasoning: NEEDS_MORE_INFORMATION });
+/** Withheld rows sit beside the line totals. They are not a Schedule C line and add nothing to a total. */
+function addReviewItem(needsMoreInformation: ScheduleCTransactionLike[], tx: ScheduleCTransactionLike) {
+  needsMoreInformation.push({ ...tx, deductionStatus: NEEDS_MORE_INFORMATION, reasoning: NEEDS_MORE_INFORMATION });
 }
 
 /** Existing analysis status. The reason is the one already shown when this percent is missing. */
@@ -374,6 +389,7 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
       : yearTransactions.filter(isBusinessExpense);
 
   const lineItems: Record<string, LineItemSummary> = {};
+  const needsMoreInformation: ScheduleCTransactionLike[] = [];
 
   const halfCentsAwayFromZero = (cents: number): number => {
     // For odd cents, round 0.5 away from zero (deterministic for odd-cent meals).
@@ -386,23 +402,24 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
 
   for (const tx of deductibleTransactions) {
     const rawCategory = typeof tx.category === 'string' ? tx.category.trim() : '';
-    let treatment = resolveCategoryTreatment(tx, transactions);
-    if (categoryMap !== CATEGORY_MAP && rawCategory && categoryMap[rawCategory] && CATEGORY_MAP[rawCategory]) {
-      const entry = categoryMap[rawCategory];
-      treatment = { line: entry.line, name: entry.name, personal: false, needsMoreInformation: false, exportNote: null };
-    }
+    const treatment = resolveCategoryTreatment(tx, transactions, categoryMap);
     if (treatment.personal) continue;
     if (treatment.needsMoreInformation) {
-      addReviewItem(lineItems, tx);
+      addReviewItem(needsMoreInformation, tx);
       continue;
     }
-    const info = treatment.line ? { line: treatment.line, name: treatment.name ?? 'Other expenses', code: treatment.line } : undefined;
-    const categoryLine = treatment.line;
+    // Mapped and ruled lines keep their code as the summary key. Other expenses stays 27a there.
+    // An unmapped row keeps the base fallback: category line 27a, summary key by charge year.
+    // The alias head sends unknown categories to Needs more information in unmappedCategoryTreatment.
+    const info = treatment.unmapped || !treatment.line
+      ? undefined
+      : { line: treatment.line, name: treatment.name ?? 'Other expenses', code: treatment.line };
+    const categoryLine = info ? info.line : rawCategory ? '27a' : null;
     const chargeYear = safeTaxYear(tx.date);
     const label = savedScheduleCLabel(tx);
     const decision = resolveScheduleCPrint({ categoryLine, label });
     if (decision.kind === 'needs-more-information' || (decision.kind === 'passthrough' && !info && !rawCategory && label)) {
-      addReviewItem(lineItems, tx);
+      addReviewItem(needsMoreInformation, tx);
       continue;
     }
     // Mapped categories keep info.line as the summary key. Other expenses stays 27a there.
@@ -412,7 +429,7 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
     const lineName = info ? info.name : 'Other expenses';
     const otherBucket = decision.kind === 'other-expenses' || lineKey === '27a' || lineKey === '27b';
     if (otherBucket && otherExpensesYearPrint(chargeYear).status === 'withhold') {
-      addReviewItem(lineItems, tx);
+      addReviewItem(needsMoreInformation, tx);
       continue;
     }
 
@@ -446,9 +463,12 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
       }
     }
     lineItems[lineKey].transactionCount += 1;
-    const stored = { ...lineItemTransaction(tx) };
-    if (treatment.exportNote) stored.schedule_c_export_note = treatment.exportNote;
-    if (tx.category === 'SERVICE_SUBSCRIPTION' && treatment.line === '27a' && !treatment.exportNote) stored.schedule_c_recurring = true;
+    const baseRow = lineItemTransaction(tx);
+    const stampNote = Boolean(treatment.exportNote);
+    const stampRecurring = tx.category === 'SERVICE_SUBSCRIPTION' && treatment.line === '27a' && !treatment.exportNote;
+    const stored = stampNote || stampRecurring ? { ...baseRow } : baseRow;
+    if (stampNote) stored.schedule_c_export_note = treatment.exportNote;
+    if (stampRecurring) stored.schedule_c_recurring = true;
     lineItems[lineKey].transactions.push(stored);
   }
 
@@ -457,7 +477,7 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
     if (isSupersededRecord(tx) || safeTaxYear(tx.date) !== null) continue;
     const included = mode === 'confirmed-only' ? isConfirmedScheduleCExpense(tx) : isBusinessExpense(tx);
     if (!included) continue;
-    addReviewItem(lineItems, tx);
+    addReviewItem(needsMoreInformation, tx);
   }
 
   const lineItemsArray = Object.values(lineItems).sort((a, b) => {
@@ -474,6 +494,7 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
     totalDeductible,
     lineItems,
     lineItemsArray,
+    needsMoreInformation,
     counts: { deductible: deductibleTransactions.length, year: yearTransactions.length },
   };
 }

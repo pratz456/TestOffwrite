@@ -2,7 +2,8 @@ import { readBankHistoryReviewSummary, type BankHistoryReviewSummary } from '@/l
 import { adminDb } from '@/lib/firebase/admin';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { CATEGORY_MAP, resolveCategoryTreatment, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
-import { otherExpensesYearPrint, printedScheduleCLine } from '@/lib/schedule-c/export-lines';
+import { printedScheduleCLine, scheduleCLineCsvCell } from '@/lib/schedule-c/export-lines';
+import { resolveScheduleCPrint } from '@/lib/schedule-c/line-labels';
 import { BUSINESS_STANDARD_MILEAGE_RATES, businessMileageRateForDate, summarizeBusinessMileage } from '@/lib/tax-rules/mileage-rates';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
@@ -160,15 +161,56 @@ function businessUsePercent(record: ExportRecord): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : typeof value === 'string' && value.trim() && Number.isFinite(Number(value)) ? Number(value) : null;
 }
 
-function auditScheduleCLine(record: ExportRecord, peers: readonly ExportRecord[]): string | null {
-  const category = Array.isArray(record.category) ? record.category.join(' > ') : typeof record.category === 'string' ? record.category : '';
+const AUDIT_NEEDS_MORE_INFORMATION = 'Needs more information';
+
+function savedAuditLabel(record: ExportRecord): string | null {
+  const raw = record.schedule_c_line ?? record.scheduleC_line;
+  return typeof raw === 'string' && raw.trim() ? raw : null;
+}
+
+function auditCategory(record: ExportRecord): string {
+  return Array.isArray(record.category) ? record.category.join(' > ') : typeof record.category === 'string' ? record.category : '';
+}
+
+function auditTreatment(record: ExportRecord, peers: readonly ExportRecord[]) {
+  const category = auditCategory(record);
   const amount = transactionAmount(record);
-  const treatment = resolveCategoryTreatment({ ...record, amount: amount ?? Number.NaN, date: exportDate(record.date ?? record.datetime) ?? '', category, is_deductible: record.is_deductible === true } as ScheduleCTransactionLike, peers as ScheduleCTransactionLike[]);
-  if (treatment.personal || treatment.needsMoreInformation || !treatment.line) return null;
-  const year = chargeTaxYear(record.date ?? record.datetime);
-  if ((treatment.line === '27a' || treatment.line === '27b') && otherExpensesYearPrint(year).status !== 'line') return null;
-  const printed = printedScheduleCLine(treatment.line, year);
-  return printed ? printed : null;
+  return resolveCategoryTreatment({
+    ...record,
+    amount: amount ?? Number.NaN,
+    date: exportDate(record.date ?? record.datetime) ?? '',
+    category,
+    is_deductible: record.is_deductible === true,
+  } as ScheduleCTransactionLike, peers as ScheduleCTransactionLike[]);
+}
+
+/**
+ * Same precedence as aggregateScheduleC: energy, then an Other-expenses category, then an allowlisted label, then Needs more information.
+ * A category mapped to any other line keeps that line, including when the saved label is an allowlisted 27a or 27b.
+ * Withheld rows leave the line blank and record Needs more information on the advisory, not as a line.
+ * Ruled categories pass their line in. Unmapped categories keep the base map lookup, which is no line.
+ */
+function auditScheduleCLine(category: string, label: string | null, taxYear: number | null, advisories: string[], categoryLine: string | null = CATEGORY_MAP[category]?.line ?? null): string | null {
+  const decision = resolveScheduleCPrint({ categoryLine, label });
+  const withhold = () => {
+    advisories.push(AUDIT_NEEDS_MORE_INFORMATION);
+    return null;
+  };
+  if (decision.kind === 'needs-more-information') return withhold();
+  if (decision.kind === 'other-expenses') {
+    if (categoryLine && categoryLine !== '27a' && categoryLine !== '27b') return printedScheduleCLine(categoryLine, taxYear);
+    const cell = scheduleCLineCsvCell('27a', taxYear);
+    return cell ? cell : withhold();
+  }
+  if (decision.kind === 'line') {
+    const cell = scheduleCLineCsvCell(decision.line, taxYear);
+    return cell || null;
+  }
+  if (categoryLine) {
+    const cell = scheduleCLineCsvCell(categoryLine, taxYear);
+    return cell || null;
+  }
+  return label;
 }
 
 /** One confirmed deduction paired with the records on file and the §274(d) elements still missing. */
@@ -227,10 +269,15 @@ export function buildEvidenceRecord(record: ExportRecord, context: { uid: string
     if (declared) advisories.push('Owner marked documentation complete; the receipt is kept outside WriteOff and is not attached.');
     if (record.documentation_status === 'partial' || record.documentation_status === 'missing') advisories.push(`Owner marked documentation as ${record.documentation_status}.`);
     if (businessUse !== null && businessUse !== 100) advisories.push(`Mixed-use allocation of ${businessUse}% recorded. Keep the basis for the allocation.`);
-    const scheduleLine = auditScheduleCLine(record, context.peers ?? [record]);
-    const noteTreatment = resolveCategoryTreatment({ ...record, amount, date: exportDate(record.date ?? record.datetime) ?? '', category, is_deductible: record.is_deductible === true } as ScheduleCTransactionLike, (context.peers ?? [record]) as ScheduleCTransactionLike[]);
-    if (noteTreatment.needsMoreInformation) advisories.push('Needs more information');
-    else if (scheduleLine && noteTreatment.exportNote) advisories.push(noteTreatment.exportNote);
+  }
+  const treatment = auditTreatment(record, context.peers ?? [record]);
+  let scheduleCLine: string | null = null;
+  if (treatment.needsMoreInformation) {
+    if (direction !== 'credit') advisories.push(AUDIT_NEEDS_MORE_INFORMATION);
+  } else if (!treatment.personal) {
+    const categoryLine = treatment.unmapped ? (CATEGORY_MAP[category]?.line ?? null) : treatment.line;
+    scheduleCLine = auditScheduleCLine(category, savedAuditLabel(record), chargeTaxYear(record.date ?? record.datetime), advisories, categoryLine);
+    if (direction !== 'credit' && scheduleCLine && treatment.exportNote) advisories.push(treatment.exportNote);
   }
   const source: ReviewSource = record.review_source === 'ai_confirmed' || record.review_source === 'user_corrected' ? record.review_source : 'unknown';
   return {
@@ -238,7 +285,7 @@ export function buildEvidenceRecord(record: ExportRecord, context: { uid: string
     transactionId: identity,
     detailPath: `/protected?screen=transaction-detail&transactionId=${encodeURIComponent(identity)}&from=reports`,
     date, merchant: text(record.merchant_name ?? record.merchant ?? record.name, 300) ?? 'Unnamed record', amount, direction, currency: 'USD',
-    category, categoryLabel: humanize(category), scheduleCLine: auditScheduleCLine(record, context.peers ?? [record]),
+    category, categoryLabel: humanize(category), scheduleCLine,
     substantiation: { category: type, label: rule.label, strict: rule.strict, status: missing.length ? 'needs_records' : 'complete', missing, advisories },
     businessPurpose: purpose, attendees, clientProject,
     travel: { destination, datesRecorded }, mileage, linkedTrips, receipts, receiptDeclaredOutsideApp: declared,
