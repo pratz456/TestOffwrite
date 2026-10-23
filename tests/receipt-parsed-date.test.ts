@@ -238,6 +238,10 @@ const VERIFIED: Array<[string, string, string]> = [
   ['Offer on 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
   ['Order shipped by 01/20/2026\nOrder date 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
   ['Delivered on 01/20/2026\nOrder Date 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Delivered on 01/03/2026\nOrder Date 12/30/2025\nTotal $12.34', '12/30/2025', '2025-12-30'],
+  ['12/30/2025\nDelivered on 01/05/2026\nTotal $12.34', '12/30/2025', '2025-12-30'],
+  ['Order Date 12/29/2025\nDelivered on 01/05/2026\nTotal $12.34', '12/29/2025', '2025-12-29'],
+  ['Delivered on 01/05/2026\nTotal $12.34', '01/05/2026', '2026-01-05'],
 ];
 const RULING: Array<[string, string]> = [
   ['Order placed 12/29/2025\nPaid Jan 2, 2026\nTotal $12.34', '2026-01-02'],

@@ -99,6 +99,7 @@ function allowsMonthPeriod(token: string, dotted: boolean): boolean {
  * date or directly after it. The gap may be spaces and : # , . - only. Phrases
  * in BRIDGE_SKIP_PHRASES may also have one bridge word before the date: Date,
  * on, by, until, or thru. Every other skip phrase keeps the strict gap.
+ * Delivered and delivery drop a date only when another date remains.
  */
 /** Only these skip phrases may bridge across Date, on, by, until, or thru. */
 const BRIDGE_SKIP_PHRASES = new Set([
@@ -119,7 +120,11 @@ const BRIDGE_SKIP_PHRASES = new Set([
   'thru',
   'through',
   'shipped',
+  'delivered',
+  'delivery',
 ]);
+/** These skips drop a date only when some other date is still left. A lone delivered or delivery date stays. */
+const FALLBACK_SKIP_PHRASES = new Set(['delivered', 'delivery']);
 const SKIP_PHRASES = [
   'returns accepted until',
   'estimated delivery date',
@@ -176,6 +181,7 @@ const LABEL_PHRASES: Array<{ text: string; tier: number }> = [
   { text: 'purchase date', tier: 2 },
   { text: 'transaction date', tier: 2 },
   { text: 'sale date', tier: 2 },
+  { text: 'order date', tier: 2 },
   { text: 'check-out', tier: 2 },
   { text: 'purchased', tier: 2 },
   { text: 'checkout', tier: 2 },
@@ -233,10 +239,18 @@ function adjacentMatchLength(line: string, dateStart: number, dateEnd: number, p
   return longest;
 }
 
-function dateIsSkipped(line: string, dateStart: number, dateEnd: number): boolean {
-  return SKIP_PHRASES.some(phrase =>
-    adjacentMatchLength(line, dateStart, dateEnd, phrase, BRIDGE_SKIP_PHRASES.has(phrase)) > 0
-  );
+function phraseSkipsDate(line: string, dateStart: number, dateEnd: number, phrase: string): boolean {
+  return adjacentMatchLength(line, dateStart, dateEnd, phrase, BRIDGE_SKIP_PHRASES.has(phrase)) > 0;
+}
+
+/** A hard skip always drops the date. Delivered and delivery match only when no hard skip does. */
+function dateIsHardSkipped(line: string, dateStart: number, dateEnd: number): boolean {
+  return SKIP_PHRASES.some(phrase => !FALLBACK_SKIP_PHRASES.has(phrase) && phraseSkipsDate(line, dateStart, dateEnd, phrase));
+}
+
+function dateIsDeliverySkipped(line: string, dateStart: number, dateEnd: number): boolean {
+  return !dateIsHardSkipped(line, dateStart, dateEnd)
+    && SKIP_PHRASES.some(phrase => FALLBACK_SKIP_PHRASES.has(phrase) && phraseSkipsDate(line, dateStart, dateEnd, phrase));
 }
 
 function labelTier(line: string, dateStart: number, dateEnd: number): number {
@@ -259,12 +273,15 @@ function spanOf(text: string, candidate: ReceiptDateCandidate): { dateStart: num
 
 function withoutAdjacentSkips(text: string, candidates: ReceiptDateCandidate[]): TieredDate[] {
   const kept: TieredDate[] = [];
+  const deliveryOnly: TieredDate[] = [];
   for (const candidate of candidates) {
     const { dateStart, dateEnd } = spanOf(text, candidate);
-    if (dateIsSkipped(candidate.line, dateStart, dateEnd)) continue;
-    kept.push({ ...candidate, tier: labelTier(candidate.line, dateStart, dateEnd) });
+    if (dateIsHardSkipped(candidate.line, dateStart, dateEnd)) continue;
+    const tiered = { ...candidate, tier: labelTier(candidate.line, dateStart, dateEnd) };
+    if (dateIsDeliverySkipped(candidate.line, dateStart, dateEnd)) deliveryOnly.push(tiered);
+    else kept.push(tiered);
   }
-  return kept;
+  return kept.length > 0 ? kept : deliveryOnly;
 }
 
 /** Keep the best tier present. Tier 1 beats tier 2, which beats tier 3. Unlabeled dates stay only when nothing is labeled. */
