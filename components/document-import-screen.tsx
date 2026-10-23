@@ -12,7 +12,7 @@ import {
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import { DocumentImageConsent, type DocumentImageFallbackReason } from "@/components/document-image-consent";
 import { DOCUMENT_IMAGE_CONSENT_REQUIRED } from "@/lib/onboarding/document-import-consent";
-import { socialSecurityWageBase } from "@/lib/tax-rules/public-calculators";
+import { w2Box4SocialSecurityWithholdingWarning } from "@/lib/tax-rules/federal-year-rules";
 
 interface Props {
   user: { id: string; email?: string };
@@ -104,16 +104,7 @@ const W2_FIELDS: FieldDef[] = [
     flowsTo: "Not deducted from income - already paid through payroll",
     isMonetary: true,
     isCritical: false,
-    sanityCheck: (v, f, taxYear) => {
-      if (!f.box3SocialSecurityWages || taxYear == null || !Number.isFinite(taxYear)) return null;
-      const wageBase = socialSecurityWageBase(taxYear);
-      if (wageBase == null) return null;
-      const expected = Math.min(f.box3SocialSecurityWages, wageBase) * 0.062;
-      if (Math.abs(v - expected) > 50) {
-        return `Box 4 ($${v.toLocaleString()}) differs from expected SS withholding of $${Math.round(expected).toLocaleString()} - verify this is correct`;
-      }
-      return null;
-    },
+    sanityCheck: (v, f, taxYear) => w2Box4SocialSecurityWithholdingWarning(v, f.box3SocialSecurityWages, taxYear),
   },
   {
     key: "box5MedicareWages",

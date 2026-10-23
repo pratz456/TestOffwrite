@@ -5,7 +5,7 @@ import { calcScheduleSE, getTaxRatesAndLimits, validateTaxSummarySettings } from
 // https://www.ssa.gov/oact/COLA/cbb.html ; https://www.irs.gov/instructions/i8959
 
 describe('Schedule SE reference scenarios', () => {
-  it.each([[2024, 168600], [2025, 176100], [2026, 184500], [2027, 192300]])('uses the %i Social Security wage base', (taxYear, wageBase) => {
+  it.each([[2024, 168600], [2025, 176100], [2026, 184500]])('uses the %i Social Security wage base', (taxYear, wageBase) => {
     const result = calcScheduleSE({ scheduleCNetProfit: 300000, taxYear });
     expect(result.socialSecurityTax).toBeCloseTo(wageBase * 0.124, 2);
     expect(getTaxRatesAndLimits(taxYear).socialSecurityWageBase).toBe(wageBase);
@@ -43,6 +43,11 @@ describe('Schedule SE reference scenarios', () => {
     expect(calcScheduleSE({ scheduleCNetProfit: 400, taxYear: 2026 }).totalSETax).toBe(0);
     expect(calcScheduleSE({ scheduleCNetProfit: 500, taxYear: 2026 }).totalSETax).toBe(70.65);
     expect(validateTaxSummarySettings({ scheduleCNetProfit: -5000, taxYear: 2026 })).toEqual([]);
+  });
+
+  it('rejects 2027 until the rest of the federal rules are published', () => {
+    expect(() => calcScheduleSE({ scheduleCNetProfit: 100000, taxYear: 2027 })).toThrow(/not published the 2027/);
+    expect(() => getTaxRatesAndLimits(2027)).toThrow(/not published the 2027/);
   });
 
   it('rejects years without a published wage base and non-finite input', () => {

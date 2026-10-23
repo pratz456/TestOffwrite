@@ -116,7 +116,7 @@ export const SOCIAL_SECURITY_WAGE_BASE_BY_YEAR = {
   2024: 168600,
   2025: 176100,
   2026: 184500,
-  // SSA, October 14, 2026: "For earnings in 2027, this base is $192,300."
+  // "For earnings in 2027, this base is $192,300."
   // https://www.ssa.gov/oact/cola/cbb.html
   2027: 192300,
 } as const;
