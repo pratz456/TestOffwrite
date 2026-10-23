@@ -7,6 +7,8 @@
  */
 import type { OutputType } from './analyzeTransaction';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { OTHER_EXPENSES_YEAR_FREE_LINE, printedScheduleCLine } from '@/lib/schedule-c/export-lines';
+import { chargeTaxYear } from '@/lib/reports/transaction-export';
 import { reviewCategory } from '@/lib/transactions/ai-review-contract';
 import { getUserTaxRate } from '@/lib/tax-rules/federal-brackets';
 import { SUPPORTED_TAX_YEARS, type SupportedTaxYear } from '@/lib/tax-rules/federal-year-rules';
@@ -21,6 +23,8 @@ export type ExplanationTransaction = {
   amount?: number | null; amount_usd?: number | null;
   iso_currency_code?: string | null; unofficial_currency_code?: string | null;
   merchant_name?: string | null; merchant?: string | null; name?: string | null;
+  /** Paid or posted charge date. `datetime` is used only when `date` is absent. */
+  date?: unknown; datetime?: unknown;
   business_purpose?: string | null; business_use_percentage?: number | null;
   attendees?: readonly string[] | null; travel_destination?: string | null; client_project?: string | null;
   meeting_notes?: string | null; documentation_status?: string | null;
@@ -173,12 +177,22 @@ const FLOW_HEADLINES: Record<string, string> = {
 
 const LINE_NAMES: Record<string, string> = Object.fromEntries(Object.values(CATEGORY_MAP).map(entry => [entry.line, entry.name]));
 
+/** Year-known sentence. A missing charge date uses the year-free Other expenses wording and no category name. */
+function lineSentence(internalLine: string, chargeDate: unknown): string {
+  const printed = printedScheduleCLine(internalLine, chargeTaxYear(chargeDate));
+  if (!printed || printed === OTHER_EXPENSES_YEAR_FREE_LINE) return printed ?? '';
+  const name = LINE_NAMES[internalLine];
+  return `Schedule C line ${printed}${name ? ` (${name})` : ''}`;
+}
+
 /** Prefer the policy's placement; otherwise the export taxonomy line for the suggested category. */
-export function scheduleCLineFor(result: ExplainableResult): string | null {
+export function scheduleCLineFor(result: ExplainableResult, chargeDate: unknown): string | null {
   const supplied = text(result.schedule_c_line, 120);
   if (supplied) {
     if (/^(schedule|form|not)\b/i.test(supplied)) return supplied;
-    if (/^\d{1,2}[a-z]?$/.test(supplied)) return `Schedule C line ${supplied}${LINE_NAMES[supplied] ? ` (${LINE_NAMES[supplied]})` : ''}`;
+    if (/^\d{1,2}[a-z]?$/.test(supplied)) return lineSentence(supplied, chargeDate);
+    const coded = supplied.match(/^line\s+(\d{1,2}[a-z]?)$/i);
+    if (coded?.[1] === '27a') return lineSentence(coded[1], chargeDate);
     if (/^line\b/i.test(supplied)) return `Schedule C ${supplied}`;
     return supplied;
   }
@@ -186,7 +200,7 @@ export function scheduleCLineFor(result: ExplainableResult): string | null {
   if (kind !== 'expense' && kind !== 'unknown' || result.is_deductible === false) return null;
   const recorded = reviewCategory(result.category)?.recordedCategory;
   const entry = recorded ? CATEGORY_MAP[recorded] : undefined;
-  return entry ? `Schedule C line ${entry.line} (${entry.name})` : null;
+  return entry ? lineSentence(entry.line, chargeDate) : null;
 }
 
 function headlineFor(result: ExplainableResult, label: string | undefined): string {
@@ -335,7 +349,7 @@ export function composeExplanation({ result, transaction, profile, taxYear }: Co
     headline: `${headlineFor(result, category?.label)}${subject}`,
     why: whyFor(result),
     yourFacts: facts,
-    scheduleCLine: scheduleCLineFor(result),
+    scheduleCLine: scheduleCLineFor(result, tx.date ?? tx.datetime),
     estimatedTaxEffect: estimate,
     strengthen: strengthenFor(result),
     nextQuestion: result.questions?.map(question => text(question, 300)).find(Boolean) ?? null,

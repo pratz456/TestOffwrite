@@ -1,4 +1,5 @@
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { printedScheduleCLine } from '@/lib/schedule-c/export-lines';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 
@@ -10,6 +11,19 @@ export function exportYear(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined;
   if (!/^(?:20\d{2}|2100)$/.test(String(value))) throw new RangeError('Provide a four-digit year from 2000 through 2100.');
   return Number(value);
+}
+/** Year of the paid or posted charge. Null when that date is missing or invalid. */
+export function chargeTaxYear(paidOrPosted: unknown): number | null {
+  const day = exportDate(paidOrPosted);
+  if (!day) return null;
+  const year = Number(day.slice(0, 4));
+  return Number.isInteger(year) ? year : null;
+}
+function printedLineCell(value: unknown, taxYear: number | null): unknown {
+  if (typeof value !== 'string') return value;
+  const code = value.trim();
+  if (!/^\d{1,2}[a-z]?$/.test(code)) return value;
+  return printedScheduleCLine(code, taxYear);
 }
 export function exportDate(value: unknown): string | null {
   try {
@@ -55,6 +69,7 @@ export const TRANSACTION_CSV_HEADERS = [
 export function convertTransactionsToCSV(records: ExportRecord[]): string {
   return [TRANSACTION_CSV_HEADERS.map(csvCell).join(','), ...records.map(record => {
     const amount = transactionAmount(record), date = exportDate(record.date ?? record.datetime), deductible = recordedDeductibility(record);
+    const lineYear = chargeTaxYear(record.date ?? record.datetime);
     const category = categoryText(record.category);
     const rawPath = record.receipt_url;
     const businessUse = Object.fromEntries(['business_percent', 'business_use_percent', 'business_use_percentage', 'businessUsePercent'].filter(key => record[key] !== undefined).map(key => [key, record[key]]));
@@ -76,7 +91,7 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
       record.type, record.iso_currency_code ?? record.unofficial_currency_code ?? 'Not recorded', record.merchant_name ?? record.name ?? record.merchant,
       record.description, category, deductible === true ? 'Yes' : deductible === false ? 'No' : 'Unreviewed',
       record.pending === true ? 'Yes' : record.pending === false ? 'No' : 'Not recorded',
-      record.schedule_c_line ?? record.scheduleC_line, CATEGORY_MAP[category]?.line ?? '', record.business_purpose,
+      printedLineCell(record.schedule_c_line ?? record.scheduleC_line, lineYear), printedLineCell(CATEGORY_MAP[category]?.line ?? '', lineYear), record.business_purpose,
       record.user_classification_reason, record.deductible_reason ?? record.deduction_reason, record.deduction_score ?? record.ai_confidence,
       record.receipt_filename, receiptPath, record.notes, Object.keys(businessUse).length ? businessUse : '', Object.keys(adjustments).length ? adjustments : '', review,
     ].map(csvCell).join(',');
