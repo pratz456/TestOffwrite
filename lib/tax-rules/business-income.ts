@@ -72,7 +72,13 @@ export function listIncomeSourceCandidates(taxYear: number, transactions: Readon
     }
     const cents = money(form.amount);
     form1099Cents += cents;
-    const candidate: IncomeSourceCandidate = { kind: 'form_1099', id: recordId(form.id), amount: cents / 100, formType: form.formType, label: `${form.formType} · ${text(form.payerName) || text(form.payer) || 'Unknown payer'}` };
+    const payerName = text(form.payerName) || text(form.payer);
+    const candidate: IncomeSourceCandidate = {
+      kind: 'form_1099', id: recordId(form.id), amount: cents / 100, formType: form.formType,
+      label: `${form.formType} · ${payerName || 'Unknown payer'}`,
+      ...(payerName ? { payerName } : {}),
+      ...(typeof form.date === 'string' ? { date: form.date.slice(0, 10) } : {}),
+    };
     if (form.grossReceiptId !== undefined) {
       const receiptAmount = typeof form.grossReceiptId === 'string' ? receiptsById.get(form.grossReceiptId) : undefined;
       if (form.source !== 'document_import' || receiptAmount === undefined || receiptAmount !== cents) {

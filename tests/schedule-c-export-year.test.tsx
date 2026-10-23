@@ -112,6 +112,27 @@ describe('Schedule C supported-year selection', () => {
     expect(harness.download.click).not.toHaveBeenCalled();
   });
 
+  it('R-56 shows the same card when the CSV export is blocked', async () => {
+    const reviewPath = '/protected?screen=income-tracking&tab=reconcile&year=2026';
+    harness.fetch.mockResolvedValue(new Response(JSON.stringify({
+      error: 'Review income sources before calculating tax', code: 'INCOME_RECONCILIATION_REQUIRED',
+      conflicts: [{ reason: 'multiple_forms', message: 'This tax year has more than one 1099.', sources: [
+        { label: '1099-K · Synthetic platform', amount: 10000 },
+        { label: '1099-NEC · Synthetic client', amount: 10000 },
+      ] }],
+      reviewPath,
+    }), { status: 422, headers: { 'content-type': 'application/json' } }));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    render();
+    await walk(render()).find(node => typeof node.props?.onClick === 'function' && text(node).includes('Export 2026 Schedule C Data')).props.onClick();
+    expect(JSON.parse(harness.fetch.mock.calls[0][1].body).format).toBe('csv');
+    const tree = render();
+    expect(harness.error).not.toHaveBeenCalled();
+    const card = walk(tree).find(node => node.type === IncomeReconciliationExportCard);
+    expect(text(card.type(card.props))).toContain(EXPORT_BLOCKED_TITLE);
+    expect(harness.download.click).not.toHaveBeenCalled();
+  });
+
   it('R-29 keeps other 422 responses on the toast and off the reconcile card', async () => {
     const message = 'Duplicate transaction identifiers exist in saved records.';
     harness.fetch.mockResolvedValue(new Response(JSON.stringify({ error: message, code: 'EXPORT_REVIEW_REQUIRED' }), { status: 422, headers: { 'content-type': 'application/json' } }));

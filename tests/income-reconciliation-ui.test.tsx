@@ -33,18 +33,19 @@ vi.mock('react', async importOriginal => {
   };
   return { ...actual, ...hooks, default: { ...actual.default, ...hooks } };
 });
-import { IncomeReconciliationExportCard } from '../components/income-reconciliation-export-card';
 import { IncomeReconciliationPanel } from '../components/income-reconciliation-panel';
 import { TaxPreviewScreen } from '../components/tax-preview-screen';
 import { incomeScreenTab, incomeScreenYear } from '../components/income-tracking-screen';
 import { protectedScreenUrl } from '../lib/navigation/protected-screens';
 import { prepareReconciliationDecision, summarizeIncomeReconciliation, type IncomeSourceRecords } from '../lib/tax-rules/income-reconciliation-response';
 import {
+  COMPARE_DIFF, COMPARE_SAME_AMOUNT, COMPARE_TITLE, CONFIRM_FORMS_REQUIRED, CONFIRM_SAME_BACK, CONFIRM_SAME_TITLE, CONFIRM_SAME_YES,
   CORRECTED_ORIGINAL_BADGE, CORRECTED_PICK_QUESTION, CORRECTED_PREVIEW, DECISION_HELP_CORRECTED, DECISION_LABEL_CORRECTED,
   DECISION_LABEL_NOT_BUSINESS, ERR_REASON_AMOUNT, GUIDE_ANSWER_APP, GUIDE_ANSWER_BANK, GUIDE_HINT_APP, GUIDE_HINT_BANK,
   GUIDE_QUESTION, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_YES, NO_CHOICE_YET, NO_FORM_NO_INCOME, PANEL_FORMS_NOTE,
-  SAME_DISABLED_NEC,
+  SAME_DISABLED_NEC, fillIncomeCopy,
 } from '../lib/tax-rules/income-reconciliation-copy';
+import { incomeReconciliationPath } from '../lib/tax-rules/income-reconciliation-response';
 import * as incomeCopy from '../lib/tax-rules/income-reconciliation-copy';
 import type { IncomeRecord } from '../lib/tax-rules/business-income';
 
@@ -91,8 +92,16 @@ function api(url: string, init?: RequestInit): Promise<Response> {
   const prepared = prepareReconciliationDecision(2026, records, {
     id, decision: body.decision, sources: body.sources, platformFeeAmount: body.platformFeeAmount ?? 0, note: body.note ?? '',
     notBusinessParts: body.notBusinessParts ?? [], ...(body.paymentMethodHint ? { paymentMethodHint: body.paymentMethodHint } : {}),
+    ...(body.correctedFormId ? { correctedFormId: body.correctedFormId } : {}),
   });
   if (!prepared.ok) return Promise.resolve(Response.json({ error: prepared.reason }, { status: prepared.status }));
+  if (body.decision === 'same_payments') {
+    const forms = (body.sources as Array<{ kind: string; amount: number }>).filter(source => source.kind === 'form_1099');
+    const expected = forms.reduce((total, source) => total + Math.round(source.amount * 100), 0);
+    if (forms.length >= 2 && Math.round(Number(body.confirmedFormsTotal) * 100) !== expected) {
+      return Promise.resolve(Response.json({ error: CONFIRM_FORMS_REQUIRED }, { status: 400 }));
+    }
+  }
   records.decisions = [...records.decisions.filter(decision => decision.id !== id), { id, ...prepared.stored, decidedAt: '2026-04-01T12:00:00.000Z', version: 2, choiceConfirmedAt: '2026-04-01T12:00:00.000Z' }];
   return Promise.resolve(Response.json({ success: true, id, countedAmount: prepared.stored.countedAmount }, { status: method === 'PATCH' ? 200 : 201 }));
 }
@@ -438,51 +447,285 @@ describe('reconciliation choice, guide question and Tax Watch rulings', () => {
     expect(text(render(panel))).not.toContain('on hold');
   });
 
-  it('R-77 copy_never_says_replace', async () => {
-    const table = [
-      DECISION_LABEL_CORRECTED, DECISION_HELP_CORRECTED, CORRECTED_PREVIEW, CORRECTED_PICK_QUESTION, CORRECTED_ORIGINAL_BADGE,
-      ...Object.values(incomeCopy).filter((value): value is string => typeof value === 'string'),
-    ];
-    expect(DECISION_LABEL_CORRECTED).toBe('Count a corrected 1099-NEC in place of the original');
-    expect(CORRECTED_ORIGINAL_BADGE).toBe('Original. The corrected form is counted in its place. Kept, not counted.');
-    for (const value of table) {
-      expect(value).not.toMatch(/replace/i);
+  it('shows the v1.1 corrected-form label and keeps the code name off the label', async () => {
+    expect(DECISION_LABEL_CORRECTED).toBe('A corrected 1099-NEC replaces the original');
+    expect(CORRECTED_ORIGINAL_BADGE).toBe('Original, replaced by a corrected form. Kept, not counted.');
+    expect(DECISION_HELP_CORRECTED).toBe('Use this when a client sent you a corrected 1099-NEC. We count the corrected form and keep the original in your records without counting it.');
+    for (const value of Object.values(incomeCopy)) {
+      if (typeof value !== 'string') continue;
       expect(value).not.toContain('corrected_form_replaces');
-      if (/schedule 1/i.test(value)) {
-        expect(value).toContain('2026 draft');
-        expect(value).toContain('final 2025');
-        expect(value).not.toMatch(/line \d|box \d/i);
-      }
+      expect(value).not.toContain('\u2013');
+      expect(value).not.toContain('\u2014');
     }
-    const surfaces: unknown[] = [];
-    render(panel); await flush();
-    surfaces.push(render(panel));
     records.receipts = [];
-    records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', 'Client B')];
-    harness.slots = [];
+    records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12500, '1099-NEC', 'Client A')];
     render(panel); await flush();
-    check(render(panel), '1099-NEC · Client A $12,000.00');
-    check(render(panel), '1099-NEC · Client B $12,000.00');
-    surfaces.push(render(panel));
-    surfaces.push(IncomeReconciliationExportCard({
-      conflicts: [{ message: 'This tax year has more than one 1099 and at least one has no reconciliation decision.', sources: [{ label: '1099-NEC · Client A', amount: 12000 }, { label: '1099-NEC · Client B', amount: 12000 }] }],
-      onReconcile() {},
-      onRetry() {},
-    }));
-    const rendered = surfaces.flatMap(visibleCopy);
-    expect(rendered.some(value => /replace/i.test(value))).toBe(false);
-    expect(rendered.some(value => value.includes('corrected_form_replaces'))).toBe(false);
-    expect(rendered.join('\n')).toContain(SAME_DISABLED_NEC);
-    expect(rendered.join('\n')).toContain(DECISION_LABEL_NOT_BUSINESS);
+    const tree = render(panel);
+    expect(radios(tree).some(node => node.props.value === 'corrected_form_replaces')).toBe(true);
+    expect(text(tree)).toContain(DECISION_LABEL_CORRECTED);
+    expect(text(tree)).not.toContain('corrected_form_replaces');
   });
 });
 
-function visibleCopy(node: unknown): string[] {
-  if (Array.isArray(node)) return node.flatMap(visibleCopy);
-  if (node && typeof node === 'object') {
-    const props = (node as { props?: Record<string, unknown> }).props ?? {};
-    const own = Object.values(props).filter((value): value is string => typeof value === 'string');
-    return [...own, ...visibleCopy(props.children)];
-  }
-  return typeof node === 'string' ? [node] : [];
+function dialog(tree: Element) {
+  return walk(tree).find(node => node.props?.role === 'alertdialog')!;
 }
+function classNames(node: unknown): string[] {
+  if (Array.isArray(node)) return node.flatMap(classNames);
+  if (!node || typeof node !== 'object') return [];
+  const props = (node as { props?: { className?: unknown; children?: unknown } }).props ?? {};
+  const own = typeof props.className === 'string' ? props.className.split(/\s+/) : [];
+  return [...own, ...classNames(props.children)];
+}
+const posts = () => harness.request.mock.calls.filter(([, init]) => init?.method === 'POST' || init?.method === 'PATCH');
+
+describe('v1.1 confirm step, compare and corrected form', () => {
+  beforeEach(() => { process.env[FLAG] = '1'; });
+  afterEach(() => { delete process.env[FLAG]; });
+
+  it('R-41 saves two forms as separate income in one request', async () => {
+    records.receipts = [];
+    records.forms = [form('k1', 12000), form('n1', 12000, '1099-NEC', 'Client A')];
+    render(panel); await flush();
+    check(render(panel), '1099-K · Synthetic platform $12,000.00');
+    check(render(panel), '1099-NEC · Client A $12,000.00');
+    radio(render(panel), 'separate_income');
+    await submit(render(panel));
+    const sent = posts();
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(String(sent[0][1].body)).sources).toHaveLength(2);
+    expect(records.decisions).toHaveLength(1);
+    expect(records.decisions[0]).toMatchObject({ decision: 'separate_income', countedAmount: 24000 });
+    const summary = text(render(panel));
+    expect(summary).toContain('$24,000.00');
+    expect(summary).not.toContain('on hold');
+  });
+
+  it('R-45 never makes separate income take more clicks than same payments', async () => {
+    const clicks = async (kinds: Array<'separate_income' | 'same_payments'>, labels: string[]) => {
+      harness.slots = []; harness.request.mockClear();
+      render(panel); await flush();
+      let count = 0;
+      for (const label of labels) { check(render(panel), label); count += 1; }
+      radio(render(panel), kinds[0]); count += 1;
+      await submit(render(panel)); count += 1;
+      const open = dialog(render(panel));
+      if (open) { clickText(render(panel), fillIncomeCopy(CONFIRM_SAME_YES, { counted: '$12,000.00' })); count += 1; await flush(); }
+      return count;
+    };
+    records.receipts = [];
+    records.forms = [form('k1', 12000), form('n1', 12000, '1099-NEC', 'Client A')];
+    const separateA = await clicks(['separate_income'], ['1099-K · Synthetic platform $12,000.00', '1099-NEC · Client A $12,000.00']);
+    records.decisions = [];
+    const sameA = await clicks(['same_payments'], ['1099-K · Synthetic platform $12,000.00', '1099-NEC · Client A $12,000.00']);
+    expect(separateA).toBe(4);
+    expect(sameA).toBe(5);
+    expect(separateA).toBeLessThanOrEqual(sameA);
+
+    records.decisions = [];
+    records.forms = [form('k1', 10000)];
+    records.transactions = [deposit('t1', 10000)];
+    const labelsB = ['1099-K · Synthetic platform $10,000.00', 'Bank income · Synthetic platform payout $10,000.00'];
+    const separateB = await clicks(['separate_income'], labelsB);
+    records.decisions = [];
+    const sameB = await clicks(['same_payments'], labelsB);
+    expect(separateB).toBe(4);
+    expect(sameB).toBe(4);
+
+    records.decisions = [];
+    records.transactions = [deposit('t1', 12000)];
+    records.forms = [form('k1', 12000), form('n1', 12000, '1099-NEC', 'Client A')];
+    const labelsC = ['1099-K · Synthetic platform $12,000.00', '1099-NEC · Client A $12,000.00', 'Bank income · Synthetic platform payout $12,000.00'];
+    const separateC = await clicks(['separate_income'], labelsC);
+    records.decisions = [];
+    const sameC = await clicks(['same_payments'], labelsC);
+    expect(separateC).toBeLessThanOrEqual(sameC);
+  });
+
+  it('R-47 and R-48 ask before counting two forms once, and going back sends nothing', async () => {
+    records.receipts = [];
+    records.forms = [form('k1', 12000), form('n1', 12000, '1099-NEC', 'Client A')];
+    render(panel); await flush();
+    check(render(panel), '1099-K · Synthetic platform $12,000.00');
+    check(render(panel), '1099-NEC · Client A $12,000.00');
+    radio(render(panel), 'same_payments');
+    await submit(render(panel));
+    expect(posts()).toHaveLength(0);
+    const open = render(panel);
+    const alert = dialog(open);
+    expect(text(alert)).toContain(CONFIRM_SAME_TITLE);
+    expect(text(alert)).toContain("Your forms report $24,000.00. We'll count $12,000.00 on line 1.");
+    const buttons = walk(alert).filter(node => node.props?.variant);
+    expect(buttons.map(node => node.props.variant)).toEqual(['outline', 'outline']);
+    expect(buttons.every(node => !node.props.autoFocus)).toBe(true);
+    alert.props.onKeyDown({ key: 'Enter', preventDefault() {} });
+    expect(posts()).toHaveLength(0);
+    alert.props.onKeyDown({ key: 'Escape', preventDefault() {} });
+    const back = render(panel);
+    expect(dialog(back)).toBeUndefined();
+    expect(posts()).toHaveLength(0);
+    expect(walk(back).filter(node => node.props?.type === 'checkbox' && node.props.checked)).toHaveLength(2);
+    expect(radios(back).filter(node => node.props.name === 'reconciliation-decision').some(node => node.props.checked)).toBe(false);
+
+    radio(back, 'same_payments');
+    await submit(render(panel));
+    clickText(render(panel), CONFIRM_SAME_BACK);
+    const closed = render(panel);
+    expect(dialog(closed)).toBeUndefined();
+    expect(posts()).toHaveLength(0);
+    expect(radios(closed).filter(node => node.props.name === 'reconciliation-decision').some(node => node.props.checked)).toBe(false);
+  });
+
+  it('R-49 saves once after the confirm button', async () => {
+    records.receipts = [];
+    records.forms = [form('k1', 12000), form('n1', 12000, '1099-NEC', 'Client A')];
+    render(panel); await flush();
+    check(render(panel), '1099-K · Synthetic platform $12,000.00');
+    check(render(panel), '1099-NEC · Client A $12,000.00');
+    radio(render(panel), 'same_payments');
+    await submit(render(panel));
+    clickText(render(panel), fillIncomeCopy(CONFIRM_SAME_YES, { counted: '$12,000.00' }));
+    await flush();
+    const sent = posts();
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(String(sent[0][1].body))).toMatchObject({ decision: 'same_payments', confirmedFormsTotal: 24000 });
+    expect(text(render(panel))).toContain('$12,000.00');
+    expect(text(render(panel))).not.toContain('on hold');
+  });
+
+  it('R-52 confirms a legacy two-form decision before the PATCH', async () => {
+    records.receipts = [];
+    records.forms = [form('k1', 12000), form('n1', 12000, '1099-NEC', 'Client A')];
+    records.decisions = [{ id: 'legacy', taxYear: 2026, decision: 'same_payments', platformFeeAmount: null, countedAmount: 12000, decidedAt: '2026-02-01T00:00:00.000Z', version: 1,
+      sources: [{ kind: 'form_1099', id: 'k1', amount: 12000, label: '1099-K · Synthetic platform' }, { kind: 'form_1099', id: 'n1', amount: 12000, label: '1099-NEC · Client A' }] }];
+    render(panel); await flush();
+    clickText(render(panel), LEGACY_RECONFIRM_YES);
+    const open = render(panel);
+    expect(posts()).toHaveLength(0);
+    expect(text(dialog(open))).toContain("Your forms report $24,000.00. We'll count $12,000.00 on line 1.");
+  });
+
+  it('R-53 shows the payer and form type on separate lines without truncation', async () => {
+    const payer = 'Synthetic platform payer name that is seventy characters long exactly!';
+    expect(payer).toHaveLength(70);
+    records.receipts = [];
+    records.forms = [form('k1', 12000, '1099-K', payer), form('n1', 12000, '1099-NEC', 'Client A')];
+    render(panel); await flush();
+    const tree = render(panel);
+    expect(text(tree)).toContain(payer);
+    expect(text(tree)).toContain('1099-K');
+    expect(text(tree)).toContain('Client A');
+    expect(text(tree)).toContain('1099-NEC');
+    const rows = walk(tree).filter(node => node.type === 'li' && text(node).includes('1099-'));
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    for (const row of rows) expect(classNames(row)).not.toContain('truncate');
+  });
+
+  it('R-54 compares two forms and switches to a strip at three, without choosing', async () => {
+    records.receipts = [];
+    records.forms = [form('k1', 12000), form('n1', 11400, '1099-NEC', 'Client A')];
+    render(panel); await flush();
+    check(render(panel), '1099-K · Synthetic platform $12,000.00');
+    check(render(panel), '1099-NEC · Client A $11,400.00');
+    const different = render(panel);
+    expect(text(different)).toContain(COMPARE_TITLE);
+    expect(text(different)).toContain('Form');
+    expect(text(different)).toContain('Payer');
+    expect(text(different)).toContain('Amount');
+    expect(text(different)).toContain(fillIncomeCopy(COMPARE_DIFF, { diff: '$600.00' }));
+    expect(radios(different).some(node => node.props.checked)).toBe(false);
+
+    records.forms = [form('k1', 12000), form('n1', 12000, '1099-NEC', 'Client A')];
+    harness.slots = [];
+    render(panel); await flush();
+    check(render(panel), '1099-K · Synthetic platform $12,000.00');
+    check(render(panel), '1099-NEC · Client A $12,000.00');
+    const equal = render(panel);
+    expect(text(equal)).toContain(COMPARE_SAME_AMOUNT);
+    expect(radios(equal).some(node => node.props.checked)).toBe(false);
+
+    records.forms = [form('k1', 12000), form('n1', 12000, '1099-NEC', 'Client A'), form('k2', 500, '1099-K', 'Second platform')];
+    harness.slots = [];
+    render(panel); await flush();
+    check(render(panel), '1099-K · Synthetic platform $12,000.00');
+    check(render(panel), '1099-NEC · Client A $12,000.00');
+    check(render(panel), '1099-K · Second platform $500.00');
+    const strip = render(panel);
+    expect(text(strip)).not.toContain(COMPARE_TITLE);
+    expect(text(strip)).toContain('Second platform');
+    expect(text(strip)).toContain('$500.00');
+    expect(radios(strip).some(node => node.props.checked)).toBe(false);
+  });
+
+  it('R-58 disables same payments for two 1099-NECs from one payer or two', async () => {
+    for (const payer of ['Client B', 'Client A']) {
+      harness.slots = [];
+      records.receipts = [];
+      records.decisions = [];
+      records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12000, '1099-NEC', payer)];
+      render(panel); await flush();
+      const first = payer === 'Client A' ? '1099-NEC · Client A $12,000.00' : '1099-NEC · Client A $12,000.00';
+      check(render(panel), first);
+      const secondLabel = `1099-NEC · ${payer} $12,000.00`;
+      const boxes = walk(render(panel)).filter(node => node.props?.['aria-label'] === `Select ${secondLabel}`);
+      boxes[boxes.length - 1].props.onChange({ target: { checked: true } });
+      const blocked = render(panel);
+      expect(radios(blocked).find(node => node.props.value === 'same_payments')!.props.disabled).toBe(true);
+      expect(text(blocked)).toContain(SAME_DISABLED_NEC);
+    }
+    radio(render(panel), 'separate_income');
+    await submit(render(panel));
+    expect(text(render(panel))).toContain('$24,000.00');
+  });
+
+  it('R-65 keeps the corrected-form pick blank until the user chooses one', async () => {
+    records.receipts = [];
+    records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12500, '1099-NEC', 'Client A')];
+    render(panel); await flush();
+    check(render(panel), '1099-NEC · Client A $12,000.00');
+    const second = walk(render(panel)).filter(node => node.props?.['aria-label'] === 'Select 1099-NEC · Client A $12,500.00');
+    second[second.length - 1].props.onChange({ target: { checked: true } });
+    radio(render(panel), 'corrected_form_replaces');
+    const blank = render(panel);
+    const picks = radios(blank).filter(node => node.props.name === 'corrected-form');
+    expect(picks).toHaveLength(2);
+    expect(picks.every(node => node.props.checked === false)).toBe(true);
+    expect(text(blank)).toContain(CORRECTED_PICK_QUESTION);
+    expect(walk(blank).find(node => node.props?.type === 'submit')!.props.disabled).toBe(true);
+    picks[1].props.onChange();
+    expect(walk(render(panel)).find(node => node.props?.type === 'submit')!.props.disabled).toBe(false);
+  });
+
+  it('R-68 saves a corrected form without matching the amounts or opening the confirm dialog', async () => {
+    records.receipts = [];
+    records.forms = [form('n1', 12000, '1099-NEC', 'Client A'), form('n2', 12500, '1099-NEC', 'Client A')];
+    render(panel); await flush();
+    check(render(panel), '1099-NEC · Client A $12,000.00');
+    walk(render(panel)).filter(node => node.props?.['aria-label'] === 'Select 1099-NEC · Client A $12,500.00').at(-1)!.props.onChange();
+    radio(render(panel), 'corrected_form_replaces');
+    radios(render(panel)).filter(node => node.props.name === 'corrected-form')[1].props.onChange();
+    const ready = render(panel);
+    expect(preview(ready)).toBe(fillIncomeCopy(CORRECTED_PREVIEW, { corrected: '$12,500.00', original: '$12,000.00' }));
+    expect(dialog(ready)).toBeUndefined();
+    await submit(ready);
+    const sent = posts();
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(String(sent[0][1].body))).toMatchObject({ decision: 'corrected_form_replaces', correctedFormId: 'n2' });
+    expect(dialog(render(panel))).toBeUndefined();
+  });
+});
+
+describe('tax preview reconcile link', () => {
+  it('R-57 opens income records on the reconcile tab from reviewPath or the helper', async () => {
+    const reviewPath = '/protected?screen=income-tracking&tab=reconcile&year=2026';
+    const screen = () => TaxPreviewScreen({ user: { id: 'owner' }, onBack() {}, onNavigate: harness.navigate });
+    harness.request.mockResolvedValue(Response.json({ error: 'Review income sources', code: 'INCOME_RECONCILIATION_REQUIRED', conflicts: [], reviewPath }, { status: 422 }));
+    render(screen); await flush();
+    const incomeLink = () => walk(render(screen)).find(node => node.props?.href && text(node).includes('Income records'))!;
+    expect(incomeLink().props.href).toBe(reviewPath);
+    harness.request.mockResolvedValue(Response.json({ error: 'Review income sources', code: 'INCOME_RECONCILIATION_REQUIRED', conflicts: [] }, { status: 422 }));
+    await walk(render(screen)).find(node => node.props?.['aria-label'] === 'Refresh tax estimate')!.props.onClick();
+    await flush();
+    expect(incomeLink().props.href).toBe(incomeReconciliationPath(2026));
+  });
+});

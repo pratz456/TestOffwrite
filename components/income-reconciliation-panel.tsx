@@ -12,11 +12,15 @@ import {
   type IncomeSourceCandidate, type IncomeSourceKind, type NotBusinessPart, type PaymentMethodHint, type ReconciliationDecisionType,
 } from "@/lib/tax-rules/income-reconciliation";
 import {
-  DECISION_HELP_NOT_BUSINESS, DECISION_LABEL_NOT_BUSINESS, ERR_REASON_AMOUNT, GUIDE_ANSWER_APP, GUIDE_ANSWER_BANK, GUIDE_ANSWER_NOT_SURE,
+  COMPARE_DIFF, COMPARE_ROW_AMOUNT, COMPARE_ROW_FORM, COMPARE_ROW_PAYER, COMPARE_SAME_AMOUNT, COMPARE_TITLE,
+  CONFIRM_SAME_BACK, CONFIRM_SAME_BODY, CONFIRM_SAME_DETAIL, CONFIRM_SAME_TITLE, CONFIRM_SAME_YES,
+  CORRECTED_ORIGINAL_BADGE, CORRECTED_PICK_QUESTION, CORRECTED_PREVIEW,
+  DECISION_HELP_CORRECTED, DECISION_HELP_NOT_BUSINESS, DECISION_LABEL_CORRECTED, DECISION_LABEL_NOT_BUSINESS, ERR_REASON_AMOUNT,
+  GUIDE_ANSWER_APP, GUIDE_ANSWER_BANK, GUIDE_ANSWER_NOT_SURE,
   GUIDE_HINT_APP, GUIDE_HINT_BANK, GUIDE_HINT_NOT_SURE, GUIDE_QUESTION, LEGACY_RECONFIRM_BODY, LEGACY_RECONFIRM_CHANGE, LEGACY_RECONFIRM_TITLE,
   LEGACY_RECONFIRM_YES, LINE_1_COUNTED, LINE_2_AMOUNT, LIVE_SUM_DIFFER, LIVE_SUM_LINE, LIVE_SUM_MATCH, NO_CHOICE_YET, NO_FORM_NO_INCOME,
   OUTSIDE_SC_AMOUNT, PANEL_FORMS_NOTE, PANEL_SUMMARY_COUNTED, REASON_PERSONAL, REASON_PERSONAL_HELP, REASON_REFUNDS, REASON_REFUNDS_HELP,
-  SAME_DISABLED_NEC,
+  SAME_DISABLED_NEC, SEPARATE_MULTI_PREVIEW,
   fillIncomeCopy,
 } from "@/lib/tax-rules/income-reconciliation-copy";
 import type { IncomeReconciliationSummary, SavedDecisionView } from "@/lib/tax-rules/income-reconciliation-response";
@@ -35,6 +39,7 @@ const DECISION_HELP: Record<ReconciliationDecisionType, string> = {
   separate_income: "No other record reports this income, so it counts in addition to everything else.",
   k_includes_fees: "The 1099-K reports gross amounts and the platform kept fees before depositing. Gross receipts use the 1099-K amount; the fee is listed for your review, not deducted.",
   k_not_business_income: DECISION_HELP_NOT_BUSINESS,
+  corrected_form_replaces: DECISION_HELP_CORRECTED,
 };
 const LOAD_ERROR = "Could not load income sources. Try again.";
 const GUIDE_ANSWERS: Array<{ hint: PaymentMethodHint; label: string; text: string }> = [
@@ -60,7 +65,11 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
   const [refundsAmount, setRefundsAmount] = useState("");
   const [personalOn, setPersonalOn] = useState(false);
   const [personalAmount, setPersonalAmount] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmLegacy, setConfirmLegacy] = useState<SavedDecisionView | null>(null);
+  const [correctedFormId, setCorrectedFormId] = useState<string | null>(null);
   const requestId = useRef(0);
+  const confirmTitleRef = useRef<HTMLHeadingElement | null>(null);
   const decisionChoices = RECONCILIATION_DECISION_TYPES.filter(type => type !== "k_not_business_income" || kNotBusinessIncomeEnabled());
 
   const load = useCallback(async () => {
@@ -81,6 +90,7 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
   const resetForm = useCallback(() => {
     setEditingId(null); setSelected([]); setFee(""); setNote(""); setDecision(null); setFormError(null);
     setPaymentHint(null); setRefundsOn(false); setRefundsAmount(""); setPersonalOn(false); setPersonalAmount("");
+    setConfirmOpen(false); setConfirmLegacy(null); setCorrectedFormId(null);
   }, []);
 
   useEffect(() => {
@@ -89,6 +99,10 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
     const generation = requestId;
     return () => { generation.current += 1; };
   }, [load, resetForm]);
+
+  useEffect(() => {
+    if (confirmOpen) confirmTitleRef.current?.focus();
+  }, [confirmOpen]);
 
   /* derived state */
   const candidates = summary?.candidates ?? [];
@@ -113,6 +127,7 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
     platformFeeAmount: Number.isFinite(feeValue) && feeValue >= 0 ? feeValue : 0,
     notBusinessParts,
     sources: selectedCandidates.map(candidate => ({ kind: candidate.kind, id: candidate.id, amount: candidate.amount })),
+    ...(activeDecision === "corrected_form_replaces" && correctedFormId ? { correctedFormId } : {}),
   };
   const enginePreview = activeDecision && draft.sources.length && !reasonAmountError
     ? validateReconciliationDecision(draft, byKey, claimedBy) : null;
@@ -133,7 +148,12 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
   const selectedK = selectedForms.find(candidate => candidate.formType === "1099-K");
 
   /* handlers */
-  const toggle = (key: string) => setSelected(prev => prev.includes(key) ? prev.filter(item => item !== key) : [...prev, key]);
+  const toggle = (key: string) => {
+    const next = selected.includes(key) ? selected.filter(item => item !== key) : [...selected, key];
+    setSelected(next);
+    const nextCandidates = next.flatMap(item => { const candidate = byKey.get(item); return candidate ? [candidate] : []; });
+    if (decision === "same_payments" && nextCandidates.length > 0 && !samePaymentsAllowed(nextCandidates)) setDecision(null);
+  };
   const applySavedParts = (saved: SavedDecisionView) => {
     const refunds = saved.notBusinessParts.find(part => part.reason === "refunds_credits");
     const personal = saved.notBusinessParts.find(part => part.reason === "personal");
@@ -148,25 +168,18 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
     setNote(saved.note);
     setSelected(saved.sources.map(sourceKey).filter(key => byKey.has(key)));
     applySavedParts(saved);
+    setCorrectedFormId(saved.correctedFormId ?? null);
+    setConfirmOpen(false); setConfirmLegacy(null);
     setFormError(null);
   };
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeDecision) { setFormError(NO_CHOICE_YET); return; }
-    if (reasonAmountError) { setFormError(reasonAmountError); return; }
-    if (!preview) { setFormError("Select the records this decision covers."); return; }
-    if (!preview.ok) { setFormError(preview.reason); return; }
+  const postBody = (choice: ReconciliationDecisionType, sources: Array<{ kind: IncomeSourceKind; id: string; amount: number }>, extra: Record<string, unknown>) => JSON.stringify({
+    ...(editingId && choice === activeDecision ? { id: editingId } : {}),
+    taxYear, decision: choice, sources, explicitChoice: true, ...extra,
+  });
+  const sendChoice = async (choice: ReconciliationDecisionType, sources: Array<{ kind: IncomeSourceKind; id: string; amount: number }>, extra: Record<string, unknown>, method: "POST" | "PATCH") => {
     setSaving(true); setFormError(null);
     try {
-      const res = await makeAuthenticatedRequest("/api/income/reconciliation", {
-        method: editingId ? "PATCH" : "POST",
-        body: JSON.stringify({
-          ...(editingId ? { id: editingId } : {}), taxYear, decision: activeDecision, sources: draft.sources,
-          platformFeeAmount: draft.platformFeeAmount, note: note.trim(), explicitChoice: true,
-          ...(paymentHint ? { paymentMethodHint: paymentHint } : {}),
-          ...(activeDecision === "k_not_business_income" ? { notBusinessParts } : {}),
-        }),
-      });
+      const res = await makeAuthenticatedRequest("/api/income/reconciliation", { method, body: postBody(choice, sources, extra) });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(typeof body.error === "string" ? body.error : "Could not save this decision. Try again.");
@@ -179,6 +192,26 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
     } finally {
       setSaving(false);
     }
+  };
+  const currentExtra = (reported?: number) => ({
+    platformFeeAmount: draft.platformFeeAmount, note: note.trim(),
+    ...(paymentHint ? { paymentMethodHint: paymentHint } : {}),
+    ...(activeDecision === "k_not_business_income" ? { notBusinessParts } : {}),
+    ...(activeDecision === "corrected_form_replaces" && correctedFormId ? { correctedFormId } : {}),
+    ...(reported !== undefined ? { confirmedFormsTotal: reported } : {}),
+  });
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeDecision) { setFormError(NO_CHOICE_YET); return; }
+    if (reasonAmountError) { setFormError(reasonAmountError); return; }
+    if (!preview) { setFormError("Select the records this decision covers."); return; }
+    if (!preview.ok) { setFormError(preview.reason); return; }
+    if (activeDecision === "same_payments" && selectedForms.length >= 2) {
+      setConfirmLegacy(null);
+      setConfirmOpen(true);
+      return;
+    }
+    await sendChoice(activeDecision, draft.sources, currentExtra(), editingId ? "PATCH" : "POST");
   };
   const remove = async (id: string) => {
     setRemovingId(id); setFormError(null);
@@ -194,28 +227,36 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
       setRemovingId(null);
     }
   };
-  const reconfirmYes = async (saved: SavedDecisionView) => {
-    setSaving(true); setFormError(null);
-    try {
-      const res = await makeAuthenticatedRequest("/api/income/reconciliation", {
-        method: "PATCH",
-        body: JSON.stringify({
-          id: saved.id, taxYear, decision: "same_payments", explicitChoice: true,
-          sources: saved.sources.map(source => ({ kind: source.kind, id: source.id, amount: source.amount })),
-          platformFeeAmount: saved.platformFeeAmount, note: saved.note,
-        }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(typeof body.error === "string" ? body.error : "Could not save this decision. Try again.");
-      }
-      await load();
-      onChanged?.();
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Could not save this decision. Try again.");
-    } finally {
-      setSaving(false);
+  const reconfirmYes = (saved: SavedDecisionView) => {
+    const forms = saved.sources.filter(source => source.kind === "form_1099");
+    if (forms.length >= 2) {
+      setConfirmLegacy(saved);
+      setConfirmOpen(true);
+      return;
     }
+    void sendChoice("same_payments", saved.sources.map(source => ({ kind: source.kind, id: source.id, amount: source.amount })), {
+      id: saved.id, platformFeeAmount: saved.platformFeeAmount, note: saved.note,
+    }, "PATCH");
+  };
+  const confirmBack = () => {
+    setConfirmOpen(false);
+    setConfirmLegacy(null);
+    setDecision(null);
+  };
+  const confirmYes = () => {
+    const legacy = confirmLegacy;
+    const forms = (legacy ? legacy.sources : selectedForms).filter(source => source.kind === "form_1099");
+    const reported = forms.reduce((total, form) => total + (form.amount ?? 0), 0);
+    setConfirmOpen(false);
+    setConfirmLegacy(null);
+    if (legacy) {
+      void sendChoice("same_payments", legacy.sources.map(source => ({ kind: source.kind, id: source.id, amount: source.amount })), {
+        id: legacy.id, platformFeeAmount: legacy.platformFeeAmount, note: legacy.note, confirmedFormsTotal: reported,
+      }, "PATCH");
+      return;
+    }
+    if (!activeDecision) return;
+    void sendChoice(activeDecision, draft.sources, currentExtra(reported), editingId ? "PATCH" : "POST");
   };
 
   const decisionTitle = (saved: SavedDecisionView) => saved.decision === "unknown" ? "Unrecognized decision" : DECISION_LABELS[saved.decision];
@@ -223,6 +264,7 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
   const optionLabel = (type: ReconciliationDecisionType) => type === "same_payments" ? "These are the same payments"
     : type === "separate_income" ? "This is separate income"
     : type === "k_not_business_income" ? DECISION_LABEL_NOT_BUSINESS
+    : type === "corrected_form_replaces" ? DECISION_LABEL_CORRECTED
     : `1099-K includes fees${draft.platformFeeAmount > 0 ? ` of ${fmt(draft.platformFeeAmount)}` : ""}`;
   const partAmount = (reason: NotBusinessPart["reason"]) => notBusinessParts.find(part => part.reason === reason)?.amount ?? 0;
   const businessPart = selectedK ? selectedK.amount - partAmount("refunds_credits") - partAmount("personal") - (Number.isFinite(feeValue) ? feeValue : 0) : null;
@@ -235,6 +277,9 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
         return group.length === 0 || Math.round(businessEvidence(kind as IncomeSourceCandidate["kind"]) * 100) === Math.round(businessPart * 100);
       }))
   );
+  const confirmForms = (confirmLegacy ? confirmLegacy.sources : selectedForms).filter(source => source.kind === "form_1099");
+  const confirmReported = confirmForms.reduce((total, form) => total + (form.amount ?? 0), 0);
+  const confirmCounted = confirmLegacy ? (confirmLegacy.countedAmount ?? confirmReported) : (preview?.ok ? preview.countedCents / 100 : 0);
 
   return (
     <div className="space-y-3">
@@ -315,8 +360,14 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
                                   <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-border" checked={checked} disabled={disabled}
                                     onChange={() => toggle(key)} aria-label={`Select ${candidate.label} ${fmt(candidate.amount)}`} />
                                   <span className="min-w-0 flex-1">
-                                    <span className="block truncate font-medium text-foreground">{candidate.label}</span>
+                                    {candidate.kind === "form_1099" ? (
+                                      <>
+                                        <span className="block break-words font-medium text-foreground">{candidate.payerName || "Unknown payer"}</span>
+                                        <span className="block text-foreground">{candidate.formType || "1099"}</span>
+                                      </>
+                                    ) : <span className="block truncate font-medium text-foreground">{candidate.label}</span>}
                                     <span className="block tabular-nums text-muted-foreground">{fmt(candidate.amount)}{candidate.date ? ` · ${candidate.date}` : ""}</span>
+                                    {candidate.badge ? <span className="block leading-relaxed text-muted-foreground">{candidate.badge}</span> : null}
                                     {candidate.linkedImport ? <Badge variant="secondary" className="mt-1">Linked import · counted once</Badge>
                                       : claimed ? <Badge variant="success" className="mt-1">Reconciled</Badge>
                                       : conflictKeys.has(key) ? <Badge variant="warning" className="mt-1">Needs a decision</Badge> : null}
@@ -332,13 +383,32 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
                 })}
               </section>
 
-              {selectedForms.length >= 2 && (
-                <section aria-label="1099 comparison" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {selectedForms.length === 2 && (
+                <section aria-label={COMPARE_TITLE} className="rounded-lg border border-border bg-card p-3 text-xs">
+                  <p className="font-medium text-foreground">{COMPARE_TITLE}</p>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {selectedForms.map(form => (
+                      <div key={sourceKey(form)} className="space-y-1 rounded-md border border-border p-2">
+                        <p><span className="text-muted-foreground">{COMPARE_ROW_FORM}</span> <span className="text-foreground">{form.formType || "1099"}</span></p>
+                        <p><span className="text-muted-foreground">{COMPARE_ROW_PAYER}</span> <span className="break-words text-foreground">{form.payerName || "Unknown payer"}</span></p>
+                        <p><span className="text-muted-foreground">{COMPARE_ROW_AMOUNT}</span> <span className="tabular-nums text-foreground">{fmt(form.amount)}</span></p>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-muted-foreground">
+                    {toCents(selectedForms[0].amount) === toCents(selectedForms[1].amount)
+                      ? COMPARE_SAME_AMOUNT
+                      : fillIncomeCopy(COMPARE_DIFF, { diff: fmt(Math.abs(selectedForms[0].amount - selectedForms[1].amount)) })}
+                  </p>
+                </section>
+              )}
+              {selectedForms.length >= 3 && (
+                <section aria-label="Selected 1099 forms" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   {selectedForms.map(form => (
                     <div key={sourceKey(form)} className="rounded-lg border border-border bg-card p-2 text-xs">
-                      <p className="font-medium text-foreground">{form.formType || "1099"}</p>
-                      <p className="text-muted-foreground">{form.label}</p>
-                      <p className="tabular-nums">{fmt(form.amount)}</p>
+                      <p className="text-foreground">{form.formType || "1099"}</p>
+                      <p className="break-words text-foreground">{form.payerName || "Unknown payer"}</p>
+                      <p className="tabular-nums text-foreground">{fmt(form.amount)}</p>
                     </div>
                   ))}
                 </section>
@@ -406,6 +476,20 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
                     )}
                   </div>
                 )}
+                {activeDecision === "corrected_form_replaces" && selectedForms.length > 0 && (
+                  <fieldset className="space-y-1.5">
+                    <legend className="text-xs text-muted-foreground">{CORRECTED_PICK_QUESTION}</legend>
+                    {selectedForms.map(form => (
+                      <label key={sourceKey(form)} className="flex min-h-11 items-start gap-2 rounded-md border border-border px-2 py-1.5 text-xs">
+                        <input type="radio" name="corrected-form" value={form.id} checked={correctedFormId === form.id} disabled={busy}
+                          onChange={() => setCorrectedFormId(form.id)} className="mt-0.5 h-4 w-4" />
+                        <span className="leading-relaxed text-foreground">
+                          {form.payerName || "Unknown payer"} · {fmt(form.amount)}{form.date ? ` · ${form.date}` : ""}
+                        </span>
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
                 {feeApplies && (
                   <div className="space-y-1">
                     <Label htmlFor="reconciliation-fee" className="text-xs text-muted-foreground">Platform fee amount ($)</Label>
@@ -427,6 +511,13 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
                 <p aria-live="polite" className="text-xs leading-relaxed text-muted-foreground">
                   {draft.sources.length === 0 ? "Select the records this decision covers."
                     : !activeDecision ? NO_CHOICE_YET
+                    : preview && preview.ok && activeDecision === "corrected_form_replaces"
+                      ? fillIncomeCopy(CORRECTED_PREVIEW, {
+                        corrected: fmt(selectedForms.find(form => form.id === correctedFormId)?.amount ?? 0),
+                        original: fmt(selectedForms.find(form => form.id !== correctedFormId)?.amount ?? 0),
+                      })
+                    : preview && preview.ok && activeDecision === "separate_income" && draft.sources.length >= 2
+                      ? fillIncomeCopy(SEPARATE_MULTI_PREVIEW, { n: draft.sources.length, total: fmt(preview.countedCents / 100) })
                     : preview && preview.ok ? `Counts ${fmt(preview.countedCents / 100)} once.${projected === null ? "" : ` Gross receipts for ${taxYear} would be ${fmt(projected)} if no other conflicts remain.`}`
                     : preview && !preview.ok ? preview.reason
                     : NO_CHOICE_YET}
@@ -462,6 +553,9 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
                               : saved.applied ? <Badge variant="success">Applied</Badge> : <Badge variant="warning">Needs review</Badge>}
                           </div>
                           <p className="mt-0.5 leading-relaxed text-muted-foreground">{sourceLine(saved.sources)}</p>
+                          {saved.decision === "corrected_form_replaces" && saved.sources.filter(source => source.kind === "form_1099" && source.id !== saved.correctedFormId).map(source => (
+                            <p key={source.id} className="mt-0.5 leading-relaxed text-muted-foreground">{CORRECTED_ORIGINAL_BADGE}</p>
+                          ))}
                           {saved.decision === "k_not_business_income" ? (
                             <p className="mt-0.5 text-muted-foreground">
                               {saved.countedAmount !== null ? fillIncomeCopy(LINE_1_COUNTED, { amount: fmt(saved.countedAmount) }) : "Counted amount unavailable"}
@@ -506,6 +600,24 @@ export function IncomeReconciliationPanel({ taxYear, onChanged }: IncomeReconcil
             )}
           </section>
         </>
+      )}
+      {confirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="confirm-same-title"
+            className="w-full max-w-md rounded-t-xl border border-border bg-card p-4 sm:rounded-xl"
+            onKeyDown={event => {
+              if (event.key === "Enter") event.preventDefault();
+              if (event.key === "Escape") { event.preventDefault(); confirmBack(); }
+            }}>
+            <h2 id="confirm-same-title" ref={confirmTitleRef} tabIndex={-1} className="text-base font-semibold text-foreground">{CONFIRM_SAME_TITLE}</h2>
+            <p className="mt-2 text-lg font-semibold tabular-nums text-foreground">{fillIncomeCopy(CONFIRM_SAME_BODY, { reported: fmt(confirmReported), counted: fmt(confirmCounted) })}</p>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{CONFIRM_SAME_DETAIL}</p>
+            <div className="mt-4 flex gap-2">
+              <Button type="button" variant="outline" className="min-h-11 flex-1" onClick={confirmBack}>{CONFIRM_SAME_BACK}</Button>
+              <Button type="button" variant="outline" className="min-h-11 flex-1" onClick={confirmYes}>{fillIncomeCopy(CONFIRM_SAME_YES, { counted: fmt(confirmCounted) })}</Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

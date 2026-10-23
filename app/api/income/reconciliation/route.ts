@@ -22,8 +22,8 @@ import {
 } from '@/lib/firebase/income-reconciliations-server';
 import { ExportDataUnavailableError } from '@/lib/reports/export-records';
 import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
-import { INCOME_SOURCE_KINDS, NOT_BUSINESS_REASONS, PAYMENT_METHOD_HINTS, RECONCILIATION_DECISION_TYPES } from '@/lib/tax-rules/income-reconciliation';
-import { STALE_APP_REFRESH } from '@/lib/tax-rules/income-reconciliation-copy';
+import { INCOME_SOURCE_KINDS, NOT_BUSINESS_REASONS, PAYMENT_METHOD_HINTS, RECONCILIATION_DECISION_TYPES, toCents } from '@/lib/tax-rules/income-reconciliation';
+import { CONFIRM_FORMS_REQUIRED, STALE_APP_REFRESH } from '@/lib/tax-rules/income-reconciliation-copy';
 import { prepareReconciliationDecision, summarizeIncomeReconciliation } from '@/lib/tax-rules/income-reconciliation-response';
 import { kNotBusinessIncomeEnabled } from '@/lib/tax-rules/reconciliation-feature';
 
@@ -43,14 +43,28 @@ const decisionInput = z.object({
   })).max(2).optional().default([]),
   paymentMethodHint: z.enum(PAYMENT_METHOD_HINTS).optional(),
   explicitChoice: z.literal(true),
+  confirmedFormsTotal: amountInput.optional(),
+  correctedFormId: z.string().trim().min(1).max(200).optional(),
 });
 const updateInput = decisionInput.extend({ id: z.string().trim().min(1).max(200) });
 const invalidBody = () => {
   const types = kNotBusinessIncomeEnabled()
-    ? 'same_payments, separate_income, k_includes_fees or k_not_business_income'
-    : 'same_payments, separate_income or k_includes_fees';
+    ? 'same_payments, separate_income, k_includes_fees, k_not_business_income or corrected_form_replaces'
+    : 'same_payments, separate_income, k_includes_fees or corrected_form_replaces';
   return `Provide the tax year, a decision type (${types}) and the records it covers with their current amounts.`;
 };
+
+/** Same payments that joins two or more 1099s must echo the form total the dialog showed. The value is checked, not stored. */
+function requireFormsConfirmation(decision: string, sources: ReadonlyArray<{ kind: string; amount: number }>, confirmedFormsTotal: number | undefined) {
+  if (decision !== 'same_payments') return null;
+  const forms = sources.filter(source => source.kind === 'form_1099');
+  if (forms.length < 2) return null;
+  const expected = forms.reduce((total, form) => total + toCents(form.amount), 0);
+  if (confirmedFormsTotal === undefined || toCents(confirmedFormsTotal) !== expected) {
+    return NextResponse.json({ error: CONFIRM_FORMS_REQUIRED }, { status: 400 });
+  }
+  return null;
+}
 
 function readJson(request: NextRequest) {
   return request.json().catch(() => null);
@@ -104,11 +118,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: invalidBody() }, { status: 400 });
   }
   try {
-    const { taxYear, explicitChoice, ...input } = parsed.data;
+    const { taxYear, explicitChoice, confirmedFormsTotal, ...input } = parsed.data;
     void explicitChoice;
     const records = await readIncomeSourceRecords(user.uid, taxYear);
     const prepared = prepareReconciliationDecision(taxYear, records, { id: 'pending', ...input });
     if (!prepared.ok) return NextResponse.json({ error: prepared.reason }, { status: prepared.status });
+    const unconfirmed = requireFormsConfirmation(prepared.stored.decision, prepared.stored.sources, confirmedFormsTotal);
+    if (unconfirmed) return unconfirmed;
     const id = await createIncomeReconciliationDecision(user.uid, prepared.stored);
     return NextResponse.json({ success: true, id, countedAmount: prepared.stored.countedAmount }, { status: 201, headers: NO_STORE });
   } catch (err) {
@@ -130,13 +146,15 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: invalidBody() }, { status: 400 });
   }
   try {
-    const { id, taxYear, explicitChoice, ...input } = parsed.data;
+    const { id, taxYear, explicitChoice, confirmedFormsTotal, ...input } = parsed.data;
     void explicitChoice;
     const existing = await getOwnedIncomeReconciliationDecision(user.uid, id);
     if (existing.taxYear !== taxYear) return NextResponse.json({ error: 'A decision stays with the tax year it was recorded for. Remove it and record a decision for the other year.' }, { status: 400 });
     const records = await readIncomeSourceRecords(user.uid, taxYear);
     const prepared = prepareReconciliationDecision(taxYear, records, { id, ...input });
     if (!prepared.ok) return NextResponse.json({ error: prepared.reason }, { status: prepared.status });
+    const unconfirmed = requireFormsConfirmation(prepared.stored.decision, prepared.stored.sources, confirmedFormsTotal);
+    if (unconfirmed) return unconfirmed;
     await updateIncomeReconciliationDecision(user.uid, id, prepared.stored);
     return NextResponse.json({ success: true, id, countedAmount: prepared.stored.countedAmount }, { headers: NO_STORE });
   } catch (err) {

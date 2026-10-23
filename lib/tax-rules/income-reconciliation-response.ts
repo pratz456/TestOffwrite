@@ -1,8 +1,10 @@
 import { IncomeReconciliationRequiredError, listIncomeSourceCandidates, type IncomeRecord } from './business-income';
+import { CORRECTED_ORIGINAL_BADGE } from './income-reconciliation-copy';
 import {
   normalizeReconciliationDecision, resolveIncomeSources, sourceKey, validateReconciliationDecision,
   type FeeExpenseCandidate, type IncomeReconciliationConflict, type IncomeSourceCandidate, type IncomeSourceRef,
   type NotBusinessPart, type OutsideScheduleCItem, type PaymentMethodHint, type ReconciliationDecisionType,
+  type ReplacedForm,
 } from './income-reconciliation';
 
 /** Deep link into the reconciliation panel for one tax year. */
@@ -40,6 +42,7 @@ export interface SavedDecisionView {
   platformFeeAmount: number;
   notBusinessParts: NotBusinessPart[];
   paymentMethodHint?: PaymentMethodHint;
+  correctedFormId?: string;
   note: string;
   /** Schedule C line 1 amount this decision counted when it was saved. */
   countedAmount: number | null;
@@ -52,7 +55,8 @@ export interface SavedDecisionView {
 
 export interface IncomeReconciliationSummary {
   taxYear: number;
-  candidates: Array<IncomeSourceCandidate & { decisionId?: string }>;
+  candidates: Array<IncomeSourceCandidate & { decisionId?: string; badge?: string }>;
+  replacedForms: ReplacedForm[];
   decisions: SavedDecisionView[];
   conflicts: IncomeReconciliationConflict[];
   /** Schedule C line 1 for the year once nothing is ambiguous; null while conflicts remain. */
@@ -88,6 +92,7 @@ function decisionView(record: IncomeRecord, appliedIds: ReadonlySet<string>): Sa
     platformFeeAmount: normalized?.platformFeeAmount ?? 0,
     notBusinessParts: normalized?.notBusinessParts ?? [],
     ...(normalized?.paymentMethodHint ? { paymentMethodHint: normalized.paymentMethodHint } : {}),
+    ...(normalized?.correctedFormId ? { correctedFormId: normalized.correctedFormId } : {}),
     note: str(record.note),
     countedAmount: typeof record.countedAmount === 'number' && Number.isFinite(record.countedAmount) ? record.countedAmount : null,
     decidedAt: str(record.decidedAt) || null,
@@ -104,19 +109,22 @@ export function summarizeIncomeReconciliation(taxYear: number, records: IncomeSo
     candidates = listIncomeSourceCandidates(taxYear, records.transactions, records.receipts, records.forms).candidates;
   } catch (error) {
     if (!(error instanceof IncomeReconciliationRequiredError)) throw error;
-    return { ...base, candidates: [], decisions: records.decisions.map(record => decisionView(record, new Set())), conflicts: [], grossReceipts: null, returnsAndAllowances: null, netReceipts: null, reconciledAmount: 0, unclaimedAmount: 0, unsupported: error.message };
+    return { ...base, candidates: [], decisions: records.decisions.map(record => decisionView(record, new Set())), conflicts: [], replacedForms: [], grossReceipts: null, returnsAndAllowances: null, netReceipts: null, reconciledAmount: 0, unclaimedAmount: 0, unsupported: error.message };
   }
   const resolution = resolveIncomeSources(taxYear, candidates, records.decisions);
   const appliedIds = new Set(resolution.appliedDecisionIds);
   const unclaimed = resolution.unclaimedCents.form_1099 + resolution.unclaimedCents.gross_receipt + resolution.unclaimedCents.transaction;
   const line1Cents = resolution.reconciledCents + unclaimed;
   const open = resolution.conflicts.length > 0;
+  const replacedIds = new Set(resolution.replacedForms.map(form => form.formId));
   return {
     ...base,
     candidates: candidates.map(candidate => {
       const decisionId = resolution.claimedBy.get(sourceKey(candidate));
-      return decisionId ? { ...candidate, decisionId } : candidate;
+      const badge = candidate.kind === 'form_1099' && replacedIds.has(candidate.id) ? CORRECTED_ORIGINAL_BADGE : undefined;
+      return { ...candidate, ...(decisionId ? { decisionId } : {}), ...(badge ? { badge } : {}) };
     }),
+    replacedForms: resolution.replacedForms,
     decisions: records.decisions.map(record => decisionView(record, appliedIds)),
     conflicts: resolution.conflicts,
     grossReceipts: open ? null : line1Cents / 100,
@@ -138,6 +146,7 @@ export interface DecisionRequest {
   platformFeeAmount: number;
   notBusinessParts: NotBusinessPart[];
   paymentMethodHint?: PaymentMethodHint;
+  correctedFormId?: string;
   note: string;
 }
 
@@ -148,6 +157,7 @@ export interface PreparedDecision {
   platformFeeAmount: number;
   notBusinessParts: NotBusinessPart[];
   paymentMethodHint?: PaymentMethodHint;
+  correctedFormId?: string;
   note: string;
   countedAmount: number;
 }
@@ -174,7 +184,7 @@ export function prepareReconciliationDecision(taxYear: number, records: IncomeSo
   const byKey = new Map(candidates.map(candidate => [sourceKey(candidate), candidate] as const));
   const check = validateReconciliationDecision({
     ...request, taxYear, notBusinessParts: request.notBusinessParts ?? [],
-  }, byKey, claimedBy);
+  }, byKey, claimedBy, { rejectNecOnlySamePayments: true });
   if (!check.ok) return { ok: false, status: 400, reason: check.reason };
   return {
     ok: true,
@@ -184,6 +194,7 @@ export function prepareReconciliationDecision(taxYear: number, records: IncomeSo
       platformFeeAmount: check.feeCents / 100,
       notBusinessParts: request.decision === 'k_not_business_income' ? request.notBusinessParts : [],
       ...(request.paymentMethodHint ? { paymentMethodHint: request.paymentMethodHint } : {}),
+      ...(request.decision === 'corrected_form_replaces' && request.correctedFormId ? { correctedFormId: request.correctedFormId } : {}),
       countedAmount: check.countedCents / 100,
     },
   };

@@ -10,6 +10,7 @@ import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 import type { BusinessTaxNotice, StateTaxComponents, StateTaxLine } from "@/lib/tax-rules/state";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { incomeReconciliationPath } from "@/lib/tax-rules/income-reconciliation-response";
 
 interface Props {
   user: { id: string; email?: string };
@@ -71,6 +72,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reviewCode, setReviewCode] = useState<string | null>(null);
+  const [reviewPath, setReviewPath] = useState<string | null>(null);
   const [reviewConflicts, setReviewConflicts] = useState<Array<{ message: string; sources: Array<{ label: string; amount: number }> }>>([]);
   const [data, setData] = useState<any>(null);
   const [showDetails, setShowDetails] = useState(false);
@@ -78,13 +80,14 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
 
   const load = useCallback(async () => {
     const currentRequest = ++requestId.current;
-    setLoading(true); setError(null); setReviewCode(null); setReviewConflicts([]); setData(null);
+    setLoading(true); setError(null); setReviewCode(null); setReviewPath(null); setReviewConflicts([]); setData(null);
     try {
       const res = await makeAuthenticatedRequest(`/api/tax/compute-1040?year=${year}`);
       const result = await res.json();
       if (!res.ok) {
         if (currentRequest === requestId.current && res.status === 422 && typeof result.code === 'string') {
           setReviewCode(result.code);
+          setReviewPath(typeof result.reviewPath === 'string' && result.reviewPath ? result.reviewPath : null);
           // The income gate names conflicting records by reference so the owner knows what to reconcile.
           setReviewConflicts(Array.isArray(result.conflicts) ? result.conflicts.filter((c: unknown) => c && typeof c === 'object' && typeof (c as { message?: unknown }).message === 'string') : []);
         }
@@ -178,7 +181,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
             <p className="mt-1 text-sm text-muted-foreground">Your saved records are available. Resolve the issue above, then refresh to calculate your totals.</p>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               {[
-                { title: 'Income records', detail: 'Check payments and reconcile 1099 forms.', href: `/protected?screen=income-tracking&year=${year}` },
+                { title: 'Income records', detail: 'Check payments and reconcile 1099 forms.', href: reviewPath ?? incomeReconciliationPath(Number(year)) },
                 { title: 'Expense review', detail: 'Confirm business use and AI categories.', href: '/protected/transactions' },
                 { title: 'Tax organizer', detail: 'Review your filing details and deductions.', href: '/protected?screen=tax-organizer' },
               ].map(item => <Link key={item.title} href={item.href} className="group flex min-h-11 items-start gap-3 rounded-lg border border-border p-3 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">

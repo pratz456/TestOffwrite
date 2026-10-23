@@ -34,6 +34,7 @@ export interface StoredDecisionInput {
   platformFeeAmount: number;
   notBusinessParts: NotBusinessPart[];
   paymentMethodHint?: PaymentMethodHint;
+  correctedFormId?: string;
   note: string;
   countedAmount: number;
 }
@@ -44,6 +45,7 @@ function decisionData(uid: string, input: StoredDecisionInput, now: Date) {
     platformFeeAmount: input.platformFeeAmount || null, note: input.note, countedAmount: input.countedAmount,
     notBusinessParts: input.notBusinessParts ?? [],
     ...(input.paymentMethodHint ? { paymentMethodHint: input.paymentMethodHint } : {}),
+    ...(input.correctedFormId ? { correctedFormId: input.correctedFormId } : {}),
     decidedBy: uid, decidedAt: now.toISOString(), updatedAt: now,
     version: 2, choiceConfirmedAt: now.toISOString(),
   };

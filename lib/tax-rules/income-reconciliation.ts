@@ -14,14 +14,16 @@
  * Form 1099-K FAQs). Payment-card 1099-Ks have no threshold.
  */
 import {
-  DECISION_LABEL_NOT_BUSINESS, ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED,
+  DECISION_LABEL_CORRECTED, DECISION_LABEL_NOT_BUSINESS, ERR_CORRECTED_NEEDS_TWO_NEC, ERR_CORRECTED_PICK,
+  ERR_CORRECTED_SAME_PAYER, ERR_CORRECTED_SUM, ERR_NOT_BUSINESS_NEEDS_ONE_K, ERR_PARTS_EXCEED_GROSS, ERR_REASON_REQUIRED,
   ERR_SAME_NEEDS_K, ERR_SELECT_BUSINESS_RECORDS, ERR_SUM_MISMATCH, fillIncomeCopy,
 } from './income-reconciliation-copy';
+import { legacyNecSamePaymentsReopenEnabled } from './reconciliation-feature';
 
 export const INCOME_SOURCE_KINDS = ['form_1099', 'gross_receipt', 'transaction'] as const;
 export type IncomeSourceKind = (typeof INCOME_SOURCE_KINDS)[number];
 
-export const RECONCILIATION_DECISION_TYPES = ['same_payments', 'separate_income', 'k_includes_fees', 'k_not_business_income'] as const;
+export const RECONCILIATION_DECISION_TYPES = ['same_payments', 'separate_income', 'k_includes_fees', 'k_not_business_income', 'corrected_form_replaces'] as const;
 export type ReconciliationDecisionType = (typeof RECONCILIATION_DECISION_TYPES)[number];
 
 export const NOT_BUSINESS_REASONS = ['refunds_credits', 'personal'] as const;
@@ -38,6 +40,7 @@ export const SOURCE_KIND_LABELS: Record<IncomeSourceKind, string> = {
 export const DECISION_LABELS: Record<ReconciliationDecisionType, string> = {
   same_payments: 'Same payments', separate_income: 'Separate income', k_includes_fees: '1099-K includes fees',
   k_not_business_income: DECISION_LABEL_NOT_BUSINESS,
+  corrected_form_replaces: DECISION_LABEL_CORRECTED,
 };
 
 export interface IncomeSourceRef { kind: IncomeSourceKind; id: string; amount: number }
@@ -45,6 +48,8 @@ export interface IncomeSourceCandidate extends IncomeSourceRef {
   label: string;
   date?: string;
   formType?: string;
+  /** Payer on a 1099, kept apart from the form type so the row can show both in full. */
+  payerName?: string;
   /** A server-created import link already counts this form with its receipt. */
   linkedImport?: boolean;
 }
@@ -58,6 +63,8 @@ export interface IncomeReconciliationDecision {
   notBusinessParts: NotBusinessPart[];
   /** Guide-question answer. Never used in any total. */
   paymentMethodHint?: PaymentMethodHint;
+  /** The 1099-NEC the owner marked as the corrected form. Only on corrected_form_replaces. */
+  correctedFormId?: string;
   note?: string;
 }
 export interface FeeExpenseCandidate { decisionId: string; formId: string; label: string; amount: number }
@@ -67,6 +74,12 @@ export interface OutsideScheduleCItem {
   label: string;
   amount: number;
   status: 'needs_review';
+}
+export interface ReplacedForm {
+  decisionId: string;
+  formId: string;
+  label: string;
+  amount: number;
 }
 export interface IncomeReconciliationConflict {
   reason: 'overlapping_sources' | 'multiple_forms' | 'unreconciled_against_decision' | 'stale_decision';
@@ -84,7 +97,7 @@ const publicRef = (candidate: IncomeSourceCandidate) => ({ kind: candidate.kind,
 /**
  * Same payments may join a 1099-K to other records, or one 1099-NEC to the deposits
  * or direct income that report it. Two or more 1099-NEC forms are separate income.
- * A corrected 1099-NEC is counted in place of the original rather than matched to it.
+ * A corrected 1099-NEC uses corrected_form_replaces. It is not a same-payments match.
  */
 export function samePaymentsAllowed(sources: ReadonlyArray<{ kind: IncomeSourceKind; formType?: string }>): boolean {
   const forms = sources.filter(source => source.kind === 'form_1099');
@@ -113,9 +126,10 @@ function readNotBusinessParts(value: unknown): NotBusinessPart[] | null {
 
 /** Shape-check a saved decision; malformed records are reported as stale, never applied. */
 export function normalizeReconciliationDecision(record: Record<string, unknown>): IncomeReconciliationDecision | null {
-  const { id, taxYear, decision, sources, platformFeeAmount, note, paymentMethodHint } = record;
+  const { id, taxYear, decision, sources, platformFeeAmount, note, paymentMethodHint, correctedFormId } = record;
   if (typeof id !== 'string' || !id || typeof taxYear !== 'number' || !Number.isInteger(taxYear)) return null;
   if (!RECONCILIATION_DECISION_TYPES.includes(decision as ReconciliationDecisionType)) return null;
+  if (correctedFormId !== undefined && correctedFormId !== null && (typeof correctedFormId !== 'string' || !correctedFormId.trim())) return null;
   if (!Array.isArray(sources) || sources.length === 0) return null;
   const refs: IncomeSourceRef[] = [];
   for (const source of sources) {
@@ -133,6 +147,7 @@ export function normalizeReconciliationDecision(record: Record<string, unknown>)
     platformFeeAmount: isFiniteAmount(platformFeeAmount) ? platformFeeAmount : 0,
     notBusinessParts,
     ...(typeof paymentMethodHint === 'string' ? { paymentMethodHint: paymentMethodHint as PaymentMethodHint } : {}),
+    ...(typeof correctedFormId === 'string' && correctedFormId.trim() ? { correctedFormId: correctedFormId.trim() } : {}),
     ...(typeof note === 'string' && note ? { note } : {}),
   };
 }
@@ -150,10 +165,20 @@ const okCheck = (
  * Validate one decision against the current records. `claimedBy` lets a caller
  * reject a source that another saved decision already explains.
  */
+export interface ReconciliationValidateOptions {
+  /**
+   * New saves always reject a same-payments decision made of only 1099-NECs.
+   * A stored decision is rejected only when the R10.5 flag is on. Pass false to
+   * keep counting a decision that was saved before that rule.
+   */
+  rejectNecOnlySamePayments?: boolean;
+}
+
 export function validateReconciliationDecision(
   decision: IncomeReconciliationDecision,
   candidates: ReadonlyMap<string, IncomeSourceCandidate>,
   claimedBy: ReadonlyMap<string, string> = new Map(),
+  options: ReconciliationValidateOptions = {},
 ): DecisionCheck {
   const resolved: IncomeSourceCandidate[] = [];
   const seen = new Set<string>();
@@ -184,12 +209,34 @@ export function validateReconciliationDecision(
     return okCheck(sum(resolved), 0, kinds, resolved);
   }
 
+  if (decision.decision === 'corrected_form_replaces') {
+    if (forms.length !== 2 || forms.some(form => form.formType !== '1099-NEC')) return { ok: false, reason: ERR_CORRECTED_NEEDS_TWO_NEC };
+    if (feeCents) return { ok: false, reason: 'A corrected 1099-NEC does not record a platform fee.' };
+    const [first, second] = forms;
+    const payerA = (first.payerName ?? '').trim();
+    const payerB = (second.payerName ?? '').trim();
+    if (payerA.toLowerCase() !== payerB.toLowerCase()) {
+      return { ok: false, reason: fillIncomeCopy(ERR_CORRECTED_SAME_PAYER, { payerA: payerA || 'Unknown payer', payerB: payerB || 'Unknown payer' }) };
+    }
+    if (!decision.correctedFormId || !forms.some(form => form.id === decision.correctedFormId)) return { ok: false, reason: ERR_CORRECTED_PICK };
+    const corrected = forms.find(form => form.id === decision.correctedFormId)!;
+    const correctedCents = toCents(corrected.amount);
+    for (const [label, group] of [['direct income', receipts], ['bank income', transactions]] as const) {
+      if (!group.length) continue;
+      const selected = sum(group);
+      if (selected !== correctedCents) {
+        return { ok: false, reason: fillIncomeCopy(ERR_CORRECTED_SUM, { kind: label, selected: dollars(selected), corrected: dollars(correctedCents) }) };
+      }
+    }
+    return okCheck(correctedCents, 0, kinds, resolved);
+  }
+
   if (decision.decision === 'same_payments') {
     if (resolved.length < 2) return { ok: false, reason: 'Select at least two records that describe the same payments.' };
     // Two 1099s can report one payment stream. Duplicate receipts or deposits of one kind are
     // summed by the base rule, so they cannot be declared duplicates here.
     if (kinds.size < 2 && forms.length !== resolved.length) return { ok: false, reason: 'Select records of at least two kinds (a 1099, direct income or bank income) that describe the same payments.' };
-    if (!samePaymentsAllowed(resolved)) return { ok: false, reason: ERR_SAME_NEEDS_K };
+    if (!samePaymentsAllowed(resolved) && options.rejectNecOnlySamePayments !== false) return { ok: false, reason: ERR_SAME_NEEDS_K };
     if (feeCents) return { ok: false, reason: 'Record platform fees with the “1099-K includes fees” decision.' };
     // An information return reports the whole payment stream; receipts and deposits may be split.
     const totals = [...forms.map(form => toCents(form.amount)), ...(receipts.length ? [sum(receipts)] : []), ...(transactions.length ? [sum(transactions)] : [])];
@@ -272,6 +319,8 @@ export interface IncomeReconciliationResolution {
   appliedDecisionIds: string[];
   feeExpenseCandidates: FeeExpenseCandidate[];
   outsideScheduleC: OutsideScheduleCItem[];
+  /** Original 1099-NEC forms kept on file and counted at $0 because a corrected form was chosen. */
+  replacedForms: ReplacedForm[];
   conflicts: IncomeReconciliationConflict[];
 }
 
@@ -285,6 +334,7 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
   const conflicts: IncomeReconciliationConflict[] = [];
   const feeExpenseCandidates: FeeExpenseCandidate[] = [];
   const outsideScheduleC: OutsideScheduleCItem[] = [];
+  const replacedForms: ReplacedForm[] = [];
   const groups: Array<{ decisionId: string; kinds: Set<IncomeSourceKind> }> = [];
   const appliedDecisionIds: string[] = [];
   let reconciledCents = 0;
@@ -296,7 +346,9 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
       conflicts.push({ reason: 'stale_decision', decisionId, message: 'A saved reconciliation decision is malformed or belongs to another tax year. Remove it and record the decision again.', sources: [] });
       continue;
     }
-    const check = validateReconciliationDecision(decision, byKey, claimedBy);
+    const check = validateReconciliationDecision(decision, byKey, claimedBy, {
+      rejectNecOnlySamePayments: legacyNecSamePaymentsReopenEnabled(),
+    });
     if (!check.ok) {
       conflicts.push({ reason: 'stale_decision', decisionId, message: `A saved reconciliation decision no longer matches your records: ${check.reason}`,
         sources: decision.sources.map(ref => ({ ...ref, label: byKey.get(sourceKey(ref))?.label ?? `${SOURCE_KIND_LABELS[ref.kind]} (record removed)` })) });
@@ -314,6 +366,10 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
     if (check.personalCents) {
       const form = check.sources.find(source => source.kind === 'form_1099')!;
       outsideScheduleC.push({ decisionId: decision.id, formId: form.id, label: form.label, amount: check.personalCents / 100, status: 'needs_review' });
+    }
+    if (decision.decision === 'corrected_form_replaces') {
+      const original = check.sources.find(source => source.kind === 'form_1099' && source.id !== decision.correctedFormId);
+      if (original) replacedForms.push({ decisionId: decision.id, formId: original.id, label: original.label, amount: original.amount });
     }
   }
 
@@ -340,5 +396,5 @@ export function resolveIncomeSources(taxYear: number, candidates: ReadonlyArray<
       message: `Unreconciled ${uncovered.map(kind => SOURCE_KIND_LABELS[kind]).join(' and ')} may belong to payments already reconciled in a saved decision that has no ${uncovered.map(kind => SOURCE_KIND_LABELS[kind]).join(' or ')} record. Add those records to that decision or mark them as separate income.`,
       sources: unclaimed.filter(candidate => uncovered.includes(candidate.kind)).map(publicRef) });
   }
-  return { reconciledCents, returnsCents, unclaimedCents, claimedBy, appliedDecisionIds, feeExpenseCandidates, outsideScheduleC, conflicts };
+  return { reconciledCents, returnsCents, unclaimedCents, claimedBy, appliedDecisionIds, feeExpenseCandidates, outsideScheduleC, replacedForms, conflicts };
 }

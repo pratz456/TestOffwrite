@@ -48,7 +48,7 @@ vi.mock('@/lib/firebase/admin', () => {
 import { DELETE, GET, PATCH, POST } from '../app/api/income/reconciliation/route';
 import { ExportReviewRequiredError } from '../lib/reports/transaction-export';
 import { ExportDataUnavailableError } from '../lib/reports/export-records';
-import { ERR_SAME_NEEDS_K, STALE_APP_REFRESH } from '../lib/tax-rules/income-reconciliation-copy';
+import { CONFIRM_FORMS_REQUIRED, ERR_SAME_NEEDS_K, STALE_APP_REFRESH } from '../lib/tax-rules/income-reconciliation-copy';
 
 type Body = Record<string, unknown>;
 function request(method: string, { body, query = '', headers = {} }: { body?: unknown; query?: string; headers?: Record<string, string> } = {}) {
@@ -102,7 +102,7 @@ describe('income reconciliation explainer', () => {
     expect(status).toBe(200);
     expect(body.candidates).toEqual([
       { kind: 'gross_receipt', id: 'r1', amount: 12000, label: 'Direct income · Synthetic platform', date: '2026-01-31' },
-      { kind: 'form_1099', id: 'k1', amount: 12000, formType: '1099-K', label: '1099-K · Synthetic platform' },
+      { kind: 'form_1099', id: 'k1', amount: 12000, formType: '1099-K', payerName: 'Synthetic platform', label: '1099-K · Synthetic platform' },
     ]);
     expect(body.conflicts).toEqual([expect.objectContaining({ reason: 'overlapping_sources', sources: [expect.objectContaining({ id: 'r1' }), expect.objectContaining({ id: 'k1' })] })]);
     expect(body).toMatchObject({ taxYear: 2026, grossReceipts: null, decisions: [], unclaimedAmount: 24000, reconciledAmount: 0 });
@@ -309,5 +309,68 @@ describe('explicit choice and Tax Watch save rules', () => {
     const { body: summary } = await json(await GET(request('GET', { query: '?year=2026' })));
     expect(summary.grossReceipts).toBe(0);
     expect(summary.outsideScheduleC).toEqual([expect.objectContaining({ amount: 12000 })]);
+  });
+
+  it('R-50 refuses a two-form same-payments save until the form total is confirmed', async () => {
+    state.docs.delete('gross_receipts/r1');
+    seed('income_1099', 'n1', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Client A' });
+    const sources = [ref('form_1099', 'k1', 12000), ref('form_1099', 'n1', 12000)];
+    const missing = await json(await POST(request('POST', { body: samePayments(sources) })));
+    const short = await json(await POST(request('POST', { body: samePayments(sources, { confirmedFormsTotal: 23999.99 }) })));
+    expect(missing).toMatchObject({ status: 400, body: { error: CONFIRM_FORMS_REQUIRED } });
+    expect(short).toMatchObject({ status: 400, body: { error: CONFIRM_FORMS_REQUIRED } });
+    expect(state.writes).toEqual([]);
+    const saved = await json(await POST(request('POST', { body: samePayments(sources, { confirmedFormsTotal: 24000 }) })));
+    expect(saved.status).toBe(201);
+    expect(state.docs.get(`income_reconciliations/${String(saved.body.id)}`)).not.toHaveProperty('confirmedFormsTotal');
+    const { body } = await json(await GET(request('GET', { query: '?year=2026' })));
+    expect(body.grossReceipts).toBe(12000);
+  });
+
+  it('R-51 does not ask for a form total when only one 1099 is selected', async () => {
+    const saved = await json(await POST(request('POST', { body: samePayments([ref('form_1099', 'k1', 12000), ref('gross_receipt', 'r1', 12000)]) })));
+    expect(saved.status).toBe(201);
+    expect(saved.body).not.toHaveProperty('error');
+  });
+
+  it('R-59 rejects same payments for two 1099-NECs even when the form total is confirmed', async () => {
+    state.docs.delete('gross_receipts/r1');
+    state.docs.delete('income_1099/k1');
+    for (const payer of ['Client B', 'Client A']) {
+      state.docs.clear();
+      state.writes.length = 0;
+      seed('income_1099', 'n1', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Client A' });
+      seed('income_1099', 'n2', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: payer });
+      const rejected = await json(await POST(request('POST', { body: samePayments([ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)], { confirmedFormsTotal: 24000 }) })));
+      expect(rejected).toMatchObject({ status: 400, body: { error: ERR_SAME_NEEDS_K } });
+      expect(state.writes).toEqual([]);
+    }
+    const saved = await json(await POST(request('POST', { body: { taxYear: 2026, decision: 'separate_income', explicitChoice: true, sources: [ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12000)] } })));
+    expect(saved.status).toBe(201);
+    const { body } = await json(await GET(request('GET', { query: '?year=2026' })));
+    expect(body.grossReceipts).toBe(24000);
+  });
+
+  it('R-69 deletes only the decision when a corrected form is removed', async () => {
+    state.docs.delete('gross_receipts/r1');
+    state.docs.delete('income_1099/k1');
+    seed('income_1099', 'n1', { userId: 'owner-a', taxYear: 2026, amount: 12000, formType: '1099-NEC', payerName: 'Client A' });
+    seed('income_1099', 'n2', { userId: 'owner-a', taxYear: 2026, amount: 12500, formType: '1099-NEC', payerName: 'Client A' });
+    const before = JSON.stringify(state.docs.get('income_1099/n1'));
+    const created = await json(await POST(request('POST', { body: {
+      taxYear: 2026, decision: 'corrected_form_replaces', explicitChoice: true, correctedFormId: 'n2',
+      sources: [ref('form_1099', 'n1', 12000), ref('form_1099', 'n2', 12500)],
+    } })));
+    expect(created.status).toBe(201);
+    expect(state.docs.get(`income_reconciliations/${String(created.body.id)}`)).toMatchObject({ correctedFormId: 'n2', countedAmount: 12500 });
+    expect((await DELETE(request('DELETE', { query: `?id=${String(created.body.id)}` }))).status).toBe(200);
+    expect(state.writes.filter(write => write.includes('income_1099'))).toEqual([]);
+    expect(JSON.stringify(state.docs.get('income_1099/n1'))).toBe(before);
+    const { body } = await json(await GET(request('GET', { query: '?year=2026' })));
+    expect(body.conflicts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: 'multiple_forms', sources: expect.arrayContaining([
+        expect.objectContaining({ id: 'n1' }), expect.objectContaining({ id: 'n2' }),
+      ]) }),
+    ]));
   });
 });
