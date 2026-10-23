@@ -119,17 +119,28 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
     builder(name, () => [...records].filter(([key]) => key.split('/').at(-2) === name), initialState());
   const runTransaction = async <T>(work: (tx: any) => Promise<T>): Promise<T> => {
     fail();
-    const writes: Array<() => void> = [];
-    const result = await work({
-      get: (target: any) => target.get(),
-      getAll: (...targets: any[]) => Promise.all(targets.map(target => target.get())),
-      set: (target: any, data: Record<string, any>, setOptions?: { merge?: boolean }) => writes.push(() => write(target.path, data, setOptions)),
-      update: (target: any, data: Record<string, any>) => writes.push(() => write(target.path, data, { merge: true })),
-      create: (target: any, data: Record<string, any>) => writes.push(() => { if (records.has(target.path)) throw new Error(`Document exists at ${target.path}`); write(target.path, data); }),
-      delete: (target: any) => writes.push(() => { records.delete(target.path); }),
-    });
-    writes.forEach(apply => apply());
-    return result;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const writes: Array<() => void> = [];
+      const reads = new Map<string, string>();
+      const result = await work({
+        get: (target: any) => {
+          if (typeof target?.path === 'string' && typeof target.where !== 'function') {
+            reads.set(target.path, JSON.stringify(records.get(target.path) ?? null));
+          }
+          return target.get();
+        },
+        getAll: (...targets: any[]) => Promise.all(targets.map(target => target.get())),
+        set: (target: any, data: Record<string, any>, setOptions?: { merge?: boolean }) => writes.push(() => write(target.path, data, setOptions)),
+        update: (target: any, data: Record<string, any>) => writes.push(() => write(target.path, data, { merge: true })),
+        create: (target: any, data: Record<string, any>) => writes.push(() => { if (records.has(target.path)) throw new Error(`Document exists at ${target.path}`); write(target.path, data); }),
+        delete: (target: any) => writes.push(() => { records.delete(target.path); }),
+      });
+      const conflict = [...reads].some(([path, json]) => JSON.stringify(records.get(path) ?? null) !== json);
+      if (conflict) continue;
+      writes.forEach(apply => apply());
+      return result;
+    }
+    throw new Error('Firestore transaction failed after 5 attempts');
   };
   const batch = () => {
     const writes: Array<() => void> = [];

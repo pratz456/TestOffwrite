@@ -18,6 +18,8 @@ import {
 
 export const TAX_YEAR_CONFIRMATIONS = 'user_tax_year_confirmations';
 export const EXPORT_RECORDS = 'user_export_records';
+/** Per user and year counter. Admin SDK only, same as the export records. */
+export const EXPORT_SEQUENCES = 'user_export_sequences';
 
 /**
  * Only schedule-c-pdf and schedule-c-csv are written. Those are the only
@@ -33,6 +35,11 @@ export interface ExportRecordDocument extends ScheduleCExportSnapshot {
   taxYear: number | null;
   exportedAt: string;
   sha256: string;
+  /**
+   * Monotonic per user and tax year. Assigned when the record is written.
+   * Absent on records saved before sequences existed.
+   */
+  exportSequence: number;
 }
 
 export interface TaxYearConfirmation {
@@ -59,7 +66,16 @@ function plainDocument(record: ExportRecordDocument): ExportRecordDocument {
     totalDeductible: record.totalDeductible,
     charges: record.charges.map(charge => ({ id: charge.id, line: charge.line, amount: charge.amount })),
     sha256: record.sha256,
+    exportSequence: record.exportSequence,
   };
+}
+
+function sequenceDocId(uid: string, year: number | null): string {
+  return createHash('sha256').update(`${uid}\0${year ?? ''}`).digest('hex');
+}
+
+function assignedSequence(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
 export function parseExportSnapshot(data: Record<string, unknown> | undefined): (ScheduleCExportSnapshot & { exportedAt: string }) | null {
@@ -82,13 +98,29 @@ export function parseExportSnapshot(data: Record<string, unknown> | undefined): 
   return { rulesVersion: data.rulesVersion, exportedAt: data.exportedAt, lineTotals, totalDeductible: data.totalDeductible, charges };
 }
 
+/**
+ * Assigns the next exportSequence for this user and year, then writes the
+ * record. Both happen in one transaction, so overlapping exports cannot
+ * take the same number.
+ */
+async function writeExportRecord(record: Omit<ExportRecordDocument, 'exportSequence'>): Promise<void> {
+  const counterRef = adminDb.collection(EXPORT_SEQUENCES).doc(sequenceDocId(record.uid, record.taxYear));
+  const recordRef = adminDb.collection(EXPORT_RECORDS).doc();
+  await adminDb.runTransaction(async tx => {
+    const counter = await tx.get(counterRef);
+    const current = counter.exists ? assignedSequence(counter.data()?.next) ?? 0 : 0;
+    const exportSequence = current + 1;
+    tx.set(counterRef, { uid: record.uid, taxYear: record.taxYear, next: exportSequence });
+    tx.set(recordRef, plainDocument({ ...record, exportSequence }));
+  });
+}
+
 /** Writing the record must never fail the download. */
-export async function safeWriteExportRecord(record: ExportRecordDocument): Promise<void> {
-  const document = plainDocument(record);
+export async function safeWriteExportRecord(record: Omit<ExportRecordDocument, 'exportSequence'>): Promise<void> {
   try {
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Export record write timed out')), 4000);
-      adminDb.collection(EXPORT_RECORDS).add(document).then(
+      writeExportRecord(record).then(
         () => { clearTimeout(timer); resolve(); },
         (error: unknown) => { clearTimeout(timer); reject(error); },
       );
@@ -109,30 +141,50 @@ export async function readTaxYearConfirmation(uid: string, year: number): Promis
 /** Kinds that may serve as the held year's old total. */
 const SCHEDULE_C_EXPORT_KINDS = new Set<ExportRecordKind>(['schedule-c-pdf', 'schedule-c-csv']);
 
+interface RankedExport {
+  snapshot: ScheduleCExportSnapshot;
+  exportedAt: string;
+  id: string;
+  exportSequence: number | null;
+}
+
+/**
+ * A sequenced record outranks one without a sequence. The higher sequence wins.
+ * An equal sequence keeps the greater document id.
+ * Records with no sequence are ordered by exportedAt. When two of those share
+ * an export time, the record with the higher document id wins. That order is
+ * fixed but not chronological, because Firestore document ids are random.
+ */
+function preferExport(candidate: RankedExport, current: RankedExport): boolean {
+  const left = candidate.exportSequence;
+  const right = current.exportSequence;
+  if (left !== null || right !== null) {
+    if (left === null) return false;
+    if (right === null) return true;
+    if (left !== right) return left > right;
+    return candidate.id > current.id;
+  }
+  if (candidate.exportedAt !== current.exportedAt) return candidate.exportedAt > current.exportedAt;
+  return candidate.id > current.id;
+}
+
 export async function readLatestExportRecord(uid: string, year: number): Promise<ScheduleCExportSnapshot | null> {
   const snap = await adminDb.collection(EXPORT_RECORDS).where('uid', '==', uid).where('taxYear', '==', year).get();
-  let latest: (ScheduleCExportSnapshot & { exportedAt: string }) | null = null;
-  let latestId = '';
+  let latest: RankedExport | null = null;
   for (const doc of snap.docs) {
     const data = doc.data();
     if (typeof data.kind !== 'string' || !SCHEDULE_C_EXPORT_KINDS.has(data.kind as ExportRecordKind)) continue;
     const parsed = parseExportSnapshot(data);
     if (!parsed) continue;
-    const id = typeof doc.id === 'string' ? doc.id : '';
-    const laterTime = !latest || parsed.exportedAt > latest.exportedAt;
-    const sameTimeLaterDoc = !!latest && parsed.exportedAt === latest.exportedAt && id > latestId;
-    if (laterTime || sameTimeLaterDoc) {
-      latest = parsed;
-      latestId = id;
-    }
+    const candidate: RankedExport = {
+      snapshot: { rulesVersion: parsed.rulesVersion, lineTotals: parsed.lineTotals, totalDeductible: parsed.totalDeductible, charges: parsed.charges },
+      exportedAt: parsed.exportedAt,
+      id: typeof doc.id === 'string' ? doc.id : '',
+      exportSequence: assignedSequence(data.exportSequence),
+    };
+    if (!latest || preferExport(candidate, latest)) latest = candidate;
   }
-  if (!latest) return null;
-  return {
-    rulesVersion: latest.rulesVersion,
-    lineTotals: latest.lineTotals,
-    totalDeductible: latest.totalDeductible,
-    charges: latest.charges,
-  };
+  return latest?.snapshot ?? null;
 }
 
 export async function loadFiledYearState(uid: string, year: number): Promise<{ prior: ScheduleCExportSnapshot | null; confirmedRulesVersion: string | null }> {

@@ -21,6 +21,7 @@ import {
   setScheduleCClockForTests,
   shouldHoldYear,
 } from '@/lib/schedule-c/filed-year';
+import { readLatestExportRecord, safeWriteExportRecord } from '@/lib/schedule-c/export-record';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
 const harness = vi.hoisted(() => ({
@@ -68,6 +69,10 @@ vi.mock('@/lib/firebase/admin', async () => {
         return column;
       },
       doc: (path: string) => db.doc(path),
+      runTransaction(work: (tx: unknown) => Promise<unknown>) {
+        if (harness.failWrites) return Promise.reject(new Error('export record store unavailable'));
+        return db.runTransaction(work);
+      },
     },
   };
 });
@@ -95,13 +100,14 @@ function savedExports(): Record<string, unknown>[] {
   expect(db).toBeTruthy();
   return [...db!.records.entries()].filter(([key]) => key.startsWith('user_export_records/')).map(([, value]) => value);
 }
-async function saveExportLog(id: string, kind: string, totalDeductible: number, chargeId: string, exportedAt = CLOCK.toISOString()) {
+async function saveExportLog(id: string, kind: string, totalDeductible: number, chargeId: string, exportedAt = CLOCK.toISOString(), exportSequence?: number) {
   const { adminDb } = await import('@/lib/firebase/admin');
   await adminDb.collection('user_export_records').doc(id).set({
     uid: 'owner', kind, taxYear: 2025, rulesVersion: 'v0', exportedAt, sha256: id,
     lineTotals: [{ line: '8', amount: totalDeductible }],
     totalDeductible,
     charges: [{ id: chargeId, line: '8', amount: totalDeductible }],
+    ...(exportSequence === undefined ? {} : { exportSequence }),
   });
 }
 function capturePdf() {
@@ -505,13 +511,13 @@ describe('filed year guard', () => {
     const nextPdf = capturePdf();
     expect((await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }))).status).toBe(200);
     expect(subtotal(nextPdf.text())).toBe('$100.00');
-    const csvClock = new Date(Date.parse(scheduleCExportedAt || CLOCK.toISOString()) + 1000);
-    setScheduleCClockForTests(() => csvClock);
     const csv = await (await scheduleCExport(exportBody({ year: 2025, format: 'csv' }))).text();
     expect(csv).toContain('SERVICE_ADVERTISING,8,100,100');
     const csvRecord = savedExports().find(row => row.kind === 'schedule-c-csv');
+    const pdfRecord = savedExports().find(row => row.kind === 'schedule-c-pdf');
     expect(csvRecord?.totalDeductible).toBe(100);
-    expect(Date.parse(String(csvRecord?.exportedAt ?? '')) - Date.parse(scheduleCExportedAt)).toBe(1000);
+    expect(csvRecord?.exportedAt).toBe(scheduleCExportedAt);
+    expect(Number(csvRecord?.exportSequence)).toBeGreaterThan(Number(pdfRecord?.exportSequence));
     expect(laterThanScheduleC > String(csvRecord?.exportedAt ?? '')).toBe(true);
     const scheduleC = savedExports().filter(row => row.kind === 'schedule-c-pdf' || row.kind === 'schedule-c-csv');
     expect(scheduleC.length).toBeGreaterThan(1);
@@ -549,7 +555,7 @@ describe('filed year guard', () => {
     expect(savedExports().some(row => row.kind === 'transactions-csv')).toBe(false);
   });
 
-  it('breaks an exportedAt tie by keeping the later Schedule C document', async () => {
+  it('breaks an exportedAt tie on records with no sequence by document id', async () => {
     harness.transactions = [confirmed({ id: 'later', amount: 250, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
     const stamped = CLOCK.toISOString();
     await saveExportLog('tie-a', 'schedule-c-pdf', 40, 'early', stamped);
@@ -557,11 +563,45 @@ describe('filed year guard', () => {
     await saveExportLog('tie-c', 'transactions-csv', 0, 'filtered', stamped);
     await saveExportLog('tie-d', 'data-export', 0, 'archive', stamped);
     await saveExportLog('tie-e', 'planning-pdf', 0, 'planning', stamped);
+    expect((await readLatestExportRecord('owner', 2025))?.totalDeductible).toBe(100);
     const view = capturePdf();
     expect((await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }))).status).toBe(200);
     expect(subtotal(view.text())).toBe('$100.00');
     expect(view.flat()).toContain('later');
     const csv = await (await scheduleCExport(exportBody({ year: 2025, format: 'csv' }))).text();
     expect(csv).toContain('SERVICE_ADVERTISING,8,100,100');
+  });
+
+  it('keeps the higher exportSequence when a PDF and CSV share exportedAt', async () => {
+    harness.transactions = [confirmed({ id: 'later', amount: 250, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    const stamped = CLOCK.toISOString();
+    await saveExportLog('tie-z', 'schedule-c-pdf', 40, 'early', stamped, 1);
+    await saveExportLog('tie-a', 'schedule-c-csv', 100, 'later', stamped, 2);
+    await saveExportLog('tie-late', 'schedule-c-pdf', 7, 'old', '2026-12-01T00:00:00.000Z');
+    expect((await readLatestExportRecord('owner', 2025))?.totalDeductible).toBe(100);
+    const view = capturePdf();
+    expect((await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }))).status).toBe(200);
+    expect(subtotal(view.text())).toBe('$100.00');
+    expect(view.flat()).toContain('later');
+    expect(view.flat()).not.toContain('early');
+    const csv = await (await scheduleCExport(exportBody({ year: 2025, format: 'csv' }))).text();
+    expect(csv).toContain('SERVICE_ADVERTISING,8,100,100');
+  });
+
+  it('assigns distinct sequences when two exports commit together', async () => {
+    const stamped = CLOCK.toISOString();
+    const record = (kind: 'schedule-c-pdf' | 'schedule-c-csv', total: number, id: string) => safeWriteExportRecord({
+      uid: 'owner', kind, taxYear: 2025, rulesVersion: 'v0', exportedAt: stamped, sha256: id,
+      lineTotals: [{ line: '8', amount: total }], totalDeductible: total,
+      charges: [{ id, line: '8', amount: total }],
+    });
+    await Promise.all([record('schedule-c-pdf', 40, 'pdf'), record('schedule-c-csv', 100, 'csv')]);
+    const rows = savedExports().filter(row => row.kind === 'schedule-c-pdf' || row.kind === 'schedule-c-csv');
+    expect(rows).toHaveLength(2);
+    expect(rows.map(row => row.exportedAt)).toEqual([stamped, stamped]);
+    expect(rows.map(row => row.exportSequence).sort((left, right) => Number(left) - Number(right))).toEqual([1, 2]);
+    const higher = rows.find(row => row.exportSequence === 2);
+    expect((await readLatestExportRecord('owner', 2025))?.totalDeductible).toBe(higher?.totalDeductible);
+    expect(new Set(rows.map(row => row.exportSequence)).size).toBe(2);
   });
 });
