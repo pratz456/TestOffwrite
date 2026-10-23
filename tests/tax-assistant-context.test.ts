@@ -116,6 +116,11 @@ describe('for-you paragraph', () => {
     expect(reviewed?.action).toEqual({ screen: 'transactions', merchantKey: 'adobe systems', count: 12, label: 'See these 12 charges' });
   });
 
+  it('uses other expenses (Part V) when no year is known', () => {
+    const forYou = composeForYou({ profile: assistantProfileFacts(profile), merchant: null }, 'software-subscriptions');
+    expect(forYou?.paragraph).toBe('For your graphic designer work, the placement above (Schedule C line 18 (office expense) or other expenses (Part V)) is where a qualifying cost is reported.');
+  });
+
   it('uses saved methods for home and vehicle topics without a merchant', () => {
     const home = composeForYou({ ...context, merchant: null }, 'home-office');
     expect(home?.paragraph).toBe('Your saved home office method is the simplified method, so the answer above applies through that method.');

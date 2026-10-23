@@ -17,10 +17,21 @@
  */
 
 import { safeTaxYear } from './taxDate';
+import { otherExpensesLine } from './other-expenses-line';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
 import { isCountableRecord, isSupersededRecord } from '@/lib/transactions/record-scope';
 
 export type CategoryMapEntry = { line: string; name: string; code: string };
+
+/**
+ * Internal other-expenses marker. 27a and 27b both mean other expenses.
+ * aggregateScheduleC publishes otherExpensesLine(year) so the amount never lands on Form 7205.
+ */
+const OTHER_EXPENSES: CategoryMapEntry = {
+  line: '27a',
+  name: 'Other expenses',
+  code: '27a',
+};
 
 export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   // ── Line 8: Advertising ──────────────────────────────────────────────
@@ -115,21 +126,21 @@ export const CATEGORY_MAP: Record<string, CategoryMapEntry> = {
   'SERVICE_GAS': { line: '25', name: 'Utilities', code: '25' },
   'SERVICE_WATER': { line: '25', name: 'Utilities', code: '25' },
 
-  // ── Line 27a: Other expenses ─────────────────────────────────────────
-  'ENTERTAINMENT_SPORTS_AND_OUTDOORS': { line: '27a', name: 'Other expenses', code: '27a' },
-  'ENTERTAINMENT_ARTS': { line: '27a', name: 'Other expenses', code: '27a' },
-  'ENTERTAINMENT_THEATER': { line: '27a', name: 'Other expenses', code: '27a' },
-  'ENTERTAINMENT_MUSIC': { line: '27a', name: 'Other expenses', code: '27a' },
-  'ENTERTAINMENT_MOVIES_AND_DVDS': { line: '27a', name: 'Other expenses', code: '27a' },
-  'GENERAL_MERCHANDISE_SPORTING_GOODS': { line: '27a', name: 'Other expenses', code: '27a' },
-  'PERSONAL_CARE_GYMS_AND_FITNESS_CENTERS': { line: '27a', name: 'Other expenses', code: '27a' },
-  'COMMUNITY_CHARITY': { line: '27a', name: 'Other expenses', code: '27a' },
-  'COMMUNITY_EDUCATION': { line: '27a', name: 'Other expenses', code: '27a' },
-  'COMMUNITY_RELIGIOUS': { line: '27a', name: 'Other expenses', code: '27a' },
-  'SERVICE_CLEANING_AND_MAINTENANCE': { line: '27a', name: 'Other expenses', code: '27a' },
-  'SERVICE_PROFESSIONAL_DUES': { line: '27a', name: 'Other expenses', code: '27a' },
-  'SERVICE_MEMBERSHIPS': { line: '27a', name: 'Other expenses', code: '27a' },
-  'SERVICE_EDUCATION': { line: '27a', name: 'Other expenses', code: '27a' },
+  // ── Other expenses (published with otherExpensesLine for the tax year) ─
+  'ENTERTAINMENT_SPORTS_AND_OUTDOORS': OTHER_EXPENSES,
+  'ENTERTAINMENT_ARTS': OTHER_EXPENSES,
+  'ENTERTAINMENT_THEATER': OTHER_EXPENSES,
+  'ENTERTAINMENT_MUSIC': OTHER_EXPENSES,
+  'ENTERTAINMENT_MOVIES_AND_DVDS': OTHER_EXPENSES,
+  'GENERAL_MERCHANDISE_SPORTING_GOODS': OTHER_EXPENSES,
+  'PERSONAL_CARE_GYMS_AND_FITNESS_CENTERS': OTHER_EXPENSES,
+  'COMMUNITY_CHARITY': OTHER_EXPENSES,
+  'COMMUNITY_EDUCATION': OTHER_EXPENSES,
+  'COMMUNITY_RELIGIOUS': OTHER_EXPENSES,
+  'SERVICE_CLEANING_AND_MAINTENANCE': OTHER_EXPENSES,
+  'SERVICE_PROFESSIONAL_DUES': OTHER_EXPENSES,
+  'SERVICE_MEMBERSHIPS': OTHER_EXPENSES,
+  'SERVICE_EDUCATION': OTHER_EXPENSES,
 };
 
 const BUSINESS_CATEGORY_KEYS = new Set(Object.keys(CATEGORY_MAP));
@@ -233,8 +244,10 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
 
   for (const tx of deductibleTransactions) {
     const info = categoryMap[tx.category];
-    const lineKey = info ? info.line : '27a';
-    const lineName = info ? info.name : 'Other expenses';
+    const rawLine = info ? info.line : otherExpensesLine(Number(yearStr));
+    const otherExpenses = rawLine === '27a' || rawLine === '27b';
+    const lineKey = otherExpenses ? otherExpensesLine(Number(yearStr)) : rawLine;
+    const lineName = otherExpenses || !info ? 'Other expenses' : info.name;
 
     if (!lineItems[lineKey]) {
       lineItems[lineKey] = {
