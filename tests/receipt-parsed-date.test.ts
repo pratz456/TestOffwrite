@@ -196,6 +196,7 @@ const NO_DATE = [
   'Date: 12/31/2025\nSale 01/02/2026\nTotal $12.34',
   'Invoice Date 01/10/2026\nPayment Due 02/01/2026\nTotal $12.34',
   'Invoice Date 01/10/2026\nPayment Method: Visa\nDue 02/01/2026\nTotal $12.34',
+  'Invoice date Jan 15, 2026\nPayment due Feb 14, 2026\nTotal $12.34',
 ];
 const VERIFIED: Array<[string, string, string]> = [
   ['Invoice Date 01/02/2026\nBalance Due $0.00\nTotal $12.34', '01/02/2026', '2026-01-02'],
@@ -215,6 +216,15 @@ const VERIFIED: Array<[string, string, string]> = [
   ['Invoice # 12345 01/20/2026\nTotal $12.34', '01/20/2026', '2026-01-20'],
   ['Invoice # 12345 01/20/2026\nBalance Due $40.00\nTotal $12.34', '01/20/2026', '2026-01-20'],
   ['Invoice # 4471 01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Return Date 02/15/2026\n01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['12/30/2025\nExp Date 01/31/2026\nTotal $12.34', '12/30/2025', '2025-12-30'],
+  ['12/30/2025\nCoupon expires on 01/31/2026\nTotal $12.34', '12/30/2025', '2025-12-30'],
+  ['Statement Date 01/03/2026\n12/30/2025 coffee\nTotal $12.34', '12/30/2025', '2025-12-30'],
+  ['Arrival Date 03/01/2026\n01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Check-in Date 03/02/2026\n01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Valid Until Date 06/30/2026\n01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['Return by 02/15/2026\n01/15/2026\nTotal $12.34', '01/15/2026', '2026-01-15'],
+  ['01/02/2026\nCheck-out Date 01/05/2026\nTotal $12.34', '01/05/2026', '2026-01-05'],
 ];
 const RULING: Array<[string, string]> = [
   ['Order placed 12/29/2025\nPaid Jan 2, 2026\nTotal $12.34', '2026-01-02'],

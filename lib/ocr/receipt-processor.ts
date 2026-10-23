@@ -95,8 +95,9 @@ function allowsMonthPeriod(token: string, dotted: boolean): boolean {
 }
 
 /**
- * A skip phrase drops a date only when it sits on the same line, directly before
- * the date or directly after it. The gap may be spaces and : # , . - only.
+ * A skip phrase drops a date when it sits on the same line, directly before the
+ * date or directly after it. The gap may be spaces and : # , . - only. Before
+ * the date, that gap may also be one bridge word: Date, on, by, until, or thru.
  */
 const SKIP_PHRASES = [
   'returns accepted until',
@@ -189,14 +190,21 @@ function gapAllows(gap: string): boolean {
   return /^[ \t:#,\.\-]*$/.test(gap);
 }
 
-function adjacentMatchLength(line: string, dateStart: number, dateEnd: number, phrase: string): number {
+/** A skip word is still next to the date when Date, on, by, until, or thru is the only word between them. */
+function skipGapAllows(gap: string): boolean {
+  if (gapAllows(gap)) return true;
+  return /^[ \t:#,\.\-]*(?:date|on|by|until|thru)[ \t:#,\.\-]*$/i.test(gap);
+}
+
+function adjacentMatchLength(line: string, dateStart: number, dateEnd: number, phrase: string, allowSkipBridge = false): number {
   const pattern = new RegExp(phraseSource(phrase), 'gi');
+  const beforeGap = allowSkipBridge ? skipGapAllows : gapAllows;
   let match: RegExpExecArray | null;
   let longest = 0;
   while ((match = pattern.exec(line)) !== null) {
     const start = match.index;
     const end = start + match[0].length;
-    const before = end <= dateStart && gapAllows(line.slice(end, dateStart));
+    const before = end <= dateStart && beforeGap(line.slice(end, dateStart));
     const after = start >= dateEnd && gapAllows(line.slice(dateEnd, start));
     if ((before || after) && match[0].length > longest) longest = match[0].length;
     if (match[0].length === 0) break;
@@ -205,64 +213,19 @@ function adjacentMatchLength(line: string, dateStart: number, dateEnd: number, p
 }
 
 function dateIsSkipped(line: string, dateStart: number, dateEnd: number): boolean {
-  return SKIP_PHRASES.some(phrase => adjacentMatchLength(line, dateStart, dateEnd, phrase) > 0);
-}
-
-/** "Date" is not a purchase label when one of these skip words sits directly in front of it. */
-const DATE_LABEL_BLOCKERS = [
-  'valid until',
-  'check-in',
-  'delivery',
-  'statement',
-  'arrival',
-  'expiry',
-  'return',
-  'order',
-  'print',
-  'ship',
-  'due',
-  'exp',
-];
-
-function adjacentPhraseStart(line: string, dateStart: number, dateEnd: number, phrase: string): number | null {
-  const pattern = new RegExp(phraseSource(phrase), 'gi');
-  let match: RegExpExecArray | null;
-  let found: number | null = null;
-  let longest = 0;
-  while ((match = pattern.exec(line)) !== null) {
-    const start = match.index;
-    const end = start + match[0].length;
-    const before = end <= dateStart && gapAllows(line.slice(end, dateStart));
-    const after = start >= dateEnd && gapAllows(line.slice(dateEnd, start));
-    if ((before || after) && match[0].length > longest) {
-      longest = match[0].length;
-      found = start;
-    }
-    if (match[0].length === 0) break;
-  }
-  return found;
-}
-
-function dateLabelBlocked(line: string, dateStart: number, dateEnd: number): boolean {
-  const wordStart = adjacentPhraseStart(line, dateStart, dateEnd, 'date');
-  if (wordStart === null) return false;
-  const before = line.slice(0, wordStart);
-  return DATE_LABEL_BLOCKERS.some(word => new RegExp(`${phraseSource(word)}[ \\t]*$`, 'i').test(before));
+  return SKIP_PHRASES.some(phrase => adjacentMatchLength(line, dateStart, dateEnd, phrase, true) > 0);
 }
 
 function labelTier(line: string, dateStart: number, dateEnd: number): number {
   let tier = 0;
   let length = 0;
-  let winning = '';
   for (const label of LABEL_PHRASES) {
     const size = adjacentMatchLength(line, dateStart, dateEnd, label.text);
     if (size > length) {
       length = size;
       tier = label.tier;
-      winning = label.text;
     }
   }
-  if (winning === 'date' && dateLabelBlocked(line, dateStart, dateEnd)) return 0;
   return tier;
 }
 
