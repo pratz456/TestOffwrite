@@ -15,11 +15,16 @@ export function reviewedReceiptData(draft: ReceiptDraft) {
   return { merchant, amount, date: rawDate, category, iso_currency_code: 'USD' as const };
 }
 
+export function browserUploadTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
 export function receiptCommitForm(file: File, draft: ReceiptDraft, receiptType: 'expense' | 'income', attachTransactionId?: string | null) {
   const form = new FormData();
   form.append('file', file);
   form.append('mode', 'commit');
   form.append('receiptType', receiptType);
+  form.append('uploadTimeZone', browserUploadTimeZone());
   if (attachTransactionId) form.append('attachTransactionId', attachTransactionId);
   else form.append('receiptData', JSON.stringify(reviewedReceiptData(draft)));
   return form;

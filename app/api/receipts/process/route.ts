@@ -34,6 +34,22 @@ function receiptResponse(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: PRIVATE_RECEIPT_HEADERS });
 }
 
+/** YYYY-MM-DD only when that calendar day exists. Date-only strings are UTC, so the check does not follow the viewer clock. */
+function isRealCalendarDay(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+}
+
+/** The browser zone, kept only when it is a real IANA name. */
+function uploadedTimeZone(value: FormDataEntryValue | null): string | undefined {
+  if (typeof value !== 'string' || value.length === 0) return undefined;
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: value });
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
 function stagingReceiptFailure(step: string, error: unknown) {
   if (process.env.WRITEOFF_ENV !== 'staging') return;
   const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
@@ -116,6 +132,7 @@ export async function POST(request: NextRequest) {
     const bytes = Buffer.from(await file.arrayBuffer());
     if (!receiptSignatureMatches(bytes, mimeType)) throw new ReceiptRequestError('The receipt content does not match its file type', 400);
     const originalName = safeReceiptName(file.name);
+    const uploadTimeZone = uploadedTimeZone(formData.get('uploadTimeZone'));
 
     if (mode === 'commit' && typeof attachTransactionId === 'string') {
       // Existing bank details are authoritative. Attaching documentation needs
@@ -160,10 +177,11 @@ export async function POST(request: NextRequest) {
       manualReceipt = parsed.data;
     }
     // Manual confirmation must work even when OCR could not read the image.
+    // A valid upload zone is used for a Date or a timestamp. A missing or invalid zone is left unset.
     setStep(manualReceipt ? 'manual-confirmation' : 'ocr');
     const ocrResult: OCRResult = manualReceipt
       ? { success: true, data: { ...manualReceipt, confidence: 0, rawText: '', items: [] }, processingTime: 0 }
-      : await receiptProcessor.processReceipt(bytes);
+      : await receiptProcessor.processReceipt(bytes, uploadTimeZone);
 
     if (!ocrResult.success || !ocrResult.data) {
       console.error('❌ [Receipt OCR] OCR failed:', ocrResult.error);
@@ -204,9 +222,14 @@ export async function POST(request: NextRequest) {
     if (attachTransactionId === null && (!Number.isFinite(receiptAmountAbs) || receiptAmountAbs <= 0)) {
       throw new ReceiptRequestError('Enter a positive receipt amount before saving', 422);
     }
-    if (attachTransactionId === null && !/^\d{4}-\d{2}-\d{2}$/.test(receiptData.date || '')) {
-      throw new ReceiptRequestError('Enter the receipt date before saving', 422);
+    const receiptDate = receiptData.date || '';
+    // This route owns the undated save. A blank date is stored with no date and no year,
+    // marked Needs more information, and is never replaced with today. A non-empty date
+    // that is not a real calendar day is still refused.
+    if (attachTransactionId === null && receiptDate !== '' && !isRealCalendarDay(receiptDate)) {
+      throw new ReceiptRequestError('Enter a real receipt date before saving', 422);
     }
+    const undated = receiptDate === '';
     const signedAmount = receiptType === 'income' ? -receiptAmountAbs : receiptAmountAbs; // app expects expenses positive
 
     const ocr_data = {
@@ -250,10 +273,12 @@ export async function POST(request: NextRequest) {
       amount: signedAmount,
       ...(manualReceipt?.iso_currency_code ? { iso_currency_code: manualReceipt.iso_currency_code } : {}),
       category: receiptType === 'income' ? 'income' : receiptData.category || 'other',
-      date: receiptData.date,
+      date: undated ? '' : receiptDate,
       description: `Receipt: ${receiptData.merchant}`,
       notes: manualReceipt ? 'Receipt details confirmed manually.' : `Receipt created from OCR. OCR confidence: ${Math.round(receiptData.confidence * 100)}%.`,
       is_deductible: null,
+      ...(undated ? { deductionStatus: 'Needs more information', tax_review_required: true } : {}),
+      ...(uploadTimeZone ? { uploadTimeZone } : {}),
       analysis_status: 'pending',
       source: 'receipt',
       analyzed: false,

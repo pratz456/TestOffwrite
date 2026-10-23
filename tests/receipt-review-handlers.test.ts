@@ -90,5 +90,18 @@ describe('editing a receipt preserves the chosen bank attachment', () => {
     await button(render(), 'Confirm & Save').props.onClick();
     expect(commits[0].has('attachTransactionId')).toBe(false);
     expect(JSON.parse(String(commits[0].get('receiptData'))).amount).toBe(125.5);
+    expect(commits[0].get('uploadTimeZone')).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  });
+  it('sends the browser time zone with the receipt scan', async () => {
+    const scans: FormData[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      scans.push(init?.body as FormData);
+      return Response.json({ ocrResult: { merchant: 'Matched vendor', amount: 100, date: '2026-09-15', category: 'Supplies', confidence: .9 }, matchCandidates: [] });
+    }));
+    selectImage();
+    await button(render(), 'Process Receipt').props.onClick();
+    expect(scans).toHaveLength(1);
+    expect(scans[0].get('mode')).toBe('ocr');
+    expect(scans[0].get('uploadTimeZone')).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
   });
 });

@@ -1,5 +1,4 @@
 import Tesseract from 'tesseract.js';
-import { safeYMD } from '@/lib/schedule-c/taxDate';
 
 export interface ReceiptData {
   merchant: string;
@@ -35,6 +34,455 @@ export interface OCRResult {
   processingTime: number;
 }
 
+const ENGLISH_MONTHS: Record<string, number> = {
+  jan: 1, january: 1,
+  feb: 2, february: 2,
+  mar: 3, march: 3,
+  apr: 4, april: 4,
+  may: 5,
+  jun: 6, june: 6,
+  jul: 7, july: 7,
+  aug: 8, august: 8,
+  sep: 9, september: 9,
+  oct: 10, october: 10,
+  nov: 11, november: 11,
+  dec: 12, december: 12,
+};
+
+/** Accept YYYY-MM-DD only when that calendar day exists. Noon UTC does not roll the day into the next month. */
+function calendarDay(year: number, month: number, day: number): string | null {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  if (year < 1000 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const iso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const parsed = new Date(`${iso}T12:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === iso ? iso : null;
+}
+
+/** A real IANA zone name. Anything else, including a missing value, is not a zone. */
+function ianaTimeZone(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: value });
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Calendar day of an instant in one IANA zone. The process clock is not used. */
+function dayInZone(date: Date, timeZone: string): string | null {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const year = Number(parts.find(part => part.type === 'year')?.value);
+  const month = Number(parts.find(part => part.type === 'month')?.value);
+  const day = Number(parts.find(part => part.type === 'day')?.value);
+  return calendarDay(year, month, day);
+}
+
+/**
+ * Calendar day of an instant.
+ * A valid upload zone wins. A missing or unknown zone keeps the day only when
+ * Pacific/Pago_Pago and America/St_Thomas agree. The process clock is not used.
+ */
+function localCalendarDay(date: Date, timeZone: string | undefined): string | null {
+  if (!Number.isFinite(date.getTime())) return null;
+  const zone = ianaTimeZone(timeZone);
+  if (zone) return dayInZone(date, zone);
+  const pagoPago = dayInZone(date, 'Pacific/Pago_Pago');
+  const stThomas = dayInZone(date, 'America/St_Thomas');
+  return pagoPago && pagoPago === stThomas ? pagoPago : null;
+}
+
+/** Clock time by parts. An hour such as 25 is rejected. The date is not shifted through local time. */
+function clockIsReal(time: string): boolean {
+  const match = /^(\d{2}):(\d{2})(?::(\d{2})(\.\d+)?)?(?:Z|([+-])(\d{2}):?(\d{2}))?$/.exec(time);
+  if (!match) return false;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const second = match[3] === undefined ? 0 : Number(match[3]);
+  if (hour > 23 || minute > 59 || second > 59) return false;
+  if (match[6] !== undefined) {
+    const zoneHour = Number(match[6]);
+    const zoneMinute = Number(match[7]);
+    if (zoneHour > 23 || zoneMinute > 59) return false;
+  }
+  return true;
+}
+
+/** A two digit year is 20YY. A four digit year is used as written. */
+function writtenYear(raw: string): number {
+  return raw.length === 2 ? 2000 + Number(raw) : Number(raw);
+}
+
+/** English month token, including the four letter September abbreviation Sept. */
+function monthFromName(token: string): number | null {
+  const key = token.toLowerCase();
+  if (key === 'sept') return 9;
+  return ENGLISH_MONTHS[key] ?? null;
+}
+
+/**
+ * A trailing period is kept for Sept and for three letter names.
+ * A full name with a period is rejected in both orders.
+ */
+function allowsMonthPeriod(token: string, dotted: boolean): boolean {
+  return !dotted || token === 'sept' || token.length === 3;
+}
+
+/**
+ * A skip phrase drops a date when it sits on the same line, directly before the
+ * date or directly after it. The gap may be spaces and : # , . - only. Phrases
+ * in BRIDGE_SKIP_PHRASES may also have one bridge word before the date: Date,
+ * on, by, until, or thru. Every other skip phrase keeps the strict gap.
+ * Delivered and delivery drop a date only when another date remains. Ticket,
+ * ref, and invoice # do that only when the date has a four-digit year; a short
+ * year stays a hard skip. A non-bridge skip phrase followed only by the word
+ * Date is also a fallback, unless a real label such as "order date" sits on it.
+ */
+/** Only these skip phrases may bridge across Date, on, by, until, or thru. */
+const BRIDGE_SKIP_PHRASES = new Set([
+  'return',
+  'returns',
+  'exp',
+  'expire',
+  'expires',
+  'expired',
+  'expiry',
+  'expiration',
+  'expiring',
+  'statement',
+  'arrival',
+  'check-in',
+  'valid',
+  'until',
+  'thru',
+  'through',
+  'shipped',
+  'delivered',
+  'delivery',
+]);
+/** These skips drop a date only when some other date is still left. A lone one stays. */
+const ALWAYS_FALLBACK_SKIP_PHRASES = new Set(['delivered', 'delivery']);
+/** Fallback only beside a four-digit year. Ticket 4/5/26 and Ticket 1/2 stay hard skips. Table and offer stay hard skips. */
+const FOUR_DIGIT_FALLBACK_SKIP_PHRASES = new Set(['ticket', 'ref', 'invoice #']);
+const SKIP_PHRASES = [
+  'returns accepted until',
+  'estimated delivery date',
+  'expiration date',
+  'delivery date',
+  'exchange by',
+  'member since',
+  'order placed',
+  'print date',
+  'ship date',
+  'visit by',
+  'returns by',
+  'return by',
+  'expire on',
+  'check-in',
+  'due date',
+  'ship by',
+  'expiration',
+  'delivered',
+  'delivery',
+  'expiring',
+  'expired',
+  'printed',
+  'returns',
+  'shipped',
+  'through',
+  'written',
+  'arrival',
+  'expires',
+  'expire',
+  'invoice #',
+  'order #',
+  'statement',
+  'check #',
+  'expiry',
+  'offer',
+  'order',
+  'return',
+  'table',
+  'ticket',
+  'until',
+  'valid',
+  'thru',
+  'due',
+  'exp',
+  'inv',
+  'ref',
+];
+/** Tier 1 outranks tier 2, which outranks tier 3. The longest phrase next to the date wins, so "date" inside "payment date" or "invoice date" is not its own label. */
+const LABEL_PHRASES: Array<{ text: string; tier: number }> = [
+  { text: 'payment date', tier: 1 },
+  { text: 'payment', tier: 1 },
+  { text: 'paid', tier: 1 },
+  { text: 'purchase date', tier: 2 },
+  { text: 'transaction date', tier: 2 },
+  { text: 'sale date', tier: 2 },
+  { text: 'order date', tier: 2 },
+  { text: 'check-out', tier: 2 },
+  { text: 'purchased', tier: 2 },
+  { text: 'checkout', tier: 2 },
+  { text: 'purchase', tier: 2 },
+  { text: 'transaction', tier: 2 },
+  { text: 'invoice date', tier: 3 },
+  { text: 'sale', tier: 2 },
+  { text: 'date', tier: 2 },
+];
+
+type ReceiptDateCandidate = { raw: string; index: number; iso: string; line: string };
+type TieredDate = ReceiptDateCandidate & { tier: number };
+
+function lineAt(text: string, index: number): string {
+  const start = text.lastIndexOf('\n', index - 1) + 1;
+  const next = text.indexOf('\n', index);
+  return text.slice(start, next === -1 ? text.length : next);
+}
+
+function lineStartAt(text: string, index: number): number {
+  return text.lastIndexOf('\n', index - 1) + 1;
+}
+
+function phraseSource(phrase: string): string {
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ #/g, '\\s*#').replace(/ /g, '\\s+');
+  const start = /^\w/.test(phrase) ? '\\b' : '';
+  const end = /\w$/.test(phrase) ? '\\b' : '';
+  return `${start}${escaped}${end}`;
+}
+
+/** Spaces and : # , . - only. An invoice number between "invoice #" and the date keeps the date. */
+function gapAllows(gap: string): boolean {
+  return /^[ \t:#,\.\-]*$/.test(gap);
+}
+
+/** Bridge phrases are still next to the date when Date, on, by, until, or thru is the only word between them. */
+function skipGapAllows(gap: string): boolean {
+  if (gapAllows(gap)) return true;
+  return /^[ \t:#,\.\-]*(?:date|on|by|until|thru)[ \t:#,\.\-]*$/i.test(gap);
+}
+
+function adjacentMatchLength(line: string, dateStart: number, dateEnd: number, phrase: string, allowSkipBridge = false): number {
+  const pattern = new RegExp(phraseSource(phrase), 'gi');
+  const beforeGap = allowSkipBridge ? skipGapAllows : gapAllows;
+  let match: RegExpExecArray | null;
+  let longest = 0;
+  while ((match = pattern.exec(line)) !== null) {
+    const start = match.index;
+    const end = start + match[0].length;
+    const before = end <= dateStart && beforeGap(line.slice(end, dateStart));
+    const after = start >= dateEnd && gapAllows(line.slice(dateEnd, start));
+    if ((before || after) && match[0].length > longest) longest = match[0].length;
+    if (match[0].length === 0) break;
+  }
+  return longest;
+}
+
+function phraseSkipsDate(line: string, dateStart: number, dateEnd: number, phrase: string): boolean {
+  return adjacentMatchLength(line, dateStart, dateEnd, phrase, BRIDGE_SKIP_PHRASES.has(phrase)) > 0;
+}
+
+/** 01/15/2026 and Jan 15, 2026 count. 4/5/26 and 1/2 do not. */
+function dateHasFourDigitYear(raw: string): boolean {
+  return /^\d{4}\b/.test(raw) || /\b\d{4}$/.test(raw);
+}
+
+function phraseIsFallback(phrase: string, raw: string): boolean {
+  if (ALWAYS_FALLBACK_SKIP_PHRASES.has(phrase)) return true;
+  return FOUR_DIGIT_FALLBACK_SKIP_PHRASES.has(phrase) && dateHasFourDigitYear(raw);
+}
+
+/** A hard skip always drops the date. Fallback phrases match only when no hard skip does. */
+function dateIsHardSkipped(line: string, dateStart: number, dateEnd: number): boolean {
+  const raw = line.slice(dateStart, dateEnd);
+  return SKIP_PHRASES.some(phrase => !phraseIsFallback(phrase, raw) && phraseSkipsDate(line, dateStart, dateEnd, phrase));
+}
+
+function dateIsFallbackSkipped(line: string, dateStart: number, dateEnd: number): boolean {
+  if (dateIsHardSkipped(line, dateStart, dateEnd)) return false;
+  const raw = line.slice(dateStart, dateEnd);
+  return SKIP_PHRASES.some(phrase => phraseIsFallback(phrase, raw) && phraseSkipsDate(line, dateStart, dateEnd, phrase));
+}
+
+/** The word Date sitting directly in front of the numeric date, if the gap is only allowed characters. */
+function dateWordBefore(line: string, dateStart: number): number | null {
+  const pattern = /\bdate\b/gi;
+  let match: RegExpExecArray | null;
+  let found: number | null = null;
+  while ((match = pattern.exec(line)) !== null) {
+    const end = match.index + match[0].length;
+    if (end <= dateStart && gapAllows(line.slice(end, dateStart))) found = match.index;
+    if (match[0].length === 0) break;
+  }
+  return found;
+}
+
+/**
+ * Ticket Date, Ref Date, Table Date, and Offer Date are fallback skips.
+ * Order Date is not: "order date" is a real tier-2 label, so it stays.
+ */
+function dateIsSkipWordDate(line: string, dateStart: number, dateEnd: number): boolean {
+  const labeled = LABEL_PHRASES.some(label => label.text !== 'date' && adjacentMatchLength(line, dateStart, dateEnd, label.text) > 0);
+  if (labeled) return false;
+  const wordStart = dateWordBefore(line, dateStart);
+  if (wordStart === null) return false;
+  const before = line.slice(0, wordStart);
+  return SKIP_PHRASES.some(phrase => {
+    if (BRIDGE_SKIP_PHRASES.has(phrase)) return false;
+    return new RegExp(`${phraseSource(phrase)}[ \\t:#,.\\-]*$`, 'i').test(before);
+  });
+}
+
+function labelTier(line: string, dateStart: number, dateEnd: number): number {
+  let tier = 0;
+  let length = 0;
+  for (const label of LABEL_PHRASES) {
+    const size = adjacentMatchLength(line, dateStart, dateEnd, label.text);
+    if (size > length) {
+      length = size;
+      tier = label.tier;
+    }
+  }
+  return tier;
+}
+
+function spanOf(text: string, candidate: ReceiptDateCandidate): { dateStart: number; dateEnd: number } {
+  const dateStart = candidate.index - lineStartAt(text, candidate.index);
+  return { dateStart, dateEnd: dateStart + candidate.raw.length };
+}
+
+function withoutAdjacentSkips(text: string, candidates: ReceiptDateCandidate[]): TieredDate[] {
+  const kept: TieredDate[] = [];
+  const deliveryOnly: TieredDate[] = [];
+  for (const candidate of candidates) {
+    const { dateStart, dateEnd } = spanOf(text, candidate);
+    if (dateIsHardSkipped(candidate.line, dateStart, dateEnd)) continue;
+    const tiered = { ...candidate, tier: labelTier(candidate.line, dateStart, dateEnd) };
+    if (dateIsFallbackSkipped(candidate.line, dateStart, dateEnd) || dateIsSkipWordDate(candidate.line, dateStart, dateEnd)) deliveryOnly.push(tiered);
+    else kept.push(tiered);
+  }
+  return kept.length > 0 ? kept : deliveryOnly;
+}
+
+/** Keep the best tier present. Tier 1 beats tier 2, which beats tier 3. Unlabeled dates stay only when nothing is labeled. */
+function highestTier(candidates: TieredDate[]): TieredDate[] {
+  const labeled = candidates.filter(candidate => candidate.tier > 0);
+  if (labeled.length === 0) return candidates;
+  const best = Math.min(...labeled.map(candidate => candidate.tier));
+  return candidates.filter(candidate => candidate.tier === best);
+}
+
+const NOT_A_PAID_LINE = /\b(?:unpaid|payment\s+due|payment\s+method|payment\s+terms|payment\s+options|pay\s+by)\b/i;
+const DUE_DATE_PHRASES = ['payment due', 'due date', 'due'];
+
+function lineStatesMoneyPaid(line: string): boolean {
+  if (NOT_A_PAID_LINE.test(line)) return false;
+  const amountPaid = /\bamount\s+paid\b[^0-9$]*\$?\s*(\d+(?:\.\d+)?)/i.exec(line);
+  if (amountPaid) return Number(amountPaid[1]) > 0;
+  if (/\b(?:paid\s+in\s+full|payment\s+received)\b/i.test(line)) return true;
+  return /\bpaid\b/i.test(line);
+}
+
+function moneyWasPaid(text: string): boolean {
+  return text.split('\n').some(lineStatesMoneyPaid);
+}
+
+function hasAdjacentDueDate(text: string, candidates: ReceiptDateCandidate[]): boolean {
+  return candidates.some(candidate => {
+    const { dateStart, dateEnd } = spanOf(text, candidate);
+    return DUE_DATE_PHRASES.some(phrase => adjacentMatchLength(candidate.line, dateStart, dateEnd, phrase) > 0);
+  });
+}
+
+function balanceDueAboveZero(text: string): boolean {
+  const amount = /balance\s+due\b[^0-9$]*\$?\s*(\d+(?:\.\d+)?)/i.exec(text);
+  return amount !== null && Number(amount[1]) > 0;
+}
+
+/** An invoice date alone is not a purchase date when a due date or a balance due above zero is present and nothing was paid. */
+function dropUnpaidInvoice(text: string, candidates: TieredDate[], allCandidates: ReceiptDateCandidate[]): TieredDate[] {
+  const onlyInvoiceDate = candidates.length > 0 && candidates.every(candidate => candidate.tier === 3);
+  const unpaid = hasAdjacentDueDate(text, allCandidates) || balanceDueAboveZero(text);
+  if (onlyInvoiceDate && unpaid && !moneyWasPaid(text)) return [];
+  return candidates;
+}
+
+function datesInOneYear(candidates: TieredDate[]): TieredDate[] {
+  const years = new Set(candidates.map(candidate => candidate.iso.slice(0, 4)));
+  return years.size > 1 ? [] : candidates;
+}
+
+function monthToken(raw: string): string | null {
+  const dayFirst = /^\d{1,2}[ \t]+([A-Za-z]+)\.?(?:[ \t]+\d{2,4})$/.exec(raw);
+  if (dayFirst) return dayFirst[1];
+  const monthFirst = /^([A-Za-z]+)\.?(?:[ \t]+\d{1,2},?[ \t]+\d{2,4})$/.exec(raw);
+  if (monthFirst) return monthFirst[1];
+  return null;
+}
+
+/** Inclusive window from 2000 through next year, read from the clock when a candidate is kept. */
+function purchaseYearAllowed(iso: string): boolean {
+  const year = Number(iso.slice(0, 4));
+  const currentYear = new Date().getFullYear();
+  return year >= 2000 && year <= currentYear + 1;
+}
+
+/** First date in the text. Two matches that start at the same place keep the longer one. */
+function earliestDateText(candidates: ReceiptDateCandidate[]): string {
+  if (candidates.length === 0) return '';
+  let best = candidates[0];
+  for (const candidate of candidates) {
+    if (candidate.index < best.index || (candidate.index === best.index && candidate.raw.length > best.raw.length)) {
+      best = candidate;
+    }
+  }
+  return best.raw;
+}
+
+/**
+ * Read a written date by its parts. Slash and hyphen dates are US month/day order.
+ * A leading four digit year stays ISO, including a timestamp. A two digit year is 20YY.
+ * The result is kept only when it is a real calendar day.
+ */
+function dateFromWrittenParts(value: string): string | null {
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|T(.*))$/.exec(value);
+  if (iso) {
+    if (iso[4] !== undefined && !clockIsReal(iso[4])) return null;
+    return calendarDay(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+  }
+  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})$/.exec(value);
+  if (slash) {
+    return calendarDay(writtenYear(slash[3]), Number(slash[1]), Number(slash[2]));
+  }
+  // Month and day are one or two digits, so this cannot match YYYY-MM-DD.
+  const hyphen = /^(\d{1,2})-(\d{1,2})-(\d{4}|\d{2})$/.exec(value);
+  if (hyphen) {
+    return calendarDay(writtenYear(hyphen[3]), Number(hyphen[1]), Number(hyphen[2]));
+  }
+  const named = /^([A-Za-z]+)(\.)?\s+(\d{1,2}),?\s+(\d{4}|\d{2})$/.exec(value);
+  if (named) {
+    const token = named[1].toLowerCase();
+    if (!allowsMonthPeriod(token, named[2] === '.')) return null;
+    const month = monthFromName(token);
+    if (!month) return null;
+    return calendarDay(writtenYear(named[4]), month, Number(named[3]));
+  }
+  const dayFirst = /^(\d{1,2})\s+([A-Za-z]+)(\.)?\s+(\d{4}|\d{2})$/.exec(value);
+  if (dayFirst) {
+    const token = dayFirst[2].toLowerCase();
+    if (!allowsMonthPeriod(token, dayFirst[3] === '.')) return null;
+    const month = monthFromName(token);
+    if (!month) return null;
+    return calendarDay(writtenYear(dayFirst[4]), month, Number(dayFirst[1]));
+  }
+  return null;
+}
+
 export class ReceiptProcessor {
   private static instance: ReceiptProcessor;
   private worker: Tesseract.Worker | null = null;
@@ -60,7 +508,7 @@ export class ReceiptProcessor {
     }
   }
 
-  async processReceipt(imageFile: File | Buffer): Promise<OCRResult> {
+  async processReceipt(imageFile: File | Buffer, userTimeZone?: string): Promise<OCRResult> {
     const startTime = Date.now();
     
     try {
@@ -92,8 +540,9 @@ export class ReceiptProcessor {
         data: {
           merchant: receiptData.merchant || 'Unknown Merchant',
           amount: receiptData.amount || 0,
-          // An unreadable date must be entered by the user, never defaulted to today.
-          date: this.normalizeDateToISO(receiptData.date) || '',
+          // An unreadable date stays blank. A Date or a timestamp uses the upload zone,
+          // then the shared day in Pacific/Pago_Pago and America/St_Thomas.
+          date: this.normalizeDateToISO(receiptData.date, userTimeZone) || '',
           category: receiptData.category,
           items: receiptData.items,
           confidence: confidence / 100,
@@ -189,25 +638,44 @@ export class ReceiptProcessor {
   }
 
   private extractDate(text: string): string {
-    // Look for various date patterns
+    const candidates = this.dateCandidates(text);
+    const kept = datesInOneYear(dropUnpaidInvoice(text, highestTier(withoutAdjacentSkips(text, candidates)), candidates));
+    return earliestDateText(kept);
+  }
+
+  private dateCandidates(text: string): ReceiptDateCandidate[] {
+    // Whitespace stays on one line, and a day or year cannot start inside a longer number.
+    // The year cannot be followed by ':' so a clock hour is not a two digit year.
+    // A full ISO timestamp shares its start index with the shorter date slice, so the longer one is kept.
     const datePatterns = [
-      /\b(\d{4}-\d{1,2}-\d{1,2})(?!\d)/g, // YYYY-MM-DD before short hyphenated dates, including a time suffix
-      /\b(\d{4}\/\d{1,2}\/\d{1,2})\b/g, // year first, before a shorter slash date inside it
-      /(\d{1,2}\/\d{1,2}\/\d{2,4})/g, // MM/DD/YYYY or MM/DD/YY
-      /(\d{1,2}-\d{1,2}-\d{2,4})/g, // MM-DD-YYYY
-      /(\w{3,9}\s+\d{1,2},?\s+\d{2,4})/g, // Month DD, YYYY
-      /(\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?),?\s+\d{4})/gi, // 1 Jan 2026
+      /(?<!\d)\d{4}(?![\d:])-\d{1,2}-\d{1,2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?(?!\d)/,
+      /(?<!\d)\d{4}(?![\d:])-\d{1,2}-\d{1,2}(?!\d)/,
+      /(?<!\d)\d{1,2}\/\d{1,2}\/\d{2,4}(?![\d:])/,
+      /(?<!\d)\d{1,2}-\d{1,2}-\d{2,4}(?![\d:])/,
+      /(?<!\d)\d{1,2}[ \t]+[A-Za-z]{3,9}\.?[ \t]+\d{2,4}(?![\d:])/,
+      /[A-Za-z]{3,9}\.?[ \t]+(?<!\d)\d{1,2},?[ \t]+\d{2,4}(?![\d:])/,
     ];
-    
+    const hits: Array<{ raw: string; index: number }> = [];
     for (const pattern of datePatterns) {
-      const match = text.match(pattern);
-      if (match) {
-        return match[0];
+      for (const match of text.matchAll(new RegExp(pattern.source, 'g'))) {
+        if (match.index === undefined) continue;
+        hits.push({ raw: match[0], index: match.index });
       }
     }
-
-    // Default to today's date if no date found
-    return new Date().toISOString().split('T')[0];
+    const longest = new Map<number, { raw: string; index: number }>();
+    for (const hit of hits) {
+      const current = longest.get(hit.index);
+      if (!current || hit.raw.length > current.raw.length) longest.set(hit.index, hit);
+    }
+    const candidates: ReceiptDateCandidate[] = [];
+    for (const hit of longest.values()) {
+      const month = monthToken(hit.raw);
+      if (month !== null && monthFromName(month) === null) continue;
+      const iso = this.normalizeDateToISO(hit.raw);
+      if (!iso || !purchaseYearAllowed(iso)) continue;
+      candidates.push({ raw: hit.raw, index: hit.index, iso, line: lineAt(text, hit.index) });
+    }
+    return candidates;
   }
 
   private extractCategory(merchant: string, text: string): string {
@@ -355,11 +823,13 @@ export class ReceiptProcessor {
     return { direction: 'expense', confidence: 0.55 };
   }
 
-  private normalizeDateToISO(dateLike: unknown): string | null {
+  private normalizeDateToISO(dateLike: any, userTimeZone?: string): string | null {
     try {
-      // Printed receipt text is a civil day. Date and number values are instants;
-      // safeYMD documents why those use the UTC calendar day.
-      return safeYMD(dateLike);
+      if (!dateLike) return null;
+      if (typeof dateLike === 'string') return dateFromWrittenParts(dateLike);
+      if (dateLike instanceof Date) return localCalendarDay(dateLike, userTimeZone);
+      if (typeof dateLike === 'number') return localCalendarDay(new Date(dateLike), userTimeZone);
+      return null;
     } catch {
       return null;
     }
