@@ -33,7 +33,7 @@ export async function PATCH(
   try {
     const { user, error: authError } = await getAuthenticatedUser(request);
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!mileageVehicleCopyEnabled()) return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    if (!mileageVehicleCopyEnabled()) return NextResponse.json({ error: 'Internal server error' }, { status: 400 });
     const { id } = await params;
     if (!id) return NextResponse.json({ error: 'Vehicle id required' }, { status: 400 });
     const parsed = patchInput.safeParse(await request.json().catch(() => null));

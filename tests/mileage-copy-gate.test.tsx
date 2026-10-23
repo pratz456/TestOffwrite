@@ -261,9 +261,15 @@ describe('mileage copy switch off matches the base screens and errors', () => {
       const created = await createMileage(request('https://writeoff.test/api/mileage', tripBody));
       expect(created.status).toBe(200);
       expect(JSON.stringify(await created.json())).not.toContain(MILEAGE_VEHICLE_COPY.pickTripType);
-      expect((await (await saveVehicle(request('https://writeoff.test/api/mileage/vehicles/car-1', {}), { params: Promise.resolve({ id: '' }) })).json()).error).toBe('Internal server error');
-      expect((await (await addVehicle(request('https://writeoff.test/api/mileage/vehicles', { userId: 'owner' }))).json()).error).toBe('Internal server error');
-      expect((await (await assignTrips(request('https://writeoff.test/api/mileage/assignments', {}))).json()).error).toBe('Internal server error');
+      const hiddenVehicle = await saveVehicle(request('https://writeoff.test/api/mileage/vehicles/car-1', {}), { params: Promise.resolve({ id: '' }) });
+      expect(hiddenVehicle.status).toBe(400);
+      expect((await hiddenVehicle.json()).error).toBe('Internal server error');
+      const hiddenAdd = await addVehicle(request('https://writeoff.test/api/mileage/vehicles', { userId: 'owner' }));
+      expect(hiddenAdd.status).toBe(400);
+      expect((await hiddenAdd.json()).error).toBe('Internal server error');
+      const hiddenAssign = await assignTrips(request('https://writeoff.test/api/mileage/assignments', {}));
+      expect(hiddenAssign.status).toBe(400);
+      expect((await hiddenAssign.json()).error).toBe('Internal server error');
       const bodies = [
         await (await readMileage(request('https://writeoff.test/api/mileage?userId=owner', undefined, 'GET'))).json(),
         await (await saveVehicle(request('https://writeoff.test/api/mileage/vehicles/car-1', { userId: 'owner' }), { params: Promise.resolve({ id: 'car-1' }) })).json(),
