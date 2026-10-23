@@ -2,7 +2,7 @@ import { aggregateScheduleC, CATEGORY_MAP, type LineItemSummary, type ScheduleCT
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { receivedChargeDateText } from '@/lib/schedule-c/taxDate';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
-import { SCHEDULE_C_UNREADABLE_DATE_NOTICE, unreadableChargeAbsoluteTotal } from './schedule-c-unreadable-notice';
+import { SCHEDULE_C_UNREADABLE_DATE_NOTICE, unreadableChargeOutAndIn } from './schedule-c-unreadable-notice';
 
 export interface ScheduleCExportData {
   taxYear: number; grossReceipts: number; lineItems: LineItemSummary[];
@@ -33,7 +33,8 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   pdf.section('Recorded income and confirmed expenses');
   const total = data.lineItems.reduce((sum, row) => sum + row.deductible, 0);
   const omitted = data.needsMoreInformation ?? [];
-  const notice = omitted.length ? SCHEDULE_C_UNREADABLE_DATE_NOTICE(omitted.length, unreadableChargeAbsoluteTotal(omitted)) : '';
+  const omittedTotals = unreadableChargeOutAndIn(omitted);
+  const notice = omitted.length ? SCHEDULE_C_UNREADABLE_DATE_NOTICE(omitted.length, omittedTotals.out, omittedTotals.in) : '';
   if (notice) pdf.reserve(pdf.textHeight(notice));
   pdf.table(['Reference', 'Recorded amount / scope', 'Amount'], [
     ['1', 'Reconciled gross receipts in WriteOff', money(data.grossReceipts)],
@@ -55,9 +56,9 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
     pdf.table(['Date', 'Merchant / record', 'Line', 'Signed amount', 'Contribution'], rows.length ? rows : [['', 'No confirmed records in this year', '', money(0), money(0)]], [68, 235, 35, 95, 95]);
   } else pdf.paragraph('Transaction appendix omitted at your request. Retain the detailed records and receipts with your preparer.');
   if (omitted.length) {
-    const noun = omitted.length === 1 ? 'charge' : 'charges';
     const rows = omitted.map(tx => [tx.merchant_name || tx.id || 'Unnamed record', money(Number(tx.amount)), shownReceivedDate(tx)]);
-    rows.push(['Subtotal', money(unreadableChargeAbsoluteTotal(omitted)), `${omitted.length} ${noun}`]);
+    rows.push(['Charges out', `${money(omittedTotals.out)} out`, '']);
+    rows.push(['Money in', `${money(omittedTotals.in)} in`, '']);
     pdf.section('Needs more information');
     pdf.table(['Merchant', 'Amount', 'Date received'], rows, [248, 120, 160]);
   }

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PDFDocument, PDFPage } from 'pdf-lib';
 import { aggregateScheduleC, CATEGORY_MAP, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
+import { formatExportMoney } from '@/lib/reports/planning-pdf';
 import { generateScheduleCPlanningPDF, type ScheduleCExportData } from '@/lib/reports/schedule-c-pdf';
 import { SCHEDULE_C_UNREADABLE_DATE_NOTICE } from '@/lib/reports/schedule-c-unreadable-notice';
 import { generateScheduleCCSV as baseScheduleCCsv } from './fixtures/schedule-c-base-52f5788d/schedule-c-csv';
@@ -18,10 +19,10 @@ import { generateScheduleCPlanningPDF as baseScheduleCPdf } from './fixtures/sch
 const FIXED_AT = new Date('2026-06-15T12:00:00.000Z');
 const HEADERS = ['Tax date', 'Merchant', 'Recorded category', 'Schedule C planning reference', 'Signed amount', 'Confirmed contribution', 'Scope', 'Description'];
 
-function charge(id: string, amount: number, date: unknown, merchant = id): ScheduleCTransactionLike {
+function charge(id: string, amount: number, date: unknown, merchant = id, category = 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES'): ScheduleCTransactionLike {
   const row: ScheduleCTransactionLike = {
     id, trans_id: id, merchant_name: merchant, amount,
-    category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', iso_currency_code: 'USD',
+    category, iso_currency_code: 'USD',
     is_deductible: true, review_status: 'confirmed', pending: false, description: '',
     date: '',
   };
@@ -75,28 +76,38 @@ afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('Schedule C export lists every unreadable charge date outside the year totals', () => {
   const dated2024 = charge('y2024', 40, '2024-06-01', 'DATED-2024');
+  const dated2024Ads = charge('y2024ads', 25, '2024-07-01', 'DATED-2024-ADS', 'SERVICE_ADVERTISING');
   const dated2025 = charge('y2025', 60, '2025-06-01', 'DATED-2025');
+  const dated2025Ads = charge('y2025ads', 30, '2025-07-01', 'DATED-2025-ADS', 'SERVICE_ADVERTISING');
   const unreadable = charge('bad', 17.25, 'not-a-date', 'UNREADABLE-ONE');
   const blank = charge('blank', -4, '', 'UNREADABLE-TWO');
-  const rows = [dated2024, dated2025, unreadable, blank];
+  const dated = [dated2024, dated2024Ads, dated2025, dated2025Ads];
+  const rows = [...dated, unreadable, blank];
 
   it('leaves unreadable date amounts out of every Schedule C line total in the PDF and the CSV for any selected year', async () => {
     for (const year of [2024, 2025, 2026]) {
       const withOmitted = yearExport(rows, year);
-      const withoutOmitted = yearExport([dated2024, dated2025], year);
+      const withoutOmitted = yearExport(dated, year);
       expect(withOmitted.aggregate.totalDeductible).toBe(withoutOmitted.aggregate.totalDeductible);
       expect(withOmitted.aggregate.totalExpenses).toBe(withoutOmitted.aggregate.totalExpenses);
       expect(withOmitted.aggregate.lineItemsArray.map(line => [line.lineCode, line.deductible, line.total])).toEqual(
         withoutOmitted.aggregate.lineItemsArray.map(line => [line.lineCode, line.deductible, line.total]),
       );
+      expect(withOmitted.aggregate.lineItemsArray.map(line => line.lineName).sort()).toEqual(year === 2026 ? [] : ['Advertising', 'Supplies']);
 
       const drawn = await drawPdf(withOmitted.data);
       const baseline = await drawPdf(withoutOmitted.data);
+      for (const line of withOmitted.aggregate.lineItemsArray) {
+        const label = `${line.lineName} - ${line.transactionCount} confirmed records`;
+        expect(nextMoney(drawn, label)).toBe(formatExportMoney(line.deductible));
+        expect(nextMoney(drawn, label)).toBe(nextMoney(baseline, label));
+      }
+      expect(nextMoney(drawn, 'Confirmed expense subtotal only')).toBe(formatExportMoney(withOmitted.aggregate.totalDeductible));
       expect(nextMoney(drawn, 'Confirmed expense subtotal only')).toBe(nextMoney(baseline, 'Confirmed expense subtotal only'));
-      expect(nextMoney(drawn, 'Confirmed expense subtotal only')).not.toBe('$21.25');
-      expect(nextMoney(drawn, 'Confirmed expense subtotal only')).not.toBe('$57.25');
-      expect(nextMoney(drawn, 'Confirmed expense subtotal only')).not.toBe('$77.25');
-      if (year === 2024) expect(joined(drawn)).toContain('missing');
+      expect(drawn[drawn.findIndex(item => item.text === 'Charges out') + 1]?.text).toBe('$17.25 out');
+      expect(drawn[drawn.findIndex(item => item.text === 'Money in') + 1]?.text).toBe('$4.00 in');
+      expect(joined(drawn)).not.toContain('$21.25');
+      expect(joined(drawn)).not.toContain('$13.25');
 
       const parsed = parseCsv(withOmitted.csv);
       const parsedBaseline = parseCsv(withoutOmitted.csv);
@@ -116,20 +127,21 @@ describe('Schedule C export lists every unreadable charge date outside the year 
     // February 31 is not a calendar day, so a written English month still leaves this charge undated.
     const row = charge('jan', 17.25, 'February 31, 2025', 'UNDATED-JAN');
     const notice = SCHEDULE_C_UNREADABLE_DATE_NOTICE(1, 17.25);
-    expect(notice).toBe("These totals leave out 1 charge ($17.25) because their dates couldn't be read, so they aren't assigned to any year. Fix the dates in WriteOff and export again to include them.");
+    expect(notice).toBe("These totals leave out 1 charge ($17.25) because their dates couldn't be read, so they aren't counted in any year. They're listed under Needs more information below.");
     expect(notice).toContain('leave out');
-    expect(notice).toContain("aren't assigned to any year");
+    expect(notice).toContain("aren't counted in any year");
     const { data } = yearExport([charge('kept', 40, '2025-03-01', 'DATED-KEEP'), row], 2025);
     const drawn = await drawPdf(data);
-    const text = joined(drawn);
     expect(drawn.map(item => item.text).join(' ')).toContain(notice);
-    const sectionAt = text.indexOf('Needs more information');
-    expect(sectionAt).toBeGreaterThan(text.indexOf('DATED-KEEP'));
-    expect(text.indexOf('UNDATED-JAN')).toBeGreaterThan(sectionAt);
-    expect(text.indexOf('February 31, 2025')).toBeGreaterThan(sectionAt);
-    expect(text.indexOf('Subtotal')).toBeGreaterThan(sectionAt);
-    expect(text).toContain('1 charge');
-    expect(text).toContain('$17.25');
+    const keepAt = drawn.findIndex(item => item.text === 'DATED-KEEP');
+    const sectionAt = drawn.findIndex((item, index) => index > keepAt && item.text === 'Needs more information');
+    expect(sectionAt).toBeGreaterThan(keepAt);
+    const sectionText = drawn.slice(sectionAt).map(item => item.text).join('\n');
+    expect(sectionText.indexOf('UNDATED-JAN')).toBeGreaterThan(0);
+    expect(sectionText.indexOf('February 31, 2025')).toBeGreaterThan(0);
+    const outAt = drawn.findIndex((item, index) => index > sectionAt && item.text === 'Charges out');
+    expect(drawn[outAt + 1].text).toBe('$17.25 out');
+    expect(notice).not.toContain(drawn[outAt + 1].text);
     const subtotalAt = drawn.findIndex(item => item.text === 'Confirmed expense subtotal only');
     const creditsAt = drawn.findIndex(item => item.text.startsWith('Credits/refunds'));
     const noticeDraws = drawn.slice(subtotalAt, creditsAt).filter(item => notice.includes(item.text) && item.text.length > 20);
@@ -157,6 +169,24 @@ describe('Schedule C export lists every unreadable charge date outside the year 
     expect(currentCsv).toBe(baselineCsv);
     expect(currentCsvExplicit).toBe(baselineCsv);
     expect(Buffer.from(currentCsv).equals(Buffer.from(baselineCsv))).toBe(true);
+  });
+
+  it('shows $17.25 out and $4.00 in for a charge and a refund', async () => {
+    const notice = SCHEDULE_C_UNREADABLE_DATE_NOTICE(2, 17.25, 4);
+    expect(notice).toBe("These totals leave out 2 charges ($17.25) because their dates couldn't be read, so they aren't counted in any year. They're listed under Needs more information below. $4.00 in.");
+    expect(notice).not.toContain('$21.25');
+    expect(notice).not.toContain('$13.25');
+    const { data } = yearExport([
+      charge('out', 17.25, 'not-a-date', 'CHARGE-OUT'),
+      charge('in', -4, 'also-not-a-date', 'MONEY-IN'),
+    ], 2025);
+    const drawn = await drawPdf(data);
+    expect(drawn[drawn.findIndex(item => item.text === 'Charges out') + 1].text).toBe('$17.25 out');
+    expect(drawn[drawn.findIndex(item => item.text === 'Money in') + 1].text).toBe('$4.00 in');
+    const text = joined(drawn);
+    expect(text).not.toContain('$21.25');
+    expect(text).not.toContain('$13.25');
+    expect(nextMoney(drawn, 'Confirmed expense subtotal only')).toBe('$0.00');
   });
 
   it('lists one unreadable row on both the 2024 and the 2025 export and includes it in neither year total', async () => {

@@ -2,7 +2,7 @@
 
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { receivedChargeDateText } from '@/lib/schedule-c/taxDate';
-import { SCHEDULE_C_UNREADABLE_DATE_NOTICE, unreadableChargeAbsoluteTotal } from '@/lib/reports/schedule-c-unreadable-notice';
+import { SCHEDULE_C_UNREADABLE_DATE_NOTICE, unreadableChargeOutAndIn } from '@/lib/reports/schedule-c-unreadable-notice';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -213,6 +213,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
       currency: 'USD'
     }).format(amount);
   };
+  const omittedTotals = unreadableChargeOutAndIn(omittedCharges);
 
   return (
     <div className="min-h-full bg-background min-w-0 overflow-x-hidden">
@@ -394,7 +395,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
           </div>
           {needsMoreInformation > 0 ? (
             <div className="mb-8 space-y-2">
-              <p className="text-sm text-muted-foreground">{SCHEDULE_C_UNREADABLE_DATE_NOTICE(needsMoreInformation, unreadableChargeAbsoluteTotal(omittedCharges))}</p>
+              <p className="text-sm text-muted-foreground">{SCHEDULE_C_UNREADABLE_DATE_NOTICE(needsMoreInformation, omittedTotals.out, omittedTotals.in)}</p>
               <ul className="space-y-1 text-sm text-foreground">
                 {omittedCharges.map(charge => (
                   <li key={charge.id}>{charge.merchant_name || 'Unnamed record'}, {formatCurrency(charge.amount)}, {receivedChargeDateText(charge)}</li>

@@ -241,7 +241,7 @@ describe('complete tax-export input validation', () => {
     const response = await scheduleC(request({ year: 2026, format: 'pdf' }));
     expect(response.status).toBe(200);
     const text = view.text();
-    expect(text).toContain("aren't assigned to any year");
+    expect(text).toContain("aren't counted in any year");
     expect(text).toContain('UNDATED-MERCHANT');
     expect(text).toContain('2026-02-30');
     expect(text).toContain('$40.00');
