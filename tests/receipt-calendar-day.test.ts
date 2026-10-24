@@ -123,4 +123,84 @@ describe('ambiguous numeric receipt dates', () => {
     expect(saved.tax_review_required).toBe(true);
     expect(saved.dateOrderAssumed).toBeUndefined();
   });
+
+  it('reads 05/01/2026 with no currency as month/day and marks the assumption', async () => {
+    recognize('CORNER STORE\n05/01/2026\nTotal 25.00');
+    const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(scanned.data?.date).toBe('2026-05-01');
+    expect(scanned.data?.dateOrderAssumed).toBe('month_day');
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; dateOrderAssumed?: string; deductionStatus?: string };
+    expect(saved.date).toBe('2026-05-01');
+    expect(saved.dateOrderAssumed).toBe('month_day');
+    expect(saved.deductionStatus).toBeUndefined();
+  });
+
+  it('leaves 05/01/2026 blank on a CA$ receipt and saves Needs more information', async () => {
+    recognize('MAPLE STORE\n05/01/2026\nTotal CA$25.00');
+    const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(scanned.data?.date).toBe('');
+    expect(scanned.data?.dateOrderAssumed).toBeUndefined();
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; deductionStatus?: string; dateOrderAssumed?: string; tax_review_required?: boolean };
+    expect(saved.date).toBe('');
+    expect(saved.amount).toBe(25);
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
+    expect(saved.dateOrderAssumed).toBeUndefined();
+  });
+
+  it('leaves 05/01/2026 blank on a rupee receipt and saves Needs more information', async () => {
+    recognize('DELHI STORE\n05/01/2026\nTotal 25.00\n₹');
+    const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(scanned.data?.date).toBe('');
+    expect(scanned.data?.dateOrderAssumed).toBeUndefined();
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; deductionStatus?: string; dateOrderAssumed?: string; tax_review_required?: boolean };
+    expect(saved.date).toBe('');
+    expect(saved.amount).toBe(25);
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
+    expect(saved.dateOrderAssumed).toBeUndefined();
+  });
+
+  it('reads 05/05/2026 on a USD receipt as that date and does not mark it', async () => {
+    recognize(usd('05/05/2026'));
+    const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(scanned.data?.date).toBe('2026-05-05');
+    expect(scanned.data?.dateOrderAssumed).toBeUndefined();
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; dateOrderAssumed?: string; deductionStatus?: string };
+    expect(saved.date).toBe('2026-05-05');
+    expect(saved.dateOrderAssumed).toBeUndefined();
+    expect(saved.deductionStatus).toBeUndefined();
+  });
+
+  it('reads 05/01/2026 as month/day when USD and C$ both appear', async () => {
+    recognize('BORDER STORE\n05/01/2026\nTotal 25.00 USD\nAlso C$10');
+    const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(scanned.data?.date).toBe('2026-05-01');
+    expect(scanned.data?.dateOrderAssumed).toBe('month_day');
+    const response = await POST(request());
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; dateOrderAssumed?: string; deductionStatus?: string };
+    expect(saved.date).toBe('2026-05-01');
+    expect(saved.dateOrderAssumed).toBe('month_day');
+    expect(saved.deductionStatus).toBeUndefined();
+  });
+
+  it('does not treat kr inside Krispy as a currency', async () => {
+    recognize('Krispy STORE\n05/01/2026\nTotal 25.00');
+    const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(scanned.data?.date).toBe('2026-05-01');
+    expect(scanned.data?.dateOrderAssumed).toBe('month_day');
+    const response = await POST(request());
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; dateOrderAssumed?: string; deductionStatus?: string };
+    expect(saved.date).toBe('2026-05-01');
+    expect(saved.dateOrderAssumed).toBe('month_day');
+    expect(saved.deductionStatus).toBeUndefined();
+  });
 });

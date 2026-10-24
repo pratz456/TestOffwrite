@@ -4,7 +4,7 @@ export interface ReceiptData {
   merchant: string;
   amount: number;
   date: string;
-  /** Set when a USD or US receipt used month/day for a numeric date whose two parts are both 12 or under. */
+  /** Set when an ambiguous numeric date was read as month then day. Equal parts are not ambiguous. */
   dateOrderAssumed?: 'month_day';
   category?: string;
   confidence: number;
@@ -485,24 +485,28 @@ function dateFromWrittenParts(value: string): string | null {
   return null;
 }
 
-/** Slash or hyphen day with both parts from 1 through 12. The year in the token is the receipt year. */
+/** Slash or hyphen date with both parts from 1 through 12 and the parts different. Equal parts are that date. The year in the token is the receipt year. */
 function ambiguousNumericDate(value: string): boolean {
   const match = /^(\d{1,2})[/-](\d{1,2})[/-](\d{2}|\d{4})$/.exec(value);
   if (!match) return false;
-  const month = Number(match[1]);
-  const day = Number(match[2]);
-  return month >= 1 && month <= 12 && day >= 1 && day <= 12;
+  const first = Number(match[1]);
+  const second = Number(match[2]);
+  return first >= 1 && first <= 12 && second >= 1 && second <= 12 && first !== second;
 }
 
+/** Longer dollar prefixes are matched before a bare $. A bare $ is not a US signal. */
+const PREFIXED_DOLLAR = /(?<![A-Za-z])(?:CA|AU|NZ|MX|C|A|R)\$/i;
+
 function usReceiptSignals(text: string): boolean {
-  return /\$/.test(text) || /\bUSD\b/i.test(text) || /\bUSA\b/.test(text) || /United States/i.test(text);
+  return /\bUSD\b/i.test(text) || /\bUS\b/.test(text) || /\bUSA\b/.test(text) || /United States/i.test(text);
 }
 
 function nonUsReceiptSignals(text: string): boolean {
-  return /[€£¥]|\b(?:EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|TRY|RUB|AED|SAR|ILS)\b/i.test(text);
+  if (PREFIXED_DOLLAR.test(text)) return true;
+  return /[€£¥₹₩₱₺₽]|\bkr\b|\b(?:EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|TRY|RUB|AED|SAR|ILS)\b/i.test(text);
 }
 
-/** A non US receipt is one with a foreign currency signal and no USD or US signal. */
+/** Clearly non US: a foreign signal is present, and USD, US, USA, or United States text is not. A bare $ does not decide. */
 function nonUsReceipt(text: string): boolean {
   return !usReceiptSignals(text) && nonUsReceiptSignals(text);
 }
@@ -561,7 +565,7 @@ export class ReceiptProcessor {
       
       const rawPrinted = receiptData.date;
       const isoDate = this.normalizeDateToISO(rawPrinted, userTimeZone) || '';
-      const dateOrderAssumed = typeof rawPrinted === 'string' && isoDate && usReceiptSignals(text) && ambiguousNumericDate(rawPrinted)
+      const dateOrderAssumed = typeof rawPrinted === 'string' && isoDate && ambiguousNumericDate(rawPrinted) && !nonUsReceipt(text)
         ? 'month_day' as const
         : undefined;
       return {
@@ -701,7 +705,7 @@ export class ReceiptProcessor {
     for (const hit of longest.values()) {
       const month = monthToken(hit.raw);
       if (month !== null && monthFromName(month) === null) continue;
-      // A non US receipt does not guess month/day when both numeric parts are 12 or under.
+      // A clearly non US receipt leaves an ambiguous numeric date unread.
       if (nonUsReceipt(text) && ambiguousNumericDate(hit.raw)) continue;
       const iso = this.normalizeDateToISO(hit.raw);
       if (!iso || !purchaseYearAllowed(iso)) continue;

@@ -111,6 +111,26 @@ describe('editing a receipt preserves the chosen bank attachment', () => {
     expect(saved.dateOrderAssumed).toBe('month_day');
     expect(saved.date).toBe('2026-05-01');
   });
+  it('clears the month/day flag when the date is edited', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = init?.body as FormData;
+      if (body.get('mode') === 'commit') {
+        commits.push(body);
+        return Response.json({ transaction: { id: 'saved', amount: 10 }, receiptUrl: '/api/receipts/private' });
+      }
+      return Response.json({ ocrResult: { merchant: 'Cafe', amount: 10, date: '2026-05-01', category: 'other', confidence: 0.9, dateOrderAssumed: 'month_day' }, matchCandidates: [] });
+    }));
+    selectImage();
+    await button(render(), 'Process Receipt').props.onClick();
+    button(render(), 'Edit Manually').props.onClick();
+    expect(text(render())).toContain('month then day');
+    walk(render()).find(node => node.props?.id === 'receipt-date')!.props.onChange({ target: { value: '2026-01-13' } });
+    expect(text(render())).not.toContain('month then day');
+    await button(render(), 'Confirm & Save').props.onClick();
+    const saved = JSON.parse(String(commits.at(-1)?.get('receiptData')));
+    expect(saved.date).toBe('2026-01-13');
+    expect(saved.dateOrderAssumed).toBeUndefined();
+  });
   it('sends the browser time zone with the receipt scan', async () => {
     const scans: FormData[] = [];
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
