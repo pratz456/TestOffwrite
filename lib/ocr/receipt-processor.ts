@@ -501,7 +501,11 @@ const PREFIXED_DOLLAR_ALL = /(?<![A-Za-z])(?:CA|AU|NZ|MX|C|A|R) ?\$/g;
 const CURRENCY_CODE = 'EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|AED|SAR|ILS|ALL|BAM|BOB|COP|CUP|GEL|MAD|MOP|PEN|RUB|SOS|TOP|TRY';
 /** Non US total words. English total, tax, and subtotal are not in this list. */
 const NON_US_TOTAL_WORD = /ИТОГО|ВСЕГО|К ОПЛАТЕ|итого|всего|к оплате/;
-const FOREIGN_SYMBOL = /[€£¥₹₩₱₺₽]/;
+/** Euro, pound, yen, rupee, lira, and ruble. A lone symbol is one kind and does not blank by itself. */
+const FOREIGN_SYMBOL = /[€£¥₹₺₽]/;
+const QUALIFYING_LINE = new RegExp(`\\b(?:subtotal|total|tax)\\b|\\b(?:amount|balance)\\s+due\\b|\\bcurrency\\s*:|\\ball amounts in\\b|${NON_US_TOTAL_WORD.source}`, 'i');
+/** kr counts only beside an amount, so Krispy does not match. */
+const KR_BESIDE_AMOUNT = /\d+(?:[.,]\d+)? ?\bkr\b|\bkr\b ?\d/i;
 
 function usReceiptSignals(text: string): boolean {
   return /\bUSD\b/i.test(text) || /\bUS\$/.test(text) || /\bUSA\b/.test(text) || /United States/i.test(text);
@@ -510,8 +514,12 @@ function usReceiptSignals(text: string): boolean {
 /** A capital code on a total, tax, due, or currency-label line. Item lines do not count. */
 function qualifyingCurrencyCode(text: string): boolean {
   const code = new RegExp(`\\b(?:${CURRENCY_CODE})\\b`);
-  const totalLine = new RegExp(`\\b(?:subtotal|total|tax)\\b|\\b(?:amount|balance)\\s+due\\b|\\bcurrency\\s*:|\\ball amounts in\\b|${NON_US_TOTAL_WORD.source}`, 'i');
-  return text.split(/\r?\n/).some(line => code.test(line) && totalLine.test(line));
+  return text.split(/\r?\n/).some(line => code.test(line) && QUALIFYING_LINE.test(line));
+}
+
+/** A symbol, or kr beside an amount, on a total, tax, due, or currency-label line. */
+function symbolOnQualifyingLine(text: string): boolean {
+  return text.split(/\r?\n/).some(line => QUALIFYING_LINE.test(line) && (FOREIGN_SYMBOL.test(line) || KR_BESIDE_AMOUNT.test(line)));
 }
 
 /** Kind: a capitals code beside an amount. Two codes, even different ones, are still this one kind. */
@@ -521,9 +529,9 @@ function codeBesideAmount(text: string): boolean {
   return before.test(text) || after.test(text);
 }
 
-/** Kind: a foreign symbol beside an amount. */
-function symbolBesideAmount(text: string): boolean {
-  return /\d+(?:[.,]\d+)? ?[€£¥₹₩₱₺₽]|[€£¥₹₩₱₺₽] ?\d/.test(text);
+/** Kind: one of the six symbols, or kr beside an amount. Repeated symbols stay this one kind. */
+function symbolKind(text: string): boolean {
+  return FOREIGN_SYMBOL.test(text) || KR_BESIDE_AMOUNT.test(text);
 }
 
 /** Kind: comma, exactly two digits, then a non digit or the end. 1,250 and 1,250.00 are thousands separators. */
@@ -533,7 +541,7 @@ function commaDecimal(text: string): boolean {
 
 /** Two signals blank only when the kinds differ. Repeating one kind does not. */
 function differentKindSignals(text: string): boolean {
-  const kinds = [codeBesideAmount(text), symbolBesideAmount(text), NON_US_TOTAL_WORD.test(text), commaDecimal(text)].filter(Boolean).length;
+  const kinds = [codeBesideAmount(text), symbolKind(text), NON_US_TOTAL_WORD.test(text), commaDecimal(text)].filter(Boolean).length;
   return kinds >= 2;
 }
 
@@ -544,8 +552,8 @@ function bareDollar(text: string): boolean {
 
 function nonUsReceiptSignals(text: string): boolean {
   if (PREFIXED_DOLLAR.test(text)) return true;
-  // A foreign symbol or a kr token blanks on its own.
-  if (FOREIGN_SYMBOL.test(text) || /\bkr\b/i.test(text)) return true;
+  // A symbol or kr on a total, tax, due, or currency line blanks on its own.
+  if (symbolOnQualifyingLine(text)) return true;
   // A bare $ disagrees with a code, so a code alone does not blank the date.
   if (bareDollar(text)) return false;
   // A code on a total, tax, due, or currency line blanks on its own. Otherwise two different kinds are required.

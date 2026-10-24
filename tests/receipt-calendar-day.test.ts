@@ -152,19 +152,18 @@ describe('ambiguous numeric receipt dates', () => {
     expect(saved.dateOrderAssumed).toBeUndefined();
   });
 
-  it('leaves 05/01/2026 blank on a rupee receipt and saves Needs more information', async () => {
+  it('keeps 05/01/2026 and the saved month/day flag when a rupee symbol is not on the total line', async () => {
     recognize('DELHI STORE\n05/01/2026\nTotal 25.00\n₹');
     const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
-    expect(scanned.data?.date).toBe('');
-    expect(scanned.data?.dateOrderAssumed).toBeUndefined();
+    expect(scanned.data?.date).toBe('2026-05-01');
+    expect(scanned.data?.dateOrderAssumed).toBe('month_day');
     const response = await POST(request());
     expect(response.status).toBe(200);
-    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; deductionStatus?: string; dateOrderAssumed?: string; tax_review_required?: boolean };
-    expect(saved.date).toBe('');
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; dateOrderAssumed?: string; deductionStatus?: string };
+    expect(saved.date).toBe('2026-05-01');
     expect(saved.amount).toBe(25);
-    expect(saved.deductionStatus).toBe('Needs more information');
-    expect(saved.tax_review_required).toBe(true);
-    expect(saved.dateOrderAssumed).toBeUndefined();
+    expect(saved.dateOrderAssumed).toBe('month_day');
+    expect(saved.deductionStatus).toBeUndefined();
   });
 
   it('reads 05/05/2026 on a USD receipt as that date and does not mark it', async () => {
@@ -426,6 +425,64 @@ describe('ambiguous numeric receipt dates', () => {
     expect(saved.date).toBe('');
     expect(saved.amount).toBe(25);
     expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.dateOrderAssumed).toBeUndefined();
+  });
+
+  it('keeps 05/01/2026 and the saved month/day flag for a lone euro item', async () => {
+    recognize('WINE BAR\n05/01/2026\nWINE € 8.00\nTOTAL 8.00');
+    const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(scanned.data?.date).toBe('2026-05-01');
+    expect(scanned.data?.dateOrderAssumed).toBe('month_day');
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; dateOrderAssumed?: string; deductionStatus?: string };
+    expect(saved.date).toBe('2026-05-01');
+    expect(saved.amount).toBe(8);
+    expect(saved.dateOrderAssumed).toBe('month_day');
+    expect(saved.deductionStatus).toBeUndefined();
+  });
+
+  it('keeps 05/01/2026 and the saved month/day flag for a lone kr item', async () => {
+    recognize('CAFE NORD\n05/01/2026\nKAFFE 30.00 kr\nTOTAL 30.00');
+    const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(scanned.data?.date).toBe('2026-05-01');
+    expect(scanned.data?.dateOrderAssumed).toBe('month_day');
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; dateOrderAssumed?: string; deductionStatus?: string };
+    expect(saved.date).toBe('2026-05-01');
+    expect(saved.amount).toBe(30);
+    expect(saved.dateOrderAssumed).toBe('month_day');
+    expect(saved.deductionStatus).toBeUndefined();
+  });
+
+  it('leaves the date blank when a euro item agrees with TOTAL 12,50', async () => {
+    recognize('CAFE PARIS\n05/01/2026\nWINE € 8.00\nTOTAL 12,50');
+    const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(scanned.data?.date).toBe('');
+    expect(scanned.data?.dateOrderAssumed).toBeUndefined();
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; deductionStatus?: string; dateOrderAssumed?: string; tax_review_required?: boolean };
+    expect(saved.date).toBe('');
+    expect(saved.amount).toBe(12);
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
+    expect(saved.dateOrderAssumed).toBeUndefined();
+  });
+
+  it('leaves the date blank when the euro symbol is on the total line', async () => {
+    recognize('CAFE PARIS\n05/01/2026\nWINE 8.00\nTOTAL 12.50 €');
+    const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(scanned.data?.date).toBe('');
+    expect(scanned.data?.dateOrderAssumed).toBeUndefined();
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; deductionStatus?: string; dateOrderAssumed?: string; tax_review_required?: boolean };
+    expect(saved.date).toBe('');
+    expect(saved.amount).toBe(12.5);
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
     expect(saved.dateOrderAssumed).toBeUndefined();
   });
 
