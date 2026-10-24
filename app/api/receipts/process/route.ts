@@ -302,8 +302,8 @@ export async function PUT(request: NextRequest) {
 
     assertReceiptUploadOrigin(request);
     const raw = await readJsonBody(request);
-    if (raw instanceof NextResponse && raw.status === 413) return raw;
-    const body = raw instanceof NextResponse ? null : raw as { transactionId?: unknown; updates?: unknown } | null;
+    if (raw instanceof NextResponse) return raw;
+    const body = raw as { transactionId?: unknown; updates?: unknown } | null;
     const transactionId = transactionIdInput.safeParse(body?.transactionId);
     const updates = transactionUpdatesInput.safeParse(body?.updates);
     if (!transactionId.success || !updates.success) return receiptResponse({ error: 'Provide a valid transaction and editable fields.' }, 400);

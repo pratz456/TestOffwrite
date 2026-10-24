@@ -72,8 +72,8 @@ export async function POST(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const raw = await readJsonBody(request);
-  if (raw instanceof NextResponse && raw.status === 413) return raw;
-  const parsed = decisionInput.safeParse(raw instanceof NextResponse ? null : raw);
+  if (raw instanceof NextResponse) return raw;
+  const parsed = decisionInput.safeParse(raw);
   if (!parsed.success) return NextResponse.json({ error: INVALID_BODY }, { status: 400 });
   try {
     const { taxYear, ...input } = parsed.data;
@@ -93,8 +93,8 @@ export async function PATCH(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const raw = await readJsonBody(request);
-  if (raw instanceof NextResponse && raw.status === 413) return raw;
-  const parsed = updateInput.safeParse(raw instanceof NextResponse ? null : raw);
+  if (raw instanceof NextResponse) return raw;
+  const parsed = updateInput.safeParse(raw);
   if (!parsed.success) return NextResponse.json({ error: INVALID_BODY }, { status: 400 });
   try {
     const { id, taxYear, ...input } = parsed.data;

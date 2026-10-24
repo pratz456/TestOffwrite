@@ -24,8 +24,8 @@ export async function POST(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers });
   const raw = await readJsonBody(request);
-  if (raw instanceof NextResponse && raw.status === 413) return raw;
-  const parsed = bulkConfirmInput.safeParse(raw instanceof NextResponse ? null : raw);
+  if (raw instanceof NextResponse) return raw;
+  const parsed = bulkConfirmInput.safeParse(raw);
   if (!parsed.success) return NextResponse.json({ error: INVALID_BODY }, { status: 400, headers });
   const limit = await enforceRateLimit({ ...RATE_LIMITS.bulkConfirm, key: user.uid });
   if (!limit.allowed) return rateLimitResponse(limit);

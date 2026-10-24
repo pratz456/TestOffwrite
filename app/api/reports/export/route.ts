@@ -22,10 +22,10 @@ export async function POST(request: NextRequest) {
   const denied = await requireFeatureAccess(uid, 'exports');
   if (denied) return denied;
   const raw = await readJsonBody(request);
-  if (raw instanceof NextResponse && raw.status === 413) return raw;
+  if (raw instanceof NextResponse) return raw;
   let type: string, year: number;
   try {
-    const body = raw instanceof NextResponse ? null : raw as { type?: unknown; year?: unknown } | null;
+    const body = raw as { type?: unknown; year?: unknown } | null;
     if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['type', 'year'].includes(key))) throw new Error();
     if (typeof body.type !== 'string' || !['form8829', 'form4562', 'scheduleSE'].includes(body.type)) throw new Error();
     type = body.type; year = exportYear(body.year) ?? new Date().getFullYear();

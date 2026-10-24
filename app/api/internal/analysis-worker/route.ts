@@ -26,8 +26,8 @@ export async function POST(request: NextRequest) {
   const hash = (value: string) => createHash('sha256').update(value).digest();
   if (!timingSafeEqual(hash(provided), hash(expected))) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const raw = await readJsonBody(request);
-  if (raw instanceof NextResponse && raw.status === 413) return raw;
-  const parsed = schema.safeParse(raw instanceof NextResponse ? null : raw);
+  if (raw instanceof NextResponse) return raw;
+  const parsed = schema.safeParse(raw);
   if (!parsed.success) return NextResponse.json({ error: 'Invalid work request' }, { status: 400 });
   try {
     if (parsed.data.action === 'enqueue') {
