@@ -494,19 +494,41 @@ function ambiguousNumericDate(value: string): boolean {
   return first >= 1 && first <= 12 && second >= 1 && second <= 12 && first !== second;
 }
 
-/** Longer dollar prefixes are matched before a bare $. A bare $ is not a US signal. */
-const PREFIXED_DOLLAR = /(?<![A-Za-z])(?:CA|AU|NZ|MX|C|A|R)\$/i;
+/** Capital dollar prefixes, including one space before the $. A bare $ is not a US signal. */
+const PREFIXED_DOLLAR = /(?<![A-Za-z])(?:CA|AU|NZ|MX|C|A|R) ?\$/;
+const PREFIXED_DOLLAR_ALL = /(?<![A-Za-z])(?:CA|AU|NZ|MX|C|A|R) ?\$/g;
+const CURRENCY_CODE = /(?:EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|TRY|RUB|AED|SAR|ILS)/;
 
 function usReceiptSignals(text: string): boolean {
-  return /\bUSD\b/i.test(text) || /\bUS\b/.test(text) || /\bUSA\b/.test(text) || /United States/i.test(text);
+  return /\bUSD\b/i.test(text) || /\bUS\$/.test(text) || /\bUSA\b/.test(text) || /United States/i.test(text);
+}
+
+/** A capital code on a total, tax, due, or currency-label line. Item lines do not count. */
+function qualifyingCurrencyCode(text: string): boolean {
+  const code = new RegExp(`\\b${CURRENCY_CODE.source}\\b`);
+  return text.split(/\r?\n/).some(line => {
+    if (!code.test(line)) return false;
+    return /\b(?:subtotal|total|tax)\b/i.test(line)
+      || /\b(?:amount|balance)\s+due\b/i.test(line)
+      || /\bcurrency\s*:/i.test(line)
+      || /\ball amounts in\b/i.test(line);
+  });
+}
+
+function bareDollar(text: string): boolean {
+  PREFIXED_DOLLAR_ALL.lastIndex = 0;
+  return /\$/.test(text.replace(PREFIXED_DOLLAR_ALL, ''));
 }
 
 function nonUsReceiptSignals(text: string): boolean {
   if (PREFIXED_DOLLAR.test(text)) return true;
-  return /[€£¥₹₩₱₺₽]|\bkr\b|\b(?:EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|TRY|RUB|AED|SAR|ILS)\b/i.test(text);
+  if (/[€£¥₹₩₱₺₽]/.test(text) || /\bkr\b/i.test(text)) return true;
+  // A bare $ disagrees with a code, so the date stays. Symbols and prefixed dollars still blank it.
+  if (qualifyingCurrencyCode(text) && !bareDollar(text)) return true;
+  return false;
 }
 
-/** Clearly non US: a foreign signal is present, and USD, US, USA, or United States text is not. A bare $ does not decide. */
+/** Clearly non US: a foreign signal is present, and USD, US$, USA, or United States text is not. A bare $ does not decide. */
 function nonUsReceipt(text: string): boolean {
   return !usReceiptSignals(text) && nonUsReceiptSignals(text);
 }
