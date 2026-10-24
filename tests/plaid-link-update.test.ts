@@ -10,6 +10,10 @@ vi.mock('@/lib/plaid/client', () => ({ plaidClient: { linkTokenCreate: mock.link
 vi.mock('@/lib/subscriptions/trial-manager', () => ({ startFreeTrial: mock.trial }));
 vi.mock('@/lib/subscriptions/history-window', () => ({ getTransactionHistoryWindow: mock.history }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
+vi.mock('@/lib/firebase/admin', () => ({ adminDb: { doc: () => ({ get: async () => ({ exists: true, data: () => ({ consents: {
+  version: '2026-09-18', source: 'profile-setup', accepted_at: '2026-09-18T00:00:00.000Z',
+  terms: true, ai_review: true, bank_data: true, communications: false, document_import: false,
+} }) }) }) } }));
 import { POST } from '@/app/api/plaid/create-link-token/route';
 import { RATE_LIMITS } from '@/lib/security/rate-limit';
 import { exhaustRateLimit, failRateLimitStore, resetRateLimitStore } from './fixtures/rate-limit-store';

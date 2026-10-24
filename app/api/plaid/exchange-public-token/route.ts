@@ -10,11 +10,17 @@ import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 import { assertBankHistoryReadyForNewConnection, BANK_HISTORY_REVIEW_REQUIRED, BANK_HISTORY_REVIEW_MESSAGE } from '@/lib/plaid/history-review';
 import { ACCOUNT_DELETION_IN_PROGRESS, beginPlaidLinkOperation, retainPlaidLinkRecovery, finishPlaidLinkOperation,
   markPlaidLinkOperationUnresolved, existingPlaidLinkOwner, quarantinePlaidLinkRecovery } from '@/lib/plaid/link-operations';
+import { BANK_CONSENT_REQUIRED_BODY, isBankConsentRequired, requireBankDataConsent } from '@/lib/onboarding/bank-consent';
 
 export async function POST(req: Request) {
   let uid: string;
   try { ({ uid } = await getUserFromReqOrThrow(req)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
+  try { await requireBankDataConsent(uid); }
+  catch (error) {
+    if (isBankConsentRequired(error)) return NextResponse.json(BANK_CONSENT_REQUIRED_BODY, { status: 403, headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json({ error: 'Unable to connect bank. Please retry.' }, { status: 503 });
+  }
   let operationId: string | undefined;
   let created: { access_token: string; item_id: string } | undefined;
   let saved = false;

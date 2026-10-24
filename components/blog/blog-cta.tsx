@@ -20,7 +20,7 @@ export function BlogCTA({ variant = "inline" }: { variant?: "inline" | "full" })
               Keep your expense records together.
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Enter expenses, upload receipts, and review the details in WriteOff. Try free for 30 days, with no bank connection required.
+              Enter expenses, upload receipts, and review the details in WriteOff. Try free for 30 days. [PLACEHOLDER] Bank transactions are collected only if you connect a bank.
             </p>
           </div>
           <Link href={href}>

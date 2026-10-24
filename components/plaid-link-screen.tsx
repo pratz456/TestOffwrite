@@ -15,6 +15,8 @@ import { useJobProgress } from '@/lib/hooks/useJobProgress';
 import { analysisJobView, parseAnalysisJob, parseAnalysisQueue, type AnalysisJob } from '@/lib/ai/client-job-progress';
 import { debugLog } from '@/lib/utils/debug';
 import { clearPlaidOAuthSession, readPlaidOAuthResume, savePlaidOAuthSession, type PlaidOAuthResume } from '@/lib/plaid/oauth-session';
+import { BankConsentScreen } from '@/components/bank-consent-screen';
+import { BANK_CONSENT_SAVE_ERROR } from '@/lib/onboarding/bank-consent-copy';
 
 // Global flag to prevent duplicate Plaid script loading
 let plaidScriptLoaded = false;
@@ -52,8 +54,8 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
   // resolve against the wrong origin (like plaid.com). Using this captured
   // origin ensures our API calls hit our Next.js server.
   const appOriginRef = useRef<string | null>(null);
-  // Consent for Plaid data access
-  const [bankConsent, setBankConsent] = useState(false);
+  const [needsBankConsent, setNeedsBankConsent] = useState(false);
+  const [openAfterGrant, setOpenAfterGrant] = useState(false);
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [linkOwner, setLinkOwner] = useState<string | null>(null);
   const [redirectUri, setRedirectUri] = useState<string | undefined>();
@@ -217,7 +219,46 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
     };
   }, [user.id, monitorAnalysisProgress]);
 
-  // Create link token on component mount (only if not redirected from account usage)
+  const requestLinkToken = useCallback(async (isCancelled: () => boolean = () => false) => {
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) throw new Error('No authenticated user found');
+      const token = await currentUser.getIdToken(true);
+      const response = await fetch('/api/plaid/create-link-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(reconnectSessionId ? { reconnectSessionId } : updateItemId ? { itemId: updateItemId } : {}),
+      });
+      if (!response.ok) {
+        const errorBodyText = await response.text().catch(() => '');
+        let errorData: any = null;
+        try { errorData = JSON.parse(errorBodyText); } catch { errorData = null; }
+        const message = errorData?.error || errorData?.message || (errorBodyText.trim() ? errorBodyText : null) || 'Failed to create link token';
+        if (!isCancelled() && auth.currentUser?.uid === user.id) setHistoryReviewRequired(errorData?.code === 'BANK_HISTORY_REVIEW_REQUIRED');
+        throw new Error(message);
+      }
+      const data = await response.json();
+      if (isCancelled() || auth.currentUser?.uid !== user.id) return;
+      setLinkToken(data.link_token);
+      setLinkOwner(user.id);
+      setRedirectUri(data.redirect_uri);
+    } catch (err: any) {
+      if (isCancelled()) return;
+      console.error('Error creating link token:', err);
+      setError(err.message || 'Failed to initialize bank connection. Please try again.');
+    }
+  }, [reconnectSessionId, updateItemId, user.id]);
+
+  const restoreOauthToken = useCallback(() => {
+    if (!oauthResume) return;
+    const resumed = readPlaidOAuthResume(window.sessionStorage, user.id, window.location.href);
+    if (!resumed || resumed.session.token !== oauthResume.session.token || resumed.session.itemId !== updateItemId || resumed.session.reconnectSessionId !== reconnectSessionId) return;
+    setLinkToken(resumed.session.token);
+    setLinkOwner(user.id);
+    setRedirectUri(resumed.session.redirectUri);
+  }, [oauthResume, reconnectSessionId, updateItemId, user.id]);
+
+  // Ask for bank consent before any Link token. Analysis progress and a mismatched OAuth session stay on their own paths.
   useEffect(() => {
     if (typeof window !== 'undefined') {
       appOriginRef.current = window.location.origin;
@@ -226,98 +267,47 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
     if (oauthResume) {
       const resumed = readPlaidOAuthResume(window.sessionStorage, user.id, window.location.href);
       if (!resumed || resumed.session.token !== oauthResume.session.token || resumed.session.itemId !== updateItemId || resumed.session.reconnectSessionId !== reconnectSessionId) {
+        setNeedsBankConsent(false);
         setError('This bank sign-in session has expired. Return to your banks and connect again.');
         return;
       }
-      setLinkToken(resumed.session.token);
-      setLinkOwner(user.id);
-      setRedirectUri(resumed.session.redirectUri);
-      setBankConsent(true);
-      return; // Reuse the original Link token; creating another would lose the bank OAuth state.
     }
 
     const urlParams = new URLSearchParams(window.location.search);
     const accountIdParam = urlParams.get('accountId');
     const analyzingParam = urlParams.get('analyzing');
-
-    // Only create link token if we're not redirected from account usage page
-    if (accountIdParam && analyzingParam === 'true') {
-      return;
-    }
+    if (accountIdParam && analyzingParam === 'true') return;
 
     let cancelled = false;
     setLinkToken(null);
     setLinkOwner(null);
     setError(null);
     setHistoryReviewRequired(false);
-    const createLinkToken = async () => {
+    setNeedsBankConsent(false);
+    const prepare = async () => {
       try {
-        // Get Firebase auth token for authentication
-        const currentUser = auth.currentUser;
-        if (!currentUser) {
-          throw new Error('No authenticated user found');
-        }
-
-        const token = await currentUser.getIdToken(true); // Force refresh the token
-        console.log('🔑 Got Firebase token for Plaid link token creation');
-
-        const response = await fetch('/api/plaid/create-link-token', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify(reconnectSessionId ? { reconnectSessionId } : updateItemId ? { itemId: updateItemId } : {}),
-        });
-
-        if (!response.ok) {
-          const contentType = response.headers.get('content-type') || '';
-          let errorBodyText = '';
-          let errorData: any = null;
-          try {
-            errorBodyText = await response.text(); // read once
-            try {
-              errorData = JSON.parse(errorBodyText);
-            } catch {
-              errorData = null;
-            }
-          } catch {
-            // ignore
-          }
-
-          console.error('❌ Failed to create link token:', {
-            status: response.status,
-            contentType,
-            errorData,
-            errorBodyText: errorData ? undefined : errorBodyText,
-          });
-
-          const message =
-            errorData?.error ||
-            errorData?.message ||
-            (typeof errorBodyText === 'string' && errorBodyText.trim() ? errorBodyText : null) ||
-            'Failed to create link token';
-          if (!cancelled && auth.currentUser?.uid === user.id) {
-            setHistoryReviewRequired(errorData?.code === 'BANK_HISTORY_REVIEW_REQUIRED');
-          }
-          throw new Error(message);
-        }
-
-        const data = await response.json();
+        const consentResponse = await makeAuthenticatedRequest('/api/settings/bank-consent');
+        const consentBody = consentResponse.ok ? await consentResponse.json().catch(() => ({})) : {};
         if (cancelled || auth.currentUser?.uid !== user.id) return;
-        setLinkToken(data.link_token);
-        setLinkOwner(user.id);
-        setRedirectUri(data.redirect_uri);
-      } catch (err: any) {
-        if (cancelled) return;
-        console.error('Error creating link token:', err);
-        setError(err.message || 'Failed to initialize bank connection. Please try again.');
+        if (consentBody.bank_data !== true) {
+          setNeedsBankConsent(true);
+          return;
+        }
+        setNeedsBankConsent(false);
+        if (oauthResume) {
+          restoreOauthToken();
+          return;
+        }
+        await requestLinkToken(() => cancelled);
+      } catch {
+        if (!cancelled) setError(BANK_CONSENT_SAVE_ERROR);
       }
     };
-
-    createLinkToken();
+    void prepare();
     return () => { cancelled = true; };
-  }, [user.id, updateItemId, reconnectSessionId, oauthResume]);
+    // Session fields, not the resume object. A new object with the same token must not
+    // restart this request and clear a token that was already restored.
+  }, [user.id, updateItemId, reconnectSessionId, oauthResume?.session.token, oauthResume?.receivedRedirectUri, requestLinkToken]);
 
   const onPlaidSuccess = useCallback(async (public_token: string) => {
     setLoading(true);
@@ -474,9 +464,30 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
     open();
   }, [oauthResume, ready, linkToken, open, linkOwner, user.id]);
 
-  const handleConnectBank = async () => {
-    if (!bankConsent) return;
+  useEffect(() => {
+    if (!openAfterGrant || !ready || !linkToken || linkOwner !== user.id) return;
+    setOpenAfterGrant(false);
+    try {
+      if (auth.currentUser?.uid !== user.id) throw new Error('Sign in again before connecting your bank.');
+      if (redirectUri) savePlaidOAuthSession(window.sessionStorage, { version: 1, uid: user.id, token: linkToken,
+        redirectUri, createdAt: Date.now(), fromSettings, ...(updateItemId ? { itemId: updateItemId } : {}),
+        ...(reconnectSessionId ? { reconnectSessionId } : {}) }, window.location.origin);
+      else clearPlaidOAuthSession(window.sessionStorage);
+      open();
+    } catch (err) { setError(err instanceof Error ? err.message : 'Bank sign-in could not start. Please retry.'); }
+  }, [openAfterGrant, ready, linkToken, linkOwner, user.id, redirectUri, open, fromSettings, updateItemId, reconnectSessionId]);
 
+  const allowBankAndContinue = async () => {
+    setNeedsBankConsent(false);
+    if (oauthResume) {
+      restoreOauthToken();
+      return;
+    }
+    setOpenAfterGrant(true);
+    await requestLinkToken();
+  };
+
+  const handleConnectBank = async () => {
     // Free trial is automatically started when creating link token
     // Just connect the bank - no subscription selection needed
     if (ready) {
@@ -495,6 +506,10 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
     clearPlaidOAuthSession(window.sessionStorage);
     onSuccess(); // Continue to next step without connecting bank
   };
+
+  if (needsBankConsent) return (
+    <BankConsentScreen onGranted={() => { void allowBankAndContinue(); }} onDecline={handleSkip} />
+  );
 
   if (historyReviewRequired) return (
     <main className="mx-auto flex min-h-[60vh] max-w-md items-center p-4">
@@ -877,24 +892,9 @@ const ActivePlaidLinkScreen: React.FC<PlaidLinkScreenProps> = ({ user, onSuccess
               </div>
             )}
 
-              {/* Explicit Bank Data Consent */}
-              <div className="flex items-start gap-2 mb-2">
-                <input
-                  type="checkbox"
-                  id="bankConsent"
-                  checked={bankConsent}
-                  onChange={e => setBankConsent(e.target.checked)}
-                  className="mt-1"
-                  required
-                />
-                <label htmlFor="bankConsent" className="text-xs text-foreground">
-                  I authorize WriteOff to access and use my account and transaction data via Plaid to analyze potential tax deductions and generate reports, including Schedule C. I understand I can revoke access anytime. (<a href="/privacy" className="underline text-primary" target="_blank" rel="noopener noreferrer">Privacy Policy</a> | <a href="https://plaid.com/legal/#end-user-privacy-policy" className="underline text-primary" target="_blank" rel="noopener noreferrer">Plaid Privacy Policy</a>)
-                  <span className="text-destructive ml-0.5">*</span>
-                </label>
-              </div>
               <Button
                 onClick={handleConnectBank}
-                disabled={!ready || loading || !bankConsent}
+                disabled={!ready || loading}
                 className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground font-medium shadow-md rounded-xl transition-all duration-200 flex items-center justify-center gap-3 disabled:opacity-50 text-base"
               >
                 {loading ? (

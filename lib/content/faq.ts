@@ -23,7 +23,7 @@ export const faqData: FAQItem[] = [
   },
   {
     question: "Can I connect a bank account?",
-    answer: "Where bank connections are enabled, you can link accounts through Plaid and WriteOff imports posted transactions for your review. Bank tokens are encrypted and never shown in the app. You can always enter income and expenses manually and upload receipts instead.",
+    answer: "[PLACEHOLDER] After you allow bank transactions, you can link accounts through Plaid and WriteOff imports posted transactions for your review. Bank tokens are encrypted and never shown in the app. You can always enter income and expenses manually and upload receipts instead.",
     category: "banking"
   },
   {

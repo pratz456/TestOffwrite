@@ -70,6 +70,10 @@ describe('DELETE /api/plaid/items', () => {
 
 describe('POST /api/plaid/sync-transactions', () => {
   it('answers 404 when no bank is connected', async () => {
+    harness.seedOwnerProfile({ consents: {
+      version: '2026-09-18', source: 'sign-up', accepted_at: '2026-09-18T00:00:00.000Z',
+      terms: true, ai_review: true, bank_data: true, communications: false, document_import: false,
+    } });
     const { POST } = await syncRoute();
     const response = await POST(contractRequest('/api/plaid/sync-transactions', { method: 'POST', auth: 'owner', body: {} }));
     expect(response.status).toBe(404);

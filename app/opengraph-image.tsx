@@ -235,8 +235,7 @@ export default async function Image() {
                 maxWidth: 860,
               }}
             >
-              Save expenses, review receipt details, and export records for your accountant.
-              Start manually, with no bank connection required.
+              Save expenses, review receipt details, and export records for your accountant. [PLACEHOLDER] Bank transactions are collected only if you connect a bank.
             </div>
 
             {/* Feature chips */}

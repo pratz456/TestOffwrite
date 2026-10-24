@@ -6,8 +6,14 @@ import { plaidClient } from './client';
 import { fetchAllPlaidTransactions } from './pagination';
 import { findPlaidConnectionByItemId, listPlaidConnections, updatePlaidConnection, withPlaidConnection, type PlaidConnection } from './connections';
 import type { Transaction } from 'plaid';
+import { hasBankDataConsent } from '@/lib/onboarding/bank-consent';
 
-export interface SyncResult { success: boolean; transactionsSaved: number; accountsProcessed?: number; autoClassified?: number; error?: string; }
+export interface SyncResult { success: boolean; transactionsSaved: number; accountsProcessed?: number; autoClassified?: number; error?: string; code?: string; }
+
+async function blockedWithoutBankConsent(uid: string): Promise<SyncResult | null> {
+  if (await hasBankDataConsent(uid)) return null;
+  return { success: false, transactionsSaved: 0, error: 'CONSENT_REQUIRED', code: 'CONSENT_REQUIRED' };
+}
 
 async function assertAccount(uid: string, connection: PlaidConnection, accountId: string) {
   if (!connection.accountIds.includes(accountId)) throw new Error('Transaction does not belong to the selected bank');
@@ -79,6 +85,8 @@ async function eachConnection(uid: string, itemId: string | undefined,
 
 /** An omitted item syncs all banks; webhooks always provide their verified item ID. */
 export async function syncUserTransactionsIncremental(uid: string, itemId?: string): Promise<SyncResult> {
+  const blocked = await blockedWithoutBankConsent(uid);
+  if (blocked) return blocked;
   return eachConnection(uid, itemId, async (connection, leaseId) => {
     if (connection.reconnectSessionId) {
       const { syncReconnectUnderLease } = await import('./reconnect');
@@ -149,6 +157,8 @@ export async function syncUserTransactionsIncremental(uid: string, itemId?: stri
 
 /** Full history backfill is capped by the server plan and can target one owned account. */
 export async function syncUserTransactions(uid: string, importTimeframe = '1year', itemId?: string, accountId?: string): Promise<SyncResult> {
+  const blocked = await blockedWithoutBankConsent(uid);
+  if (blocked) return blocked;
   return eachConnection(uid, itemId, async (connection, leaseId) => {
     if (connection.reconnectSessionId) {
       const { backfillReconnectUnderLease } = await import('./reconnect');

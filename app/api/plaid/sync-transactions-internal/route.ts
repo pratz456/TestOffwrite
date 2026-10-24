@@ -54,6 +54,10 @@ export async function POST(req: NextRequest) {
     // Use incremental sync (cursor-based)
     const syncResult = await syncUserTransactionsIncremental(userId);
 
+    if (syncResult.code === 'CONSENT_REQUIRED') {
+      return NextResponse.json({ success: true, code: 'CONSENT_REQUIRED', skipped: true });
+    }
+
     if (syncResult.success) {
       console.log(`✅ [Internal Sync] Successfully synced ${syncResult.transactionsSaved} transactions for user ${userId}`);
       return NextResponse.json({

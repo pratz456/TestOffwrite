@@ -29,6 +29,10 @@ beforeEach(() => {
   vi.clearAllMocks(); mock.records.clear();
   mock.connections = ['a', 'b'].map(id => ({ uid: 'owner', itemId: `bank-${id}`, accessToken: `secret-${id}`, accountIds: [`acc-${id}`], cursor: `cursor-${id}` }));
   for (const connection of mock.connections) mock.records.set(accountPath(connection.accountIds[0]), { user_id: 'owner', plaid_item_id: connection.itemId });
+  mock.records.set('user_profiles/owner', { consents: {
+    version: '2026-09-18', source: 'sign-up', accepted_at: '2026-09-18T00:00:00.000Z',
+    terms: true, ai_review: true, bank_data: true, communications: false, document_import: false,
+  } });
   mock.create.mockImplementation(async (_uid: string, account: string, fields: any) => { const path = `${accountPath(account)}/transactions/${fields.trans_id}`; mock.records.set(path, fields); return { data: fields, error: null }; });
   mock.modified.mockImplementation(async (address: any, fields: any) => { const path = `${accountPath(address.accountId)}/transactions/${address.transactionId}`;
     if (!mock.records.has(path)) return { updated: false };

@@ -3,7 +3,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb, FieldValue } from '@/lib/firebase/admin';
 import { migrateLegacyPlaidConnection } from '@/lib/plaid/connections';
 import { EDITABLE_PROFILE_FIELDS, publicProfile } from '@/lib/firebase/profile-fields';
-import { parseConsentRecord, storedDocumentImportSignature } from '@/lib/onboarding/consents';
+import { parseConsentRecord, storedDocumentImportSignature, withStoredBankConsent } from '@/lib/onboarding/consents';
 import { encryptSensitive } from '@/lib/security/utils';
 import { isLocalAccountPreview } from '@/lib/firebase/local-account-preview';
 
@@ -110,6 +110,7 @@ export async function POST(request: NextRequest) {
       const carried = consents && consents.source === 'reacknowledgment' && !consents.document_import_signature
         && storedVersion !== consents.version ? storedDocumentImportSignature(stored) : null;
       if (consents && carried) consents = { ...consents, document_import: true, document_import_signature: carried };
+      if (consents) consents = withStoredBankConsent(consents, stored);
       // A merge keeps nested fields, so a withdrawn §7216 signature is removed explicitly.
       const withdrawn = consents && !consents.document_import_signature
         && stored && typeof stored === 'object' && 'document_import_signature' in stored;

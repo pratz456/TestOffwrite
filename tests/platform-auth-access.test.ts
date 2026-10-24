@@ -204,7 +204,7 @@ describe('server profile API boundaries', () => {
       const response = await profilePost(request({ authorization: 'Bearer id' }, 'POST', { consents }));
       expect(response.status).toBe(200);
       expect(mock.set).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
-        consents: { ...consents, accepted_at: '2026-09-17T12:00:00.000Z', document_import: false },
+        consents: { ...consents, bank_data: false, accepted_at: '2026-09-17T12:00:00.000Z', document_import: false },
         consents_recorded_at: 'server-time', updated_at: 'server-time', created_at: 'server-time',
       }, { merge: true });
     });
@@ -246,7 +246,7 @@ describe('server profile API boundaries', () => {
     });
     it.each([
       ['a missing required acknowledgment', { ...consents, ai_review: undefined }],
-      ['a declined required acknowledgment', { ...consents, bank_data: false }],
+      ['a declined Terms acknowledgment', { ...consents, terms: false }],
       ['an unknown nested field', { ...consents, marketing_partner: true }],
       ['a stale terms version', { ...consents, version: '2025-01-01' }],
       ['a non-object value', 'agreed'],

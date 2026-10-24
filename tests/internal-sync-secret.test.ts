@@ -49,6 +49,13 @@ describe('scheduled sync shared-secret authentication', () => {
     }
     expect(mocks.sync).not.toHaveBeenCalled();
   });
+  it('skips a scheduled sync when bank consent is missing', async () => {
+    vi.stubEnv('CLOUD_FUNCTION_SECRET', 'synthetic-scheduler-secret-never-live');
+    mocks.sync.mockResolvedValueOnce({ success: false, transactionsSaved: 0, error: 'CONSENT_REQUIRED', code: 'CONSENT_REQUIRED' });
+    const response = await call('synthetic-scheduler-secret-never-live');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ success: true, code: 'CONSENT_REQUIRED', skipped: true });
+  });
   it('does not echo the sync helper failure reason', async () => {
     vi.stubEnv('CLOUD_FUNCTION_SECRET', 'synthetic-scheduler-secret-never-live');
     mocks.sync.mockResolvedValueOnce({ success: false, error: 'private cursor detail at /srv/node_modules/plaid' });

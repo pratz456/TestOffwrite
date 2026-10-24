@@ -24,6 +24,7 @@ import { useBeforeUnload } from '@/lib/hooks/use-before-unload';
 import { CreditCard, Calendar, Sparkles, ExternalLink, XCircle, AlertTriangle, Home, Car, Receipt, Info, Building2, Landmark, Download, Trash2, Link2, ChevronDown, X } from 'lucide-react';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { TrialCountdown } from '@/components/trial-countdown';
+import { BankDataConsentSettings } from '@/components/bank-data-consent-settings';
 import { DocumentImageConsentSettings } from '@/components/document-image-consent-settings';
 import { MODEL_DISCLOSURE_PURPOSE, MODEL_DISCLOSURE_TITLE, MODEL_REUSE_PURPOSE, MODEL_REUSE_TITLE } from '@/lib/openai/consent-contract';
 import { toast } from 'sonner';
@@ -1697,6 +1698,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <SettingsSection title="Data & Privacy" icon={Shield} summary={'Export data, revoke access or delete account'}>
               <div className="space-y-3">
                 <DocumentImageConsentSettings userId={user.id} />
+                <BankDataConsentSettings userId={user.id} />
                 <Button
                   onClick={async () => {
                     if (exportInFlight.current) return;

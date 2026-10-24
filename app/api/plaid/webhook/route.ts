@@ -78,6 +78,15 @@ export async function POST(request: NextRequest) {
         // Sync transactions for the user (incremental, cursor-based)
         const syncResult = await syncUserTransactionsIncremental(userId, payload.item_id);
 
+        if (syncResult.code === 'CONSENT_REQUIRED') {
+          await processedWebhookRef.set({
+            provider: 'plaid', signature_verified: true, processed_at: Date.now(),
+            item_id: payload.item_id, user_id: userId, webhook_code: payload.webhook_code,
+            transactions_saved: 0, skipped: 'CONSENT_REQUIRED',
+          });
+          return NextResponse.json({ success: true, skipped: true, code: 'CONSENT_REQUIRED', transactionsSaved: 0 });
+        }
+
         if (syncResult.success) {
           // A failed sync must remain retryable; acknowledge only completed work.
           await processedWebhookRef.set({
