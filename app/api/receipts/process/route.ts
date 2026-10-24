@@ -188,7 +188,9 @@ export async function POST(request: NextRequest) {
         suggestedReceiptConfidence: receiptDirectionSuggestion.confidence,
         ocrResult: {
           merchant: receiptData.merchant,
-          amount: receiptData.amount, // positive only; sign decided at commit time
+          // Blank when the total needs review. A zero here would look like a real expense.
+          amount: receiptData.amountNeedsReview ? null : receiptData.amount,
+          amountNeedsReview: receiptData.amountNeedsReview === true,
           date: receiptData.date,
           category: receiptData.category || 'other',
           confidence: receiptData.confidence,
@@ -200,14 +202,27 @@ export async function POST(request: NextRequest) {
     }
 
     // Commit: create new transaction OR attach receipt to an existing one.
-    const receiptAmountAbs = Math.abs(Number(receiptData.amount || 0));
-    if (attachTransactionId === null && (!Number.isFinite(receiptAmountAbs) || receiptAmountAbs <= 0)) {
-      throw new ReceiptRequestError('Enter a positive receipt amount before saving', 422);
-    }
     if (attachTransactionId === null && !/^\d{4}-\d{2}-\d{2}$/.test(receiptData.date || '')) {
       throw new ReceiptRequestError('Enter the receipt date before saving', 422);
     }
-    const signedAmount = receiptType === 'income' ? -receiptAmountAbs : receiptAmountAbs; // app expects expenses positive
+    // A reviewed amount is stored exactly as typed. OCR runs only when the user did not submit one.
+    let signedAmount: number | null;
+    let amountNeedsReview = false;
+    if (manualReceipt) {
+      signedAmount = receiptType === 'income' ? -manualReceipt.amount : manualReceipt.amount;
+    } else {
+      const read = receiptData.amount;
+      const confident = receiptData.amountNeedsReview !== true
+        && typeof read === 'number' && Number.isFinite(read) && read > 0;
+      if (confident) {
+        const receiptAmountAbs = Math.abs(read);
+        signedAmount = receiptType === 'income' ? -receiptAmountAbs : receiptAmountAbs; // app expects expenses positive
+      } else {
+        // Unreadable and ambiguous totals are saved blank. Never 0 and never a cut off number.
+        signedAmount = null;
+        amountNeedsReview = true;
+      }
+    }
 
     const ocr_data = {
       confidence: receiptData.confidence,
@@ -244,10 +259,20 @@ export async function POST(request: NextRequest) {
     const storedReceipt = await storeReceipt(user.uid, newTransId, bytes, mimeType, originalName, setStep);
     const { receiptUrl } = storedReceipt;
 
-    const transactionData: Partial<Transaction> & { source: 'receipt' } = {
+    const transactionData: Omit<Partial<Transaction>, 'amount'> & {
+      source: 'receipt';
+      amount: number | null;
+      amountNeedsReview?: boolean;
+      deductionStatus?: 'Needs more information';
+    } = {
       trans_id: newTransId,
       merchant_name: receiptData.merchant,
       amount: signedAmount,
+      ...(amountNeedsReview ? {
+        amountNeedsReview: true,
+        deductionStatus: 'Needs more information' as const,
+        tax_review_required: true,
+      } : {}),
       ...(manualReceipt?.iso_currency_code ? { iso_currency_code: manualReceipt.iso_currency_code } : {}),
       category: receiptType === 'income' ? 'income' : receiptData.category || 'other',
       date: receiptData.date,
