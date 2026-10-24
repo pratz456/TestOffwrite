@@ -494,10 +494,22 @@ function ambiguousNumericDate(value: string): boolean {
   return first >= 1 && first <= 12 && second >= 1 && second <= 12 && first !== second;
 }
 
-/** CA, AU, NZ, and MX. A space before the $ still counts. These blank the date on their own. A bare $ is not a US signal. */
-const STRONG_DOLLAR_PREFIX = /(?<![A-Za-z])(?:CA|AU|NZ|MX) ?\$/;
+/** AU, NZ, and MX. A space before the $ still counts. These blank the date on their own. A bare $ is not a US signal. */
+const STRONG_DOLLAR_PREFIX = /(?<![A-Za-z])(?:AU|NZ|MX) ?\$/;
+/** CA$ blanks the date on its own. The letters must touch the dollar. */
+const CA_TOUCHING_DOLLAR = /(?<![A-Za-z])CA\$/;
+/** CA before one space and a dollar, such as CA $12.50. This counts only with a second Canadian signal. */
+const CA_SPACED_DOLLAR = /(?<![A-Za-z])CA \$/;
 /** A, C, and R count only when the letter touches the $. A space is a US tax or item flag, not a prefix. */
 const SHORT_DOLLAR_PREFIX = /(?<![A-Za-z])[ACR]\$/;
+/** GST, HST, PST, QST, and CAD. The letters CA are not in this list. */
+const CANADIAN_TAX_OR_CAD = /\b(?:GST|HST|PST|QST|CAD)\b/;
+/** Province and territory codes, including the longer forms PEI and NWT. CA is not a code here. */
+const CANADIAN_REGION_CODE = /\b(?:NWT|PEI|AB|BC|MB|NB|NL|NS|NT|NU|ON|PE|QC|SK|YT)\b/;
+/** Province and territory names. Letter case does not matter. CA is not a name here. */
+const CANADIAN_REGION_NAME = /\b(?:alberta|british columbia|manitoba|new brunswick|newfoundland(?: (?:and|&) labrador)?|nova scotia|ontario|prince edward island|qu[eé]bec|saskatchewan|northwest territories|nunavut|yukon|labrador)\b/iu;
+/** A Canadian postal code such as K1A 0B1 or M5V 2T6. One space separates the two halves. */
+const CANADIAN_POSTAL_CODE = /\b[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z] \d[ABCEGHJ-NPRSTV-Z]\d\b/;
 /** Capitals-only ISO codes beside an amount. TRY, ALL, and TOP are not in this list. */
 const CURRENCY_CODE = 'EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|AED|SAR|ILS|BAM|BOB|COP|CUP|GEL|MAD|MOP|PEN|RUB|SOS';
 /** TRY still blanks on its own when it sits on a total, tax, due, or currency line. */
@@ -595,6 +607,17 @@ function shortDollarPrefix(text: string): boolean {
   return SHORT_DOLLAR_PREFIX.test(text);
 }
 
+/**
+ * A signal other than the CA prefix: GST, HST, PST, QST, CAD, a province or territory
+ * name or code, or a postal code. The letters CA are not this signal.
+ */
+function canadianSignalBesidesCa(text: string): boolean {
+  return CANADIAN_TAX_OR_CAD.test(text)
+    || CANADIAN_REGION_CODE.test(text)
+    || CANADIAN_REGION_NAME.test(text)
+    || CANADIAN_POSTAL_CODE.test(text);
+}
+
 /** Two signals blank only when the kinds differ. Repeating one kind does not. */
 function differentKindSignals(text: string): boolean {
   const kinds = [codeBesideAmount(text), symbolKind(text), NON_US_TOTAL_WORD.test(text), commaDecimal(text), shortDollarPrefix(text)].filter(Boolean).length;
@@ -603,13 +626,17 @@ function differentKindSignals(text: string): boolean {
 
 function bareDollar(text: string): boolean {
   const withoutPrefixes = text
-    .replace(/(?<![A-Za-z])(?:CA|AU|NZ|MX) ?\$/g, '')
+    .replace(/(?<![A-Za-z])(?:AU|NZ|MX) ?\$/g, '')
+    .replace(/(?<![A-Za-z])CA\$/g, '')
     .replace(/(?<![A-Za-z])[ACR]\$/g, '');
   return /\$/.test(withoutPrefixes);
 }
 
 function nonUsReceiptSignals(text: string): boolean {
-  if (STRONG_DOLLAR_PREFIX.test(text)) return true;
+  if (STRONG_DOLLAR_PREFIX.test(text) || CA_TOUCHING_DOLLAR.test(text)) return true;
+  // Spaced CA $ follows the short prefix idea: it counts only with a second, different signal.
+  // That signal has to be Canadian. A California tax line such as TAX CA $0.33 does not.
+  if (CA_SPACED_DOLLAR.test(text) && canadianSignalBesidesCa(text)) return true;
   // A symbol or kr on a total, tax, due, or currency line blanks on its own.
   if (symbolOnQualifyingLine(text)) return true;
   // A bare $ disagrees with a code, so a code alone does not blank the date.
