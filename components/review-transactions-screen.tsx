@@ -24,7 +24,7 @@ import { normalizeExplanation } from '@/lib/ai/explanation';
 import { AnalysisStatusNotice } from '@/components/analysis-status-notice';
 import { summarizeAnalysisBacklog } from '@/lib/ai/analysis-state';
 import { prioritizeTransactionReview } from '@/lib/transactions/review-priority';
-import { summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
+import { HELD_OUT_REASON_TEXT, HELD_OUT_REVIEW_ARIA_LABEL, summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 
 interface ReviewTransactionsScreenProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
@@ -40,14 +40,14 @@ function PossibleDuplicatesReview({ transactions }: { transactions: Transaction[
   if (!flagged.length) return null;
   const summary = summarizeHeldOutDuplicates(flagged);
   return (
-    <section aria-label="Possible duplicates held out of tax totals" className="mb-3 rounded-xl border border-border bg-muted p-3 text-sm">
+    <section aria-label={HELD_OUT_REVIEW_ARIA_LABEL} className="mb-3 rounded-xl border border-border bg-muted p-3 text-sm">
       <h2 className="font-semibold">PLACEHOLDER: Possible duplicates need review</h2>
       <p className="mt-1">{summary.message}</p>
       <p className="mt-1 text-muted-foreground">PLACEHOLDER: Resolving a duplicate is not available yet. These rows stay saved. This screen does not change or delete them.</p>
       <ul className="mt-2 space-y-1">
         {flagged.map(transaction => (
           <li key={transaction.trans_id || transaction.id}>
-            {transaction.date} · {transaction.merchant_name || 'Unnamed'} · {formatRecordedTransactionAmount(transaction)} · {transaction.possibleDuplicateReason || 'possible duplicate'}
+            {transaction.date} · {transaction.merchant_name || 'Unnamed'} · {formatRecordedTransactionAmount(transaction)} · {HELD_OUT_REASON_TEXT}
           </li>
         ))}
       </ul>

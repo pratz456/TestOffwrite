@@ -4,6 +4,7 @@ import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { BUSINESS_STANDARD_MILEAGE_RATES, businessMileageRateForDate, summarizeBusinessMileage } from '@/lib/tax-rules/mileage-rates';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
+import { heldOutCsvCells, isPossibleDuplicateRecord, summarizeHeldOutDuplicates, type HeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { ExportDataUnavailableError, exportReference, ownedExportRecord, readOwnedTransactions } from './export-records';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
@@ -88,6 +89,7 @@ export interface AuditSupportPacket {
     missingItems: Array<{ item: string; count: number }>;
     /** superseded: deductible records a relinked bank re-imported that duplicate an earlier reviewed record. */
     excluded: { notConfirmed: number; reviewRequired: number; pending: number; bankRemoved: number; superseded: number };
+    heldOutDuplicates: HeldOutDuplicates;
     mileage: { tripCount: number; ratedMiles: number; unratedMiles: number; unratedTrips: number; standardMileageAmount: number; ratesApplied: number[]; tripsNeedingRecords: number };
   };
   retention: RetentionNote;
@@ -278,9 +280,11 @@ function mileageEntries(uid: string, year: number, trips: ExportRecord[]) {
 /** Pure assembly over owner-verified records. Throws ExportReviewRequiredError when records need reconciliation first. */
 export function assembleAuditSupportPacket(uid: string, year: number, inputs: AuditSupportInputs, generatedAt = new Date()): AuditSupportPacket {
   const inYear = selectExportYear(inputs.transactions, year);
+  const heldOutDuplicates = summarizeHeldOutDuplicates(inYear, year);
   const excluded = { notConfirmed: 0, reviewRequired: 0, pending: 0, bankRemoved: 0, superseded: 0 };
   const confirmed: ExportRecord[] = [];
   for (const record of inYear) {
+    if (isPossibleDuplicateRecord(record)) continue;
     if (record.is_deductible !== true) continue;
     if (isSupersededRecord(record)) excluded.superseded += 1;
     else if (record.pending === true) excluded.pending += 1;
@@ -347,6 +351,7 @@ export function assembleAuditSupportPacket(uid: string, year: number, inputs: Au
       byStatus, byCategory: [...categories.values()].sort((a, b) => b.amount - a.amount || a.label.localeCompare(b.label)),
       missingItems: [...missingItems].map(([item, count]) => ({ item, count })).sort((a, b) => b.count - a.count || a.item.localeCompare(b.item)),
       excluded,
+      heldOutDuplicates,
       mileage: { tripCount: trips.length, ratedMiles: round2(mileage.ratedMiles), unratedMiles: round2(mileage.unratedMiles), unratedTrips: mileage.unratedTrips, standardMileageAmount: mileage.deduction, ratesApplied: mileage.ratesApplied, tripsNeedingRecords: trips.filter(trip => trip.substantiation.status === 'needs_records').length },
     },
     retention: retentionNote(year),
@@ -395,7 +400,9 @@ export function auditSupportPacketCSV(packet: AuditSupportPacket): string {
       trip.ratePerMile === null ? 'No IRS rate published for this trip date; amount not calculated.' : '', trip.businessPurpose ?? '', trip.businessPurpose ? 'mileage_log' : '', '', '', '',
       `${trip.miles} miles${trip.ratePerMile !== null ? ` @ $${trip.ratePerMile}/mile` : ''}`, '', '', '', '', 'Mileage tracker', '']);
   }
-  return [AUDIT_SUPPORT_CSV_HEADERS.map(csvCell).join(','), ...rows.map(row => row.map(csvCell).join(','))].join('\r\n');
+  const lines = [AUDIT_SUPPORT_CSV_HEADERS.map(csvCell).join(','), ...rows.map(row => row.map(csvCell).join(','))];
+  if (packet.summary.heldOutDuplicates.count > 0) lines.push(heldOutCsvCells(packet.summary.heldOutDuplicates).map(csvCell).join(','));
+  return lines.join('\r\n');
 }
 
 /** Premium PDF in the shared preparer-records style. Every claim stays a records statement. */
@@ -405,6 +412,7 @@ export async function generateAuditSupportPDF(packet: AuditSupportPacket): Promi
   pdf.paragraph(packet.coverNote[0], true);
   for (const note of packet.coverNote.slice(1)) pdf.paragraph(note);
   pdf.paragraph(`Generated ${packet.packetInfo.generatedAt.slice(0, 10)}. Confirmed deductions: ${packet.summary.deductionCount}. Mileage log trips: ${packet.summary.mileage.tripCount}. Excluded: ${packet.summary.excluded.notConfirmed} deductible records not yet confirmed through review, ${packet.summary.excluded.reviewRequired} awaiting tax review, ${packet.summary.excluded.pending} pending, ${packet.summary.excluded.bankRemoved} removed by the bank, ${packet.summary.excluded.superseded} superseded duplicate bank records.`);
+  if (packet.summary.heldOutDuplicates.count > 0) pdf.paragraph(`${packet.summary.heldOutDuplicates.message} ${packet.summary.heldOutDuplicates.reviewHref}`);
   pdf.section('Substantiation summary');
   pdf.table(['Status', 'Records', 'Recorded amount'], [
     ['Complete - every element required for the category is on file', String(packet.summary.byStatus.complete.count), money(packet.summary.byStatus.complete.amount)],

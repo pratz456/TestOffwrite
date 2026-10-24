@@ -28,14 +28,12 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
     ['1', 'Reconciled gross receipts in WriteOff', money(data.grossReceipts)],
     ...data.lineItems.map(row => [scheduleCExportLine(row.lineCode, data.taxYear), `${row.lineName} - ${row.transactionCount} confirmed records`, money(row.deductible)]),
     ['28 subtotal', 'Confirmed expense subtotal only', money(total)],
-    ...(data.heldOutDuplicates && data.heldOutDuplicates.count > 0 ? [[
-      'PLACEHOLDER',
-      `${data.heldOutDuplicates.message} ${data.heldOutDuplicates.reviewHref}`,
-      money(data.heldOutDuplicates.amount),
-    ]] : []),
     ['Worksheet', 'Receipts minus confirmed expenses, before other adjustments', money(data.grossReceipts - total)],
     ['29-31', 'Final tentative profit, home-office deduction and net profit', 'Not determined'],
   ], [70, 353, 105]);
+  if (data.heldOutDuplicates && data.heldOutDuplicates.count > 0) {
+    pdf.paragraph(`${data.heldOutDuplicates.message} ${data.heldOutDuplicates.reviewHref}`);
+  }
   pdf.paragraph('Credits/refunds are signed and meals use the shared 50% calculation. A confirmed category is not proof of legal deductibility. Review mixed business/personal use, asset purchases, vehicle method, entertainment and contribution classification.');
   pdf.section('Required review before preparing the return');
   pdf.paragraph('Complete returns/allowances, inventory and cost of goods sold, other income, depreciation and elections, home-office eligibility and limits, business details, vehicle records, material participation, at-risk/passive-loss limits and required 1099 filings. This export does not establish these facts or prepare those schedules. Review missing identity details directly with your preparer.');

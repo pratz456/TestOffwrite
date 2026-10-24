@@ -6,6 +6,7 @@ import { generateUserDataExport, sanitizeExportValue } from './data-export';
 import { readOwnedTransactions } from './export-records';
 import { readAuditSupportPacket, auditSupportPacketCSV } from './audit-support-packet';
 import { convertTransactionsToCSV, type ExportRecord } from './transaction-export';
+import type { HeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 
 export const MAX_PACKAGE_BYTES = 20 * 1024 * 1024;
 export const MAX_PACKAGE_RECEIPT_BYTES = 16 * 1024 * 1024;
@@ -23,6 +24,7 @@ export interface PreparerPackageManifest {
   version: 1; taxYear: number; generatedAt: string; purpose: string; records: number;
   receiptFiles: number; receiptBytes: number; receiptIssues: number; completeReceiptCoverage: boolean;
   unresolvedQuestions: number; receipts: PackageReceipt[]; limitations: string[];
+  heldOutDuplicates?: HeldOutDuplicates;
   files: Array<{ file: string; bytes: number; sha256: string }>;
 }
 const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
@@ -123,15 +125,18 @@ export async function buildPreparerPackage(uid: string, taxYear: number) {
     'Missing or unreadable receipts are listed explicitly. An included receipt is not a determination that substantiation is sufficient.',
     'Identity credentials and encrypted tax identifiers are excluded from structured exports. Original uploaded receipt documents are unredacted.',
   ];
+  const heldOut = audit.summary?.heldOutDuplicates;
   const manifest: PreparerPackageManifest = { version: 1, taxYear, generatedAt: new Date().toISOString(), purpose: 'Fixed records snapshot for tax-preparer review', records: data.transactions.length,
     receiptFiles: receipts.filter(receipt => receipt.status === 'included').length, receiptBytes, receiptIssues: receipts.filter(receipt => receipt.status !== 'included').length,
-    completeReceiptCoverage: receipts.every(receipt => receipt.status === 'included'), unresolvedQuestions: questions.length, receipts, limitations, files: [] };
+    completeReceiptCoverage: receipts.every(receipt => receipt.status === 'included'), unresolvedQuestions: questions.length, receipts, limitations,
+    ...(heldOut && heldOut.count > 0 ? { heldOutDuplicates: heldOut } : {}), files: [] };
   const json = (value: unknown) => Buffer.from(JSON.stringify(sanitizeExportValue(value), null, 2));
+  const heldOutLine = heldOut && heldOut.count > 0 ? `${heldOut.message} ${heldOut.reviewHref}\n\n` : '';
   // Audit-support's legacy receipt links remain references; manifest maps original bytes included here.
   entries.push({ name: 'records.json', bytes: json(data) }, { name: 'transactions.csv', bytes: Buffer.from(convertTransactionsToCSV(data.transactions)) },
     { name: 'audit-support.json', bytes: json(audit) }, { name: 'audit-support.csv', bytes: Buffer.from(auditSupportPacketCSV(audit)) },
     { name: 'unresolved-questions.json', bytes: json(questions) }, { name: 'receipt-status.json', bytes: json(receipts) },
-    { name: 'README.txt', bytes: Buffer.from(`WRITEOFF PREPARER PACKAGE — ${taxYear}\nGenerated ${manifest.generatedAt}\n\n${manifest.receiptFiles} original receipt files included; ${manifest.receiptIssues} receipt issues; ${manifest.unresolvedQuestions} transactions with unresolved questions.\n\nRead manifest.json, receipt-status.json and unresolved-questions.json before using these records. Audit-support files describe confirmed deductions and may contain private original links; use the receipt manifest for files actually attached to this ZIP.\n\n${limitations.map(value => `- ${value}`).join('\n')}\n`) });
+    { name: 'README.txt', bytes: Buffer.from(`WRITEOFF PREPARER PACKAGE — ${taxYear}\nGenerated ${manifest.generatedAt}\n\n${heldOutLine}${manifest.receiptFiles} original receipt files included; ${manifest.receiptIssues} receipt issues; ${manifest.unresolvedQuestions} transactions with unresolved questions.\n\nRead manifest.json, receipt-status.json and unresolved-questions.json before using these records. Audit-support files describe confirmed deductions and may contain private original links; use the receipt manifest for files actually attached to this ZIP.\n\n${limitations.map(value => `- ${value}`).join('\n')}\n`) });
   if (entries.reduce((sum, entry) => sum + entry.bytes.length, 0) > MAX_PACKAGE_BYTES) throw new PreparerPackageError('The package exceeds 20 MB. Export records and original receipts separately.', 'PREPARER_PACKAGE_TOO_LARGE', 413);
   manifest.files = entries.map(entry => ({ file: entry.name, bytes: entry.bytes.length, sha256: digest(entry.bytes) }));
   entries.push({ name: 'manifest.json', bytes: Buffer.from(JSON.stringify(manifest, null, 2)) });

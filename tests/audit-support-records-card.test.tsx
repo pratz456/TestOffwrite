@@ -6,6 +6,7 @@ vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: vi.fn() } }));
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: vi.fn() }));
 vi.mock('@/lib/hooks/use-subscription', () => ({ useSubscription: () => ({ canAccess: () => false, isLoading: false }) }));
 import { AuditSupportRecordsSummary, type AuditSupportSummary } from '@/app/protected/reports/components/AuditSupportRecordsCard';
+import { summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 
 const packet: AuditSupportSummary = {
   deductions: [
@@ -15,6 +16,7 @@ const packet: AuditSupportSummary = {
   summary: { deductionCount: 2, recordedAmount: 210, byStatus: { complete: { count: 1, amount: 30 }, needs_records: { count: 1, amount: 180 } },
     byCategory: [], missingItems: [{ item: 'receipt (required for lodging at any amount)', count: 1 }, { item: 'travel dates (departure and return)', count: 1 }],
     excluded: { notConfirmed: 2, reviewRequired: 0, pending: 0, bankRemoved: 0, superseded: 0 },
+    heldOutDuplicates: summarizeHeldOutDuplicates([]),
     mileage: { tripCount: 3, ratedMiles: 120, unratedMiles: 0, unratedTrips: 0, standardMileageAmount: 87, ratesApplied: [0.725], tripsNeedingRecords: 1 } },
 };
 const noop = () => {};

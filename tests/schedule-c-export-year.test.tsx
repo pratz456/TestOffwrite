@@ -106,12 +106,18 @@ describe('Schedule C held out duplicates', () => {
       ],
     });
     const notice = walk(tree).find(node => node.type === HeldOutDuplicatesNotice);
-    expect(notice?.props.summary).toMatchObject({ count: 2, amount: 25040, reviewHref: '/protected?screen=review-transactions' });
+    expect(notice?.props.summary).toMatchObject({ count: 2, amount: 25040, credits: 25000, debits: 40, reviewHref: '/protected?screen=review-transactions' });
     const shown = HeldOutDuplicatesNotice(notice.props);
     const rendered = text(shown);
     expect(rendered).toContain('PLACEHOLDER');
-    expect(rendered).toContain('$25,040.00');
-    expect(walk(shown).some(node => node.type === 'a' && String(node.props?.href).includes('review-transactions'))).toBe(true);
+    expect(rendered).toContain('$25,000.00');
+    expect(rendered).toContain('$40.00');
+    expect(rendered).not.toContain('$25,040.00');
+    expect(rendered).not.toMatch(/legacy_match|bank_linked/);
+    const link = walk(shown).find(node => node.type === 'a' && String(node.props?.href).includes('review-transactions'));
+    expect(link).toBeTruthy();
+    expect(text(link)).toContain('PLACEHOLDER: Review possible duplicates');
+    expect(String(link.props['aria-label'])).toContain('PLACEHOLDER');
   });
 });
 

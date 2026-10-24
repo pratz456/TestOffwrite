@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { aggregateScheduleC } from '@/lib/schedule-c/aggregate';
 import { overlapKey } from '@/lib/transactions/historical-overlap';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
@@ -270,6 +271,7 @@ describe('statement import document ids', () => {
       expectedId(charge, 1, accountScope({ accountLast4: '1111' })),
       expectedId(charge, 1, accountScope({ accountLast4: '2222' })),
     ].sort());
+    expect(importDocs().every(doc => doc.data.possibleDuplicate !== true)).toBe(true);
   });
 
   it('dedupes a statement with no account identity only when the file bytes match', async () => {
@@ -311,6 +313,66 @@ describe('statement import document ids', () => {
       1, fileScope(PNG), 'receipt',
     ));
     for (const [path, frozen] of before) expect(freeze(docs.get(path))).toBe(frozen);
+  });
+
+  function confirmedExpenseTotal() {
+    const rows = importDocs().map(doc => ({
+      ...doc.data,
+      is_deductible: true,
+      review_status: 'confirmed',
+      category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES',
+    }));
+    return aggregateScheduleC(rows as never, '2026', undefined, { mode: 'confirmed-only' }).totalDeductible;
+  }
+  async function uploadReceipt(merchant: string, date: string, amount: number) {
+    mocks.create.mockResolvedValueOnce({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({
+      currency: 'USD', merchant, date, total: amount, category: 'Office Supplies', confidence: 'high',
+    }), refusal: null } }] });
+    const response = await POST(request('receipt'));
+    return { status: response.status, body: await response.json() as { imported: number; alreadyImported: number } };
+  }
+  const officeCharge: Row = { date: '2026-06-15', description: 'Office Depot', amount: 500, transaction_type: 'debit', category: 'Office Supplies' };
+
+  it('flags a second read of the same card when the digits are missing and counts the charge once', async () => {
+    const first = await upload([officeCharge], { bankName: 'Chase', accountLast4: '4242' });
+    const before = frozenImportDocs();
+    const second = await upload([officeCharge], { bankName: 'Chase', accountLast4: null });
+    expect(first.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    expect(second.body).toMatchObject({ imported: 1, alreadyImported: 0, flaggedLegacy: 0 });
+    expect(importDocs()).toHaveLength(2);
+    const flagged = importDocs().filter(doc => doc.data.possibleDuplicate === true);
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].data.possibleDuplicateReason).toBe('ambiguous_account');
+    expect(flagged[0].data.accountLast4).toBeNull();
+    for (const [path, frozen] of before) expect(freeze(docs.get(path))).toBe(frozen);
+    expect(confirmedExpenseTotal()).toBe(500);
+  });
+
+  it('flags a statement row that repeats a receipt imported first and counts the charge once', async () => {
+    const receipt = await uploadReceipt('Office Depot', officeCharge.date, 500);
+    expect(receipt.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    const before = frozenImportDocs();
+    const statement = await upload([officeCharge], { bankName: 'Chase', accountLast4: '4242' });
+    expect(statement.body).toMatchObject({ imported: 1, alreadyImported: 0, flaggedLegacy: 0 });
+    const flagged = importDocs().filter(doc => doc.data.possibleDuplicate === true);
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].data.possibleDuplicateReason).toBe('cross_document');
+    expect(flagged[0].data.importedFromStatement).toBe(true);
+    for (const [path, frozen] of before) expect(freeze(docs.get(path))).toBe(frozen);
+    expect(confirmedExpenseTotal()).toBe(500);
+  });
+
+  it('flags a receipt whose merchant differs from the statement descriptor and counts the charge once', async () => {
+    const statement = await upload([{ ...officeCharge, description: 'SQ *OFFICE DEPOT 4421' }], { bankName: 'Chase', accountLast4: '4242' });
+    expect(statement.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    const before = frozenImportDocs();
+    const receipt = await uploadReceipt('Office Depot', officeCharge.date, 500);
+    expect(receipt.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    const flagged = importDocs().filter(doc => doc.data.possibleDuplicate === true);
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].data).toMatchObject({ possibleDuplicateReason: 'cross_document', source: 'receipt', amount: 500 });
+    for (const [path, frozen] of before) expect(freeze(docs.get(path))).toBe(frozen);
+    expect(confirmedExpenseTotal()).toBe(500);
   });
 
   it('keeps document ids opaque', async () => {

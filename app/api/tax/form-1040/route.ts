@@ -457,6 +457,7 @@ export async function POST(request: NextRequest) {
       ['Optional refund routing / account (last 4)', enrichedProfile.bankRouting || enrichedProfile.bankAccount ? `${enrichedProfile.bankRouting || 'Not provided'} / ${enrichedProfile.bankAccount || 'Not provided'} (${enrichedProfile.bankAccountType})` : 'Not provided'],
     ], [195, 333]);
     notes.section('Review notes');
+    if (snapshot.heldOutDuplicates.count > 0) notes.paragraph(`${snapshot.heldOutDuplicates.message} ${snapshot.heldOutDuplicates.reviewHref}`);
     notes.paragraph(warnings.length ? `${warnings.length} calculation or completeness note(s) qualify the figures on pages 1-2:` : 'No calculation limits were reported for the saved inputs.');
     warnings.forEach((warning, index) => notes.paragraph(`${index + 1}. ${warning}`));
     notes.paragraph('Verify all income sources; IRA versus pension classification and basis; qualified dividends and capital gains; depreciation and home-office adjustments; credits; AMT and other taxes; all non-W-2/non-SSA withholding; prior-year payments applied; Form8959 withholding; refund elections; and penalties. Supporting Schedules1,1-A,2,3,A,D and other required forms are not produced by this summary.');

@@ -39,9 +39,11 @@ describe('quarterly summary uses the shared saved-record annual engine', () => {
     const body = await response.json();
     expect(body.grossReceipts).toBe(100000);
     expect(body.netProfit).toBe(99000);
-    expect(body.heldOutDuplicates).toMatchObject({ count: 2, amount: 25040, reviewHref: '/protected?screen=review-transactions' });
+    expect(body.heldOutDuplicates).toMatchObject({ count: 2, amount: 25040, credits: 25000, debits: 40, reviewHref: '/protected?screen=review-transactions' });
     expect(body.heldOutDuplicates.message).toContain('PLACEHOLDER');
-    expect(body.heldOutDuplicates.message).toContain('$25,040.00');
+    expect(body.heldOutDuplicates.message).toContain('$25,000.00');
+    expect(body.heldOutDuplicates.message).toContain('$40.00');
+    expect(body.heldOutDuplicates.message).not.toContain('$25,040.00');
   });
   it('legacyPOST ignores supplied inflated income and tax totals, using owner records', async () => {
     const response = await legacy(post({ taxYear: 2026, userProfile: { business_income: 999999 }, transactions: [{ amount: -999999 }], taxCalculation: { quarterlyAmount: 0 } }));

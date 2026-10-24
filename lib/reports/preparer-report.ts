@@ -1,10 +1,14 @@
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, type PDFFont } from 'pdf-lib';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
+import { summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { exportDate, transactionAmount, selectExportYear, recordedDeductibility, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
 
 export function preparerMonthlySummary(records: ExportRecord[], year: number) {
   // Superseded duplicates of an earlier bank record are not part of the handoff totals.
-  const selected = selectExportYear(records.filter(record => !isSupersededRecord(record)), year);
+  // Flagged possible duplicates stay saved and are omitted from monthly amounts, the same way Schedule C omits them.
+  const inYear = selectExportYear(records.filter(record => !isSupersededRecord(record)), year);
+  const heldOutDuplicates = summarizeHeldOutDuplicates(inYear, year);
+  const selected = inYear.filter(record => record.possibleDuplicate !== true);
   if (selected.some(record => transactionAmount(record) === null)) throw new ExportReviewRequiredError('Some saved amounts are invalid. Correct them or download all records for review.');
   const seen = new Set<string>();
   for (const record of selected) {
@@ -27,7 +31,22 @@ export function preparerMonthlySummary(records: ExportRecord[], year: number) {
   }
   if (!groups.size) groups.set('Currency not recorded', Array.from({ length: 12 }, () => ({ outflow: 0, inflow: 0, markedOutflow: 0, count: 0 })));
   return { year, count: selected.length, pending: selected.filter(tx => tx.pending === true).length,
-    unreviewed: selected.filter(tx => recordedDeductibility(tx) === null).length, groups };
+    unreviewed: selected.filter(tx => recordedDeductibility(tx) === null).length, groups, heldOutDuplicates };
+}
+
+function drawWrapped(page: { drawText: (text: string, options: { x: number; y: number; size: number; font: PDFFont; color: ReturnType<typeof rgb> }) => void }, font: PDFFont, value: string, y: number, size: number, color: ReturnType<typeof rgb>): number {
+  const words = value.split(' ');
+  let line = '';
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && font.widthOfTextAtSize(next, size) > 528) {
+      page.drawText(line, { x: 42, y, size, font, color });
+      y -= 10;
+      line = word;
+    } else line = next;
+  }
+  if (line) page.drawText(line, { x: 42, y, size, font, color });
+  return y - 12;
 }
 
 export async function generatePreparerReport(records: ExportRecord[], year: number): Promise<Uint8Array> {
@@ -68,6 +87,9 @@ export async function generatePreparerReport(records: ExportRecord[], year: numb
     text('Total', 148, 11, true);
     [totals.outflow, totals.inflow, totals.markedOutflow].forEach((value, index) => text((value / 100).toFixed(2), 148, 10, true, columns[index + 1]));
     text(String(totals.count), 148, 10, true, columns[4]);
+    if (summary.heldOutDuplicates.count > 0) {
+      drawWrapped(page, font, textSafe(`${summary.heldOutDuplicates.message} ${summary.heldOutDuplicates.reviewHref}`), 126, 8, rgb(.12, .16, .20));
+    }
     text('Keep original statements and receipts. Review missing currency before combining totals.', 102, 9);
   }
   pdf.getPages().forEach((page, index, pages) => page.drawText(`Preparer handoff | Page ${index + 1} of ${pages.length}`, { x: 42, y: 37, size: 9, font }));

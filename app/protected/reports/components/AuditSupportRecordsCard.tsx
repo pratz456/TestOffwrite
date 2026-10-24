@@ -10,6 +10,7 @@ import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { useSubscription } from '@/lib/hooks/use-subscription';
 import { protectedScreenUrl } from '@/lib/navigation/protected-screens';
 import type { AuditSupportPacket } from '@/lib/reports/audit-support-packet';
+import { HELD_OUT_REVIEW_ARIA_LABEL, HELD_OUT_REVIEW_LINK_TEXT } from '@/lib/transactions/held-out-duplicates';
 
 export type AuditSupportSummary = Pick<AuditSupportPacket, 'summary'> & { deductions: Array<Pick<AuditSupportPacket['deductions'][number], 'transactionId' | 'date' | 'merchant' | 'amount' | 'substantiation'>> };
 type PacketFormat = 'json' | 'csv' | 'pdf';
@@ -98,6 +99,12 @@ export function AuditSupportRecordsSummary({ year, packet, loading, error, canDo
           {summary.excluded.notConfirmed > 0 && (
             <p className="text-xs text-muted-foreground mt-3">
               {summary.excluded.notConfirmed} deductible record{summary.excluded.notConfirmed === 1 ? ' has' : 's have'} not been confirmed through the review flow and {summary.excluded.notConfirmed === 1 ? 'is' : 'are'} not included.
+            </p>
+          )}
+          {summary.heldOutDuplicates.count > 0 && (
+            <p className="text-xs text-muted-foreground mt-3">
+              {summary.heldOutDuplicates.message}{' '}
+              <a className="underline" href={summary.heldOutDuplicates.reviewHref} aria-label={HELD_OUT_REVIEW_ARIA_LABEL}>{HELD_OUT_REVIEW_LINK_TEXT}</a>
             </p>
           )}
           {needsRecords.length > 0 ? (

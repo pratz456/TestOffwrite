@@ -248,6 +248,62 @@ function isReceiptRecord(data: Record<string, unknown>): boolean {
   return data.source === 'receipt' || data.importedFromReceipt === true;
 }
 
+/** Missing, blank, and the metadata fallback "Unknown" are not an institution. */
+function institutionName(value: unknown): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text || normalizedDescription(text) === 'UNKNOWN') return '';
+  return normalizedDescription(text);
+}
+
+function cardLast4(value: unknown): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return /^\d{4}$/.test(text) ? text : '';
+}
+
+type AccountIdentity = { last4: string; bank: string };
+type AccountRelation = 'different' | 'uncertain' | 'same';
+
+/** Same digits and institution are one card. Different digits or different named institutions are not. Anything else cannot be told apart. */
+function accountRelation(a: AccountIdentity, b: AccountIdentity): AccountRelation {
+  if (a.last4 && b.last4 && a.last4 !== b.last4) return 'different';
+  if (a.bank && b.bank && a.bank !== b.bank && !(a.last4 && a.last4 === b.last4)) return 'different';
+  if (a.bank && b.bank && a.bank !== b.bank) return 'uncertain';
+  const sameLast4 = Boolean(a.last4 && b.last4 && a.last4 === b.last4);
+  const sameBank = Boolean(a.bank && b.bank && a.bank === b.bank);
+  if (sameLast4 && (sameBank || (!a.bank && !b.bank))) return 'same';
+  if (!a.last4 && !b.last4 && sameBank) return 'same';
+  return 'uncertain';
+}
+
+interface StoredImportRow {
+  date: string;
+  cents: number;
+  direction: string;
+  description: string;
+  receipt: boolean;
+  last4: string;
+  bank: string;
+}
+
+/** Saved import rows used to decide whether a new row might repeat one already on file. */
+async function existingImportRows(account: DocumentReference): Promise<StoredImportRow[]> {
+  const snapshot = await account.collection('transactions')
+    .select('date', 'amount', 'transaction_type', 'merchant_name', 'name', 'description', 'source', 'importedFromReceipt', 'accountLast4', 'statementBank').get();
+  const rows: StoredImportRow[] = [];
+  for (const transaction of snapshot.docs) {
+    const data = transaction.data() ?? {};
+    const date = textValue(data.date).slice(0, 10);
+    const direction = data.transaction_type === 'debit' || data.transaction_type === 'credit' ? data.transaction_type : '';
+    const description = textValue(data.merchant_name) || textValue(data.name) || textValue(data.description);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !direction || !description.trim() || typeof data.amount !== 'number' || !Number.isFinite(data.amount)) continue;
+    rows.push({
+      date, cents: amountCents(data.amount), direction, description: normalizedDescription(description),
+      receipt: isReceiptRecord(data), last4: cardLast4(data.accountLast4), bank: institutionName(data.statementBank),
+    });
+  }
+  return rows;
+}
+
 /** Older statement imports used a random document id and have no import_row_id. */
 async function legacyImportKeys(account: DocumentReference): Promise<Set<string>> {
   const snapshot = await account.collection('transactions')
@@ -256,20 +312,6 @@ async function legacyImportKeys(account: DocumentReference): Promise<Set<string>
   for (const transaction of snapshot.docs) {
     const data = transaction.data() ?? {};
     if (typeof data.import_row_id === 'string' && data.import_row_id.length > 0) continue;
-    const key = recordedMatchKey(data);
-    if (key) keys.add(key);
-  }
-  return keys;
-}
-
-/** Existing statement rows, stable or legacy, so a receipt can be flagged instead of dropped. */
-async function statementImportKeys(account: DocumentReference): Promise<Set<string>> {
-  const snapshot = await account.collection('transactions')
-    .select('date', 'amount', 'transaction_type', 'merchant_name', 'name', 'description', 'source', 'importedFromReceipt').get();
-  const keys = new Set<string>();
-  for (const transaction of snapshot.docs) {
-    const data = transaction.data() ?? {};
-    if (isReceiptRecord(data)) continue;
     const key = recordedMatchKey(data);
     if (key) keys.add(key);
   }
@@ -338,19 +380,43 @@ async function saveTransactions(uid: string, rows: ImportedTransaction[], metada
       },
     };
   });
-  const [legacyKeys, linkedKeys, statementKeys] = await Promise.all([
+  const [legacyKeys, linkedKeys, existingRows] = await Promise.all([
     legacyImportKeys(account),
     bankOverlapKeys(uid),
-    identity.namespace === 'receipt' ? statementImportKeys(account) : Promise.resolve(new Set<string>()),
+    existingImportRows(account),
   ]);
+  const incomingReceipt = identity.namespace === 'receipt';
+  const incomingIdentity: AccountIdentity = { last4: cardLast4(metadata.accountLast4), bank: institutionName(metadata.statementBank) };
   for (const item of planned) {
-    const key = legacyMatchKey(textValue(item.data.date), amountCents(Number(item.data.amount)), textValue(item.data.transaction_type), textValue(item.data.merchant_name));
-    const statementMatch = statementKeys.has(key);
+    const date = textValue(item.data.date).slice(0, 10);
+    const direction = textValue(item.data.transaction_type);
+    const cents = amountCents(Number(item.data.amount));
+    const description = normalizedDescription(textValue(item.data.merchant_name));
+    const key = legacyMatchKey(date, cents, direction, textValue(item.data.merchant_name));
     const legacyMatch = identity.namespace === 'statement' && legacyKeys.has(key);
+    let statementMatch = false;
+    let crossDocument = false;
+    let ambiguousAccount = false;
+    for (const existing of existingRows) {
+      if (existing.date !== date || existing.cents !== cents || existing.direction !== direction) continue;
+      const crossType = incomingReceipt !== existing.receipt;
+      if (crossType) {
+        if (incomingReceipt && !existing.receipt && existing.description === description) statementMatch = true;
+        else crossDocument = true;
+        continue;
+      }
+      if (existing.description !== description) continue;
+      if (accountRelation(incomingIdentity, existing) === 'uncertain') ambiguousAccount = true;
+    }
+    item.legacyMatch = legacyMatch;
     const linked = overlapKey(item.data);
     const bankLinked = linked !== null && linkedKeys.has(linked);
-    item.legacyMatch = legacyMatch;
-    const reason = statementMatch ? 'statement_match' : legacyMatch ? 'legacy_match' : bankLinked ? 'bank_linked' : null;
+    const reason = statementMatch ? 'statement_match'
+      : legacyMatch ? 'legacy_match'
+      : crossDocument ? 'cross_document'
+      : ambiguousAccount ? 'ambiguous_account'
+      : bankLinked ? 'bank_linked'
+      : null;
     if (reason) {
       item.data.possibleDuplicate = true;
       item.data.possibleDuplicateReason = reason;

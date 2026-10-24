@@ -260,11 +260,14 @@ it('returns held out duplicates on the Schedule C preview and prints them in the
   expect(preview.status).toBe(200);
   const previewBody = await preview.json();
   expect(previewBody.data.confirmedExpenses).toBe(40);
-  expect(previewBody.data.heldOutDuplicates).toMatchObject({ count: 2, amount: 25040, reviewHref: '/protected?screen=review-transactions' });
+  expect(previewBody.data.heldOutDuplicates).toMatchObject({ count: 2, amount: 25040, credits: 25000, debits: 40, reviewHref: '/protected?screen=review-transactions' });
   expect(previewBody.data.heldOutDuplicates.message).toContain('PLACEHOLDER');
+  expect(previewBody.data.heldOutDuplicates.message).not.toContain('legacy_match');
   const csv = await (await scheduleC(request({ year: 2026, format: 'csv' }))).text();
   expect(csv).toContain('PLACEHOLDER');
-  expect(csv).toContain('25040.00');
+  expect(csv).toContain('25000.00');
+  expect(csv).toContain('40.00');
+  expect(csv).not.toContain('25040.00');
   expect(csv).toContain('/protected?screen=review-transactions');
   expect(csv).toContain('Kept supplies');
   expect(csv).not.toContain('Flagged supplies');
@@ -273,9 +276,15 @@ it('returns held out duplicates on the Schedule C preview and prints them in the
   expect(pdf.status).toBe(200);
   const text = view.text();
   expect(text).toContain('PLACEHOLDER');
-  expect(text).toContain('$25,040.00');
+  expect(text).toContain('$25,000.00');
+  expect(text).toContain('$40.00');
+  expect(text).not.toContain('$25,040.00');
   expect(text).toContain('/protected?screen=review-transactions');
   expect(text).not.toContain('Flagged supplies');
+  const subtotalAt = text.indexOf('28 subtotal');
+  const worksheetAt = text.indexOf('Worksheet');
+  expect(worksheetAt).toBeGreaterThan(subtotalAt);
+  expect(text.slice(subtotalAt, worksheetAt)).not.toContain('Held out');
   view.checkBounds();
 });
 
