@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { MODEL_CONSENT_UNAVAILABLE, useModelConsent } from "@/lib/model-consent/use-model-consent";
 
 interface FilingHubProps {
   user: { id: string; email?: string };
@@ -39,6 +40,7 @@ const fmt = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
 export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps) {
+  const modelConsent = useModelConsent();
   const currentYear = SUPPORTED_TAX_YEARS.at(-1)!;
   const [year, setYear] = useState(String(currentYear));
   const [loading, setLoading] = useState(true);
@@ -370,7 +372,8 @@ export function TaxFilingHubScreen({ user, onBack, onNavigate }: FilingHubProps)
                 </section>
 
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm" className="min-h-11 rounded-lg" onClick={() => onNavigate?.("document-import")} disabled={!onNavigate}><Upload className="mr-1.5 h-4 w-4" />Import document</Button>
+                  {modelConsent.granted && <Button variant="outline" size="sm" className="min-h-11 rounded-lg" onClick={() => onNavigate?.("document-import")} disabled={!onNavigate}><Upload className="mr-1.5 h-4 w-4" />Import document</Button>}
+                  {modelConsent.loaded && !modelConsent.granted && <p className="text-xs text-muted-foreground">{MODEL_CONSENT_UNAVAILABLE}</p>}
                   <Button variant="ghost" size="sm" className="min-h-11 rounded-lg" onClick={() => onNavigate?.("add-manual-transaction")} disabled={!onNavigate}><Receipt className="mr-1.5 h-4 w-4" />Add transaction</Button>
                 </div>
                 <p className="text-xs leading-relaxed text-muted-foreground">These are recorded inputs and planning estimates. They do not establish that your return is complete or ready to file. Review missing income, adjustments, credits and state requirements with your filing provider.</p>

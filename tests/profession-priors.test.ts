@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ create: vi.fn(), collection: vi.fn() }));
-vi.mock('@/lib/firebase/admin', () => ({ adminDb: { collection: mocks.collection } }));
+vi.mock('@/lib/firebase/admin', () => ({ adminDb: {
+  collection: mocks.collection,
+  doc: () => ({ get: async () => ({ exists: true, data: () => ({
+    status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review',
+    purposes: ['transaction_analysis'],
+    signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+  }) }) }),
+} }));
 vi.mock('openai', () => ({ default: function MockOpenAI() { return { chat: { completions: { create: mocks.create } } }; } }));
 
 import { analyzeTransaction, buildAnalysisContext, type TransactionInput, type UserContext } from '@/lib/ai/analyzeTransaction';
@@ -134,7 +141,7 @@ describe('professionContextForModel', () => {
 
 describe('analysis context wiring', () => {
   const transaction: TransactionInput = { tx_id: 'wire-1', merchant: 'ADOBE *CREATIVE CLOUD', amount_usd: 54.99, date_iso: '2026-03-02', notes: 'planet fitness netflix' };
-  const context: UserContext = { user_id: '', profession: ['Graphic Designer'], filing_state: 'CA', business_entity: 'sole_proprietor' };
+  const context: UserContext = { user_id: 'wire-owner', profession: ['Graphic Designer'], filing_state: 'CA', business_entity: 'sole_proprietor' };
   const extras = { learningContext: null, timeToUse: null, w2Income: undefined, bizIncome: undefined };
 
   it('sends profession_context and tx.merchant_intelligence built from bank text only', () => {

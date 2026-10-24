@@ -10,6 +10,7 @@ import { AiTaxAnalysisDialog } from '@/components/ai-tax-explanation';
 import { useAiAvailability } from '@/lib/hooks/use-ai-availability';
 import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { REVIEW_CATEGORIES, canConfirmSuggestion, reviewCategory, type TransactionKind } from '@/lib/transactions/ai-review-contract';
+import { ruleBasedSuggestion } from '@/lib/transactions/rule-suggestion';
 import { reviewPresentation, transactionReviewKey } from '@/lib/transactions/review-presentation';
 import { formatTransactionDate } from '@/lib/transactions/calendar-date';
 import { formatRecordedTransactionAmount } from '@/lib/transactions/amount-display';
@@ -49,6 +50,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
   const incomingRecords = useRef(transactions); incomingRecords.current = transactions;
   const [operation, setOperation] = useState<'saving' | 'analyzing' | null>(null);
   const [editing, setEditing] = useState(false);
+  const [reviewMode, setReviewMode] = useState<'correct' | 'manual'>('correct');
   const [kind, setKind] = useState<Exclude<TransactionKind, 'unknown'>>('expense');
   const [category, setCategory] = useState('');
   const [deductible, setDeductible] = useState<boolean | null>(null);
@@ -104,18 +106,21 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
   const suggestion = backgroundAnalysis ? null : current?.ai_suggestion;
   // Backlog across the loaded records, so a queued card can say how long the wait may be.
   const analysisWaiting = analysisQueued ? summarizeAnalysisBacklog(resolved).waiting : 0;
-  const mayConfirm = !!current && current.pending !== true && !analysisRunning && !analysisQueued && canConfirmSuggestion(suggestion);
-  const suggestedCategory = reviewCategory(suggestion?.category);
+  const ruleSuggestion = current && !analysisRunning && !analysisQueued ? ruleBasedSuggestion(current) : null;
+  const confirmable = canConfirmSuggestion(suggestion) ? suggestion : canConfirmSuggestion(ruleSuggestion) ? ruleSuggestion : null;
+  const mayConfirm = !!current && current.pending !== true && !analysisRunning && !analysisQueued && !!confirmable;
+  const canCategorizeManually = !!current && current.pending !== true && !analysisRunning && !analysisQueued;
+  const suggestedCategory = reviewCategory(confirmable?.category);
   // Describe the existing review endpoint's supported deduction cases, not just the model's status.
-  const recordsDeduction = mayConfirm && suggestion?.status === 'ok' && suggestion.transactionKind === 'expense' &&
-    suggestion.isDeductible === true && !!suggestedCategory && !suggestedCategory.recordedCategory.endsWith('_REVIEW_REQUIRED') &&
-    suggestion.deductiblePercent === (suggestedCategory.value === 'meals_50' ? 50 : 100);
-  const needsTaxFacts = presentation?.needsTaxFacts || suggestion?.transactionKind === 'refund' ||
-    (mayConfirm && suggestion?.isDeductible === true && !recordsDeduction);
+  const recordsDeduction = mayConfirm && confirmable?.status === 'ok' && confirmable.transactionKind === 'expense' &&
+    confirmable.isDeductible === true && !!suggestedCategory && !suggestedCategory.recordedCategory.endsWith('_REVIEW_REQUIRED') &&
+    confirmable.deductiblePercent === (suggestedCategory.value === 'meals_50' ? 50 : 100);
+  const needsTaxFacts = presentation?.needsTaxFacts || confirmable?.transactionKind === 'refund' ||
+    (mayConfirm && confirmable?.isDeductible === true && !recordsDeduction);
   const confirmationLabel = recordsDeduction ? 'Confirm deduction' : 'Confirm category';
   const confirmationHint = !mayConfirm ? presentation?.confirmationHint : recordsDeduction
     ? `Confirm saves this category and marks it deductible. ${suggestedCategory?.value === 'meals_50' ? 'Verify business use; the 50% meal limit applies.' : 'Verify business use first.'}`
-    : suggestion?.transactionKind === 'expense' ? 'Confirm also marks this expense not deductible.' : 'No expense deduction will be recorded.';
+    : confirmable?.transactionKind === 'expense' ? 'Confirm also marks this expense not deductible.' : 'No expense deduction will be recorded.';
   const busy = operation !== null;
   // One-tap purpose confirmation: only offered while the proposal can be recorded through the update API.
   const proposal = current ? proposedBusinessPurpose(current) : null;
@@ -164,28 +169,32 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentKey, analysisRunning, analysisQueued, user.id]);
 
-  const openCorrection = () => {
+  const openCorrection = (mode: 'correct' | 'manual' = 'correct') => {
     if (!current || operationLock.current || current.pending) return;
+    setReviewMode(mode);
     setKind(suggestion?.transactionKind && suggestion.transactionKind !== 'unknown' ? suggestion.transactionKind : 'expense');
     setCategory(suggestion?.category ?? (suggestion?.transactionKind && ['personal', 'income', 'transfer'].includes(suggestion.transactionKind) ? suggestion.transactionKind : ''));
     setDeductible(null);
     setReason(''); setMessage(null); setEditing(true);
   };
 
-  const saveReview = async (action: 'confirm' | 'correct') => {
+  const saveReview = async (action: 'confirm' | 'correct' | 'manual') => {
     if (!current || operationLock.current || current.pending || (action === 'confirm' && !mayConfirm)) return;
     const accountId = current.account_id || current.accountId;
     if (!accountId) { setMessage('This transaction is missing its account. Open its details or refresh before reviewing.'); return; }
-    if (action === 'correct' && !category) { setMessage('Choose a category before saving.'); return; }
+    if ((action === 'correct' || action === 'manual') && !category) { setMessage('Choose a category before saving.'); return; }
     operationLock.current = true; setOperation('saving'); setMessage(null);
     const owner = user.id;
     const key = currentKey;
+    const manualFields = { accountId, category, transactionKind: kind, isDeductible: kind === 'expense' ? deductible : kind === 'refund' ? null : false, reason: reason.trim() || undefined };
     try {
       const response = await makeAuthenticatedRequest(`/api/transactions/${encodeURIComponent(current.trans_id || current.id)}/review`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(action === 'confirm'
-          ? { action, accountId, suggestionId: suggestion!.id }
-          : { action, accountId, category, transactionKind: kind, isDeductible: kind === 'expense' ? deductible : kind === 'refund' ? null : false, reason: reason.trim() || undefined }),
+          ? { action: 'confirm', accountId, suggestionId: confirmable!.id }
+          : action === 'manual'
+            ? { action: 'confirm', ...manualFields }
+            : { action: 'correct', ...manualFields }),
       });
       const result = await response.json().catch(() => null);
       if (!mounted.current || activeUser.current !== owner || activeKey.current !== key) return;
@@ -316,8 +325,9 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
 
   const swipe = (direction: 'left' | 'right') => {
     if (editing || operationLock.current) return;
-    if (direction === 'left') openCorrection();
-    else void saveReview('confirm');
+    if (direction === 'left') openCorrection('correct');
+    else if (mayConfirm) void saveReview('confirm');
+    else if (canCategorizeManually) openCorrection('manual');
   };
   const later = () => {
     if (!current || operationLock.current) return;
@@ -443,13 +453,13 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
               {kind === 'expense' && <div><label htmlFor="review-deduction" className="mb-1 block text-sm font-medium">Tax treatment</label><select id="review-deduction" value={deductible === null ? 'unresolved' : String(deductible)} onChange={event => setDeductible(event.target.value === 'unresolved' ? null : event.target.value === 'true')} disabled={busy} className="min-h-11 w-full rounded-lg border border-border bg-background px-3 py-2 text-base sm:text-sm"><option value="unresolved">Save category; review tax treatment later</option><option value="true" disabled={(reviewCategory(category)?.recordedCategory ?? '').endsWith('_REVIEW_REQUIRED')}>I confirmed this is a business deduction</option><option value="false">Not deductible</option></select><p className="mt-1.5 text-xs text-muted-foreground">Confirm a deduction only after verifying business use and tax rules. Category limits still apply.</p></div>}
               {kind === 'refund' && <p className="text-xs leading-5 text-muted-foreground">Use the original expense category. Reconcile this refund against that expense before changing a tax deduction.</p>}
               <details className="group"><summary className="flex min-h-11 cursor-pointer list-none items-center justify-between text-sm font-medium [&::-webkit-details-marker]:hidden"><span>Add a note <span className="font-normal text-muted-foreground">(optional)</span></span><ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" /></summary><label htmlFor="review-reason" className="sr-only">Your note (optional)</label><textarea id="review-reason" value={reason} onChange={event => setReason(event.target.value)} maxLength={1000} rows={2} className="min-h-16 w-full rounded-lg border border-border bg-background p-3 text-base sm:text-sm" placeholder="For example: supplies for my client projects" disabled={busy} /></details>
-              <div className="grid grid-cols-2 gap-2"><Button variant="outline" className="min-h-11" disabled={busy} onClick={() => setEditing(false)}>Cancel</Button><Button className="min-h-11" disabled={busy || !category} onClick={() => saveReview('correct')}>{operation === 'saving' ? 'Saving…' : 'Save correction'}</Button></div>
+              <div className="grid grid-cols-2 gap-2"><Button variant="outline" className="min-h-11" disabled={busy} onClick={() => setEditing(false)}>Cancel</Button><Button className="min-h-11" disabled={busy || !category} onClick={() => saveReview(reviewMode === 'manual' ? 'manual' : 'correct')}>{operation === 'saving' ? 'Saving…' : reviewMode === 'manual' ? 'Save category' : 'Save correction'}</Button></div>
             </section>}
 
           </div>
           {!editing && <div className="grid grid-cols-2 gap-2 border-t border-border bg-card p-3">
             <Button variant="outline" disabled={busy || current.pending === true} onClick={() => swipe('left')} className="min-h-11 px-3"><Edit3 className="h-4 w-4" /><span>Change</span></Button>
-            <Button aria-describedby="review-confirmation-hint" disabled={busy || !mayConfirm} onClick={() => saveReview('confirm')} className="min-h-11 gap-1.5 whitespace-normal px-2 leading-4">{operation === 'saving' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}<span>{operation === 'saving' ? 'Saving…' : confirmationLabel}</span></Button>
+            <Button aria-describedby="review-confirmation-hint" disabled={busy || current.pending === true || analysisRunning || analysisQueued} onClick={() => { if (mayConfirm) void saveReview('confirm'); else openCorrection('manual'); }} className="min-h-11 gap-1.5 whitespace-normal px-2 leading-4">{operation === 'saving' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}<span>{operation === 'saving' ? 'Saving…' : confirmationLabel}</span></Button>
           </div>}
         </article>
         {!editing && <p className="mt-2 text-center text-xs text-muted-foreground">Swipe left to change · right to confirm</p>}

@@ -1,7 +1,7 @@
 // Load environment variables from .env.local
 require('dotenv').config({ path: '.env.local' });
 
-const OpenAI = require('openai');
+const OpenAI = null;
 
 // Test OpenAI analysis
 async function testOpenAIAnalysis() {
@@ -19,9 +19,11 @@ async function testOpenAIAnalysis() {
     
     // Initialize OpenAI client
     console.log('🔄 Initializing OpenAI client...');
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+    if (!OpenAI) {
+      console.error('This archived script no longer constructs a model client. Use the server gate.');
+      return;
+    }
+    const openai = OpenAI;
     
     console.log('✅ OpenAI client initialized successfully');
     

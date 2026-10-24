@@ -176,6 +176,13 @@ service cloud.firestore {
         allow read, write: if request.auth != null && request.auth.uid == uid;
       }
 
+      // Model disclosure and reuse records. The owner may read status so the
+      // client can hide model uploads. Clients cannot create, change, or delete them.
+      match /model_consents/{consentId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow create, update, delete: if false;
+      }
+
       // Owner history review is available only through the authenticated, validated API.
       match /bank_reconnects/{sessionId}/{document=**} { allow read, write: if false; }
 

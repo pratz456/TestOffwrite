@@ -1,4 +1,13 @@
 import { getOpenAIClientOrThrow, getOpenAIModel } from './client'
+import type { ModelPurpose } from './consent-contract'
+
+function consentIdentity(userContext?: { user_id?: string; userId?: string }, tx?: { userId?: string; user_id?: string }) {
+  return String(userContext?.user_id || userContext?.userId || tx?.userId || tx?.user_id || '')
+}
+
+async function consentedClient(uid: string, purpose: ModelPurpose = 'transaction_analysis') {
+  return getOpenAIClientOrThrow({ uid, purpose, requestedAt: new Date() })
+}
 import { getTransactionsServer, updateTransactionServerWithUserId } from '../firebase/transactions-server'
 
 export type AIAnalysis = {
@@ -96,7 +105,8 @@ Transaction:
 
 export async function analyzeTransaction(tx: any, userContext?: any): Promise<AIAnalysis> {
   const model = getOpenAIModel('transaction');
-  const res = await getOpenAIClientOrThrow().chat.completions.create({
+  const client = await consentedClient(consentIdentity(userContext, tx));
+  const res = await client.chat.completions.create({
     model,
     store: false,
     temperature: 0,
@@ -160,8 +170,8 @@ export async function analyzeTransaction(tx: any, userContext?: any): Promise<AI
 }
 
 // Legacy function for backward compatibility
-export async function analyzeTransactionDeductibility(transaction: any) {
-  const analysis = await analyzeTransaction(transaction);
+export async function analyzeTransactionDeductibility(transaction: any, userContext?: any) {
+  const analysis = await analyzeTransaction(transaction, userContext || { user_id: consentIdentity(undefined, transaction) });
   
   return {
     success: true,
@@ -187,7 +197,7 @@ export async function analyzeAllTransactions(userId: string) {
       const batch = transactions.slice(i, i + BATCH_SIZE)
       const results = await Promise.all(
         batch.map(async (transaction) => {
-          const analysis = await analyzeTransactionDeductibility(transaction)
+          const analysis = await analyzeTransactionDeductibility(transaction, { user_id: userId })
           if (analysis.success) {
             await updateTransactionServerWithUserId(userId, transaction.trans_id, {
               is_deductible: null, // Always null — user must confirm
@@ -230,7 +240,8 @@ export async function generateTaxSummary(userId: string) {
       Provide a brief summary of the tax implications and any recommendations.
     `
 
-    const response = await getOpenAIClientOrThrow().chat.completions.create({
+    const client = await consentedClient(userId);
+    const response = await client.chat.completions.create({
       model: getOpenAIModel('transaction'),
       store: false,
       messages: [

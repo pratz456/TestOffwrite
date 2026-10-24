@@ -7,12 +7,18 @@ import { TRANSACTION_TAX_POLICY_VERSION } from '@/lib/ai/transaction-tax-policy'
 import { transactionIdInput } from './client-updates';
 import { canConfirmAiSuggestion, recordedTransactionType, reviewCategory, reviewHydrationFields,
   type AiReviewSuggestion, type TransactionReviewRequest } from './ai-review-contract';
+import { ruleBasedSuggestion } from './rule-suggestion';
 
-export const transactionReviewInput = z.discriminatedUnion('action', [
+const manualConfirm = {
+  accountId: transactionIdInput, category: z.string().min(1).max(200),
+  transactionKind: z.enum(['expense', 'income', 'transfer', 'refund', 'personal']),
+  isDeductible: z.boolean().nullable().optional(), reason: z.string().trim().max(5000).optional(),
+};
+
+export const transactionReviewInput = z.union([
   z.object({ action: z.literal('confirm'), accountId: transactionIdInput, suggestionId: z.string().min(1).max(128) }).strict(),
-  z.object({ action: z.literal('correct'), accountId: transactionIdInput, category: z.string().min(1).max(200),
-    transactionKind: z.enum(['expense', 'income', 'transfer', 'refund', 'personal']),
-    isDeductible: z.boolean().nullable(), reason: z.string().trim().max(5000).optional() }).strict(),
+  z.object({ action: z.literal('confirm'), ...manualConfirm }).strict(),
+  z.object({ action: z.literal('correct'), ...manualConfirm, isDeductible: z.boolean().nullable() }).strict(),
 ]);
 
 export class TransactionReviewError extends Error {
@@ -61,19 +67,26 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
     let reason: string;
     let suggestionId: string | null = null;
     let source: 'ai_confirmed' | 'user_corrected';
-    if (input.action === 'confirm') {
-      if (data.review_status === 'confirmed' && data.review_source === 'ai_confirmed' && data.review_suggestion_id === input.suggestionId) {
+    if (input.action === 'confirm' && 'suggestionId' in input) {
+      if (data.review_status === 'confirmed' && data.review_suggestion_id === input.suggestionId &&
+          (data.review_source === 'ai_confirmed' || data.review_source === 'user_corrected')) {
         return hydrateReviewTransaction(data, id);
       }
-      const suggestion = data.ai_suggestion as AiReviewSuggestion | undefined;
-      if (!suggestion || suggestion.id !== input.suggestionId || suggestion.inputHash !== analysisInputHash(data)) {
+      const saved = data.ai_suggestion as AiReviewSuggestion | undefined;
+      const rule = ruleBasedSuggestion(data);
+      const matchesSaved = !!saved && saved.id === input.suggestionId && saved.inputHash === analysisInputHash(data);
+      const matchesRule = !!rule && rule.id === input.suggestionId;
+      if (!matchesSaved && !matchesRule) {
         throw new TransactionReviewError('AI_SUGGESTION_CHANGED', 'The transaction or AI suggestion changed. Refresh and review the latest suggestion.', 409);
       }
-      if (suggestion.policyVersion !== TRANSACTION_TAX_POLICY_VERSION) {
-        throw new TransactionReviewError('AI_POLICY_CHANGED', 'WriteOff tax guidance changed after this analysis. Run AI again before confirming it.', 409);
-      }
-      if (!profile.exists || !suggestion.profileHash || suggestion.profileHash !== analysisProfileHash(profile.data()!, data.date)) {
-        throw new TransactionReviewError('AI_PROFILE_CHANGED', 'Your business profile changed after this analysis. Run AI again or correct the category manually.', 409);
+      const suggestion = matchesSaved ? saved! : rule!;
+      if (matchesSaved) {
+        if (suggestion.policyVersion !== TRANSACTION_TAX_POLICY_VERSION) {
+          throw new TransactionReviewError('AI_POLICY_CHANGED', 'WriteOff tax guidance changed after this analysis. Run AI again before confirming it.', 409);
+        }
+        if (!profile.exists || !suggestion.profileHash || suggestion.profileHash !== analysisProfileHash(profile.data()!, data.date)) {
+          throw new TransactionReviewError('AI_PROFILE_CHANGED', 'Your business profile changed after this analysis. Run AI again or correct the category manually.', 409);
+        }
       }
       if (!canConfirmAiSuggestion(suggestion)) throw new TransactionReviewError('AI_REVIEW_REQUIRED', 'This suggestion needs more information before its category can be confirmed.');
       if (typeof data.is_deductible === 'boolean') throw new TransactionReviewError('CLASSIFICATION_EXISTS', 'This transaction already has a saved tax decision. Use Correct to change it.', 409);
@@ -82,12 +95,15 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       deduction = suggestion.status === 'ok' ? suggestion.isDeductible : null;
       reason = suggestion.reasoning;
       suggestionId = suggestion.id;
-      source = 'ai_confirmed';
+      source = matchesSaved ? 'ai_confirmed' : 'user_corrected';
       if (deduction === true) {
         const mapped = reviewCategory(category);
         if (!mapped || mapped.recordedCategory.endsWith('_REVIEW_REQUIRED') ||
             suggestion.deductiblePercent !== (mapped.value === 'meals_50' ? 50 : 100)) deduction = null;
       }
+    } else if (input.action === 'confirm') {
+      kind = input.transactionKind; category = input.category; deduction = input.isDeductible ?? null;
+      reason = input.reason || 'Category reviewed and confirmed by user.'; source = 'user_corrected';
     } else {
       kind = input.transactionKind; category = input.category; deduction = input.isDeductible;
       reason = input.reason || 'Category reviewed and corrected by user.'; source = 'user_corrected';

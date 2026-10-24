@@ -3,7 +3,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getOpenAIClientOrThrow, getOpenAIModel, hasOpenAIAPIKey } from '@/lib/openai/client';
+import { getOpenAIClientOrThrow, getOpenAIModel } from '@/lib/openai/client';
+import { isConsentRequired, isImageProcessingNotApproved, isOpenAINotConfigured, MODEL_CONSENT_UNAVAILABLE } from '@/lib/openai/consent';
 import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 import { redactIdentifierStrings, redactIdentifierText } from '@/lib/security/identifier-redaction';
@@ -40,13 +41,6 @@ export async function POST(request: NextRequest) {
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    if (!hasOpenAIAPIKey()) {
-      return NextResponse.json(
-        { error: 'Voice parsing is currently unavailable. Enter the transaction manually.' },
-        { status: 503 }
-      );
-    }
-
     const body = await readJsonObject(request);
     if (!body) return invalidJsonResponse();
     const { text } = body;
@@ -56,7 +50,7 @@ export async function POST(request: NextRequest) {
     }
     const limit = await enforceRateLimit({ ...RATE_LIMITS.aiVoiceCommand, key: user.uid });
     if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many voice commands. Please wait a few minutes and try again.' });
-    const openai = getOpenAIClientOrThrow();
+    const openai = await getOpenAIClientOrThrow({ uid: user.uid, purpose: 'voice_command', requestedAt: new Date() });
     const redactedText = redactIdentifierText(text).text;
 
     const systemPrompt = `You are a voice command parser for a tax expense tracking app. Parse the user's spoken text into structured commands.
@@ -137,7 +131,16 @@ Examples:
       command
     });
 
-  } catch {
+  } catch (error) {
+    if (isConsentRequired(error) || isImageProcessingNotApproved(error)) {
+      return NextResponse.json({ code: isConsentRequired(error) ? 'CONSENT_REQUIRED' : 'IMAGE_PROCESSING_NOT_APPROVED', error: MODEL_CONSENT_UNAVAILABLE }, { status: 403 });
+    }
+    if (isOpenAINotConfigured(error)) {
+      return NextResponse.json(
+        { error: 'Voice parsing is currently unavailable. Enter the transaction manually.' },
+        { status: 503 }
+      );
+    }
     return NextResponse.json(
       { 
         error: 'Failed to parse voice command'

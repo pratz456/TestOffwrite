@@ -56,6 +56,7 @@ export interface AiReviewSuggestion {
 
 export type TransactionReviewRequest =
   | { action: 'confirm'; accountId: string; suggestionId: string }
+  | { action: 'confirm'; accountId: string; category: string; transactionKind: Exclude<TransactionKind, 'unknown'>; isDeductible?: boolean | null; reason?: string }
   | { action: 'correct'; accountId: string; category: string; transactionKind: Exclude<TransactionKind, 'unknown'>; isDeductible: boolean | null; reason?: string };
 
 export function reviewCategory(value: unknown) {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getOpenAIClientOrThrow, getOpenAIModel, hasOpenAIAPIKey } from '@/lib/openai/client';
+import { getOpenAIClientOrThrow, getOpenAIModel } from '@/lib/openai/client';
+import { isConsentRequired, isImageProcessingNotApproved, isOpenAINotConfigured, MODEL_CONSENT_UNAVAILABLE } from '@/lib/openai/consent';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { assistantRequestSchema, isSupportedImage, readAssistantBody } from '@/lib/tax-assistant/contract';
 import { loadAssistantContext } from '@/lib/tax-assistant/context-server';
@@ -27,15 +28,11 @@ export async function POST(request: NextRequest) {
   }
   const limit = await enforceRateLimit({ ...RATE_LIMITS.aiTaxAssistant, key: user.uid });
   if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many assistant requests. Please wait a few minutes and try again.' });
-  if (!hasOpenAIAPIKey()) {
-    return NextResponse.json({ error: 'The tax assistant is not configured yet. Your question has not been sent for analysis.' }, { status: 503 });
-  }
-
   // Owner-scoped saved facts and (only when a merchant is named) a bounded read of the user's own rows.
   const context = await loadAssistantContext(user.uid, input.message, input.taxYear).catch(() => null);
 
   try {
-    const openai = getOpenAIClientOrThrow({ timeout: 45000, maxRetries: 0 });
+    const openai = await getOpenAIClientOrThrow({ uid: user.uid, purpose: 'tax_assistant', requestedAt: new Date(), timeout: 45000, maxRetries: 0 });
     const completion = await openai.chat.completions.create({
       model: getOpenAIModel('assistant'),
       messages: buildGuidanceMessages(input, context),
@@ -52,7 +49,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(guidanceResponse(input, validateAssessment(assessment, input), context), {
       headers: { 'Cache-Control': 'no-store' },
     });
-  } catch {
+  } catch (error) {
+    if (isConsentRequired(error) || isImageProcessingNotApproved(error)) {
+      return NextResponse.json({ code: isConsentRequired(error) ? 'CONSENT_REQUIRED' : 'IMAGE_PROCESSING_NOT_APPROVED', error: MODEL_CONSENT_UNAVAILABLE }, { status: 403 });
+    }
+    if (isOpenAINotConfigured(error)) {
+      return NextResponse.json({ error: 'The tax assistant is not configured yet. Your question has not been sent for analysis.' }, { status: 503 });
+    }
     // Provider errors may contain request/photo data. Do not log or return their raw payloads.
     return NextResponse.json({ error: 'The assistant is temporarily unavailable. Your draft is ready to retry.' }, { status: 503 });
   }

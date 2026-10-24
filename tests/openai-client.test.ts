@@ -1,9 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getOpenAIClientOrThrow, getOpenAIModel, hasOpenAIAPIKey } from '@/lib/openai/client';
+
+const consent = vi.hoisted(() => ({ record: null as Record<string, unknown> | null }));
+vi.mock('@/lib/firebase/admin', () => ({
+  adminDb: { doc: () => ({ get: async () => ({ exists: !!consent.record, data: () => consent.record }) }) },
+}));
+
+import { OPENAI_COMPLETIONS_URL, getOpenAIClientOrThrow, getOpenAIModel, hasOpenAIAPIKey } from '@/lib/openai/client';
+import type { ModelPurpose } from '@/lib/openai/consent-contract';
+
+const request = (purpose: ModelPurpose = 'tax_assistant') => ({
+  uid: 'synthetic-owner', purpose, requestedAt: new Date('2026-06-01T00:00:00.000Z'),
+});
+function grant() {
+  consent.record = {
+    status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review',
+    purposes: ['transaction_analysis', 'document_text', 'document_image', 'statement_autodetect', 'statement_extract', 'statement_receipt', 'tax_assistant', 'account_assistant', 'voice_command'],
+    signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+  };
+}
 
 beforeEach(() => {
+  consent.record = null;
   vi.stubEnv('OPENAI_API_KEY', '  synthetic-server-key  ');
   vi.stubEnv('OPENAI_MODEL', undefined);
+  grant();
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
@@ -19,12 +39,12 @@ describe('one server OpenAI credential and routing policy', () => {
       model: 'gpt-4o-mini', choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: 'OK' } }],
     }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetch);
-    const client = getOpenAIClientOrThrow({ timeout: 1200, maxRetries: 0 });
+    const client = await getOpenAIClientOrThrow({ ...request(), timeout: 1200, maxRetries: 0 });
     await client.chat.completions.create({ model: getOpenAIModel(), store: false, messages: [{ role: 'user', content: 'synthetic' }] });
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
     const headers = new Headers(init.headers);
-    expect(String(url)).toBe('https://api.openai.com/v1/chat/completions');
+    expect(String(url)).toBe(OPENAI_COMPLETIONS_URL);
     expect(headers.get('authorization')).toBe('Bearer synthetic-server-key');
     expect(headers.has('OpenAI-Organization')).toBe(false);
     expect(headers.has('OpenAI-Project')).toBe(false);
@@ -33,24 +53,24 @@ describe('one server OpenAI credential and routing policy', () => {
     expect(client.maxRetries).toBe(0);
   });
 
-  it.each([undefined, '', ' \t\n '])('rejects missing or whitespace keys without falling back to public credentials (%j)', key => {
+  it.each([undefined, '', ' \t\n '])('rejects missing or whitespace keys without falling back to public credentials (%j)', async key => {
     vi.stubEnv('OPENAI_API_KEY', key);
     vi.stubEnv('NEXT_PUBLIC_OPENAI_API_KEY', 'synthetic-public-fallback');
     expect(hasOpenAIAPIKey()).toBe(false);
-    expect(() => getOpenAIClientOrThrow()).toThrow('OpenAI is not configured (missing OPENAI_API_KEY)');
+    await expect(getOpenAIClientOrThrow(request())).rejects.toThrow('OpenAI is not configured (missing OPENAI_API_KEY)');
   });
 
-  it('reads the current server secret for each new client, supporting rotation without a cached old key', () => {
-    const first = getOpenAIClientOrThrow();
+  it('reads the current server secret for each new client, supporting rotation without a cached old key', async () => {
+    const first = await getOpenAIClientOrThrow(request());
     vi.stubEnv('OPENAI_API_KEY', 'synthetic-rotated-server-key');
-    const second = getOpenAIClientOrThrow();
+    const second = await getOpenAIClientOrThrow(request());
     expect(first.apiKey).toBe('synthetic-server-key');
     expect(second.apiKey).toBe('synthetic-rotated-server-key');
   });
 
-  it('refuses client construction in the browser', () => {
+  it('refuses client construction in the browser', async () => {
     vi.stubGlobal('window', {});
-    expect(() => getOpenAIClientOrThrow()).toThrow('OpenAI is only available on the server');
+    await expect(getOpenAIClientOrThrow(request())).rejects.toThrow('OpenAI is only available on the server');
   });
 
   it.each([

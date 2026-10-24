@@ -36,6 +36,7 @@ vi.mock('@/lib/firebase/admin', async () => {
   return { adminDb: { ...createFakeFirestore(), collectionGroup: mocks.collectionGroup } };
 });
 
+import { adminDb } from '@/lib/firebase/admin';
 import { POST } from '../app/api/ai/analyze-transaction/route';
 import { buildTaxpayerContext } from '../lib/ai/taxpayer-context';
 import type { UserContext } from '../lib/ai/analyzeTransaction';
@@ -71,6 +72,10 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
   uid = `availability-test-${++nextUser}`;
+  (adminDb as unknown as { records: Map<string, Record<string, unknown>> }).records.set(`user_profiles/${uid}/model_consents/disclosure`, {
+    status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review',
+    purposes: ['transaction_analysis'], signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+  });
   mocks.authenticate.mockResolvedValue({ user: { uid }, error: null });
   mocks.profile.mockResolvedValue({ data: { profession: 'Designer' }, error: null });
   mocks.taxpayerContext.mockImplementation(async (_uid: string, profile: UserContext, merchant: string | null | undefined, transactionDate: string | null) =>
@@ -212,6 +217,10 @@ describe('transaction analysis availability', () => {
     expect(mocks.claim).toHaveBeenCalledTimes(60);
     expect(mocks.collectionGroup).toHaveBeenCalledTimes(60);
     // Another owner keeps an independent window.
+    (adminDb as unknown as { records: Map<string, Record<string, unknown>> }).records.set(`user_profiles/${uid}-other/model_consents/disclosure`, {
+      status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review',
+      purposes: ['transaction_analysis'], signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+    });
     mocks.authenticate.mockResolvedValue({ user: { uid: `${uid}-other` }, error: null });
     mocks.get.mockResolvedValue({ empty: false, docs: [{ ref: { path: `user_profiles/${uid}-other/accounts/owned-account/transactions/${body.transactionId}` } }] });
     expect((await POST(request())).status).toBe(200);
