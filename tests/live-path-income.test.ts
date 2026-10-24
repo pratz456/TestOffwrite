@@ -286,3 +286,43 @@ describe('month then day dates stay in the period that ends March 31', () => {
     expect(result.quarterlyGrossReceipts).toEqual([ADDED, 0, 0, 0]);
   });
 });
+
+describe('quarterly reminders estimate for a month then day receipt', () => {
+  const march = (id: string, merchant: string, assumed: boolean) => ({
+    id, trans_id: id, account_id: 'bank-1', amount: -ADDED, category: 'income',
+    merchant_name: merchant, pending: false, iso_currency_code: 'USD', date: '2026-03-04',
+    ...(assumed ? { dateOrderAssumed: 'month_day' } : {}),
+  });
+  const ask = async (row: Record<string, unknown>) => {
+    state.tx = [control(), row];
+    const response = await quarterly(new NextRequest('http://localhost/api/tax/quarterly-reminders?year=2026&asOf=2026-09-01'));
+    return { status: response.status, body: await response.json() };
+  };
+
+  it('names the flagged 2026-03-04 row on the estimate the screen loads', async () => {
+    const result = await ask(march('march-flag', 'March Boundary Client', true));
+    expect(result.status).toBe(200);
+    expect(result.body.grossReceipts).toBe(DATED + ADDED);
+    const warnings = result.body.calculationWarnings as string[];
+    expect(warnings.some(warning => warning.includes('March Boundary Client') || warning.includes('march-flag'))).toBe(true);
+  });
+
+  it('counts that flagged receipt in the period ending March 31 and leaves it out of needsMoreInformationRows', async () => {
+    const result = await ask(march('march-flag', 'March Boundary Client', true));
+    expect(result.status).toBe(200);
+    expect(result.body.quarterlyGrossReceipts).toEqual([DATED + ADDED, 0, 0, 0]);
+    expect(result.body.needsMoreInformationRows.some((row: { id?: string; name?: string }) => row.id === 'march-flag' || row.name === 'March Boundary Client')).toBe(false);
+    expect(result.body.dateNeedsReview).toEqual([{ id: 'march-flag', date: '2026-03-04', amount: ADDED }]);
+  });
+
+  it('does not warn for the same receipt when dateOrderAssumed is absent', async () => {
+    const result = await ask(march('march-plain', 'March Plain Client', false));
+    expect(result.status).toBe(200);
+    expect(result.body.grossReceipts).toBe(DATED + ADDED);
+    const warnings = result.body.calculationWarnings as string[];
+    expect(warnings.some(warning => warning.includes('March Plain Client') || warning.includes('march-plain'))).toBe(false);
+    expect(result.body.needsMoreInformationRows).toEqual([]);
+    expect(result.body.dateNeedsReview).toEqual([]);
+    expect(result.body.quarterlyGrossReceipts).toEqual([DATED + ADDED, 0, 0, 0]);
+  });
+});

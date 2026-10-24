@@ -13,15 +13,17 @@ import { DOCUMENT_IMPORT_CONSENT_DATE_BLANK, DOCUMENT_IMPORT_CONSENT_TEXT, DOCUM
 const record = { version: CONSENT_TERMS_VERSION, source: 'sign-up', accepted_at: '2026-09-17T12:00:00.000Z', terms: true, bank_data: true, ai_review: true, communications: false, document_import: false };
 const signed = { ...record, document_import: true, document_import_signature: { version: DOCUMENT_IMPORT_CONSENT_VERSION, signed_name: 'Synthetic Signer', signed_at: '2026-09-18T09:00:00.000Z' } };
 const today = new Date('2026-09-19T15:00:00.000Z');
+const consentDate = (date: Date) => date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 const unescape = (html: string) => html.replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 const labelText = (html: string) => unescape(html.match(/<label for="document-image-consent"[^>]*>([\s\S]*?)<\/label>/)![1]);
 
 describe('§7216 document-image consent screen', () => {
   it('uses the drafted consent text verbatim as the checkbox label, with only the date completed', () => {
     const html = renderToStaticMarkup(<DocumentImageConsent record={record} reason="ocr_low_confidence" onAuthorized={() => {}} onCancel={() => {}} today={today} />);
-    expect(labelText(html)).toBe(DOCUMENT_IMPORT_CONSENT_TEXT.replace(DOCUMENT_IMPORT_CONSENT_DATE_BLANK, 'September 19, 2026'));
+    const completed = consentDate(today);
+    expect(labelText(html)).toBe(DOCUMENT_IMPORT_CONSENT_TEXT.replace(DOCUMENT_IMPORT_CONSENT_DATE_BLANK, completed));
     expect(html).toContain('[type your full name]');
-    expect(html).toContain('Date: September 19, 2026');
+    expect(html).toContain(`Date: ${completed}`);
   });
   it('starts unchecked and unsigned, with the signature field empty and the send button disabled', () => {
     const html = renderToStaticMarkup(<DocumentImageConsent record={record} reason="model_requested_image" onAuthorized={() => {}} onCancel={() => {}} today={today} />);

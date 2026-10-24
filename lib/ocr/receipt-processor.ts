@@ -1,4 +1,5 @@
 import Tesseract from 'tesseract.js';
+import { calendarChargeDay } from '@/lib/schedule-c/taxDate';
 
 export interface ReceiptData {
   merchant: string;
@@ -356,10 +357,20 @@ export class ReceiptProcessor {
     try {
       if (!dateLike) return null;
       if (typeof dateLike === 'string') {
-        const d = new Date(dateLike);
+        // A written receipt day is a calendar date. new Date('09/02/2026') is
+        // local midnight, and toISOString() then moves that day backward in
+        // time zones east of UTC.
+        const text = dateLike.trim();
+        const usNumeric = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(text);
+        if (usNumeric) {
+          const ymd = `${usNumeric[3]}-${usNumeric[1].padStart(2, '0')}-${usNumeric[2].padStart(2, '0')}`;
+          const noon = new Date(`${ymd}T12:00:00Z`);
+          return Number.isFinite(noon.getTime()) && noon.toISOString().slice(0, 10) === ymd ? ymd : null;
+        }
+        const written = calendarChargeDay(text);
+        if (written) return written;
+        const d = new Date(text);
         if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
-        // If it's already YYYY-MM-DD-ish, just grab the prefix.
-        if (/^\d{4}-\d{2}-\d{2}/.test(dateLike)) return dateLike.slice(0, 10);
         return null;
       }
       if (dateLike instanceof Date) return dateLike.toISOString().split('T')[0];
