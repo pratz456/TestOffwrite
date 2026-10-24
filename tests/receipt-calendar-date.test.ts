@@ -3,6 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const worker = vi.hoisted(() => ({ recognize: vi.fn(), terminate: vi.fn() }));
 vi.mock('tesseract.js', () => ({ default: { createWorker: vi.fn(async () => worker) } }));
 import { receiptProcessor } from '@/lib/ocr/receipt-processor';
+import { regionUploadTimeZone } from '@/lib/ocr/region-time-zone';
+
+const UTC_ALIASES = ['utc', 'UTC', 'Etc/UTC', 'etc/utc', 'Etc/GMT', 'GMT', 'gmt', 'Etc/Universal', 'Universal', 'Etc/Zulu', 'Zulu', 'ZULU', 'GMT0', 'Etc/GMT0', 'Etc/GMT+0'];
+const REJECTED_ZONES = ['Z', 'z', '+05:00', '+00:00', '-00:00', 'GMT+5', 'GMT+0', 'GMT-0', 'Etc/GMT+5', 'Etc/GMT-3', 'Etc/GMT-0', 'EST', 'est', 'PST', 'EST5EDT', 'CST6CDT', 'UCT', 'Greenwich', 'Etc/UCT', 'Etc/Greenwich'];
 
 const normalizeDateToISO = (value: unknown, userTimeZone?: string) =>
   (receiptProcessor as unknown as { normalizeDateToISO(dateLike: unknown, userTimeZone?: string): string | null }).normalizeDateToISO(value, userTimeZone);
@@ -106,8 +110,43 @@ describe('OCR receipt dates must be real calendar days', () => {
       useInstant('2026-06-01T04:30:00Z');
       const [june] = await receiptProcessor.processReceiptBatch([Buffer.from('june')], 'America/New_York');
       expect(june.data?.date).toBe('2026-06-01');
-      for (const zone of ['PST', 'EST5EDT', 'Etc/GMT+5']) {
+      const [juneAbbreviation] = await receiptProcessor.processReceiptBatch([Buffer.from('june-est')], 'est');
+      expect(regionUploadTimeZone('est')).toBeUndefined();
+      expect(juneAbbreviation.data?.date).toBe('');
+      for (const zone of ['PST', 'EST5EDT', 'CST6CDT', 'Etc/GMT+5', 'Etc/GMT-3', 'GMT+5', 'GMT-0', 'Z']) {
         const [rejected] = await receiptProcessor.processReceiptBatch([Buffer.from('june')], zone);
+        expect(regionUploadTimeZone(zone)).toBeUndefined();
+        expect(rejected.data?.date).toBe('');
+      }
+    } finally {
+      processor.parseReceiptText = original;
+    }
+  });
+
+  it('stores exact UTC aliases on a receipt batch and rejects every other zero-offset name', async () => {
+    const instant = new Date('2027-01-01T07:30:00Z');
+    const processor = receiptProcessor as unknown as {
+      parseReceiptText(text: string): { merchant: string; amount: number; date: Date; category: string; items: [] };
+    };
+    const original = processor.parseReceiptText;
+    processor.parseReceiptText = () => ({
+      merchant: 'SYNTHETIC OFFICE STORE', amount: 12.34, date: instant, category: 'other', items: [],
+    });
+    worker.recognize.mockResolvedValue({ data: { text: 'synthetic', confidence: 95 } });
+    try {
+      const [withoutZone] = await receiptProcessor.processReceiptBatch([Buffer.from('synthetic')]);
+      expect(withoutZone.data?.date).toBe('');
+      for (const zone of UTC_ALIASES) {
+        expect(regionUploadTimeZone(zone)).toBe('UTC');
+        const [stored] = await receiptProcessor.processReceiptBatch([Buffer.from('alias')], zone);
+        expect(stored.data?.date).toBe('2027-01-01');
+      }
+      // GMT+5 cannot fail a revert of region-time-zone.ts to 1f147a89. Intl throws
+      // "Invalid time zone specified: GMT+5" before the alias check, and that revision
+      // already returns undefined when Intl throws. The zone stays unset on both.
+      for (const zone of REJECTED_ZONES) {
+        expect(regionUploadTimeZone(zone)).toBeUndefined();
+        const [rejected] = await receiptProcessor.processReceiptBatch([Buffer.from('rejected')], zone);
         expect(rejected.data?.date).toBe('');
       }
     } finally {

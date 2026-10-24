@@ -128,7 +128,32 @@ describe('OCR receipt save requires a real calendar day', () => {
     }));
   });
 
-  it.each(['est', 'EST', 'pst', 'PST', 'EST5EDT', 'GMT+5', 'Etc/GMT+5', '+05:00'])('rejects %s and still returns 200', async zone => {
+  it.each(['Etc/UTC', 'Etc/GMT', 'GMT', 'utc', 'Etc/Universal', 'Universal', 'Etc/Zulu', 'Zulu', 'GMT0', 'Etc/GMT0', 'Etc/GMT+0'])('stores %s as UTC', async zone => {
+    ocrDate('2026-09-15');
+    const response = await POST(request(zone));
+    expect(response.status).toBe(200);
+    expect(mocks.processReceipt).toHaveBeenCalledWith(expect.any(Buffer), 'UTC');
+    expect(mocks.createTransaction).toHaveBeenCalledWith(owner, 'manual', expect.objectContaining({
+      uploadTimeZone: 'UTC',
+    }));
+  });
+
+  it.each(['Etc/UTC', 'Etc/GMT', 'GMT', 'utc'])('stores %s as UTC on an attached receipt', async zone => {
+    mocks.getTransaction.mockResolvedValue({ data: {
+      trans_id: 'owned-bank-transaction', notes: 'Existing note', merchant_name: 'Bank merchant', amount: 10, date: '2026-01-01',
+    }, error: null });
+    mocks.updateTransaction.mockResolvedValue({ data: [{ trans_id: 'owned-bank-transaction' }], error: null });
+    const response = await POST(request(zone, { attachTransactionId: 'owned-bank-transaction' }));
+    expect(response.status).toBe(200);
+    expect(mocks.processReceipt).not.toHaveBeenCalled();
+    const updates = mocks.updateTransaction.mock.calls.at(-1)?.[2] as Record<string, unknown>;
+    expect(updates.uploadTimeZone).toBe('UTC');
+  });
+
+  // GMT+5 cannot fail a revert of region-time-zone.ts to 1f147a89. Intl throws
+  // "Invalid time zone specified: GMT+5" before the alias check, and that revision
+  // already returns undefined when Intl throws. The upload stays 200 and the zone stays unset.
+  it.each(['est', 'EST', 'pst', 'PST', 'EST5EDT', 'CST6CDT', 'GMT+5', 'GMT+0', 'GMT-0', 'Etc/GMT+5', 'Etc/GMT-3', 'Etc/GMT-0', '+05:00', 'Z', 'UCT', 'Greenwich'])('rejects %s and still returns 200', async zone => {
     ocrDate('2026-09-15');
     const response = await POST(request(zone));
     expect(response.status).toBe(200);

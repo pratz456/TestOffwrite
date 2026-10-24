@@ -20,6 +20,7 @@ vi.mock('@/lib/firebase/admin', () => ({ adminApp: { name: 'firebase-frameworks'
 vi.mock('firebase-admin/storage', () => ({ getStorage: () => ({ bucket: mocks.bucket, app: { options: {} } }) }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 import { receiptProcessor } from '@/lib/ocr/receipt-processor';
+import { regionUploadTimeZone } from '@/lib/ocr/region-time-zone';
 import { POST } from '../app/api/receipts/process/route';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
@@ -654,6 +655,21 @@ describe('OCR save uses the printed calendar day', () => {
     const instant = new Date('2026-06-01T04:30:00Z');
     expect(normalizeDateToISO(instant, 'est')).toBeNull();
     expect(normalizeDateToISO(instant, 'America/New_York')).toBe('2026-06-01');
+    expect(regionUploadTimeZone('est')).toBeUndefined();
+    const processor = receiptProcessor as unknown as {
+      parseReceiptText(text: string): { merchant: string; amount: number; date: Date; category: string; items: [] };
+    };
+    const original = processor.parseReceiptText;
+    processor.parseReceiptText = () => ({
+      merchant: 'SYNTHETIC OFFICE STORE', amount: 12.34, date: instant, category: 'other', items: [],
+    });
+    worker.recognize.mockResolvedValue({ data: { text: 'synthetic', confidence: 95 } });
+    try {
+      const [batched] = await receiptProcessor.processReceiptBatch([Buffer.from('june')], 'est');
+      expect(batched.data?.date).toBe('');
+    } finally {
+      processor.parseReceiptText = original;
+    }
     const rejected = await saveInstant(instant, 'est');
     expect(rejected.response.status).toBe(200);
     expect(rejected.saved?.date).toBe('');
