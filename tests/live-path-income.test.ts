@@ -2,7 +2,7 @@ import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductio
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { Timestamp } from 'firebase-admin/firestore';
-import { reconcileBusinessIncome } from '@/lib/tax-rules/business-income';
+import { listIncomeSourceCandidates, reconcileBusinessIncome } from '@/lib/tax-rules/business-income';
 import { buildFederalTaxSnapshot } from '@/lib/tax-rules/federal-tax-snapshot';
 
 const state = vi.hoisted(() => ({
@@ -324,5 +324,59 @@ describe('quarterly reminders estimate for a month then day receipt', () => {
     expect(result.body.needsMoreInformationRows).toEqual([]);
     expect(result.body.dateNeedsReview).toEqual([]);
     expect(result.body.quarterlyGrossReceipts).toEqual([DATED + ADDED, 0, 0, 0]);
+  });
+});
+
+describe('saved time zone names', () => {
+  const deposit = (id: string, merchant: string, iso: string, zone: string) => ({
+    id, trans_id: id, account_id: 'bank-1', amount: -ADDED, category: 'income',
+    merchant_name: merchant, pending: false, iso_currency_code: 'USD',
+    date: new Date(iso), uploadTimeZone: zone,
+  });
+  const placedDay = (year: number, row: ReturnType<typeof deposit>) => {
+    const { candidates } = listIncomeSourceCandidates(year, [row], [], []);
+    return candidates.find(candidate => candidate.id === row.id)?.date;
+  };
+
+  it('flags est at 2026-07-15T04:30:00Z as needs more information', () => {
+    const row = deposit('est-split', 'Est Boundary Client', '2026-07-15T04:30:00Z', 'est');
+    for (const year of [2026, 2025]) {
+      const result = reconcile(year, [row]);
+      expect(result.grossReceipts).toBe(0);
+      expect(result.needsMoreInformationRows.some(item => item.id === 'est-split' || item.name === 'Est Boundary Client')).toBe(true);
+      expect(result.warnings.join(' ')).toMatch(NMI);
+      expect(result.warnings.some(warning => warning.includes('Est Boundary Client') || warning.includes('est-split'))).toBe(true);
+    }
+  });
+
+  it('places est at 2026-07-15T18:00:00Z on 2026-07-15', () => {
+    const row = deposit('est-agree', 'Est Agreed Client', '2026-07-15T18:00:00Z', 'est');
+    const result = reconcile(2026, [row]);
+    expect(result.grossReceipts).toBe(ADDED);
+    expect(placedDay(2026, row)).toBe('2026-07-15');
+    expect(result.needsMoreInformationRows).toEqual([]);
+    expect(result.quarterlyGrossReceipts).toEqual([0, 0, ADDED, 0]);
+    expect(reconcile(2025, [row]).grossReceipts).toBe(0);
+  });
+
+  it('honors America/New_York', () => {
+    const row = deposit('ny-zone', 'New York Client', '2026-01-01T04:30:00Z', 'America/New_York');
+    const result = reconcile(2025, [row]);
+    expect(placedDay(2025, row)).toBe('2025-12-31');
+    expect(result.grossReceipts).toBe(ADDED);
+    expect(result.needsMoreInformationRows).toEqual([]);
+    expect(result.quarterlyGrossReceipts[3]).toBe(ADDED);
+    const nextYear = reconcile(2026, [row]);
+    expect(nextYear.grossReceipts).toBe(0);
+    expect(nextYear.needsMoreInformationRows).toEqual([]);
+  });
+
+  it.each(['UTC', 'Etc/UTC', 'GMT', 'Etc/GMT', 'Z'])('honors the UTC alias %s', zone => {
+    const row = deposit(`utc-${zone}`, 'Utc Alias Client', '2026-07-15T04:30:00Z', zone);
+    const result = reconcile(2026, [row]);
+    expect(placedDay(2026, row)).toBe('2026-07-15');
+    expect(result.grossReceipts).toBe(ADDED);
+    expect(result.needsMoreInformationRows).toEqual([]);
+    expect(result.quarterlyGrossReceipts).toEqual([0, 0, ADDED, 0]);
   });
 });

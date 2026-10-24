@@ -27,6 +27,20 @@ const recordId = (value: unknown): string => typeof value === 'string' ? value :
 const PAGO_PAGO = 'Pacific/Pago_Pago';
 const ST_THOMAS = 'America/St_Thomas';
 
+/**
+ * Names for the UTC clock. Z is included because a receipt instant can record it.
+ * IANA also links these spellings to that same clock. Abbreviations are not aliases.
+ */
+const UTC_ZONE_ALIASES = new Set([
+  'UTC', 'Etc/UTC', 'GMT', 'Etc/GMT', 'Z',
+  'Etc/Universal', 'Universal', 'Etc/Zulu', 'Zulu',
+  'Etc/GMT0', 'Etc/GMT+0', 'Etc/GMT-0', 'GMT0', 'GMT+0', 'GMT-0',
+  'Greenwich', 'Etc/Greenwich', 'UCT', 'Etc/UCT',
+]);
+
+/** Area/Location, including a second location segment. Canonical zones in Intl all match. */
+const IANA_REGION = /^[A-Za-z]+(?:\/[A-Za-z0-9_+-]+)+$/;
+
 type IncomePlacement =
   | { action: 'dated'; day: string }
   | { action: 'undated' }
@@ -90,9 +104,33 @@ function civilDay(millis: number, timeZone: string): string | null {
   }
 }
 
-/** Day in uploadTimeZone, or the agreed Pago Pago and St Thomas day. Disagreement is unresolved. */
+function intlAcceptsZone(timeZone: string): boolean {
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A saved zone counts when it is an IANA region Intl accepts, or a UTC alias.
+ * est, PST, Eastern, GMT-5, and a blank are unsaved. An unsaved zone uses the
+ * Pago Pago and St Thomas agreement below.
+ */
+function acceptedSavedZone(zone: unknown): string | null {
+  if (typeof zone !== 'string') return null;
+  const text = zone.trim();
+  if (!text) return null;
+  if (UTC_ZONE_ALIASES.has(text)) return 'UTC';
+  if (!IANA_REGION.test(text) || !intlAcceptsZone(text)) return null;
+  return text;
+}
+
+/** Day in an accepted uploadTimeZone, or the agreed Pago Pago and St Thomas day. Disagreement is unresolved. */
 function dayInSavedZone(millis: number, zone: unknown): string | 'nmi' {
-  if (typeof zone === 'string' && zone.trim()) return civilDay(millis, zone.trim()) ?? 'nmi';
+  const saved = acceptedSavedZone(zone);
+  if (saved) return civilDay(millis, saved) ?? 'nmi';
   const pago = civilDay(millis, PAGO_PAGO);
   const thomas = civilDay(millis, ST_THOMAS);
   if (!pago || !thomas || pago !== thomas) return 'nmi';
