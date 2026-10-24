@@ -1,5 +1,5 @@
 import { readOwnedTransactions } from './export-records';
-import { exportDate, selectExportYear, transactionAmount, ExportReviewRequiredError } from './transaction-export';
+import { exportDate, selectExportYear, transactionAmount, assertFilingExportAllowed, ExportReviewRequiredError } from './transaction-export';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
 
@@ -10,6 +10,7 @@ import type { ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
  */
 export async function readTaxExportTransactions(uid: string, taxYear: number): Promise<ScheduleCTransactionLike[]> {
   const records = selectExportYear((await readOwnedTransactions(uid)).filter(record => !isSupersededRecord(record)), taxYear);
+  assertFilingExportAllowed(records, taxYear);
   const seen = new Set<string>();
   return records.map(record => {
     const identity = record.trans_id ?? record.id;

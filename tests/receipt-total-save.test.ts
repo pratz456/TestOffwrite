@@ -82,7 +82,8 @@ describe('saved receipt totals', () => {
     ['12.50 USD', market(['12.50 USD']), 12.5],
     ['TOTAL 1,234 with a state and ZIP', market(['CA 94105', 'TOTAL 1,234']), 1234],
     ['AMOUNT 2,000 with USD', market(['PAID USD', 'AMOUNT 2,000']), 2000],
-    ['TOTAL 12,500 with a slash date', market(['09/02/2026', 'TOTAL 12,500']), 12500],
+    ['TOTAL 1,234 with a comma address', market(['WILMINGTON, DE 19801', 'TOTAL 1,234']), 1234],
+    ['TAX TOTAL before TOTAL 12.50', market(['GRAND TOTAL TAX 99.00', 'TOTAL 12.50']), 12.5],
   ])('saves %s', async (_label, text, amount) => {
     recognize(text);
     const response = await POST(request());
@@ -106,6 +107,9 @@ describe('saved receipt totals', () => {
     ['TOTAL -12.50', market(['TOTAL -12.50']), [0, 12.5, 12]],
     ['TOTAL (12.50)', market(['TOTAL (12.50)']), [0, 12.5, 12]],
     ['thousands with comma cents', market(['CA 94105', 'TAX 1,25', 'TOTAL 1,234']), [0, 1, 1234, 12.34]],
+    ['German TOTAL 1,234 dated 05/03/2026', ['SYNTHETIC MARKET', 'BERLIN', '05/03/2026', 'TOTAL 1,234'].join('\n'), [0, 1, 1234]],
+    ['TOTAL 12,500 with a slash date', market(['09/02/2026', 'TOTAL 12,500']), [0, 12, 12500]],
+    ['TOTAL 1,234 with an ordinary IN', market(['SOLD IN 12345', 'TOTAL 1,234']), [0, 1, 1234]],
   ])('saves %s blank for review', async (_label, text, forbidden) => {
     recognize(text);
     const response = await POST(request());
@@ -114,6 +118,8 @@ describe('saved receipt totals', () => {
     expect(saved.amount).toBeNull();
     expect(forbidden).not.toContain(saved.amount);
     expect(saved.amountNeedsReview).toBe(true);
+    if (_label === 'TOTAL -12.50') expect(saved.signedAmountReview).toBe(-12.5);
+    else expect(saved.signedAmountReview).not.toBe(12.5);
     expect(saved.deductionStatus).toBe('Needs more information');
     expect(saved.tax_review_required).toBe(true);
     const body = await response.json();

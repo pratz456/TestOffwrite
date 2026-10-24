@@ -52,6 +52,7 @@ export interface Transaction {
   notes?: string;
   receipt_url?: string; // URL to uploaded receipt image
   receipt_filename?: string; // Original filename of the receipt
+  signedAmountReview?: number;
 
   // Transaction-Specific Context Fields
   business_purpose?: string; // Why this expense was necessary for business

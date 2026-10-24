@@ -165,7 +165,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate = () => {
         const thirtyDaysAgo = new Date(now.setDate(now.getDate() - 30));
 
         const taxSavingsValue = userTaxRate === null ? null : transactionsData
-          .filter((t: any) => t.is_deductible === true)
+          .filter((t: any) => t.is_deductible === true && typeof t.amount === 'number' && Number.isFinite(t.amount))
           .reduce((sum: any, t: any) => sum + Math.abs(t.amount) * userTaxRate, 0);
 
         const newDeductionsCount = transactionsData
@@ -176,7 +176,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate = () => {
         ).length;
 
         const totalExpensesValue = transactionsData
-          .filter((t: any) => t.amount > 0) // Exclude revenue transactions (negative amounts)
+          .filter((t: any) => typeof t.amount === 'number' && t.amount > 0)
           .reduce((sum: any, t: any) => sum + t.amount, 0);
 
         setTaxSavings(taxSavingsValue);

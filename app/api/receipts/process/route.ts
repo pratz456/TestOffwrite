@@ -192,6 +192,9 @@ export async function POST(request: NextRequest) {
           // Blank when the total needs review. A zero here would look like a real expense.
           amount: receiptData.amountNeedsReview ? null : receiptData.amount,
           amountNeedsReview: receiptData.amountNeedsReview === true,
+          ...(typeof receiptData.signedAmountReview === 'number' && receiptData.signedAmountReview < 0
+            ? { signedAmountReview: receiptData.signedAmountReview }
+            : {}),
           date: receiptData.date,
           category: receiptData.category || 'other',
           confidence: receiptData.confidence,
@@ -264,6 +267,7 @@ export async function POST(request: NextRequest) {
       source: 'receipt';
       amount: number | null;
       amountNeedsReview?: boolean;
+      signedAmountReview?: number;
       deductionStatus?: 'Needs more information';
     } = {
       trans_id: newTransId,
@@ -273,6 +277,9 @@ export async function POST(request: NextRequest) {
         amountNeedsReview: true,
         deductionStatus: 'Needs more information' as const,
         tax_review_required: true,
+        ...(typeof receiptData.signedAmountReview === 'number' && receiptData.signedAmountReview < 0
+          ? { signedAmountReview: receiptData.signedAmountReview }
+          : {}),
       } : {}),
       ...(manualReceipt?.iso_currency_code ? { iso_currency_code: manualReceipt.iso_currency_code } : {}),
       category: receiptType === 'income' ? 'income' : receiptData.category || 'other',

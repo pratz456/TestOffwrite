@@ -28,11 +28,19 @@ describe('list screens with a null amount', () => {
       <ExpensesDetailScreen
         user={{ id: 'owner' }}
         onBack={() => {}}
-        transactions={[{ id: 'blank', merchant_name: 'Blank Market', description: 'Blank Market', amount: null as unknown as number, category: 'office', date: '2026-06-15', type: 'expense' }]}
+        transactions={[
+          { id: 'blank', merchant_name: 'Blank Market', description: 'Blank Market', amount: null as unknown as number, category: 'office', date: '2026-06-15', type: 'expense', receipt_url: '/api/receipts/synthetic' },
+          { id: 'known', merchant_name: 'Known Market', description: 'Known Market', amount: 12.5, category: 'office', date: '2026-06-16', type: 'expense' },
+        ]}
       />,
     );
     expect(expenses).toContain('Blank Market');
     expect(expenses).toContain('Amount needed');
+    expect(expenses).toContain('src="/api/receipts/synthetic"');
+    expect(expenses).toContain('<input');
+    expect(expenses).toContain('data-held-out-expenses');
+    expect(expenses).toContain('PLACEHOLDER');
+    expect(expenses).toContain('$12.50');
     expect(expenses).not.toContain('$0.00');
   });
 });

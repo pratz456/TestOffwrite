@@ -116,8 +116,38 @@ describe('receipt totals from US and EU layouts', () => {
     'TOTAL NUMBER OF ITEMS SOLD 3',
     'AMOUNT TAX 9.00',
     'TIP AMOUNT 5.00',
-  ])('does not let %s replace TOTAL 12.50', async noise => {
-    const data = await read(market(['COFFEE 4.00', 'BAGEL 8.00', 'SUBTOTAL 20.00', 'TOTAL 12.50', noise]));
+  ])('does not let %s replace TOTAL 12.50 from either side', async noise => {
+    for (const lines of [
+      ['COFFEE 4.00', 'BAGEL 8.00', 'SUBTOTAL 20.00', noise, 'TOTAL 12.50'],
+      ['COFFEE 4.00', 'BAGEL 8.00', 'SUBTOTAL 20.00', 'TOTAL 12.50', noise],
+    ]) {
+      const data = await read(market(lines));
+      expect(data.amount).toBeCloseTo(12.5, 2);
+      expect(data.amountNeedsReview).toBe(false);
+    }
+  });
+
+  it('does not let a higher ranked tax label replace the total from either side', async () => {
+    for (const lines of [
+      ['GRAND TOTAL TAX 99.00', 'TOTAL 12.50'],
+      ['TOTAL 12.50', 'GRAND TOTAL TAX 99.00'],
+    ]) {
+      const data = await read(market(lines));
+      expect(data.amount).toBeCloseTo(12.5, 2);
+      expect(data.amount).not.toBe(99);
+    }
+  });
+
+  it('does not turn a negative total into a positive expense from another dollar amount', async () => {
+    const data = await read(market(['$20.00', 'TOTAL -12.50']));
+    expect(data.amount).toBeNull();
+    expect(data.signedAmountReview).toBe(-12.5);
+    expect(data.amount).not.toBe(20);
+    expect(data.amount).not.toBe(12.5);
+  });
+
+  it('keeps a total when a tax note follows the amount', async () => {
+    const data = await read(market(['TOTAL 12.50 TAX INCLUDED']));
     expect(data.amount).toBeCloseTo(12.5, 2);
     expect(data.amountNeedsReview).toBe(false);
   });
@@ -126,10 +156,11 @@ describe('receipt totals from US and EU layouts', () => {
     ['TOTAL -12.50', market(['TOTAL -12.50'])],
     ['TOTAL (12.50)', market(['TOTAL (12.50)'])],
     ['TOTAL $-12.50', market(['TOTAL $-12.50'])],
-  ])('leaves a negative total %s blank', async (_label, text) => {
+  ])('keeps the minus on %s for refund review', async (_label, text) => {
     const data = await read(text);
     expect(data.amount).toBeNull();
     expect(data.amountNeedsReview).toBe(true);
+    expect(data.signedAmountReview).toBe(-12.5);
     expect(data.amount).not.toBe(12.5);
   });
 
@@ -153,11 +184,36 @@ describe('receipt totals from US and EU layouts', () => {
     ['dollar sign', market(['FEE $1', 'TOTAL 1,234']), 1234],
     ['USD', market(['PAID USD', 'TOTAL 1,234']), 1234],
     ['state and ZIP', market(['CA 94105', 'AMOUNT 2,000']), 2000],
-    ['slash date', market(['09/02/2026', 'WIDGET 4', 'TOTAL 12,500']), 12500],
+    ['comma address', market(['WILMINGTON, DE 19801', 'TOTAL 1,234']), 1234],
+    ['full state name', market(['INDIANA 46204', 'TOTAL 12,500']), 12500],
   ])('reads a thousands comma when the receipt shows a US signal (%s)', async (_label, text, amount) => {
     const data = await read(text);
     expect(data.amount).toBe(amount);
     expect(data.amountNeedsReview).toBe(false);
+  });
+
+  it('leaves a German TOTAL 1,234 dated 05/03/2026 blank when there is no dollar or USD', async () => {
+    const data = await read(['SYNTHETIC MARKET', 'BERLIN', '05/03/2026', 'TOTAL 1,234'].join('\n'));
+    expect(data.amount).toBeNull();
+    expect(data.amountNeedsReview).toBe(true);
+    expect(data.amount).not.toBe(0);
+    expect(data.amount).not.toBe(1234);
+    expect(data.amount).not.toBe(1);
+  });
+
+  it.each([
+    'SOLD IN 12345',
+    'MADE IN 94105',
+    'DE 10115',
+    'ME 04101',
+    'PA 19103',
+    'in 94105',
+    '09/02/2026',
+  ])('does not treat %s as a US signal for TOTAL 1,234', async (line) => {
+    const data = await read(market([line, 'WIDGET 4', 'TOTAL 1,234']));
+    expect(data.amount).toBeNull();
+    expect(data.amountNeedsReview).toBe(true);
+    expect(data.amount).not.toBe(1234);
   });
 
   it('leaves a thousands comma blank when another amount uses comma cents', async () => {

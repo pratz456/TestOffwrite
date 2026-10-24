@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, CreditCard, DollarSign, FileText, TrendingUp, PieChart, Receipt } from 'lucide-react';
 import { formatCategory } from '@/lib/utils';
-import { formatListAmount } from '@/lib/transactions/amount-display';
+import { formatListAmount, HELD_OUT_EXPENSES_COPY } from '@/lib/transactions/amount-display';
+import { BlankAmountEntry } from '@/components/blank-amount-entry';
 
 interface Transaction {
   id: string;
@@ -21,6 +22,7 @@ interface Transaction {
   notes?: string;
   receipt_url?: string;
   receipt_filename?: string;
+  signedAmountReview?: number;
 }
 
 interface ExpensesDetailScreenProps {
@@ -94,6 +96,7 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
   });
 
   const finiteAmount = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : null;
+  const heldOutExpenses = displayTransactions.filter(transaction => transaction.amount === null);
   const totalExpenses = displayTransactions.reduce((sum, t) => sum + (finiteAmount(t.amount) ?? 0), 0);
   const deductibleExpenses = displayTransactions.filter(t => t.is_deductible).reduce((sum, t) => sum + (finiteAmount(t.amount) ?? 0), 0);
   const personalExpenses = displayTransactions.filter(t => !t.is_deductible).reduce((sum, t) => sum + (finiteAmount(t.amount) ?? 0), 0);
@@ -149,6 +152,7 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
       </div>
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
+        {heldOutExpenses.length > 0 && <p data-held-out-expenses="" className="mb-4 text-sm text-foreground">{HELD_OUT_EXPENSES_COPY}</p>}
         {/* Summary Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           <Card className="p-4 bg-card border-border rounded-2xl shadow-none">
@@ -270,7 +274,9 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="font-bold text-foreground">{formatListAmount(transaction.amount)}</p>
+                          {transaction.amount === null
+                            ? <BlankAmountEntry receiptUrl={transaction.receipt_url} signedAmountReview={transaction.signedAmountReview} />
+                            : <p className="font-bold text-foreground">{formatListAmount(transaction.amount)}</p>}
                         </div>
                       </div>
                     ))

@@ -396,7 +396,7 @@ export class NotificationEngine {
           const data = doc.data();
           // Unresolved tax facts and non-countable records do not count toward confirmed totals.
           if (data.tax_review_required === true || !isCountableRecord(data)) continue;
-          totalDeductions += Math.abs(data.amount || 0);
+          if (typeof data.amount === 'number' && Number.isFinite(data.amount)) totalDeductions += Math.abs(data.amount);
         }
 
         // Acknowledge confirmed review work; the rate is only a planning indicator.

@@ -7,7 +7,7 @@ import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deducti
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { ExportDataUnavailableError, exportReference, ownedExportRecord, readOwnedTransactions } from './export-records';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
-import { csvCell, exportDate, selectExportYear, transactionAmount, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
+import { csvCell, exportDate, selectExportYear, transactionAmount, assertFilingExportAllowed, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
 
 /**
  * Audit support records packet: the confirmed deductions of one tax year, each paired with
@@ -278,6 +278,7 @@ function mileageEntries(uid: string, year: number, trips: ExportRecord[]) {
 /** Pure assembly over owner-verified records. Throws ExportReviewRequiredError when records need reconciliation first. */
 export function assembleAuditSupportPacket(uid: string, year: number, inputs: AuditSupportInputs, generatedAt = new Date()): AuditSupportPacket {
   const inYear = selectExportYear(inputs.transactions, year);
+  assertFilingExportAllowed(inYear, year);
   const excluded = { notConfirmed: 0, reviewRequired: 0, pending: 0, bankRemoved: 0, superseded: 0 };
   const confirmed: ExportRecord[] = [];
   for (const record of inYear) {

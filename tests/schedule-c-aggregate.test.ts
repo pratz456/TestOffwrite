@@ -17,6 +17,23 @@ type Tx = {
 const cents = (n: number) => Math.round(n * 100);
 
 describe('Schedule C aggregation (confirmed-only)', () => {
+  it('keeps a blank amount out of every Schedule C total', () => {
+    const res = aggregateScheduleC(
+      [
+        { amount: 10, date: '2024-01-01', category: 'TRANSPORTATION_FUEL', is_deductible: true },
+        { amount: null as unknown as number, date: '2024-01-02', category: 'TRANSPORTATION_FUEL', is_deductible: true },
+      ],
+      '2024',
+      CATEGORY_MAP,
+      { mode: 'confirmed-only' },
+    );
+    expect(res.totalExpenses).toBe(10);
+    expect(res.totalDeductible).toBe(10);
+    expect(res.counts.deductible).toBe(1);
+    expect(res.lineItemsArray).toHaveLength(1);
+    expect(res.lineItemsArray[0].transactionCount).toBe(1);
+  });
+
   it('timezone-safe year filtering: 2024-01-01 stays in 2024', () => {
     // This is the core behavior we need: year grouping must not shift
     // due to local timezone interpreting YYYY-MM-DD at UTC midnight.

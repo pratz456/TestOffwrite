@@ -816,6 +816,7 @@ export async function createTransactionServer(
   transactionData: Omit<Partial<Transaction>, 'amount'> & {
     amount?: number | null;
     amountNeedsReview?: boolean;
+    signedAmountReview?: number;
     deductionStatus?: string;
   }
 ): Promise<{ data: Transaction | null; error: any }> {
@@ -902,6 +903,7 @@ export async function createTransactionServer(
           amount: data?.amount === null ? null : (data?.amount || 0),
           category: data?.category || '',
           ...(data?.amountNeedsReview === true ? { amountNeedsReview: true } : {}),
+          ...(typeof data?.signedAmountReview === 'number' && data.signedAmountReview < 0 ? { signedAmountReview: data.signedAmountReview } : {}),
           ...(typeof data?.deductionStatus === 'string' ? { deductionStatus: data.deductionStatus } : {}),
           ...(typeof data?.tax_review_required === 'boolean' ? { tax_review_required: data.tax_review_required } : {}),
           date: data?.date || '',

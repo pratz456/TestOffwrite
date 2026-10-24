@@ -1,4 +1,6 @@
 export const AMOUNT_NEEDED_LABEL = 'Amount needed';
+export const HELD_OUT_EXPENSES_COPY = 'PLACEHOLDER';
+export const AMOUNT_ENTRY_COPY = 'PLACEHOLDER';
 
 /** A blank saved amount is a prompt. It is never shown as $0.00. */
 export function formatListAmount(amount: unknown): string {

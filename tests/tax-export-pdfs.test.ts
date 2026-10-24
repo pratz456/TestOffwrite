@@ -70,6 +70,12 @@ describe('Schedule C real PDF and request integrity', () => {
     state.fail = fail; const create = vi.spyOn(PDFDocument, 'create'); const response = await scheduleC(request({ year: 2026 }));
     expect(response.status).toBe(503); expect(create).not.toHaveBeenCalled(); expect(await response.text()).not.toContain('private');
   });
+  it('blocks the filing export for a year with a blank amount', async () => {
+    state.transactions = [{ id: 'blank', merchant_name: 'Blank Market', amount: null, date: '2026-06-15', iso_currency_code: 'USD', category: 'unknown', is_deductible: null }];
+    const response = await scheduleC(request({ year: 2026 }));
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ error: 'PLACEHOLDER', code: 'FILING_EXPORT_BLOCKED' });
+  });
   it('prints recorded receipts, every signed transaction and no invented filing elections', async () => {
     state.transactions = Array.from({ length: 70 }, (_, i) => ({ id: `tx-${i}`, merchant_name: `SYNTHETIC-RECORD-${String(i).padStart(3, '0')}`, amount: 100, date: '2026-03-01', iso_currency_code: 'USD', category: 'unknown', is_deductible: true }));
     state.transactions.push({ merchant_name: 'SYNTHETIC-REFUND', amount: -20, date: '2026-03-01', iso_currency_code: 'USD', category: 'unknown', is_deductible: true });
