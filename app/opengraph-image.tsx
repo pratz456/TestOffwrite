@@ -1,5 +1,4 @@
 import { ImageResponse } from "next/og";
-import { PLACEHOLDER_BANK_COLLECTION } from "@/lib/onboarding/bank-consent-copy";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -236,7 +235,7 @@ export default async function Image() {
                 maxWidth: 860,
               }}
             >
-              {PLACEHOLDER_BANK_COLLECTION}
+              Save expenses, review receipt details, and export records for your accountant. [PLACEHOLDER] Bank transactions are collected only if you connect a bank.
             </div>
 
             {/* Feature chips */}

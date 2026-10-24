@@ -1,5 +1,3 @@
-import { PLACEHOLDER_BANK_COLLECTION } from '@/lib/onboarding/bank-consent-copy';
-
 /** Reviewed FAQ copy shared by the landing FAQ accordion and the /help FAQPage JSON-LD (claims policy: docs/PRODUCT_ROADMAP_2026-09-17.md §4). */
 export interface FAQItem {
   question: string;
@@ -25,7 +23,7 @@ export const faqData: FAQItem[] = [
   },
   {
     question: "Can I connect a bank account?",
-    answer: PLACEHOLDER_BANK_COLLECTION,
+    answer: "[PLACEHOLDER] After you allow bank transactions, you can link accounts through Plaid and WriteOff imports posted transactions for your review. Bank tokens are encrypted and never shown in the app. You can always enter income and expenses manually and upload receipts instead.",
     category: "banking"
   },
   {

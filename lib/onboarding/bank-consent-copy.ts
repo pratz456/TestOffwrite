@@ -12,4 +12,4 @@ export const BANK_CONSENT_WITHDRAW = '[PLACEHOLDER] Withdraw bank consent';
 export const BANK_CONSENT_WITHDRAW_BODY = '[PLACEHOLDER] Withdrawing bank consent stops new bank syncs and keeps saved transactions.';
 export const BANK_CONSENT_STATUS_GRANTED = '[PLACEHOLDER] Bank consent is on file.';
 export const BANK_CONSENT_STATUS_ABSENT = '[PLACEHOLDER] Bank consent is not on file. Saved transactions stay in your account.';
-export const BANK_CONSENT_NOTICE_REST = '[PLACEHOLDER] Name, email, and password are collected when you create an account. Work profile answers are collected when you choose to provide them.';
+export const BANK_CONSENT_NOTICE_REST = '[PLACEHOLDER] Name, email, and password are collected when you create an account. Employer/workstyle answers and state are collected when you set up your profile.';

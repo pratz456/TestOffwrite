@@ -8,44 +8,76 @@ import { PLACEHOLDER_BANK_COLLECTION } from '@/lib/onboarding/bank-consent-copy'
 
 const root = path.resolve(__dirname, '..');
 
-/** Surfaces that used to say a bank connection or bank transactions were part of sign up. */
-const SURFACES = [
-  'app/layout.tsx',
-  'app/page.tsx',
-  'components/landing/restored/hero-section.tsx',
-  'lib/content/faq.ts',
-  'components/blog/blog-cta.tsx',
-  'app/opengraph-image.tsx',
-  'components/home-content.tsx',
-  'components/landing/restored/comparison-section.tsx',
-  'components/onboarding/consent-checkboxes.tsx',
-  'components/data-source-screen.tsx',
-];
-
-const OLD_CLAIMS = [
-  'after signup, your bank transactions',
-  'no bank connection required',
-  'without connecting a bank',
-  'without linking a bank',
-  'Bank connections are optional',
-  'Where bank connections are enabled',
-  'Start manually, with no bank connection required',
-  'request transaction sync from a supported bank',
-  'You can start without linking a bank',
-  'Start with manual entry',
+/** Kept product wording, and only the clauses that the new consent flow makes inaccurate. */
+const SURFACES: Array<{ file: string; kept: string[]; removed: string[] }> = [
+  {
+    file: 'app/layout.tsx',
+    kept: ['Organize business expenses, review receipts, and export records for your tax preparer.'],
+    removed: ['Start with manual entry, with no bank connection required.'],
+  },
+  {
+    file: 'app/page.tsx',
+    kept: ['Organize business expenses, review receipts, and export records for your tax preparer.'],
+    removed: ['Start with manual entry, with no bank connection required.'],
+  },
+  {
+    file: 'components/landing/restored/hero-section.tsx',
+    kept: ['Save expenses and receipts, review their business purpose, and prepare records for your accountant.'],
+    removed: ['no bank connection required'],
+  },
+  {
+    file: 'lib/content/faq.ts',
+    kept: [
+      'you can link accounts through Plaid and WriteOff imports posted transactions for your review.',
+      'Bank tokens are encrypted and never shown in the app.',
+      'You can always enter income and expenses manually and upload receipts instead.',
+    ],
+    removed: ['Where bank connections are enabled'],
+  },
+  {
+    file: 'components/blog/blog-cta.tsx',
+    kept: ['Enter expenses, upload receipts, and review the details in WriteOff.', 'Try free for 30 days'],
+    removed: ['with no bank connection required'],
+  },
+  {
+    file: 'app/opengraph-image.tsx',
+    kept: ['Save expenses, review receipt details, and export records for your accountant.'],
+    removed: ['Start manually, with no bank connection required'],
+  },
+  {
+    file: 'components/home-content.tsx',
+    kept: ['You can start without linking a bank.', 'In-app filing is not available.'],
+    removed: [],
+  },
+  {
+    file: 'components/landing/restored/comparison-section.tsx',
+    kept: ['AI suggests categories and explains what to review.', 'Bank connections are optional.', 'In-app tax filing is not available.'],
+    removed: [],
+  },
+  {
+    file: 'components/data-source-screen.tsx',
+    kept: [
+      'Add income and expenses manually without connecting a bank',
+      'Optional: request transaction sync from a supported bank, then review the imported records.',
+    ],
+    removed: [],
+  },
 ];
 
 describe('bank collection copy', () => {
-  it('uses placeholder copy and does not say bank transactions are collected at sign up', () => {
+  it('keeps the product wording and drops only the clauses the consent flow makes inaccurate', () => {
     for (const surface of SURFACES) {
-      const source = readFileSync(path.join(root, surface), 'utf8');
-      expect(source, surface).toContain('PLACEHOLDER_BANK_COLLECTION');
-      expect(source, surface).not.toMatch(/after sign-?up[^.\n]{0,80}bank/i);
-      for (const claim of OLD_CLAIMS) expect(source, `${surface} still says ${claim}`).not.toContain(claim);
+      const source = readFileSync(path.join(root, surface.file), 'utf8');
+      for (const text of surface.kept) expect(source, surface.file).toContain(text);
+      for (const text of surface.removed) expect(source, `${surface.file} still says ${text}`).not.toContain(text);
+      if (surface.removed.length > 0) expect(source, surface.file).toContain('[PLACEHOLDER]');
     }
     const notice = renderToStaticMarkup(<NoticeAtCollection />);
     expect(notice).toContain('Notice at Collection');
     expect(notice).toContain(PLACEHOLDER_BANK_COLLECTION);
-    expect(notice).not.toContain('after signup');
+    expect(notice).toContain('Name, email, and password');
+    expect(notice).toContain('Employer/workstyle answers');
+    expect(notice).toContain('state');
+    expect(notice).not.toContain('after signup, your bank transactions');
   });
 });

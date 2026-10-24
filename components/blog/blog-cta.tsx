@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { PLACEHOLDER_BANK_COLLECTION } from "@/lib/onboarding/bank-consent-copy";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { Button } from "@/components/ui/button";
 import { Sparkles } from "lucide-react";
@@ -21,7 +20,7 @@ export function BlogCTA({ variant = "inline" }: { variant?: "inline" | "full" })
               Keep your expense records together.
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              {PLACEHOLDER_BANK_COLLECTION}
+              Enter expenses, upload receipts, and review the details in WriteOff. Try free for 30 days. [PLACEHOLDER] Bank transactions are collected only if you connect a bank.
             </p>
           </div>
           <Link href={href}>
