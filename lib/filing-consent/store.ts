@@ -29,6 +29,8 @@ export interface SaveDisclosureConsentInput {
   purpose: string;
   returnsCovered: CoveredReturn[];
   recipients: string[];
+  /** Omitted when there is one recipient. Save then stores that recipient. Two recipients need this id. */
+  recipientPartnerId?: string;
   scope: DisclosureScope;
   signatureMethod: string;
   signatureValue: string;
@@ -77,6 +79,15 @@ export async function saveDisclosureConsent(input: SaveDisclosureConsentInput): 
   const expiresAt = expiresAtFor(signedAt, duration);
   if (!expiresAt) return refusal('missing_field', 'The expiry time could not be set from the stated duration.', 'expiresAt');
 
+  const explicitPartner = typeof input.recipientPartnerId === 'string' ? input.recipientPartnerId.trim() : '';
+  const recipientPartnerId = explicitPartner || (input.recipients.length === 1 ? input.recipients[0].trim() : '');
+  if (!recipientPartnerId) {
+    return refusal('missing_field', 'The disclosure consent needs the recipient partner id.', 'recipientPartnerId');
+  }
+  if (!input.recipients.includes(recipientPartnerId)) {
+    return refusal('recipient_not_on_list', 'The recipient partner is not on the signed recipient list.');
+  }
+
   const record: DisclosureConsentRecord = {
     uid: input.uid,
     taxYear: input.taxYear,
@@ -85,6 +96,7 @@ export async function saveDisclosureConsent(input: SaveDisclosureConsentInput): 
     purpose: input.purpose,
     returnsCovered: input.returnsCovered,
     recipients: input.recipients,
+    recipientPartnerId,
     scope: input.scope,
     signatureMethod: input.signatureMethod,
     signatureValue: input.signatureValue,
@@ -110,6 +122,8 @@ export async function saveDisclosureConsent(input: SaveDisclosureConsentInput): 
   if (illegalRecipient) {
     return refusal('recipient_not_legal_name', 'Each recipient must be a legal name from the partner list. A description is refused.');
   }
+  // The stated purpose is part of this consent. A different purpose is a new record.
+  // A later change to the partner address, phone, fee, or warranty does not rewrite this consent.
 
   const textRef = adminDb.collection(FILING_CONSENT_TEXT_COLLECTION).doc(CURRENT_CONSENT_TEXT_VERSION);
   const existingText = await textRef.get();

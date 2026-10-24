@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
 import {
   FILING_HANDOFF_REFUSAL_LOG_COLLECTION,
   FILING_VT_DECLARATION_COLLECTION,
-  PARTNER_RECIPIENT_LEGAL_NAMES,
+  partnerRecipientLegalNames,
 } from './config';
 import { filingConsentNow } from './clock';
 import { refusal, type ConsentRefusal } from './record';
@@ -30,8 +31,15 @@ function blank(value: unknown): boolean {
   return typeof value !== 'string' || value.trim().length === 0;
 }
 
-export function vtDeclarationDocId(uid: string, taxYear: number, returnCode: string): string {
-  return `${encodeURIComponent(uid)}__${taxYear}__${returnCode}`;
+export function vtDeclarationDocId(
+  uid: string,
+  taxYear: number,
+  returnCode: string,
+  partnerId: string,
+  datedCopyReference: string,
+): string {
+  const referenceHash = createHash('sha256').update(datedCopyReference, 'utf8').digest('hex');
+  return `${encodeURIComponent(uid)}__${taxYear}__${returnCode}__${encodeURIComponent(partnerId)}__${referenceHash}`;
 }
 
 export function vtDeclarationCounts(
@@ -43,7 +51,7 @@ export function vtDeclarationCounts(
   if (data.taxYear !== expected.taxYear) return false;
   if (data.returnCode !== expected.returnCode || expected.returnCode !== 'VT') return false;
   if (data.partnerLegalName !== expected.partnerLegalName) return false;
-  if (!PARTNER_RECIPIENT_LEGAL_NAMES.includes(expected.partnerLegalName)) return false;
+  if (!partnerRecipientLegalNames().includes(expected.partnerLegalName)) return false;
   if (blank(data.declaredAt) || Number.isNaN(Date.parse(String(data.declaredAt)))) return false;
   if (blank(data.datedCopyReference)) return false;
   return true;
@@ -58,13 +66,13 @@ export async function recordPartnerVtDeclaration(
   if (blank(input.uid) || typeof input.taxYear !== 'number' || !Number.isInteger(input.taxYear)) {
     return refusal('missing_field', 'The Vermont declaration needs an account and a tax year.');
   }
-  if (!PARTNER_RECIPIENT_LEGAL_NAMES.includes(input.partnerLegalName)) {
+  if (!partnerRecipientLegalNames().includes(input.partnerLegalName)) {
     return refusal('recipient_not_legal_name', 'The declaration partner must be a legal name from the partner list.');
   }
   if (blank(input.datedCopyReference)) {
     return refusal('vt_declaration_missing', 'The partner declaration needs the reference to its dated copy.');
   }
-  const id = vtDeclarationDocId(input.uid, input.taxYear, 'VT');
+  const id = vtDeclarationDocId(input.uid, input.taxYear, 'VT', input.partnerLegalName, input.datedCopyReference);
   const ref = adminDb.collection(FILING_VT_DECLARATION_COLLECTION).doc(id);
   const existing = await ref.get();
   if (existing.exists) {
@@ -74,7 +82,7 @@ export async function recordPartnerVtDeclaration(
       taxYear: input.taxYear,
       returnCode: 'VT',
       partnerLegalName: input.partnerLegalName,
-    }) || !data) {
+    }) || !data || data.datedCopyReference !== input.datedCopyReference) {
       return refusal('vt_declaration_missing', BLOCKED);
     }
     return { ok: true, id, declaredAt: String(data.declaredAt) };
@@ -88,17 +96,41 @@ export async function recordPartnerVtDeclaration(
     declaredAt,
     datedCopyReference: input.datedCopyReference,
   };
-  await ref.create(record);
+  try {
+    await ref.create(record);
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.startsWith('Document exists')) throw error;
+    const raced = await ref.get();
+    const racedData = raced.data() as Record<string, unknown> | undefined;
+    if (!racedData || typeof racedData.declaredAt !== 'string') return refusal('vt_declaration_missing', BLOCKED);
+    return { ok: true, id, declaredAt: racedData.declaredAt };
+  }
   return { ok: true, id, declaredAt };
 }
 
+function refusalHourBucket(now: Date): string {
+  return now.toISOString().slice(0, 13);
+}
+
+function refusalLogDocId(entry: { uid: string; taxYear: number; returnCode: string; reason: string }, hour: string): string {
+  return `${encodeURIComponent(entry.uid)}__${entry.taxYear}__${entry.returnCode}__${entry.reason}__${hour}`;
+}
+
+/** One log document per user, tax year, return code, and reason in a UTC hour. A retry in that hour does not write again. */
 async function logVtRefusal(entry: { uid: string; taxYear: number; returnCode: string; reason: string }): Promise<void> {
-  await adminDb.collection(FILING_HANDOFF_REFUSAL_LOG_COLLECTION).doc().create({
-    uid: entry.uid,
-    taxYear: entry.taxYear,
-    returnCode: entry.returnCode,
-    reason: entry.reason,
-  });
+  const hour = refusalHourBucket(filingConsentNow());
+  const ref = adminDb.collection(FILING_HANDOFF_REFUSAL_LOG_COLLECTION).doc(refusalLogDocId(entry, hour));
+  try {
+    await ref.create({
+      uid: entry.uid,
+      taxYear: entry.taxYear,
+      returnCode: entry.returnCode,
+      reason: entry.reason,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Document exists')) return;
+    throw error;
+  }
 }
 
 /**
@@ -115,16 +147,19 @@ export async function vtHandOffRefusal(input: {
   if (input.residentState !== 'VT') return null;
   for (const item of input.returns) {
     if (item.code !== 'VT') continue;
-    const snap = await adminDb.collection(FILING_VT_DECLARATION_COLLECTION).doc(
-      vtDeclarationDocId(input.uid, item.taxYear, 'VT'),
-    ).get();
-    const data = snap.exists ? snap.data() as Record<string, unknown> | undefined : undefined;
-    if (!vtDeclarationCounts(data, {
+    const snap = await adminDb.collection(FILING_VT_DECLARATION_COLLECTION)
+      .where('uid', '==', input.uid)
+      .where('taxYear', '==', item.taxYear)
+      .where('returnCode', '==', 'VT')
+      .where('partnerLegalName', '==', input.partnerLegalName)
+      .get();
+    const matched = snap.docs.some((doc: { data: () => Record<string, unknown> | undefined }) => vtDeclarationCounts(doc.data(), {
       uid: input.uid,
       taxYear: item.taxYear,
       returnCode: 'VT',
       partnerLegalName: input.partnerLegalName,
-    })) {
+    }));
+    if (!matched) {
       await logVtRefusal({
         uid: input.uid,
         taxYear: item.taxYear,

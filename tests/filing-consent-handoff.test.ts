@@ -71,6 +71,7 @@ function handOff(recordId: string, overrides: Partial<HandOffRequest> = {}): Han
     recipientLegalName: PARTNER,
     returns: [federal(2026)],
     consentRecordId: recordId,
+    residentState: 'NY',
     ...overrides,
   };
 }

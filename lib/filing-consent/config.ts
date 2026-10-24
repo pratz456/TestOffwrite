@@ -45,6 +45,62 @@ export const FEE_ESTIMATE_PHRASE = 'estimate of the total charge';
 export const DRAFT_PARTNER_FEE_ESTIMATE = 'DRAFT placeholder: an estimate of the total charge for completion of all requested tax preparation services, amount pending approval';
 export const DRAFT_PARTNER_SECURITY_WARRANTY = 'DRAFT placeholder pending partner wording: by encryption or other means, provide for the secure storage and transmission of a taxpayer\'s personal and tax record information';
 
+export interface DraftPartnerDisclosureCopy {
+  signingEaName: string;
+  signingEaPtin: string;
+  principalBusinessAddress: string;
+  primaryBusinessPhone: string;
+  feeEstimateOfTotalCharge: string;
+  securityWarranty: string;
+}
+
+function initialDraftPartnerDisclosureCopy(): DraftPartnerDisclosureCopy {
+  return {
+    signingEaName: DRAFT_PARTNER_SIGNING_EA_NAME,
+    signingEaPtin: DRAFT_PARTNER_SIGNING_EA_PTIN,
+    principalBusinessAddress: DRAFT_PARTNER_PRINCIPAL_BUSINESS_ADDRESS,
+    primaryBusinessPhone: DRAFT_PARTNER_PRIMARY_BUSINESS_PHONE,
+    feeEstimateOfTotalCharge: DRAFT_PARTNER_FEE_ESTIMATE,
+    securityWarranty: DRAFT_PARTNER_SECURITY_WARRANTY,
+  };
+}
+
+/** Partner disclosure copy the screen shows. Tests can replace a field. The shipped values stay the placeholders above. */
+let draftPartnerDisclosureCopy = initialDraftPartnerDisclosureCopy();
+
+export function currentDraftPartnerDisclosureCopy(): DraftPartnerDisclosureCopy {
+  return { ...draftPartnerDisclosureCopy };
+}
+
+/** Replaces address, phone, fee, or warranty copy. The next screen hash follows this copy. */
+export function replaceDraftPartnerDisclosureCopy(patch: Partial<DraftPartnerDisclosureCopy>): void {
+  draftPartnerDisclosureCopy = { ...draftPartnerDisclosureCopy, ...patch };
+}
+
+export function resetDraftPartnerDisclosureCopy(): void {
+  draftPartnerDisclosureCopy = initialDraftPartnerDisclosureCopy();
+}
+
+/**
+ * Extra partner names registered by tests. The shipped list above is unchanged.
+ * A name has to start with the draft marker.
+ */
+const draftTestPartnerNames: string[] = [];
+
+export function partnerRecipientLegalNames(): readonly string[] {
+  return [...PARTNER_RECIPIENT_LEGAL_NAMES, ...draftTestPartnerNames];
+}
+
+export function addDraftTestPartnerName(name: string): void {
+  const trimmed = name.trim();
+  if (!trimmed.startsWith('DRAFT')) return;
+  if (!partnerRecipientLegalNames().includes(trimmed)) draftTestPartnerNames.push(trimmed);
+}
+
+export function resetDraftTestPartnerNames(): void {
+  draftTestPartnerNames.length = 0;
+}
+
 /**
  * DRAFT partner condition for California staffing. This is not the before work
  * screen. Every California resident return is reviewed and signed by an enrolled

@@ -45,10 +45,19 @@ import {
   type SaveDisclosureConsentInput,
   type SaveUseConsentInput,
 } from '@/lib/filing-consent';
+import { beforeWorkDisclosureDocId, beforeWorkScreenHash } from '@/lib/filing-consent/before-work';
 import { resetFilingConsentClock, setFilingConsentClock } from '@/lib/filing-consent/clock';
+import {
+  addDraftTestPartnerName,
+  replaceDraftPartnerDisclosureCopy,
+  resetDraftPartnerDisclosureCopy,
+  resetDraftTestPartnerNames,
+} from '@/lib/filing-consent/config';
+import { replaceDraftDisclosureConsentText, resetDraftDisclosureConsentText } from '@/lib/filing-consent/text';
 
 const db = adminDb as unknown as FakeFirestore;
 const PARTNER = PARTNER_RECIPIENT_LEGAL_NAMES[0];
+const PARTNER_B = 'DRAFT: Second partner ERO firm legal name pending approval';
 const SIGNED_AT = '2026-01-15T20:00:00.000Z';
 const NOW = '2026-02-01T18:00:00.000Z';
 const SHOWN_AT = '2026-03-04T16:30:00.000Z';
@@ -110,6 +119,7 @@ function handOff(recordId: string, overrides: Partial<HandOffRequest> = {}): Han
     recipientLegalName: PARTNER,
     returns: [federal()],
     consentRecordId: recordId,
+    residentState: 'NY',
     ...overrides,
   };
 }
@@ -147,13 +157,14 @@ function configuredCopy(): PartnerBeforeWorkCopy {
   };
 }
 
-async function plantScreen(state: 'CT' | 'CA', overrides: Record<string, unknown>) {
-  const screen = buildBeforeWorkDisclosureScreen(state);
+async function plantScreen(state: 'CT' | 'CA', overrides: Record<string, unknown>, partnerId = PARTNER) {
+  const screen = buildBeforeWorkDisclosureScreen(state, partnerId);
   if (!screen) throw new Error('expected a before work screen');
-  const id = `${encodeURIComponent('user-1')}__2026__${state}`;
+  const id = beforeWorkDisclosureDocId('user-1', 2026, state, partnerId, beforeWorkScreenHash(screen));
   await db.collection(FILING_BEFORE_WORK_DISCLOSURE_COLLECTION).doc(id).set({
     uid: 'user-1',
     taxYear: 2026,
+    partnerId,
     residentState: state,
     shownAt: SHOWN_AT,
     ...screen,
@@ -162,6 +173,9 @@ async function plantScreen(state: 'CT' | 'CA', overrides: Record<string, unknown
 }
 
 beforeEach(async () => {
+  resetDraftDisclosureConsentText();
+  resetDraftPartnerDisclosureCopy();
+  resetDraftTestPartnerNames();
   resetFilingConsentClock();
   at(SIGNED_AT);
   db.records.clear();
@@ -173,6 +187,9 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  resetDraftDisclosureConsentText();
+  resetDraftPartnerDisclosureCopy();
+  resetDraftTestPartnerNames();
   resetFilingConsentClock();
   expect(fetchSpy).not.toHaveBeenCalled();
 });
@@ -310,10 +327,10 @@ describe('before work disclosure screen', () => {
   it('records the shown screen from the clock and keeps the first shown time', async () => {
     at(SHOWN_AT);
     const record = recordBeforeWorkDisclosureShown as (
-      input: { uid: string; taxYear: number; residentState: string; shownAt?: string },
+      input: { uid: string; taxYear: number; residentState: string; partnerId: string; shownAt?: string },
       supplied?: Date,
     ) => ReturnType<typeof recordBeforeWorkDisclosureShown>;
-    const recorded = await record({ uid: 'user-1', taxYear: 2026, residentState: 'CT', shownAt: '1999-01-01T00:00:00.000Z' }, new Date('1999-01-01T00:00:00.000Z'));
+    const recorded = await record({ uid: 'user-1', taxYear: 2026, residentState: 'CT', partnerId: PARTNER, shownAt: '1999-01-01T00:00:00.000Z' }, new Date('1999-01-01T00:00:00.000Z'));
     expect(recorded.ok).toBe(true);
     if (!recorded.ok) throw new Error('expected a recorded screen');
     expect(recorded.shownAt).toBe(SHOWN_AT);
@@ -331,7 +348,7 @@ describe('before work disclosure screen', () => {
       saveOffered: true,
     });
     at('2026-04-01T00:00:00.000Z');
-    const again = await recordBeforeWorkDisclosureShown({ uid: 'user-1', taxYear: 2026, residentState: 'CT' });
+    const again = await recordBeforeWorkDisclosureShown({ uid: 'user-1', taxYear: 2026, residentState: 'CT', partnerId: PARTNER });
     expect(again.ok).toBe(true);
     if (!again.ok) throw new Error('expected the original screen');
     expect(again.shownAt).toBe(SHOWN_AT);
@@ -348,7 +365,7 @@ describe('before work disclosure screen', () => {
     expect(early.deliveries).toEqual([]);
 
     at(SHOWN_AT);
-    const recorded = await recordBeforeWorkDisclosureShown({ uid: 'user-1', taxYear: 2026, residentState: state });
+    const recorded = await recordBeforeWorkDisclosureShown({ uid: 'user-1', taxYear: 2026, residentState: state, partnerId: PARTNER });
     expect(recorded.ok).toBe(true);
     const queued = createPartnerSendStub();
     const sent = await runQueuedFilingHandOff({ request: handOff(saved.id, { residentState: state }) }, queued);
@@ -359,8 +376,8 @@ describe('before work disclosure screen', () => {
   it('does not let a Connecticut screen satisfy California, or a different tax year satisfy this year', async () => {
     const saved = await saveValid();
     at(SHOWN_AT);
-    await recordBeforeWorkDisclosureShown({ uid: 'user-1', taxYear: 2026, residentState: 'CT' });
-    await recordBeforeWorkDisclosureShown({ uid: 'user-1', taxYear: 2025, residentState: 'CA' });
+    await recordBeforeWorkDisclosureShown({ uid: 'user-1', taxYear: 2026, residentState: 'CT', partnerId: PARTNER });
+    await recordBeforeWorkDisclosureShown({ uid: 'user-1', taxYear: 2025, residentState: 'CA', partnerId: PARTNER });
     const california = createPartnerSendStub();
     const blocked = await sendFilingHandOff(handOff(saved.id, { residentState: 'CA' }), california);
     expect(blocked).toMatchObject({ sent: false, code: 'before_work_disclosure_missing' });
@@ -416,14 +433,190 @@ describe('before work disclosure screen', () => {
     expect(missingSave.deliveries).toEqual([]);
   });
 
-  it('does not block a resident outside Connecticut and California when no screen is recorded', async () => {
+  it('asks the resident state question when it is missing or blank, and does not block New York, Massachusetts, or Vermont', async () => {
     const saved = await saveValid();
-    for (const residentState of [undefined, 'NY', 'MA', 'VT']) {
+    for (const residentState of [undefined, '', '   ']) {
+      const stub = createPartnerSendStub();
+      const result = await sendFilingHandOff(handOff(saved.id, { residentState }), stub);
+      expect(result).toEqual({
+        sent: false,
+        code: 'ask_resident_state',
+        ask: 'resident_state',
+        message: 'Ask the resident state question before this hand off.',
+      });
+      expect(stub.deliveries).toEqual([]);
+    }
+    for (const residentState of ['NY', 'MA', 'VT']) {
       const stub = createPartnerSendStub();
       const result = await sendFilingHandOff(handOff(saved.id, { residentState }), stub);
       expect(result).toEqual({ sent: true });
       expect(stub.deliveries).toHaveLength(1);
     }
+  });
+
+  it('refuses a hand off after the fee changes until the new screen is recorded, and leaves the old screen unchanged', async () => {
+    const saved = await saveValid();
+    expect(saved.record.recipientPartnerId).toBe(PARTNER);
+    at(SHOWN_AT);
+    const first = await recordBeforeWorkDisclosureShown({
+      uid: 'user-1',
+      taxYear: 2026,
+      residentState: 'CT',
+      partnerId: PARTNER,
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error('expected the first screen');
+    const oldPath = `${FILING_BEFORE_WORK_DISCLOSURE_COLLECTION}/${first.id}`;
+    const oldBytes = JSON.stringify(db.records.get(oldPath));
+    const consentBytes = JSON.stringify(db.records.get(`${FILING_DISCLOSURE_CONSENT_COLLECTION}/${saved.id}`));
+
+    const changedFee = `${DRAFT_PARTNER_FEE_ESTIMATE} revised`;
+    expect(changedFee).toContain(FEE_ESTIMATE_PHRASE);
+    replaceDraftPartnerDisclosureCopy({ feeEstimateOfTotalCharge: changedFee });
+
+    const refused = createPartnerSendStub();
+    const blocked = await sendFilingHandOff(handOff(saved.id, { residentState: 'CT' }), refused);
+    expect(blocked).toMatchObject({ sent: false, code: 'before_work_disclosure_missing' });
+    expect(refused.deliveries).toEqual([]);
+    expect(JSON.stringify(db.records.get(oldPath))).toBe(oldBytes);
+    expect(JSON.stringify(db.records.get(`${FILING_DISCLOSURE_CONSENT_COLLECTION}/${saved.id}`))).toBe(consentBytes);
+
+    at('2026-03-06T12:00:00.000Z');
+    const second = await recordBeforeWorkDisclosureShown({
+      uid: 'user-1',
+      taxYear: 2026,
+      residentState: 'CT',
+      partnerId: PARTNER,
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) throw new Error('expected the revised screen');
+    expect(second.id).not.toBe(first.id);
+    expect(second.screen.feeEstimateOfTotalCharge).toBe(changedFee);
+
+    const allowed = createPartnerSendStub();
+    const sent = await sendFilingHandOff(handOff(saved.id, { residentState: 'CT' }), allowed);
+    expect(sent).toEqual({ sent: true });
+    expect(allowed.deliveries).toHaveLength(1);
+    expect(JSON.stringify(db.records.get(oldPath))).toBe(oldBytes);
+    expect(db.records.get(oldPath)).toMatchObject({ feeEstimateOfTotalCharge: DRAFT_PARTNER_FEE_ESTIMATE });
+    expect(JSON.stringify(db.records.get(`${FILING_DISCLOSURE_CONSENT_COLLECTION}/${saved.id}`))).toBe(consentBytes);
+  });
+
+  it.each([
+    ['principal business address', 'principalBusinessAddress', 'DRAFT placeholder: a revised principal business address pending approval'],
+    ['primary business phone', 'primaryBusinessPhone', 'DRAFT placeholder: a revised primary business telephone number pending approval'],
+    ['security warranty', 'securityWarranty', `${DRAFT_PARTNER_SECURITY_WARRANTY} revised`],
+  ] as const)('refuses a hand off when the %s changes and leaves the recorded screen unchanged', async (_label, field, value) => {
+    const saved = await saveValid();
+    at(SHOWN_AT);
+    const first = await recordBeforeWorkDisclosureShown({
+      uid: 'user-1',
+      taxYear: 2026,
+      residentState: 'CA',
+      partnerId: PARTNER,
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error('expected a screen');
+    const oldPath = `${FILING_BEFORE_WORK_DISCLOSURE_COLLECTION}/${first.id}`;
+    const oldBytes = JSON.stringify(db.records.get(oldPath));
+    replaceDraftPartnerDisclosureCopy({ [field]: value });
+    const stub = createPartnerSendStub();
+    const blocked = await sendFilingHandOff(handOff(saved.id, { residentState: 'CA' }), stub);
+    expect(blocked).toMatchObject({ sent: false, code: 'before_work_disclosure_missing' });
+    expect(stub.deliveries).toEqual([]);
+    expect(JSON.stringify(db.records.get(oldPath))).toBe(oldBytes);
+  });
+
+  it('requires a new consent when the stated purpose changes, and the fee screen still stands', async () => {
+    const saved = await saveValid();
+    at(SHOWN_AT);
+    const recorded = await recordBeforeWorkDisclosureShown({
+      uid: 'user-1',
+      taxYear: 2026,
+      residentState: 'CT',
+      partnerId: PARTNER,
+    });
+    expect(recorded.ok).toBe(true);
+    const purposeChanged = DRAFT_DISCLOSURE_CONSENT_TEXT.replace(
+      'purposes other than those related to the preparation and filing of your tax return',
+      'purposes other than the revised stated purpose pending approval',
+    );
+    expect(purposeChanged).not.toBe(DRAFT_DISCLOSURE_CONSENT_TEXT);
+    replaceDraftDisclosureConsentText(CURRENT_CONSENT_TEXT_VERSION, purposeChanged);
+    const oldConsent = JSON.stringify(db.records.get(`${FILING_DISCLOSURE_CONSENT_COLLECTION}/${saved.id}`));
+    const refused = createPartnerSendStub();
+    expect(await sendFilingHandOff(handOff(saved.id, { residentState: 'CT' }), refused)).toMatchObject({
+      sent: false,
+      code: 'consent_text_mismatch',
+    });
+    expect(refused.deliveries).toEqual([]);
+    expect(JSON.stringify(db.records.get(`${FILING_DISCLOSURE_CONSENT_COLLECTION}/${saved.id}`))).toBe(oldConsent);
+
+    await db.collection(FILING_CONSENT_TEXT_COLLECTION).doc(CURRENT_CONSENT_TEXT_VERSION).set({
+      version: CURRENT_CONSENT_TEXT_VERSION,
+      text: purposeChanged,
+    });
+    const renewed = await saveDisclosureConsent(saveInput());
+    expect(renewed.ok).toBe(true);
+    if (!renewed.ok) throw new Error('expected a new consent for the revised purpose');
+    expect(renewed.id).not.toBe(saved.id);
+    expect(JSON.stringify(db.records.get(`${FILING_DISCLOSURE_CONSENT_COLLECTION}/${saved.id}`))).toBe(oldConsent);
+    const allowed = createPartnerSendStub();
+    expect(await sendFilingHandOff(handOff(renewed.id, { residentState: 'CT' }), allowed)).toEqual({ sent: true });
+    expect(allowed.deliveries).toHaveLength(1);
+  });
+
+  it('refuses a hand off to partner B when the consent and the screen name partner A', async () => {
+    addDraftTestPartnerName(PARTNER_B);
+    const saved = await saveValid({ recipients: [PARTNER, PARTNER_B], recipientPartnerId: PARTNER });
+    expect(saved.record.recipientPartnerId).toBe(PARTNER);
+    at(SHOWN_AT);
+    const recorded = await recordBeforeWorkDisclosureShown({
+      uid: 'user-1',
+      taxYear: 2026,
+      residentState: 'CT',
+      partnerId: PARTNER,
+    });
+    expect(recorded.ok).toBe(true);
+    const stub = createPartnerSendStub();
+    const result = await sendFilingHandOff(handOff(saved.id, { residentState: 'CT', recipientLegalName: PARTNER_B }), stub);
+    expect(result).toMatchObject({
+      sent: false,
+      code: 'recipient_partner_mismatch',
+      message: 'The disclosure consent, the before work screen, and the hand off recipient must name the same partner.',
+    });
+    expect(stub.deliveries).toEqual([]);
+  });
+
+  it('refuses a hand off to partner B when the screen names partner B and the consent names partner A', async () => {
+    addDraftTestPartnerName(PARTNER_B);
+    const saved = await saveValid({ recipients: [PARTNER, PARTNER_B], recipientPartnerId: PARTNER });
+    at(SHOWN_AT);
+    const recorded = await recordBeforeWorkDisclosureShown({
+      uid: 'user-1',
+      taxYear: 2026,
+      residentState: 'CT',
+      partnerId: PARTNER_B,
+    });
+    expect(recorded.ok).toBe(true);
+    const stub = createPartnerSendStub();
+    const result = await sendFilingHandOff(handOff(saved.id, { residentState: 'CT', recipientLegalName: PARTNER_B }), stub);
+    expect(result).toMatchObject({ sent: false, code: 'recipient_partner_mismatch' });
+    expect(stub.deliveries).toEqual([]);
+  });
+
+  it('treats a disclosure consent without a recipient partner id as not matching', async () => {
+    const saved = await saveValid();
+    const stored = db.records.get(`${FILING_DISCLOSURE_CONSENT_COLLECTION}/${saved.id}`);
+    if (!stored) throw new Error('expected a stored consent');
+    const withoutPartner = { ...stored };
+    delete withoutPartner.recipientPartnerId;
+    await db.collection(FILING_DISCLOSURE_CONSENT_COLLECTION).doc('consent-without-partner').set(withoutPartner);
+    const stub = createPartnerSendStub();
+    const result = await sendFilingHandOff(handOff('consent-without-partner', { residentState: 'NY' }), stub);
+    expect(result).toMatchObject({ sent: false, code: 'recipient_partner_mismatch' });
+    expect(stub.deliveries).toEqual([]);
+    expect(db.records.get(`${FILING_DISCLOSURE_CONSENT_COLLECTION}/${saved.id}`)?.recipientPartnerId).toBe(PARTNER);
   });
 
   it('keeps the partner warranty sentence out of every filing consent file except partner config', () => {
@@ -486,6 +679,66 @@ describe('Vermont preparer declaration', () => {
     }, queued);
     expect(queuedResult).toMatchObject({ sent: false, code: 'vt_declaration_missing' });
     expect(queued.deliveries).toEqual([]);
+    expect(logs()).toHaveLength(1);
+    expect(paths(FILING_HANDOFF_REFUSAL_LOG_COLLECTION)).toHaveLength(1);
+  });
+
+  it('logs at most one Vermont refusal per user, year, return code, and reason in an hour', async () => {
+    const saved = await saveVt();
+    const request = handOff(saved.id, { residentState: 'VT', returns: [vtReturn()] });
+    await sendFilingHandOff(request, createPartnerSendStub());
+    await sendFilingHandOff(request, createPartnerSendStub());
+    await runQueuedFilingHandOff({ request }, createPartnerSendStub());
+    expect(paths(FILING_HANDOFF_REFUSAL_LOG_COLLECTION)).toHaveLength(1);
+    expect(logs()).toEqual([{
+      uid: 'user-1',
+      taxYear: 2026,
+      returnCode: 'VT',
+      reason: 'vt_declaration_missing',
+    }]);
+    for (const entry of logs()) {
+      expect(Object.keys(entry).sort()).toEqual(['reason', 'returnCode', 'taxYear', 'uid']);
+    }
+    expect(JSON.stringify(logs())).not.toContain(WAGES);
+
+    at('2026-02-01T19:05:00.000Z');
+    await sendFilingHandOff(request, createPartnerSendStub());
+    expect(logs()).toHaveLength(2);
+    expect(paths(FILING_HANDOFF_REFUSAL_LOG_COLLECTION)).toHaveLength(2);
+    expect(JSON.stringify(logs())).not.toContain(WAGES);
+  });
+
+  it('keeps an older Vermont declaration when a later dated copy is recorded', async () => {
+    const saved = await saveVt();
+    at(DECLARED_AT);
+    const first = await recordPartnerVtDeclaration({
+      uid: 'user-1',
+      taxYear: 2026,
+      returnCode: 'VT',
+      partnerLegalName: PARTNER,
+      datedCopyReference: 'DRAFT-COPY-REF-1',
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error('expected the first declaration');
+    const oldPath = `${FILING_VT_DECLARATION_COLLECTION}/${first.id}`;
+    const oldBytes = JSON.stringify(db.records.get(oldPath));
+    at('2026-03-06T12:00:00.000Z');
+    const second = await recordPartnerVtDeclaration({
+      uid: 'user-1',
+      taxYear: 2026,
+      returnCode: 'VT',
+      partnerLegalName: PARTNER,
+      datedCopyReference: 'DRAFT-COPY-REF-2',
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) throw new Error('expected the later declaration');
+    expect(second.id).not.toBe(first.id);
+    expect(JSON.stringify(db.records.get(oldPath))).toBe(oldBytes);
+    const stub = createPartnerSendStub();
+    const sent = await sendFilingHandOff(handOff(saved.id, { residentState: 'VT', returns: [vtReturn()] }), stub);
+    expect(sent).toEqual({ sent: true });
+    expect(stub.deliveries).toHaveLength(1);
+    expect(JSON.stringify(db.records.get(oldPath))).toBe(oldBytes);
   });
 
   it('does not count a declaration for a different return or tax year', async () => {

@@ -26,6 +26,7 @@ export {
   evaluateFilingHandOff,
   runQueuedFilingHandOff,
   sendFilingHandOff,
+  type AskResidentStateDecision,
   type HandOffRequest,
   type HandOffReturn,
   type PartnerSendStub,

@@ -1,4 +1,4 @@
-import { DISCLOSING_PREPARER_LEGAL_NAME, PARTNER_RECIPIENT_LEGAL_NAMES } from './config';
+import { DISCLOSING_PREPARER_LEGAL_NAME, partnerRecipientLegalNames } from './config';
 import { isDurationStated, type DurationStated } from './duration';
 import { isSignatureMethod, type SignatureMethod } from './signature';
 
@@ -24,6 +24,11 @@ export interface DisclosureConsentRecord {
   purpose: string;
   returnsCovered: CoveredReturn[];
   recipients: string[];
+  /**
+   * The partner this consent names. A record without it does not match a hand off.
+   * Saving writes it once. An existing consent is never rewritten to add or change it.
+   */
+  recipientPartnerId: string;
   scope: DisclosureScope;
   signatureMethod: SignatureMethod;
   signatureValue: string;
@@ -123,7 +128,7 @@ export function coversUseAsWell(data: { coversUse?: unknown; useConsent?: unknow
 
 export function recipientNotOnLegalNameList(recipients: string[]): string | null {
   for (const name of recipients) {
-    if (!PARTNER_RECIPIENT_LEGAL_NAMES.includes(name)) return name;
+    if (!partnerRecipientLegalNames().includes(name)) return name;
   }
   return null;
 }

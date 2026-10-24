@@ -1,14 +1,10 @@
+import { createHash } from 'node:crypto';
 import { adminDb } from '@/lib/firebase/admin';
 import {
-  DRAFT_PARTNER_FEE_ESTIMATE,
-  DRAFT_PARTNER_PRIMARY_BUSINESS_PHONE,
-  DRAFT_PARTNER_PRINCIPAL_BUSINESS_ADDRESS,
-  DRAFT_PARTNER_SECURITY_WARRANTY,
-  DRAFT_PARTNER_SIGNING_EA_NAME,
-  DRAFT_PARTNER_SIGNING_EA_PTIN,
   FEE_ESTIMATE_PHRASE,
   FILING_BEFORE_WORK_DISCLOSURE_COLLECTION,
-  PARTNER_RECIPIENT_LEGAL_NAMES,
+  currentDraftPartnerDisclosureCopy,
+  partnerRecipientLegalNames,
 } from './config';
 import { filingConsentNow } from './clock';
 import { refusal, type ConsentRefusal } from './record';
@@ -39,6 +35,7 @@ export interface BeforeWorkDisclosureScreen extends PartnerBeforeWorkCopy {
 export interface BeforeWorkDisclosureRecord extends BeforeWorkDisclosureScreen {
   uid: string;
   taxYear: number;
+  partnerId: string;
   shownAt: string;
 }
 
@@ -46,17 +43,19 @@ export interface RecordBeforeWorkDisclosureInput {
   uid: string;
   taxYear: number;
   residentState: string;
+  partnerId: string;
 }
 
-function configuredCopy(): PartnerBeforeWorkCopy {
+function configuredCopy(partnerId: string): PartnerBeforeWorkCopy {
+  const copy = currentDraftPartnerDisclosureCopy();
   return {
-    partnerFirmLegalName: PARTNER_RECIPIENT_LEGAL_NAMES[0] ?? '',
-    signingEaName: DRAFT_PARTNER_SIGNING_EA_NAME,
-    signingEaPtin: DRAFT_PARTNER_SIGNING_EA_PTIN,
-    principalBusinessAddress: DRAFT_PARTNER_PRINCIPAL_BUSINESS_ADDRESS,
-    primaryBusinessPhone: DRAFT_PARTNER_PRIMARY_BUSINESS_PHONE,
-    feeEstimateOfTotalCharge: DRAFT_PARTNER_FEE_ESTIMATE,
-    securityWarranty: DRAFT_PARTNER_SECURITY_WARRANTY,
+    partnerFirmLegalName: partnerId,
+    signingEaName: copy.signingEaName,
+    signingEaPtin: copy.signingEaPtin,
+    principalBusinessAddress: copy.principalBusinessAddress,
+    primaryBusinessPhone: copy.primaryBusinessPhone,
+    feeEstimateOfTotalCharge: copy.feeEstimateOfTotalCharge,
+    securityWarranty: copy.securityWarranty,
   };
 }
 
@@ -99,12 +98,41 @@ export function assembleBeforeWorkDisclosureScreen(
   };
 }
 
-export function buildBeforeWorkDisclosureScreen(residentState: string): BeforeWorkDisclosureScreen | null {
-  return assembleBeforeWorkDisclosureScreen(residentState, configuredCopy());
+export function buildBeforeWorkDisclosureScreen(residentState: string, partnerId?: string): BeforeWorkDisclosureScreen | null {
+  const id = partnerId ?? partnerRecipientLegalNames()[0] ?? '';
+  return assembleBeforeWorkDisclosureScreen(residentState, configuredCopy(id));
 }
 
-export function beforeWorkDisclosureDocId(uid: string, taxYear: number, residentState: string): string {
-  return `${encodeURIComponent(uid)}__${taxYear}__${residentState}`;
+/**
+ * Stable hash of the exact screen fields shown. The partner id is a separate key part.
+ * Address, phone, fee, and warranty are screen fields. A change refuses the hand off
+ * until this screen is recorded again. The disclosure consent stays in force for the
+ * same partner. A change to the consent's stated purpose is not a screen change and
+ * requires a new consent.
+ */
+export function beforeWorkScreenHash(screen: PartnerBeforeWorkCopy & { printOffered: boolean; saveOffered: boolean }): string {
+  const canonical = JSON.stringify({
+    feeEstimateOfTotalCharge: screen.feeEstimateOfTotalCharge,
+    partnerFirmLegalName: screen.partnerFirmLegalName,
+    primaryBusinessPhone: screen.primaryBusinessPhone,
+    principalBusinessAddress: screen.principalBusinessAddress,
+    printOffered: screen.printOffered,
+    saveOffered: screen.saveOffered,
+    securityWarranty: screen.securityWarranty,
+    signingEaName: screen.signingEaName,
+    signingEaPtin: screen.signingEaPtin,
+  });
+  return createHash('sha256').update(canonical, 'utf8').digest('hex');
+}
+
+export function beforeWorkDisclosureDocId(
+  uid: string,
+  taxYear: number,
+  residentState: string,
+  partnerId: string,
+  screenHash: string,
+): string {
+  return `${encodeURIComponent(uid)}__${taxYear}__${residentState}__${encodeURIComponent(partnerId)}__${screenHash}`;
 }
 
 function mismatch(stored: unknown, expected: string, message: string): string | null {
@@ -117,8 +145,8 @@ function mismatch(stored: unknown, expected: string, message: string): string | 
  * matches the current partner copy. Address, phone, fee estimate wording, and
  * the warranty are each required. The warranty must be the partner string.
  */
-export function beforeWorkDisclosureGap(data: Record<string, unknown> | undefined): string | null {
-  const copy = configuredCopy();
+export function beforeWorkDisclosureGap(data: Record<string, unknown> | undefined, partnerId?: string): string | null {
+  const copy = configuredCopy(partnerId ?? partnerRecipientLegalNames()[0] ?? '');
   if (!assembleBeforeWorkDisclosureScreen('CT', copy)) {
     return 'The partner before work disclosure is missing a required item.';
   }
@@ -127,7 +155,8 @@ export function beforeWorkDisclosureGap(data: Record<string, unknown> | undefine
     return 'The before work disclosure screen has not been recorded.';
   }
   return (
-    mismatch(data.partnerFirmLegalName, copy.partnerFirmLegalName, 'The before work disclosure is missing the partner firm name.')
+    mismatch(data.partnerId, copy.partnerFirmLegalName, 'The before work disclosure is missing the partner firm name.')
+    ?? mismatch(data.partnerFirmLegalName, copy.partnerFirmLegalName, 'The before work disclosure is missing the partner firm name.')
     ?? mismatch(data.signingEaName, copy.signingEaName, 'The before work disclosure is missing the signing enrolled agent name.')
     ?? mismatch(data.signingEaPtin, copy.signingEaPtin, 'The before work disclosure is missing the signing enrolled agent PTIN.')
     ?? mismatch(data.principalBusinessAddress, copy.principalBusinessAddress, 'The before work disclosure is missing the principal business address.')
@@ -145,19 +174,28 @@ export function beforeWorkDisclosureGap(data: Record<string, unknown> | undefine
 export async function recordBeforeWorkDisclosureShown(
   input: RecordBeforeWorkDisclosureInput,
 ): Promise<{ ok: true; id: string; screen: BeforeWorkDisclosureScreen; shownAt: string } | ConsentRefusal> {
-  const screen = buildBeforeWorkDisclosureScreen(input.residentState);
+  if (blank(input.partnerId) || !partnerRecipientLegalNames().includes(input.partnerId)) {
+    return refusal('recipient_not_legal_name', 'The before work disclosure partner must be a legal name from the partner list.');
+  }
+  const screen = buildBeforeWorkDisclosureScreen(input.residentState, input.partnerId);
   if (!screen) {
     return refusal('before_work_disclosure_missing', 'The before work disclosure screen is missing a required item.');
   }
   if (blank(input.uid) || typeof input.taxYear !== 'number' || !Number.isInteger(input.taxYear)) {
     return refusal('missing_field', 'The before work disclosure needs an account and a tax year.');
   }
-  const id = beforeWorkDisclosureDocId(input.uid, input.taxYear, screen.residentState);
+  const id = beforeWorkDisclosureDocId(
+    input.uid,
+    input.taxYear,
+    screen.residentState,
+    input.partnerId,
+    beforeWorkScreenHash(screen),
+  );
   const ref = adminDb.collection(FILING_BEFORE_WORK_DISCLOSURE_COLLECTION).doc(id);
   const existing = await ref.get();
   if (existing.exists) {
     const data = existing.data() as Record<string, unknown> | undefined;
-    const gap = beforeWorkDisclosureGap(data);
+    const gap = beforeWorkDisclosureGap(data, input.partnerId);
     if (gap || !data || data.uid !== input.uid || data.taxYear !== input.taxYear || data.residentState !== screen.residentState) {
       return refusal('before_work_disclosure_missing', gap ?? 'The before work disclosure screen has not been recorded.');
     }
@@ -172,10 +210,21 @@ export async function recordBeforeWorkDisclosureShown(
   const record: BeforeWorkDisclosureRecord = {
     uid: input.uid,
     taxYear: input.taxYear,
+    partnerId: input.partnerId,
     shownAt,
     ...screen,
   };
-  await ref.create(record);
+  try {
+    await ref.create(record);
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.startsWith('Document exists')) throw error;
+    const raced = await ref.get();
+    const racedData = raced.data() as Record<string, unknown> | undefined;
+    if (!racedData || typeof racedData.shownAt !== 'string') {
+      return refusal('before_work_disclosure_missing', 'The before work disclosure screen has not been recorded.');
+    }
+    return { ok: true, id, screen, shownAt: racedData.shownAt };
+  }
   return { ok: true, id, screen, shownAt };
 }
 
@@ -183,17 +232,22 @@ export async function beforeWorkHandOffRefusal(input: {
   residentState?: string;
   uid: string;
   taxYear: number;
+  partnerId: string;
 }): Promise<ConsentRefusal | null> {
   if (input.residentState !== 'CT' && input.residentState !== 'CA') return null;
+  const screen = buildBeforeWorkDisclosureScreen(input.residentState, input.partnerId);
+  if (!screen) {
+    return refusal('before_work_disclosure_missing', 'The partner before work disclosure is missing a required item.');
+  }
   const ref = adminDb.collection(FILING_BEFORE_WORK_DISCLOSURE_COLLECTION).doc(
-    beforeWorkDisclosureDocId(input.uid, input.taxYear, input.residentState),
+    beforeWorkDisclosureDocId(input.uid, input.taxYear, input.residentState, input.partnerId, beforeWorkScreenHash(screen)),
   );
   const snap = await ref.get();
   const data = snap.exists ? snap.data() as Record<string, unknown> | undefined : undefined;
-  if (!data || data.uid !== input.uid || data.taxYear !== input.taxYear || data.residentState !== input.residentState) {
+  if (!data || data.uid !== input.uid || data.taxYear !== input.taxYear || data.residentState !== input.residentState || data.partnerId !== input.partnerId) {
     return refusal('before_work_disclosure_missing', 'The before work disclosure screen has not been recorded.');
   }
-  const gap = beforeWorkDisclosureGap(data);
+  const gap = beforeWorkDisclosureGap(data, input.partnerId);
   if (gap) return refusal('before_work_disclosure_missing', gap);
   return null;
 }
