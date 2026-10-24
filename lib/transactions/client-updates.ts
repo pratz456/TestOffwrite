@@ -3,9 +3,13 @@ import { z } from 'zod';
 const text = z.string().max(5000).nullable().transform(value => value ?? '').optional();
 export const transactionIdInput = z.string().min(1).max(256).regex(/^[^/\\\x00-\x1f\x7f]+$/);
 
-/** Match the user-editable Firestore fields; owner, bank amounts and AI output stay server-owned. */
+/**
+ * Match the user-editable Firestore fields. Owner and AI output stay server owned.
+ * `amount` is accepted here and applied only when the saved amount is null.
+ */
 export const transactionUpdatesInput = z.object({
   notes: text, user_classification_reason: text, receipt_url: text, receipt_filename: text,
+  amount: z.number().finite().positive().optional(),
   is_deductible: z.boolean().nullable().optional(), expense_type: z.enum(['business', 'personal']).nullable().optional(),
   deduction_score: z.number().finite().min(0).max(1).optional(), deductible_reason: text,
   business_purpose: text, attendees: z.array(z.string().max(300)).max(100).optional(), travel_destination: text,
@@ -15,6 +19,16 @@ export const transactionUpdatesInput = z.object({
     depreciation_method: z.enum(['straight_line', 'declining_balance', 'section_179']).optional() }).strict().optional(),
   mileage_details: z.object({ start_location: text, end_location: text, miles: z.number().finite().nonnegative().optional(), business_purpose: text }).strict().optional(),
 }).strict().refine(value => Object.keys(value).length > 0, 'Provide at least one editable field');
+
+/** A positive amount may fill only a blank saved amount, and that fill clears amount review. */
+export function filledAmountUpdate<T extends { amount?: number }>(
+  savedAmount: unknown,
+  updates: T,
+): (T & { amountNeedsReview?: false }) | null {
+  if (updates.amount === undefined) return updates;
+  if (savedAmount !== null || !(typeof updates.amount === 'number' && Number.isFinite(updates.amount) && updates.amount > 0)) return null;
+  return { ...updates, amountNeedsReview: false };
+}
 
 export const transactionCreateInput = z.object({
   trans_id: transactionIdInput, account_id: transactionIdInput,

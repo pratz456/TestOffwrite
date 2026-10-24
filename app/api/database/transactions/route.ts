@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getTransactionsServer, updateTransactionServerWithUserId, createTransactionServer } from '@/lib/firebase/transactions-server'
+import { getTransactionServer, getTransactionsServer, updateTransactionServerWithUserId, createTransactionServer } from '@/lib/firebase/transactions-server'
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth'
-import { transactionCreateInput, transactionIdInput, transactionUpdatesInput } from '@/lib/transactions/client-updates'
+import { filledAmountUpdate, transactionCreateInput, transactionIdInput, transactionUpdatesInput } from '@/lib/transactions/client-updates'
+import { NULL_AMOUNT_DEDUCTION_MESSAGE } from '@/lib/transactions/tax-decision'
 
 export async function GET(request: NextRequest) {
   try {
@@ -98,7 +99,13 @@ export async function PUT(request: NextRequest) {
     const parsed = transactionUpdatesInput.safeParse(body?.updates);
     if (!parsedId.success || !parsed.success) return NextResponse.json({ error: 'Provide a valid transaction ID and editable transaction fields. Ownership, amounts and AI fields cannot be changed here.' }, { status: 400 });
     const transactionId = parsedId.data;
-    const updates = parsed.data;
+    let updates = parsed.data;
+    if (parsed.data.amount !== undefined) {
+      const existing = await getTransactionServer(user.uid, transactionId);
+      const filled = filledAmountUpdate(existing.data?.amount, parsed.data);
+      if (!filled) return NextResponse.json({ error: 'An amount can be entered only while the saved amount is blank.' }, { status: 400 });
+      updates = filled;
+    }
 
     console.log('📝 [Database Transactions API] Updating transaction:', {
       transactionId,
@@ -109,6 +116,9 @@ export async function PUT(request: NextRequest) {
     
     if (result.error) {
       console.error('❌ [Database Transactions API] Error updating transaction:', result.error);
+      if (result.error instanceof Error && result.error.message === NULL_AMOUNT_DEDUCTION_MESSAGE) {
+        return NextResponse.json({ error: result.error.message }, { status: 400 });
+      }
       return NextResponse.json({ 
         error: 'Failed to update transaction'
       }, { status: 500 })

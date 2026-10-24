@@ -215,10 +215,12 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
   // - confirmed-only counts only server-confirmed deductible transactions
   //   and nets credits/refunds (negative amounts) against their mapped lines
   // - pending transactions are excluded when present
+  // A blank amount stays out of every Schedule C total until a positive amount is entered.
+  const countableTransactions = yearTransactions.filter(tx => typeof tx.amount === 'number' && Number.isFinite(tx.amount));
   const deductibleTransactions =
     mode === 'confirmed-only'
-      ? yearTransactions.filter(isConfirmedScheduleCExpense)
-      : yearTransactions.filter(isBusinessExpense);
+      ? countableTransactions.filter(isConfirmedScheduleCExpense)
+      : countableTransactions.filter(isBusinessExpense);
 
   const lineItems: Record<string, LineItemSummary> = {};
 

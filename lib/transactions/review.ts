@@ -5,6 +5,7 @@ import { analysisProfileHash } from '@/lib/ai/profile-context';
 import { invalidateTaxpayerContextCache } from '@/lib/ai/taxpayer-context-server';
 import { TRANSACTION_TAX_POLICY_VERSION } from '@/lib/ai/transaction-tax-policy';
 import { transactionIdInput } from './client-updates';
+import { NULL_AMOUNT_DEDUCTION_MESSAGE } from './tax-decision';
 import { canConfirmAiSuggestion, recordedTransactionType, reviewCategory, reviewHydrationFields,
   type AiReviewSuggestion, type TransactionReviewRequest } from './ai-review-contract';
 
@@ -52,6 +53,7 @@ export async function reviewTransaction(uid: string, id: string, input: Transact
       throw new TransactionReviewError('TRANSACTION_NOT_FOUND', 'Transaction not found.', 404);
     }
     if (data.pending === true) throw new TransactionReviewError('TRANSACTION_PENDING', 'Wait until this transaction posts before confirming its category.');
+    if (data.amount === null) throw new TransactionReviewError('TRANSACTION_REVIEW_REQUIRED', NULL_AMOUNT_DEDUCTION_MESSAGE);
     if (!Number.isFinite(data.amount) || data.iso_currency_code !== 'USD' || data.unofficial_currency_code) {
       throw new TransactionReviewError('TRANSACTION_REVIEW_REQUIRED', 'Review the transaction amount and U.S. dollar currency before confirming.');
     }

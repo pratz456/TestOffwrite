@@ -220,18 +220,23 @@ function sumExpensesLikeForQuarter(
   quarter: 1 | 2 | 3 | 4,
   userTimezone: string,
   mode: 'confirmed' | 'potential'
-): { amount: number; amountCents: number } {
+): { amount: number; amountCents: number; heldOut: number } {
   const deduped = dedupeQuarterlyTransactions(transactions);
 
   let totalCents = 0;
+  let heldOut = 0;
   for (const tx of deduped) {
     if (!isPosted(tx)) continue;
-    if (!BUSINESS_CATEGORIES.has(tx.category)) continue;
 
     const localDate = getLocalTransactionDate(tx, userTimezone);
     if (!localDate) continue;
     if (getTaxYear(localDate) !== year) continue;
     if (getTaxQuarter(localDate) !== quarter) continue;
+    if (tx.amount == null) {
+      heldOut += 1;
+      continue;
+    }
+    if (!BUSINESS_CATEGORIES.has(tx.category)) continue;
 
     const isConfirmed = tx.is_deductible === true && !transactionNeedsTaxReview(tx);
     const isPotential = transactionNeedsTaxReview(tx);
@@ -242,12 +247,12 @@ function sumExpensesLikeForQuarter(
     const lineCode = getScheduleCLineCodeFromCategory(tx.category);
     if (!lineCode) continue;
 
-    const signedCents = toCents(tx.amount ?? 0); // keep sign for credits/refunds offsets
+    const signedCents = toCents(tx.amount); // keep sign for credits/refunds offsets
     const contributionCents = lineCode === '24b' ? halfCentsAwayFromZero(signedCents) : signedCents;
     totalCents += contributionCents;
   }
 
-  return { amountCents: totalCents, amount: totalCents / 100 };
+  return { amountCents: totalCents, amount: totalCents / 100, heldOut };
 }
 
 export function sumExpensesForQuarter(
@@ -255,9 +260,9 @@ export function sumExpensesForQuarter(
   year: number,
   quarter: 1 | 2 | 3 | 4,
   userTimezone: string
-): { confirmed_deductible_expenses: number; confirmed_deductible_expenses_cents: number } {
-  const { amount, amountCents } = sumExpensesLikeForQuarter(transactions, year, quarter, userTimezone, 'confirmed');
-  return { confirmed_deductible_expenses: amount, confirmed_deductible_expenses_cents: amountCents };
+): { confirmed_deductible_expenses: number; confirmed_deductible_expenses_cents: number; held_out_expenses: number } {
+  const { amount, amountCents, heldOut } = sumExpensesLikeForQuarter(transactions, year, quarter, userTimezone, 'confirmed');
+  return { confirmed_deductible_expenses: amount, confirmed_deductible_expenses_cents: amountCents, held_out_expenses: heldOut };
 }
 
 export function sumPotentialExpensesForQuarter(
@@ -265,9 +270,9 @@ export function sumPotentialExpensesForQuarter(
   year: number,
   quarter: 1 | 2 | 3 | 4,
   userTimezone: string
-): { potential_deductions_needing_review: number; potential_deductions_needing_review_cents: number } {
-  const { amount, amountCents } = sumExpensesLikeForQuarter(transactions, year, quarter, userTimezone, 'potential');
-  return { potential_deductions_needing_review: amount, potential_deductions_needing_review_cents: amountCents };
+): { potential_deductions_needing_review: number; potential_deductions_needing_review_cents: number; held_out_expenses: number } {
+  const { amount, amountCents, heldOut } = sumExpensesLikeForQuarter(transactions, year, quarter, userTimezone, 'potential');
+  return { potential_deductions_needing_review: amount, potential_deductions_needing_review_cents: amountCents, held_out_expenses: heldOut };
 }
 
 /** Calendar-quarter aggregation cannot establish IRS installment requirements.

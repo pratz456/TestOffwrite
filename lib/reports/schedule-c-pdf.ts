@@ -35,8 +35,11 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   if (data.includeAppendix) {
     pdf.section('Complete confirmed-transaction appendix');
     const rows = data.lineItems.flatMap(item => item.transactions.map(tx => {
+      const line = scheduleCExportLine(item.lineCode, data.taxYear);
+      const label = tx.merchant_name || tx.id || 'Unnamed record';
+      if (typeof tx.amount !== 'number' || !Number.isFinite(tx.amount)) return [tx.date, label, line, 'Amount needed', 'Amount needed'];
       const contribution = aggregateScheduleC([tx], String(data.taxYear), CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible;
-      return [tx.date, tx.merchant_name || tx.id || 'Unnamed record', scheduleCExportLine(item.lineCode, data.taxYear), money(tx.amount), money(contribution)];
+      return [tx.date, label, line, money(tx.amount), Number.isFinite(contribution) ? money(contribution) : 'Amount needed'];
     }));
     pdf.table(['Date', 'Merchant / record', 'Line', 'Signed amount', 'Contribution'], rows.length ? rows : [['', 'No confirmed records in this year', '', money(0), money(0)]], [68, 235, 35, 95, 95]);
   } else pdf.paragraph('Transaction appendix omitted at your request. Retain the detailed records and receipts with your preparer.');

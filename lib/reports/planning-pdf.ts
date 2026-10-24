@@ -90,7 +90,8 @@ export async function createPlanningPDF(title: string, taxYear: number) {
   };
 }
 
-export const formatExportMoney = (value: number) => {
+export const formatExportMoney = (value: number | null | undefined) => {
+  if (value == null) return 'Amount needed';
   if (!Number.isFinite(value)) throw new RangeError('Export amounts must be finite.');
   return `${value < 0 ? '-' : ''}$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };

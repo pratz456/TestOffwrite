@@ -13,6 +13,7 @@ import { REVIEW_CATEGORIES, canConfirmSuggestion, reviewCategory, type Transacti
 import { reviewPresentation, transactionReviewKey } from '@/lib/transactions/review-presentation';
 import { formatTransactionDate } from '@/lib/transactions/calendar-date';
 import { formatRecordedTransactionAmount } from '@/lib/transactions/amount-display';
+import { BlankAmountEntry } from '@/components/blank-amount-entry';
 import { bulkConfirmedLocally, bulkOfferFor, canOfferPurposeConfirmation, confirmPurposeUpdates, firstOpenQuestion, groupUnreviewedByMerchant, proposedBusinessPurpose,
   questionAnswered, rejectProposalUpdates, type BulkConfirmRequest } from '@/lib/transactions/review-proposals';
 import { PurposeConfirmChip } from '@/components/review/purpose-confirm-chip';
@@ -104,7 +105,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
   const suggestion = backgroundAnalysis ? null : current?.ai_suggestion;
   // Backlog across the loaded records, so a queued card can say how long the wait may be.
   const analysisWaiting = analysisQueued ? summarizeAnalysisBacklog(resolved).waiting : 0;
-  const mayConfirm = !!current && current.pending !== true && !analysisRunning && !analysisQueued && canConfirmSuggestion(suggestion);
+  const mayConfirm = !!current && current.amount !== null && current.pending !== true && !analysisRunning && !analysisQueued && canConfirmSuggestion(suggestion);
   const suggestedCategory = reviewCategory(suggestion?.category);
   // Describe the existing review endpoint's supported deduction cases, not just the model's status.
   const recordsDeduction = mayConfirm && suggestion?.status === 'ok' && suggestion.transactionKind === 'expense' &&
@@ -391,7 +392,9 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
           <div className="space-y-3 p-3 sm:p-4">
             <div className="flex justify-between gap-3">
               <div className="min-w-0"><h2 className="break-words text-lg font-semibold leading-snug">{current.merchant_name || 'Transaction'}</h2><p className="mt-0.5 text-xs text-muted-foreground">{formatTransactionDate(current.date, 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{current.pending ? ' · Bank pending' : ''}</p></div>
-              <div className="shrink-0 text-right"><p className="text-xl font-semibold tabular-nums">{formatRecordedTransactionAmount(current)}</p><p className="text-xs text-muted-foreground">{current.amount < 0 ? 'Received' : 'Spent'}</p></div>
+              <div className="shrink-0 text-right">{current.amount === null
+                ? <BlankAmountEntry receiptUrl={current.receipt_url} signedAmountReview={current.signedAmountReview} suggestedAmount={current.suggestedAmount} onSave={amount => { void saveDecision({ amount }, 'PLACEHOLDER', true); }} />
+                : <><p className="text-xl font-semibold tabular-nums">{formatRecordedTransactionAmount(current)}</p><p className="text-xs text-muted-foreground">{current.amount < 0 ? 'Received' : 'Spent'}</p></>}</div>
             </div>
 
             {!editing && <div className="grid items-start gap-4 md:grid-cols-2">

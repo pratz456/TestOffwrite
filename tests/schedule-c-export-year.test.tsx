@@ -94,6 +94,19 @@ describe('Schedule C supported-year selection', () => {
 });
 
 
+describe('Schedule C blank amount export', () => {
+  it('blocks the filing export control when the selected year has a blank amount', async () => {
+    const blocked = { ...props, transactions: [...props.transactions, { id: 'blank', merchant_name: 'Blank Market', amount: null as unknown as number, category: 'GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE', date: '2026-06-15', is_deductible: null }] };
+    const tree = render(blocked);
+    expect(text(tree)).toContain('PLACEHOLDER');
+    const button = walk(tree).find(node => typeof node.props?.onClick === 'function' && text(node).includes('Export 2026 Schedule C Data'));
+    expect(button.props.disabled).toBe(true);
+    await button.props.onClick();
+    expect(harness.fetch).not.toHaveBeenCalled();
+    expect(harness.error).toHaveBeenCalledWith('PLACEHOLDER');
+  });
+});
+
 describe('Schedule C safe export controls', () => {
   it('allows an income-only PDF without loaded deductible expenses', async () => {
     const empty = { ...props, transactions: [] };

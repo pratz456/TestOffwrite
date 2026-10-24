@@ -8,6 +8,7 @@ import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { IRS_CONTENT_DATABASE, type IRSContent } from '@/lib/education/irs-content';
+import { formatListAmount } from '@/lib/transactions/amount-display';
 import { 
   BookOpen, 
   FileText, 
@@ -176,7 +177,7 @@ export function TaxEducationModal({ isOpen, onClose, transaction, userProfile }:
                     Why {transaction.is_deductible ? 'This Expense May Be Deductible' : 'This Expense Looks Non-Deductible'}
                   </CardTitle>
                   <CardDescription>
-                    {transaction.merchant_name} • ${Math.abs(transaction.amount).toFixed(2)} • {transaction.category}
+                    {transaction.merchant_name} • {formatListAmount(transaction.amount)} • {transaction.category}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>

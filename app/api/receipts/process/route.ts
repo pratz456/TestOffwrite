@@ -16,7 +16,8 @@ import {
   receiptBucket, receiptFormData, receiptMimeType, ReceiptRequestError,
   receiptSignatureMatches, safeReceiptName,
 } from '@/lib/firebase/receipt-security';
-import { transactionIdInput, transactionUpdatesInput } from '@/lib/transactions/client-updates';
+import { filledAmountUpdate, transactionIdInput, transactionUpdatesInput } from '@/lib/transactions/client-updates';
+import { NULL_AMOUNT_DEDUCTION_MESSAGE } from '@/lib/transactions/tax-decision';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 export const runtime = 'nodejs';
@@ -191,6 +192,12 @@ export async function POST(request: NextRequest) {
           // Blank when the total needs review. A zero here would look like a real expense.
           amount: receiptData.amountNeedsReview ? null : receiptData.amount,
           amountNeedsReview: receiptData.amountNeedsReview === true,
+          ...(typeof receiptData.signedAmountReview === 'number' && receiptData.signedAmountReview < 0
+            ? { signedAmountReview: receiptData.signedAmountReview }
+            : {}),
+          ...(typeof receiptData.suggestedAmount === 'number' && receiptData.suggestedAmount > 0
+            ? { suggestedAmount: receiptData.suggestedAmount }
+            : {}),
           date: receiptData.date,
           category: receiptData.category || 'other',
           confidence: receiptData.confidence,
@@ -263,6 +270,8 @@ export async function POST(request: NextRequest) {
       source: 'receipt';
       amount: number | null;
       amountNeedsReview?: boolean;
+      signedAmountReview?: number;
+      suggestedAmount?: number;
       deductionStatus?: 'Needs more information';
     } = {
       trans_id: newTransId,
@@ -272,6 +281,12 @@ export async function POST(request: NextRequest) {
         amountNeedsReview: true,
         deductionStatus: 'Needs more information' as const,
         tax_review_required: true,
+        ...(typeof receiptData.signedAmountReview === 'number' && receiptData.signedAmountReview < 0
+          ? { signedAmountReview: receiptData.signedAmountReview }
+          : {}),
+        ...(typeof receiptData.suggestedAmount === 'number' && receiptData.suggestedAmount > 0
+          ? { suggestedAmount: receiptData.suggestedAmount }
+          : {}),
       } : {}),
       ...(manualReceipt?.iso_currency_code ? { iso_currency_code: manualReceipt.iso_currency_code } : {}),
       category: receiptType === 'income' ? 'income' : receiptData.category || 'other',
@@ -330,12 +345,21 @@ export async function PUT(request: NextRequest) {
     const updates = transactionUpdatesInput.safeParse(body?.updates);
     if (!transactionId.success || !updates.success) return receiptResponse({ error: 'Provide a valid transaction and editable fields.' }, 400);
 
+    let nextUpdates = updates.data;
+    if (updates.data.amount !== undefined) {
+      const existing = await getTransactionServer(user.uid, transactionId.data);
+      const filled = filledAmountUpdate(existing.data?.amount, updates.data);
+      if (!filled) return receiptResponse({ error: 'An amount can be entered only while the saved amount is blank.' }, 400);
+      nextUpdates = filled;
+    }
+
     // Update transaction with user corrections
     const { updateTransactionServerWithUserId } = await import('@/lib/firebase/transactions-server');
-    const { data, error } = await updateTransactionServerWithUserId(user.uid, transactionId.data, updates.data);
+    const { data, error } = await updateTransactionServerWithUserId(user.uid, transactionId.data, nextUpdates);
 
     if (error) {
       console.error('❌ [Receipt OCR] Update failed:', error);
+      if (error instanceof Error && error.message === NULL_AMOUNT_DEDUCTION_MESSAGE) return receiptResponse({ error: error.message }, 400);
       return receiptResponse({ error: 'Unable to update receipt details. Please retry.' }, 503);
     }
 

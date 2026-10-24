@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { aggregateQuarterlyEstimatesForYear, getLocalTransactionDate, sumIncomeForQuarter, sumExpensesForQuarter, sumPotentialExpensesForQuarter } from '@/lib/tax-provider/quarterly-estimates';
+import { assertFilingExportAllowed, FilingExportBlockedError } from '@/lib/reports/transaction-export';
 
 const baseOptions = { filingStatus: 'single' as const, w2Income: 0, otherIncome: 0 };
 function calendarSummary(transactions: Parameters<typeof sumIncomeForQuarter>[0], year: number, timezone: string, _options: unknown) {
@@ -174,6 +175,24 @@ describe('Quarterly estimated tax helpers', () => {
     // Net should be exactly 0.00.
     expect(q2.confirmed_deductible_expenses).toBeCloseTo(0, 2);
     expect(q2.net_profit).toBeCloseTo(0, 2);
+  });
+
+  it('keeps a blank amount out of the quarterly total in every zone', () => {
+    const paid = {
+      id: 'paid', trans_id: 'paid', account_id: 'a1', amount: 25, category: 'TRANSPORTATION_FUEL',
+      date: '2024-05-10', pending: false, is_deductible: true,
+    };
+    const blank = {
+      id: 'blank', trans_id: 'blank', account_id: 'a1', amount: null, category: 'TRANSPORTATION_FUEL',
+      date: '2024-05-11', pending: false, is_deductible: true,
+    };
+    for (const timezone of ['America/Los_Angeles', 'UTC', 'Asia/Tokyo']) {
+      const quarter = sumExpensesForQuarter([paid, blank] as any, 2024, 2, timezone);
+      expect(quarter.confirmed_deductible_expenses).toBe(25);
+      expect(quarter.held_out_expenses).toBe(1);
+    }
+    expect(() => assertFilingExportAllowed([blank], 2024)).toThrow(FilingExportBlockedError);
+    expect(() => assertFilingExportAllowed([blank], 2024)).toThrow('PLACEHOLDER');
   });
 });
 

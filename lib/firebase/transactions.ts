@@ -52,6 +52,9 @@ export interface Transaction {
   notes?: string;
   receipt_url?: string; // URL to uploaded receipt image
   receipt_filename?: string; // Original filename of the receipt
+  signedAmountReview?: number;
+  /** Positive comma decimal shown in the amount field while the saved amount is blank. */
+  suggestedAmount?: number;
 
   // Transaction-Specific Context Fields
   business_purpose?: string; // Why this expense was necessary for business
@@ -272,7 +275,7 @@ export const hydrateTransactionRecord = (data: DocumentData, fallbackId: string)
     id: data.trans_id || fallbackId,
     trans_id: data.trans_id || fallbackId,
     merchant_name: data.merchant_name || '',
-    amount: data.amount || 0,
+    amount: (data.amount === null ? null : (data.amount || 0)) as number,
     category: data.category || '',
     date: data.date || '',
     datetime: data.datetime,
@@ -287,6 +290,8 @@ export const hydrateTransactionRecord = (data: DocumentData, fallbackId: string)
     notes: data.notes,
     receipt_url: data.receipt_url,
     receipt_filename: data.receipt_filename,
+    ...(typeof data.signedAmountReview === 'number' && data.signedAmountReview < 0 ? { signedAmountReview: data.signedAmountReview } : {}),
+    ...(typeof data.suggestedAmount === 'number' && data.suggestedAmount > 0 ? { suggestedAmount: data.suggestedAmount } : {}),
 
     ...reviewHydrationFields(data),
 
@@ -474,7 +479,7 @@ export async function createTransaction(
             id: data.trans_id || createdDoc.id,
             trans_id: data.trans_id || createdDoc.id,
             merchant_name: data.merchant_name || '',
-            amount: data.amount || 0,
+            amount: (data.amount === null ? null : (data.amount || 0)) as number,
             category: data.category || '',
             date: data.date || '',
             type: recordedTransactionType(data),

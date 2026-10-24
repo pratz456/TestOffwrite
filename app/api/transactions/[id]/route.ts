@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { updateTransactionServerWithUserId } from '@/lib/firebase/transactions-server';
+import { getTransactionServer, updateTransactionServerWithUserId } from '@/lib/firebase/transactions-server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { aiLearningEngine } from '@/lib/ai/learning-engine';
 import { adminDb } from '@/lib/firebase/admin';
-import { transactionIdInput, transactionUpdatesInput } from '@/lib/transactions/client-updates';
+import { filledAmountUpdate, transactionIdInput, transactionUpdatesInput } from '@/lib/transactions/client-updates';
+import { NULL_AMOUNT_DEDUCTION_MESSAGE } from '@/lib/transactions/tax-decision';
 
 import { hydrateReviewTransaction } from '@/lib/transactions/review';
 
@@ -141,7 +142,13 @@ export async function PUT(
     if (!transactionIdInput.safeParse(transactionId).success) return NextResponse.json({ error: 'Invalid transaction ID' }, { status: 400 });
     const parsed = transactionUpdatesInput.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return NextResponse.json({ error: 'Provide valid editable transaction fields. Ownership, amounts and AI fields cannot be changed here.' }, { status: 400 });
-    const updates = parsed.data;
+    let updates = parsed.data;
+    if (parsed.data.amount !== undefined) {
+      const existing = await getTransactionServer(user.uid, transactionId);
+      const filled = filledAmountUpdate(existing.data?.amount, parsed.data);
+      if (!filled) return NextResponse.json({ error: 'An amount can be entered only while the saved amount is blank.' }, { status: 400 });
+      updates = filled;
+    }
 
     console.log('🔄 [API UPDATE→DB] Updating transaction:', transactionId, updates);
 
@@ -173,6 +180,9 @@ export async function PUT(
 
     if (error) {
       console.error('❌ [API UPDATE→DB] Update failed:', error);
+      if (error instanceof Error && error.message === NULL_AMOUNT_DEDUCTION_MESSAGE) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
       return NextResponse.json(
         { error: 'Update failed' },
         { status: 500 }

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { getUserProfile } from '@/lib/firebase/profiles';
 import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
+import { formatListAmount } from '@/lib/transactions/amount-display';
 import { 
   CreditCard, 
   Building2, 
@@ -164,7 +165,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate = () => {
         const thirtyDaysAgo = new Date(now.setDate(now.getDate() - 30));
 
         const taxSavingsValue = userTaxRate === null ? null : transactionsData
-          .filter((t: any) => t.is_deductible === true)
+          .filter((t: any) => t.is_deductible === true && typeof t.amount === 'number' && Number.isFinite(t.amount))
           .reduce((sum: any, t: any) => sum + Math.abs(t.amount) * userTaxRate, 0);
 
         const newDeductionsCount = transactionsData
@@ -175,7 +176,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate = () => {
         ).length;
 
         const totalExpensesValue = transactionsData
-          .filter((t: any) => t.amount > 0) // Exclude revenue transactions (negative amounts)
+          .filter((t: any) => typeof t.amount === 'number' && t.amount > 0)
           .reduce((sum: any, t: any) => sum + t.amount, 0);
 
         setTaxSavings(taxSavingsValue);
@@ -491,7 +492,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate = () => {
                 <div className="flex justify-between">
                   <span>{transaction.merchant_name || 'Unknown Merchant'}</span>
                   <span className={transaction.amount > 0 ? 'text-green-600' : 'text-red-600'}>
-                    ${Math.abs(transaction.amount).toFixed(2)}
+                    {formatListAmount(transaction.amount)}
                   </span>
                 </div>
               </Card>

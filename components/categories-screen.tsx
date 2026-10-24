@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Search, ChevronDown, ChevronUp, Building, Settings, Info, Home, TrendingUp } from 'lucide-react';
 import { formatCategory, consolidateCategory } from '@/lib/utils';
 import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
+import { formatListAmount } from '@/lib/transactions/amount-display';
 import { getUserTaxRateDisplay, type UserProfile } from '@/lib/tax-rules/federal-brackets';
 
 const writeOffLogo = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0iIzMzNjZDQyIvPgo8dGV4dCB4PSIxNiIgeT0iMjIiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxOCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IndoaXRlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5XPC90ZXh0Pgo8L3N2Zz4K';
@@ -379,7 +380,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                                   </span>
                                 </div>
                                 <div className="col-span-2 font-semibold text-destructive/85 tabular-nums">
-                                  ${transaction.amount.toFixed(2)}
+                                  {formatListAmount(transaction.amount)}
                                 </div>
                                 <div className="col-span-2 font-semibold text-[hsl(var(--success))] tabular-nums">
                                   ${summary.contributions.get(transaction)!.toFixed(2)}
@@ -496,7 +497,7 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
                             </div>
                             <div className="text-right flex-shrink-0">
                               <div className="font-semibold text-destructive/85 text-sm tabular-nums">
-                                ${transaction.amount.toFixed(2)}
+                                {formatListAmount(transaction.amount)}
                               </div>
                               <div className="text-xs text-[hsl(var(--success))]">
                                 ${summary.contributions.get(transaction)!.toFixed(2)} deduction

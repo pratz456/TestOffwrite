@@ -5,6 +5,10 @@ export interface ReceiptData {
   amount: number | null;
   /** True when the total was missing, unreadable, or ambiguous. The amount is then blank. */
   amountNeedsReview?: boolean;
+  /** Negative total kept for review. Never stored as a positive expense. */
+  signedAmountReview?: number;
+  /** Comma cents kept for review when the receipt has no US signal. Not a saved expense. */
+  suggestedAmount?: number;
   date: string;
   category?: string;
   confidence: number;
@@ -36,7 +40,7 @@ export interface OCRResult {
   processingTime: number;
 }
 
-type TotalRead = { amount: number | null; amountNeedsReview: boolean };
+type TotalRead = { amount: number | null; amountNeedsReview: boolean; signedAmountReview?: number; suggestedAmount?: number };
 
 const TOTAL_LABELS: ReadonlyArray<{ rank: number; source: string }> = [
   { rank: 1, source: String.raw`grand\s+total` },
@@ -47,8 +51,31 @@ const TOTAL_LABELS: ReadonlyArray<{ rank: number; source: string }> = [
 
 const CURRENCY_CODES = 'USD|EUR|GBP|INR|CAD|AUD|CHF|JPY|CNY';
 
+/** Words that sit beside a total label but are not the amount due. Applied at every rank. */
+const TOTAL_NOISE = /\b(?:tax|tip|gratuity|discount|change|tender(?:ed)?|savings|items)\b/i;
+
+/** Postal abbreviations that are not also ordinary words. Matched in uppercase only. */
+const US_POSTAL = 'AL|AK|AZ|AR|CA|CO|CT|FL|GA|HI|ID|IL|IA|KS|KY|LA|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC';
+/** DE, IN, ME, and PA are ordinary words. They count only in a comma address. */
+const WORD_POSTAL = 'DE|IN|ME|PA';
+const US_STATE_NAMES = 'ALABAMA|ALASKA|ARIZONA|ARKANSAS|CALIFORNIA|COLORADO|CONNECTICUT|DELAWARE|FLORIDA|GEORGIA|HAWAII|IDAHO|ILLINOIS|INDIANA|IOWA|KANSAS|KENTUCKY|LOUISIANA|MAINE|MARYLAND|MASSACHUSETTS|MICHIGAN|MINNESOTA|MISSISSIPPI|MISSOURI|MONTANA|NEBRASKA|NEVADA|NEW HAMPSHIRE|NEW JERSEY|NEW MEXICO|NEW YORK|NORTH CAROLINA|NORTH DAKOTA|OHIO|OKLAHOMA|OREGON|PENNSYLVANIA|RHODE ISLAND|SOUTH CAROLINA|SOUTH DAKOTA|TENNESSEE|TEXAS|UTAH|VERMONT|VIRGINIA|WASHINGTON|WEST VIRGINIA|WISCONSIN|WYOMING|DISTRICT OF COLUMBIA';
+const US_ZIP = String.raw`\s+\d{5}(?:-\d{4})?(?!\d)`;
+/**
+ * Canadian province codes, uppercase whole tokens. CA is California, not a province.
+ * A space before a dollar sign (CA $) stays a US tax flag.
+ */
+const CA_PROVINCE_CODES = 'AB|BC|MB|NB|NL|NS|NT|NU|ON|PE|QC|SK|YT';
+const CA_PROVINCE_NAMES = 'BRITISH COLUMBIA|PRINCE EDWARD ISLAND|NEWFOUNDLAND AND LABRADOR|NORTHWEST TERRITORIES|NOVA SCOTIA|NEW BRUNSWICK|SASKATCHEWAN|NEWFOUNDLAND|QUEBEC|QUÉBEC|ONTARIO|ALBERTA|MANITOBA|LABRADOR|NUNAVUT|YUKON';
+
 function blankTotal(): TotalRead {
   return { amount: null, amountNeedsReview: true };
+}
+
+/** A leading minus stays negative for review. It is never saved as a positive expense. */
+function refundReview(value: number): TotalRead {
+  const rounded = Math.round(value * 100) / 100;
+  if (!Number.isFinite(rounded) || !(rounded < 0)) return blankTotal();
+  return { amount: null, amountNeedsReview: true, signedAmountReview: rounded };
 }
 
 function confidentTotal(value: number): TotalRead {
@@ -56,6 +83,13 @@ function confidentTotal(value: number): TotalRead {
   const rounded = Math.round(value * 100) / 100;
   if (!(rounded > 0)) return blankTotal();
   return { amount: rounded, amountNeedsReview: false };
+}
+
+/** A comma decimal without a US signal. The amount stays blank and the value is only a suggestion. */
+function suggestedTotal(value: number): TotalRead {
+  const rounded = Math.round(value * 100) / 100;
+  if (!Number.isFinite(rounded) || !(rounded > 0)) return blankTotal();
+  return { amount: null, amountNeedsReview: true, suggestedAmount: rounded };
 }
 
 /** Drop one exact copy of the total token so other amounts can act as format clues. */
@@ -82,9 +116,48 @@ function hasEuMoneyClue(text: string, raw: string): boolean {
 }
 
 /**
- * Read one numeric token. A comma and exactly two digits, with no dot, is a decimal.
- * A thousands group with no decimal part is used only when another amount on the
- * receipt shows the same format. Otherwise the total is left blank.
+ * $, USD, or a US state with a ZIP. A printed date is not a US signal.
+ * State abbreviations use the same tightness as a flag letter: the token cannot
+ * continue a longer word. DE, IN, ME, and PA count only after a comma, so an
+ * ordinary word cannot match them.
+ */
+function hasUsStateAndZip(text: string): boolean {
+  if (new RegExp(String.raw`(?<![A-Za-z])(?:${US_POSTAL})${US_ZIP}`).test(text)) return true;
+  if (new RegExp(String.raw`,\s*(?:${WORD_POSTAL})${US_ZIP}`).test(text)) return true;
+  return new RegExp(String.raw`\b(?:${US_STATE_NAMES})${US_ZIP}`, 'i').test(text);
+}
+
+/** CA$ and C$ only when the letters touch the sign. CA $ keeps the dollar. */
+function hasCanadianCurrencyPrefix(text: string): boolean {
+  return /(?<![A-Za-z])C(?:A)?\$/i.test(text);
+}
+
+/** A dollar sign other than the CA$ or C$ prefix. */
+function hasBareDollar(text: string): boolean {
+  return /\$/.test(text.replace(/(?<![A-Za-z])C(?:A)?\$/gi, ' '));
+}
+
+/**
+ * CA$, C$, CAD, a province code or name, or a postal code such as H2X 1Y4.
+ * CA beside a US ZIP, or CA with a space before $, is not a Canadian signal.
+ */
+function hasCanadianReceiptSignal(text: string): boolean {
+  if (hasCanadianCurrencyPrefix(text)) return true;
+  if (/\bCAD\b/i.test(text)) return true;
+  if (new RegExp(String.raw`(?<![A-Za-z])(?:${CA_PROVINCE_CODES})(?![A-Za-z])`).test(text)) return true;
+  if (new RegExp(String.raw`\b(?:${CA_PROVINCE_NAMES})\b`, 'i').test(text)) return true;
+  return /(?<![A-Za-z0-9])[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z][ -]?\d[ABCEGHJ-NPRSTV-Z]\d(?![A-Za-z0-9])/i.test(text);
+}
+
+function hasUsReceiptSignal(text: string): boolean {
+  const bareDollar = hasBareDollar(text) && !hasCanadianReceiptSignal(text);
+  return bareDollar || /\bUSD\b/i.test(text) || hasUsStateAndZip(text);
+}
+
+/**
+ * Read one numeric token. A comma and exactly two digits saves when a US signal is
+ * present. Without one, the amount stays blank and the decimal is only a suggestion.
+ * A thousands group is used only when the receipt shows the same format.
  */
 function interpretNumber(raw: string, leadingDollar: boolean, receiptText: string): TotalRead {
   if (!/^\d+(?:[.,]\d+)*$/.test(raw)) return blankTotal();
@@ -99,8 +172,17 @@ function interpretNumber(raw: string, leadingDollar: boolean, receiptText: strin
     return confidentTotal(Number(raw.replace(/\./g, '').replace(',', '.')));
   }
   if (comma) {
-    if (/^\d+,\d{2}$/.test(raw)) return confidentTotal(Number(raw.replace(',', '.')));
-    if (/^\d{1,3}(?:,\d{3})+$/.test(raw) && (leadingDollar || (hasUsMoneyClue(receiptText, raw) && !hasEuMoneyClue(receiptText, raw)))) {
+    // Two digits after the comma are a decimal. A US signal saves it. Otherwise it is only a suggestion.
+    if (/^\d+,\d{2}$/.test(raw)) {
+      const decimal = Number(raw.replace(',', '.'));
+      if (hasUsReceiptSignal(receiptText)) return confidentTotal(decimal);
+      return suggestedTotal(decimal);
+    }
+    // Quebec uses the comma as the decimal mark, so a thousands group stays blank.
+    if (hasCanadianReceiptSignal(receiptText)) return blankTotal();
+    // Comma cents anywhere else mean this group is not a US thousands separator.
+    if (/^\d{1,3}(?:,\d{3})+$/.test(raw) && !hasEuMoneyClue(receiptText, raw)
+      && (leadingDollar || hasUsMoneyClue(receiptText, raw) || hasUsReceiptSignal(receiptText))) {
       return confidentTotal(Number(raw.replace(/,/g, '')));
     }
     return blankTotal();
@@ -121,7 +203,20 @@ function interpretNumber(raw: string, leadingDollar: boolean, receiptText: strin
  * sign, on either side. Other currency symbols before the number are not read here.
  */
 function readAmountAfterLabel(rest: string, receiptText: string): TotalRead {
-  const cleaned = rest.replace(/^[\s:.#\-]+/, '');
+  // "TOTAL DUE ALL 12.50" keeps the amount. ALL is not part of the number.
+  const cleaned = rest.replace(/^[\s:.#]+/, '').replace(/^ALL\b\s+/i, '');
+  // Keep the minus. Parentheses are the same credit. Never return a positive expense.
+  const signed = cleaned.match(new RegExp(
+    String.raw`^(?:(?:${CURRENCY_CODES})\s+|(\$)\s*)?(?:-\s*(\$)?\s*(\d[\d.,]*)|\(\s*(\$)?\s*(\d[\d.,]*)\s*\))`,
+    'i',
+  ));
+  if (signed) {
+    const raw = (signed[3] ?? signed[5] ?? '').replace(/\.$/, '');
+    if (/\d/.test(cleaned.slice(signed[0].length))) return blankTotal();
+    const parsed = interpretNumber(raw, signed[1] === '$' || signed[2] === '$' || signed[4] === '$', receiptText);
+    if (typeof parsed.amount === 'number' && parsed.amount > 0) return refundReview(-parsed.amount);
+    return blankTotal();
+  }
   const match = cleaned.match(new RegExp(
     String.raw`^(?:(?:${CURRENCY_CODES})\s+|(\$)\s*)?(\d[\d.,]*)(.*)$`,
     'i',
@@ -134,11 +229,22 @@ function readAmountAfterLabel(rest: string, receiptText: string): TotalRead {
   return interpretNumber(raw, match[1] === '$', receiptText);
 }
 
-function findTotalLine(lines: string[]): string | null {
-  let best: { rank: number; lineIndex: number; rest: string } | null = null;
+/** The label is the text before the amount. A noise word there is not the total, wherever that line sits. */
+function labelBeforeAmount(line: string): string {
+  const amount = line.match(/-?\(?\s*(?:\$\s*)?\d/);
+  if (!amount || amount.index == null) return line;
+  return line.slice(0, amount.index);
+}
+
+function isIgnoredTotalLine(line: string): boolean {
+  return /\bsub[\s-]?total\b/i.test(line) || TOTAL_NOISE.test(labelBeforeAmount(line));
+}
+
+function findTotalCandidates(lines: string[]): { rank: number; lineIndex: number; rest: string }[] {
+  const candidates: { rank: number; lineIndex: number; rest: string }[] = [];
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const line = lines[lineIndex];
-    if (/\bsub[\s-]?total\b/i.test(line)) continue;
+    if (isIgnoredTotalLine(line)) continue;
     const hits: { rank: number; end: number }[] = [];
     for (const label of TOTAL_LABELS) {
       const pattern = new RegExp(String.raw`\b(?:${label.source})\b`, 'gi');
@@ -148,21 +254,55 @@ function findTotalLine(lines: string[]): string | null {
     }
     if (hits.length === 0) continue;
     const rank = Math.min(...hits.map(hit => hit.rank));
-    if (rank > 3 && /\b(?:tax|tip|gratuity|discount|change|tender)\b/i.test(line)) continue;
     const end = Math.max(...hits.map(hit => hit.end));
-    if (!best || rank < best.rank || (rank === best.rank && lineIndex > best.lineIndex)) {
-      best = { rank, lineIndex, rest: line.slice(end) };
-    }
+    candidates.push({ rank, lineIndex, rest: line.slice(end) });
   }
-  return best?.rest ?? null;
+  return candidates;
 }
 
-/** Prefer the labeled total. Subtotal, tax, and tip never supply the saved amount. */
+/** Largest unlabeled $ or USD amount. Subtotal, tax, tip, and other noise lines never count. */
+function readUnlabeledUsAmount(lines: string[]): TotalRead {
+  const amounts: number[] = [];
+  for (const line of lines) {
+    if (isIgnoredTotalLine(line)) continue;
+    const dollar = /(?:^|[^\d.,])\$\s*(\d{1,3}(?:,\d{3})*\.\d{2}|\d+\.\d{2})(?![\d.,])/g;
+    const usd = /(?:^|[^\d.,])(\d{1,3}(?:,\d{3})*\.\d{2}|\d+\.\d{2})\s+USD\b/gi;
+    for (const match of line.matchAll(dollar)) amounts.push(Number(match[1].replace(/,/g, '')));
+    for (const match of line.matchAll(usd)) amounts.push(Number(match[1].replace(/,/g, '')));
+  }
+  const positive = amounts.filter(value => Number.isFinite(value) && value > 0);
+  if (positive.length === 0) return blankTotal();
+  return confidentTotal(Math.max(...positive));
+}
+
+/**
+ * Prefer a positive labeled total. A zero balance due does not replace one.
+ * When no total label is present, fall back to an unlabeled US dollar amount.
+ */
 function readReceiptTotal(text: string): TotalRead {
   const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-  const rest = findTotalLine(lines);
-  if (rest == null) return blankTotal();
-  return readAmountAfterLabel(rest, text);
+  const candidates = findTotalCandidates(lines);
+  let best: { rank: number; lineIndex: number; read: TotalRead } | null = null;
+  let signed: { rank: number; lineIndex: number; read: TotalRead } | null = null;
+  let suggested: { rank: number; lineIndex: number; read: TotalRead } | null = null;
+  for (const candidate of candidates) {
+    const read = readAmountAfterLabel(candidate.rest, text);
+    const preferred = (current: { rank: number; lineIndex: number } | null) => !current
+      || candidate.rank < current.rank
+      || (candidate.rank === current.rank && candidate.lineIndex > current.lineIndex);
+    if (typeof read.amount === 'number' && read.amount > 0) {
+      if (preferred(best)) best = { rank: candidate.rank, lineIndex: candidate.lineIndex, read };
+    } else if (typeof read.signedAmountReview === 'number' && read.signedAmountReview < 0 && preferred(signed)) {
+      signed = { rank: candidate.rank, lineIndex: candidate.lineIndex, read };
+    } else if (typeof read.suggestedAmount === 'number' && read.suggestedAmount > 0 && preferred(suggested)) {
+      suggested = { rank: candidate.rank, lineIndex: candidate.lineIndex, read };
+    }
+  }
+  if (best) return best.read;
+  if (signed) return signed.read;
+  if (suggested) return suggested.read;
+  if (candidates.length > 0) return blankTotal();
+  return readUnlabeledUsAmount(lines);
 }
 
 export class ReceiptProcessor {
@@ -226,6 +366,12 @@ export class ReceiptProcessor {
           // A missing or uncertain total stays blank. Zero would be a false expense.
           amount: amountNeedsReview ? null : receiptData.amount ?? null,
           amountNeedsReview,
+          ...(amountNeedsReview && typeof receiptData.signedAmountReview === 'number' && receiptData.signedAmountReview < 0
+            ? { signedAmountReview: receiptData.signedAmountReview }
+            : {}),
+          ...(amountNeedsReview && typeof receiptData.suggestedAmount === 'number' && receiptData.suggestedAmount > 0
+            ? { suggestedAmount: receiptData.suggestedAmount }
+            : {}),
           // An unreadable date must be entered by the user, never defaulted to today.
           date: this.normalizeDateToISO(receiptData.date) || '',
           category: receiptData.category,
@@ -278,6 +424,8 @@ export class ReceiptProcessor {
       merchant,
       amount: total.amount,
       amountNeedsReview: total.amountNeedsReview,
+      signedAmountReview: total.signedAmountReview,
+      suggestedAmount: total.suggestedAmount,
       date,
       category,
       items
@@ -298,7 +446,7 @@ export class ReceiptProcessor {
     return lines[0] || 'Unknown Merchant';
   }
 
-  private extractAmount(text: string): { amount: number | null; amountNeedsReview: boolean } {
+  private extractAmount(text: string): TotalRead {
     return readReceiptTotal(text);
   }
 

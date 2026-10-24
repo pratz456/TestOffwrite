@@ -1,10 +1,25 @@
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { safeTaxYear } from '@/lib/schedule-c/taxDate';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 
 export type ExportRecord = Record<string, unknown>;
 export class ExportReviewRequiredError extends Error {
-  readonly code = 'EXPORT_REVIEW_REQUIRED';
+  readonly code: string = 'EXPORT_REVIEW_REQUIRED';
+}
+export class FilingExportBlockedError extends ExportReviewRequiredError {
+  override readonly code = 'FILING_EXPORT_BLOCKED';
+  constructor() {
+    super('PLACEHOLDER');
+    this.name = 'FilingExportBlockedError';
+  }
+}
+
+/** A year with a blank amount cannot produce a tax packet or a filing export. */
+export function assertFilingExportAllowed(records: ExportRecord[], year: number): void {
+  if (records.some(record => record.amount === null && safeTaxYear(record.date ?? record.datetime) === year)) {
+    throw new FilingExportBlockedError();
+  }
 }
 export function exportYear(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined;

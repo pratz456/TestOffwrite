@@ -11,7 +11,7 @@ vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: h.reques
 vi.mock('@/lib/firebase/hooks', () => ({ queryKeys: { transactions: (uid: string) => ['transactions', uid], transaction: (id: string) => ['transaction', id], stats: (uid: string) => ['stats', uid] } }));
 vi.mock('@tanstack/react-query', () => ({ useMutation: (options: unknown) => options, useQueryClient: () => ({ setQueryData: h.cache }) }));
 import { updateTransactionServerWithUserId } from '../lib/firebase/transactions-server';
-import { taxDecisionUpdate } from '../lib/transactions/tax-decision';
+import { NULL_AMOUNT_DEDUCTION_MESSAGE, taxDecisionUpdate } from '../lib/transactions/tax-decision';
 import { aggregateScheduleC } from '../lib/schedule-c/aggregate';
 import { sumExpensesForQuarter, sumPotentialExpensesForQuarter } from '../lib/tax-provider/quarterly-estimates';
 import { summarizeDashboardRecords } from '../lib/dashboard/record-summary';
@@ -62,6 +62,11 @@ describe('explicit tax decisions resolve server-owned review state', () => {
   it('notes-only updates preserve the existing unresolved tax flag', async () => {
     await updateTransactionServerWithUserId('owner', 'tx', { notes: 'Added the business purpose for later review.' });
     expect(h.record.tax_review_required).toBe(true); expect(h.update.mock.calls[0][0]).not.toHaveProperty('tax_review_required');
+  });
+  it('refuses to confirm a deduction while the saved amount is null', () => {
+    expect(() => taxDecisionUpdate({ ...h.record, amount: null }, { is_deductible: true })).toThrow(NULL_AMOUNT_DEDUCTION_MESSAGE);
+    expect(taxDecisionUpdate({ ...h.record, amount: null }, { is_deductible: true, amount: 12.5 })).toEqual(expect.objectContaining({ tax_review_required: false, review_status: 'confirmed' }));
+    expect(taxDecisionUpdate({ ...h.record, amount: null }, { is_deductible: false })).toEqual(expect.objectContaining({ tax_review_required: false, review_status: 'confirmed' }));
   });
   it.each([
     { category: 'EQUIPMENT_REVIEW_REQUIRED' }, { category: 'HOME_OFFICE_REVIEW_REQUIRED' },

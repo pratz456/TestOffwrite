@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowUpRight, FileText } from 'lucide-react';
 import { consolidateCategory } from '@/lib/utils';
 import { dashboardRecordStatus } from '@/lib/dashboard/record-summary';
-import { formatRecordedTransactionAmount } from '@/lib/transactions/amount-display';
+import { AMOUNT_NEEDED_LABEL, formatRecordedTransactionAmount } from '@/lib/transactions/amount-display';
 
 interface RecentActivityCardProps {
   transactions: any[];
@@ -88,7 +88,7 @@ export function RecentActivityCard({ transactions, onTransactionClick, onViewAll
                     </div>
                     <div className="text-right">
                       <span className={`text-sm font-semibold tabular-nums ${isCredit ? 'text-emerald-700 dark:text-emerald-400' : 'text-foreground'}`}>
-                        {amount === 'Amount needs review' ? amount : `${isCredit ? '+' : '-'}${amount}`}
+                        {amount === 'Amount needs review' || amount === AMOUNT_NEEDED_LABEL ? amount : `${isCredit ? '+' : '-'}${amount}`}
                       </span>
                       <span className="mt-0.5 block text-[11px] text-muted-foreground">
                         {formatTransactionDate(tx.date, 'en-US', { month: 'short', day: 'numeric' })}

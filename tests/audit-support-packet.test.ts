@@ -167,6 +167,9 @@ describe('inclusion, exclusion and review provenance', () => {
     expect(record.detailPath).toBe('/protected?screen=transaction-detail&transactionId=PROVIDER-ID&from=reports');
     expect(JSON.stringify(record)).not.toMatch(/SECRET_|deduction_score|ai_analysis/);
   });
+  it('blocks the tax packet for a year that still has a blank amount', () => {
+    expect(() => packet([{ amount: null, date: '2026-06-15', is_deductible: null, iso_currency_code: 'USD' }])).toThrow('PLACEHOLDER');
+  });
   it('requires review instead of guessing for duplicates, invalid amounts, foreign currency and undated records', () => {
     expect(() => packet([confirmed({ trans_id: 'same' }), confirmed({ trans_id: 'same' })])).toThrow(ExportReviewRequiredError);
     expect(() => packet([confirmed({ amount: 'unknown' })])).toThrow(/invalid amount/);

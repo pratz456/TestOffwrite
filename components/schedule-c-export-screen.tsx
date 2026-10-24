@@ -11,6 +11,8 @@ import { useSubscription } from '@/lib/hooks/use-subscription';
 import { PremiumFeatureGate, subscriptionGateDestination } from '@/components/premium-feature-gate';
 import { useRouter } from 'next/navigation';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { HELD_OUT_EXPENSES_COPY } from '@/lib/transactions/amount-display';
+import { safeTaxYear } from '@/lib/schedule-c/taxDate';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 
 interface Transaction {
@@ -134,7 +136,13 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
     return scheduleCExportLine(lineNameToLineCode[lineItem] || '27a', Number(selectedYear));
   };
 
+  const filingBlocked = transactions.some(transaction => transaction.amount === null && safeTaxYear(transaction.date) === Number(selectedYear));
+
   const handleExport = async () => {
+    if (filingBlocked) {
+      toast.error(HELD_OUT_EXPENSES_COPY);
+      return;
+    }
     if (!canAccess('exports')) {
       router.push(subscriptionGateDestination(subscriptionStatus));
       return;
@@ -277,6 +285,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
             </div>
           )}
 
+          {filingBlocked && <p data-filing-export-blocked="" className="mt-4 text-sm text-foreground">{HELD_OUT_EXPENSES_COPY}</p>}
           {/* Export Button */}
           <div className="mt-4 w-full">
             {!subscriptionLoading && !hasAccess ? (
@@ -290,7 +299,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
             ) : (
               <Button
                 onClick={handleExport}
-                disabled={isExporting || subscriptionLoading}
+                disabled={isExporting || subscriptionLoading || filingBlocked}
                 className="w-full min-h-[44px] h-11 font-medium rounded-lg flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
               >
                 <Download className="w-5 h-5" />
