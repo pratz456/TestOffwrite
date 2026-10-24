@@ -141,8 +141,8 @@ export async function PUT(
     const { id: transactionId } = await params;
     if (!transactionIdInput.safeParse(transactionId).success) return NextResponse.json({ error: 'Invalid transaction ID' }, { status: 400 });
     const raw = await readJsonBody(request);
-    if (raw instanceof NextResponse && raw.status === 413) return raw;
-    const parsed = transactionUpdatesInput.safeParse(raw instanceof NextResponse ? null : raw);
+    if (raw instanceof NextResponse) return raw;
+    const parsed = transactionUpdatesInput.safeParse(raw);
     if (!parsed.success) return NextResponse.json({ error: 'Provide valid editable transaction fields. Ownership, amounts and AI fields cannot be changed here.' }, { status: 400 });
     const updates = parsed.data;
 

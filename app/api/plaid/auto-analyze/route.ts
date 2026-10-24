@@ -18,8 +18,8 @@ export async function POST(request: NextRequest) {
   try { ({ uid } = await getUserFromReqOrThrow(request)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
   const raw = await readJsonBody(request);
-  if (raw instanceof NextResponse && raw.status === 413) return raw;
-  const body = raw instanceof NextResponse || !raw || typeof raw !== 'object' ? null : raw as { accountId?: unknown };
+  if (raw instanceof NextResponse) return raw;
+  const body = !raw || typeof raw !== 'object' ? null : raw as { accountId?: unknown };
   if (!body || !validAnalysisId(body.accountId)) return NextResponse.json({ error: 'Account ID is required' }, { status: 400 });
   if (!getAIProviderStatus().configured) return NextResponse.json({ code: 'AI_UNAVAILABLE', error: 'AI analysis is unavailable. You can review transactions manually.' }, { status: 503 });
   // Checked after the configuration answer so an unavailable provider never spends the owner's retries.

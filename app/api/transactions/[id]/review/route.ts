@@ -9,8 +9,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await params;
   const raw = await readJsonBody(request);
-  if (raw instanceof NextResponse && raw.status === 413) return raw;
-  const parsed = transactionReviewInput.safeParse(raw instanceof NextResponse ? null : raw);
+  if (raw instanceof NextResponse) return raw;
+  const parsed = transactionReviewInput.safeParse(raw);
   if (!transactionIdInput.safeParse(id).success || !parsed.success) {
     return NextResponse.json({ error: 'Provide a valid review action, account and category.' }, { status: 400 });
   }

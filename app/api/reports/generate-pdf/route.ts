@@ -15,10 +15,10 @@ export async function POST(request: NextRequest) {
   const denied = await requireFeatureAccess(user.uid, 'exports');
   if (denied) return denied;
   const raw = await readJsonBody(request);
-  if (raw instanceof NextResponse && raw.status === 413) return raw;
+  if (raw instanceof NextResponse) return raw;
   let year: number;
   try {
-    const body = raw instanceof NextResponse ? null : raw as { year?: unknown } | null;
+    const body = raw as { year?: unknown } | null;
     if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'year')) throw new Error();
     const parsed = exportYear(body.year);
     if (parsed === undefined) throw new Error();

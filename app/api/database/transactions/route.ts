@@ -52,8 +52,8 @@ export async function POST(request: NextRequest) {
     console.log('✅ [Database Transactions API] User authenticated:', user.uid);
 
     const raw = await readJsonBody(request);
-    if (raw instanceof NextResponse && raw.status === 413) return raw;
-    const parsed = transactionCreateInput.safeParse(raw instanceof NextResponse ? null : raw);
+    if (raw instanceof NextResponse) return raw;
+    const parsed = transactionCreateInput.safeParse(raw);
     if (!parsed.success) return NextResponse.json({ error: 'Provide valid transaction fields. Ownership is assigned by the server.' }, { status: 400 });
     const transactionData = parsed.data;
 
@@ -97,8 +97,8 @@ export async function PUT(request: NextRequest) {
     console.log('✅ [Database Transactions API] User authenticated:', user.uid);
 
     const rawBody = await readJsonBody(request);
-    if (rawBody instanceof NextResponse && rawBody.status === 413) return rawBody;
-    const body = rawBody instanceof NextResponse ? null : rawBody as { transactionId?: unknown; updates?: unknown } | null;
+    if (rawBody instanceof NextResponse) return rawBody;
+    const body = rawBody as { transactionId?: unknown; updates?: unknown } | null;
     const parsedId = transactionIdInput.safeParse(body?.transactionId);
     const parsed = transactionUpdatesInput.safeParse(body?.updates);
     if (!parsedId.success || !parsed.success) return NextResponse.json({ error: 'Provide a valid transaction ID and editable transaction fields. Ownership, amounts and AI fields cannot be changed here.' }, { status: 400 });
