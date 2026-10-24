@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     const filed = await loadFiledYearState(user.uid, year, deadline);
     // A failed read for a year that can be held must not fall through to v0 numbers or a new record.
     if (filed.readFailed && shouldHoldYear(user.uid, year)) {
-      return NextResponse.json({ error: 'Could not create the Schedule C preparer summary. Please retry.' }, { status: 503 });
+      return NextResponse.json({ error: 'Could not create the Schedule C preparer summary. Please retry.' }, { status: 503, headers: { 'Cache-Control': 'private, no-store' } });
     }
     const decision = decideScheduleCExport({ uid: user.uid, year, transactions, prior: filed.stored, confirmedRulesVersion: filed.confirmedRulesVersion });
     const generatedAt = scheduleCNow();

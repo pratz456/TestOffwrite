@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Could not load all export records. Please retry.' }, { status: 503, headers });
     }
     return NextResponse.json({
-      prior: filed.latestExportUnrecorded ? null : filed.stored,
+      prior: filed.stored,
       latestExportUnrecorded: filed.latestExportUnrecorded,
       confirmedRulesVersion: filed.confirmedRulesVersion,
     }, { headers });

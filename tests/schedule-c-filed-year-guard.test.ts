@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { PDFPage } from 'pdf-lib';
 import { CATEGORY_MAP, aggregateScheduleC, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
@@ -275,6 +275,10 @@ beforeEach(async () => {
   }
   setScheduleCClockForTests(clock);
   setCurrentScheduleCRulesForTests(null);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('filed year guard', () => {
@@ -719,7 +723,11 @@ describe('filed year guard', () => {
     expect(error).toHaveBeenCalledWith('Export record write failed', expect.any(Error));
     const read = await readFiledYear(new NextRequest('http://localhost/api/tax/schedule-c/filed-year?year=2025'));
     expect(read.status).toBe(200);
-    expect(await read.json()).toEqual({ prior: null, latestExportUnrecorded: true, confirmedRulesVersion: null });
+    expect(await read.json()).toEqual({
+      prior: { rulesVersion: 'v0', lineTotals: [{ line: '8', amount: 100 }], totalDeductible: 100, charges: [{ id: 'ad1', line: '8', amount: 100 }] },
+      latestExportUnrecorded: true,
+      confirmedRulesVersion: null,
+    });
   });
 
   it('clears the pending marker when the record commits after the write times out', async () => {
@@ -844,7 +852,10 @@ describe('filed year guard', () => {
     expect(savedExports().map(row => row.totalDeductible)).toEqual([40]);
     expect(await readHeldYearExport('owner', 2025)).toEqual({ prior: null, latestExportUnrecorded: true });
     const stillBlocked = await readFiledYear(new NextRequest('http://localhost/api/tax/schedule-c/filed-year?year=2025'));
-    expect(await stillBlocked.json()).toEqual({ prior: null, latestExportUnrecorded: true, confirmedRulesVersion: null });
+    const blockedBody = await stillBlocked.json();
+    expect(blockedBody.latestExportUnrecorded).toBe(true);
+    expect(blockedBody.confirmedRulesVersion).toBeNull();
+    expect(blockedBody.prior).toMatchObject({ totalDeductible: 40 });
 
     releases[1]();
     expect((await newer).status).toBe(200);
@@ -892,7 +903,15 @@ describe('filed year guard', () => {
     });
     harness.transactions = [confirmed({ id: 'ad1', amount: 250, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
     const blocked = await readFiledYear(new NextRequest('http://localhost/api/tax/schedule-c/filed-year?year=2025'));
-    expect(await blocked.json()).toEqual({ prior: null, latestExportUnrecorded: true, confirmedRulesVersion: null });
+    expect(await blocked.json()).toEqual({
+      prior: { rulesVersion: 'v0', lineTotals: [{ line: '8', amount: 100 }], totalDeductible: 100, charges: [{ id: 'ad1', line: '8', amount: 100 }] },
+      latestExportUnrecorded: true,
+      confirmedRulesVersion: null,
+    });
+    const view = capturePdf();
+    const pdfResponse = await scheduleCExport(exportBody({ year: 2025, format: 'pdf', includeAppendix: false }));
+    expect(pdfResponse.status).toBe(200);
+    expect(subtotal(view.text())).toBe('$100.00');
     const response = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
     expect(response.status).toBe(200);
     const csv = await response.text();
@@ -1285,6 +1304,7 @@ describe('filed year guard', () => {
     const beforeRecords = recordsJson();
     const response = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
     expect(response.status).toBe(503);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(await response.json()).toEqual(exportRetry);
     expect(pendingMarkers()).toHaveLength(0);
     expect(counterNext()).toEqual([1]);

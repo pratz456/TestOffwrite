@@ -45,25 +45,24 @@ export async function readStoredConfirmedRulesVersions(): Promise<Record<string,
 
 export interface StoredScheduleCPrior {
   prior: ScheduleCExportSnapshot | null;
-  /** True while a pending export marker is still open. prior is null in that case. */
+  /** True while a pending export marker is still open. The stored prior is still returned. */
   latestExportUnrecorded: boolean;
-  /** True when the filed-year read failed, including a 503. prior is null in that case. */
+  /** True when the filed-year read failed, including a missing auth header or a non-ok response. */
   readFailed: boolean;
 }
 
 /** Latest Schedule C CSV or PDF export for one held year, or null when none is saved. */
 export async function readStoredScheduleCPrior(year: number): Promise<StoredScheduleCPrior> {
-  const empty: StoredScheduleCPrior = { prior: null, latestExportUnrecorded: false, readFailed: false };
   const failed: StoredScheduleCPrior = { prior: null, latestExportUnrecorded: false, readFailed: true };
   try {
     const headers = await authHeader();
-    if (!headers) return empty;
+    if (!headers) return failed;
     const response = await fetch(`${SCHEDULE_C_FILED_YEAR_PATH}?year=${year}`, { headers, credentials: 'include' });
     if (!response.ok) return failed;
     const body = await response.json() as { prior?: unknown; latestExportUnrecorded?: unknown };
     const latestExportUnrecorded = body.latestExportUnrecorded === true;
     return {
-      prior: latestExportUnrecorded || !isScheduleCExportSnapshot(body.prior) ? null : body.prior,
+      prior: isScheduleCExportSnapshot(body.prior) ? body.prior : null,
       latestExportUnrecorded,
       readFailed: false,
     };
