@@ -35,6 +35,8 @@ const NMI = /needs[\s_-]*more[\s_-]*info/i;
 const LOS_ANGELES_NEW_YEAR = '2027-01-01T07:30:00.000Z';
 /** 2027-01-01 00:30 in Asia/Tokyo. Still 2026-12-31 in UTC. */
 const TOKYO_NEW_YEAR = '2026-12-31T15:30:00.000Z';
+/** Both fallback zones read 2026-12-31. The UTC day is 2027-01-01. */
+const AGREED_NEW_YEAR = '2027-01-01T02:00:00.000Z';
 /** UTC day disagrees with Pacific/Pago_Pago, so a refused zone cannot hide as UTC. */
 const UTC_ALIAS_INSTANT = '2026-07-15T04:30:00.000Z';
 
@@ -123,6 +125,20 @@ it.each([
 ] as const)('2026-12-31T15:30Z with %s lands in tax year 2026', (_label, zone) => {
   // Pago Pago and St Thomas both read 2026-12-31, so the row is in tax year 2026 and not in 2027.
   const row = charge('boundary-row', TOKYO_NEW_YEAR, zone);
+  const year2026 = reconcile(2026, row);
+  expect(placedDay(2026, row)).toBe('2026-12-31');
+  expect(year2026.grossReceipts).toBe(ADDED);
+  expect(year2026.quarterlyGrossReceipts).toEqual([0, 0, 0, ADDED]);
+  expect(year2026.needsMoreInformationRows).toEqual([]);
+  const year2027 = reconcile(2027, row);
+  expect(year2027.grossReceipts).toBe(0);
+  expect(year2027.needsMoreInformationRows).toEqual([]);
+  expect(placedDay(2027, row)).toBeUndefined();
+});
+
+it('2027-01-01T02:00Z with no saved zone lands in tax year 2026', () => {
+  // Pago Pago and St Thomas both read 2026-12-31. A UTC day would be 2027-01-01.
+  const row = charge('boundary-row', AGREED_NEW_YEAR);
   const year2026 = reconcile(2026, row);
   expect(placedDay(2026, row)).toBe('2026-12-31');
   expect(year2026.grossReceipts).toBe(ADDED);
