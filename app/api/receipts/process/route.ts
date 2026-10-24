@@ -40,7 +40,7 @@ function isRealCalendarDay(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
 }
 
-/** The browser zone, kept only when it is a region zone or exactly UTC. */
+/** The browser zone. A region name is stored as Node returns it. A listed zero-offset alias is stored as UTC. */
 function uploadedTimeZone(value: FormDataEntryValue | null): string | undefined {
   return regionUploadTimeZone(value);
 }

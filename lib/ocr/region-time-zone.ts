@@ -3,10 +3,17 @@
  * The canonical name must look like Area/Location. Etc/ names, fixed offsets,
  * and abbreviations such as est are not stored and are not used as the zone.
  * An abbreviation is never rewritten into a region.
- * Exact zero-offset aliases are stored as UTC. A numbered offset is not an alias.
+ * The saved region name is whatever this Node zone table returns. Asia/Kolkata
+ * may be saved as Asia/Calcutta, and Asia/Kathmandu as Asia/Katmandu. A saved
+ * zone string is only passed back to Intl. It is never compared as text.
+ * UTC is stored only for the names in UTC_ZONE_ALIASES, compared in lowercase:
+ * utc, etc/utc, etc/gmt, gmt, etc/universal, universal, etc/zulu, zulu, gmt0,
+ * etc/gmt0, etc/gmt+0, gmt+0, gmt-0, etc/gmt-0, uct, etc/uct, greenwich, and
+ * etc/greenwich. Z, numeric offsets, GMT+5, Etc/GMT with an hour other than 0,
+ * EST, PST, EST5EDT, and CST6CDT stay unset.
  */
 
-/** Names Intl resolves to UTC and that are stored as UTC. Comparison is lowercase. */
+/** Names stored as UTC. Comparison is lowercase. Intl resolves each of these to UTC. */
 const UTC_ZONE_ALIASES = new Set([
   'utc',
   'etc/utc',
@@ -16,10 +23,16 @@ const UTC_ZONE_ALIASES = new Set([
   'universal',
   'etc/zulu',
   'zulu',
-  // Intl resolves these three to UTC. GMT-0, GMT+0, and Etc/GMT-0 stay rejected.
   'gmt0',
   'etc/gmt0',
   'etc/gmt+0',
+  'gmt+0',
+  'gmt-0',
+  'etc/gmt-0',
+  'uct',
+  'etc/uct',
+  'greenwich',
+  'etc/greenwich',
 ]);
 
 export function regionUploadTimeZone(value: unknown): string | undefined {

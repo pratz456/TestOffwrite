@@ -5,8 +5,8 @@ vi.mock('tesseract.js', () => ({ default: { createWorker: vi.fn(async () => work
 import { receiptProcessor } from '@/lib/ocr/receipt-processor';
 import { regionUploadTimeZone } from '@/lib/ocr/region-time-zone';
 
-const UTC_ALIASES = ['utc', 'UTC', 'Etc/UTC', 'etc/utc', 'Etc/GMT', 'GMT', 'gmt', 'Etc/Universal', 'Universal', 'Etc/Zulu', 'Zulu', 'ZULU', 'GMT0', 'Etc/GMT0', 'Etc/GMT+0'];
-const REJECTED_ZONES = ['Z', 'z', '+05:00', '+00:00', '-00:00', 'GMT+5', 'GMT+0', 'GMT-0', 'Etc/GMT+5', 'Etc/GMT-3', 'Etc/GMT-0', 'EST', 'est', 'PST', 'EST5EDT', 'CST6CDT', 'UCT', 'Greenwich', 'Etc/UCT', 'Etc/Greenwich'];
+const UTC_ALIASES = ['utc', 'UTC', 'Etc/UTC', 'etc/utc', 'Etc/GMT', 'GMT', 'gmt', 'Etc/Universal', 'Universal', 'Etc/Zulu', 'Zulu', 'ZULU', 'GMT0', 'Etc/GMT0', 'Etc/GMT+0', 'GMT+0', 'GMT-0', 'Etc/GMT-0', 'UCT', 'Etc/UCT', 'Greenwich', 'Etc/Greenwich'];
+const REJECTED_ZONES = ['Z', 'z', '+05:00', '+00:00', '-00:00', 'GMT+5', 'Etc/GMT+1', 'UTC+0', 'Etc/GMT+5', 'Etc/GMT-3', 'EST', 'est', 'PST', 'EST5EDT', 'CST6CDT'];
 
 const normalizeDateToISO = (value: unknown, userTimeZone?: string) =>
   (receiptProcessor as unknown as { normalizeDateToISO(dateLike: unknown, userTimeZone?: string): string | null }).normalizeDateToISO(value, userTimeZone);
@@ -113,7 +113,7 @@ describe('OCR receipt dates must be real calendar days', () => {
       const [juneAbbreviation] = await receiptProcessor.processReceiptBatch([Buffer.from('june-est')], 'est');
       expect(regionUploadTimeZone('est')).toBeUndefined();
       expect(juneAbbreviation.data?.date).toBe('');
-      for (const zone of ['PST', 'EST5EDT', 'CST6CDT', 'Etc/GMT+5', 'Etc/GMT-3', 'GMT+5', 'GMT-0', 'Z']) {
+      for (const zone of ['PST', 'EST5EDT', 'CST6CDT', 'Etc/GMT+5', 'Etc/GMT-3', 'Etc/GMT+1', 'UTC+0', 'GMT+5', 'Z']) {
         const [rejected] = await receiptProcessor.processReceiptBatch([Buffer.from('june')], zone);
         expect(regionUploadTimeZone(zone)).toBeUndefined();
         expect(rejected.data?.date).toBe('');
