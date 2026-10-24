@@ -69,6 +69,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await readJsonObject(request);
+    if (body instanceof NextResponse) return body;
     if (!body) return invalidJsonResponse();
     const { categoryId, is_deductible } = body;
 

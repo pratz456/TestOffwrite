@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { getStripeClient, refreshSubscriptionForUser } from '@/lib/stripe/subscription-sync';
 import { adminDb } from '@/lib/firebase/admin';
+import { readTextBody, WEBHOOK_TEXT_MAX_BYTES } from '@/lib/http/json-body';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,8 +13,10 @@ export async function POST(req: Request) {
   if (!stripe || !secret) return NextResponse.json({ error: 'Webhook not configured' }, { status: 503 });
   const signature = req.headers.get('stripe-signature');
   if (!signature) return NextResponse.json({ error: 'Missing signature' }, { status: 400 });
+  const raw = await readTextBody(req, WEBHOOK_TEXT_MAX_BYTES);
+  if (raw instanceof NextResponse) return raw;
   let event: Stripe.Event;
-  try { event = stripe.webhooks.constructEvent(await req.text(), signature, secret); }
+  try { event = stripe.webhooks.constructEvent(raw, signature, secret); }
   catch { return NextResponse.json({ error: 'Invalid signature' }, { status: 400 }); }
   try {
     let subscriptionId: string | null = null;

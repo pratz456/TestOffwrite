@@ -10,9 +10,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { adminDb } from '@/lib/firebase/admin';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+import { readJsonBody } from '@/lib/http/json-body';
 
-const amountInput = z.union([z.number(), z.string().trim().min(1)]).transform(Number).pipe(z.number().finite().nonnegative());
-const yearInput = z.union([z.number(), z.string().trim().min(1)]).transform(Number).pipe(z.number().int().min(2000).max(2100));
+const amountInput = z.union([z.number(), z.string().trim().min(1).max(32)]).transform(Number).pipe(z.number().finite().nonnegative());
+const yearInput = z.union([z.number(), z.string().trim().min(1).max(4)]).transform(Number).pipe(z.number().int().min(2000).max(2100));
 const w2Input = z.object({
   employer: z.string().trim().min(1).max(500), wages: amountInput,
   federalWithheld: amountInput.default(0), socialSecurityWages: amountInput, medicareWages: amountInput,
@@ -70,7 +71,9 @@ export async function POST(request: NextRequest) {
   try {
     const { user, error } = await getAuthenticatedUser(request);
     if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const parsed = w2Input.safeParse(await request.json().catch(() => null));
+    const raw = await readJsonBody(request);
+    if (raw instanceof NextResponse) return raw.status === 413 ? raw : NextResponse.json({ error: 'Provide an employer, a valid tax year, and finite nonnegative W-2 amounts.' }, { status: 400 });
+    const parsed = w2Input.safeParse(raw);
     if (!parsed.success) return NextResponse.json({ error: 'Provide an employer, a valid tax year, and finite nonnegative W-2 amounts.' }, { status: 400 });
     const { employer, wages, federalWithheld, socialSecurityWages, medicareWages, stateWages, stateWithheld, state, taxYear: year } = parsed.data;
     const ref = await adminDb.collection('w2_income').add({ userId: user.uid, taxYear: year, employer: employer.trim(), wages: Number(wages), federalWithheld: Number(federalWithheld || 0), socialSecurityWages: Number(socialSecurityWages), medicareWages: Number(medicareWages), stateWages: stateWages ?? null, stateWithheld: stateWithheld ?? null, state: state || null, createdAt: new Date() });

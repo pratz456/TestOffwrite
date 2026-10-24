@@ -15,6 +15,7 @@ import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
 import { incomeReconciliationReviewBody } from '@/lib/tax-rules/income-reconciliation-response';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { readJsonBody } from '@/lib/http/json-body';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -23,9 +24,11 @@ export async function POST(request: NextRequest) {
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const denied = await requireFeatureAccess(user.uid, 'exports');
   if (denied) return denied;
-  let body;
-  try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }); }
-  const year = typeof body?.year === 'number' || typeof body?.year === 'string' && /^\d{4}$/.test(body.year) ? Number(body.year) : NaN;
+  const raw = await readJsonBody(request);
+  if (raw instanceof NextResponse) return raw;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  const body = raw as { year?: unknown; format?: unknown; includeAppendix?: unknown };
+  const year = typeof body.year === 'number' || typeof body.year === 'string' && /^\d{4}$/.test(body.year) ? Number(body.year) : NaN;
   try { getFederalTaxRules(year); } catch { return NextResponse.json({ error: `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}` }, { status: 400 }); }
   if (body.format !== undefined && body.format !== 'csv' && body.format !== 'pdf') return NextResponse.json({ error: 'format must be csv or pdf' }, { status: 400 });
   if (body.includeAppendix !== undefined && typeof body.includeAppendix !== 'boolean') return NextResponse.json({ error: 'includeAppendix must be true or false' }, { status: 400 });

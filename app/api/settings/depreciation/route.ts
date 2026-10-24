@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getDepreciationSettings, saveDepreciationSettings } from '@/lib/firebase/settings-server';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { readJsonBody } from '@/lib/http/json-body';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,8 +22,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const { user, error: authError } = await getAuthenticatedUser(request);
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  let body: unknown;
-  try { body = await request.json(); } catch { return NextResponse.json({ error: 'Send the depreciation settings as JSON.' }, { status: 400 }); }
+  const body = await readJsonBody(request);
+  if (body instanceof NextResponse) return body.status === 413 ? body : NextResponse.json({ error: 'Send the depreciation settings as JSON.' }, { status: 400 });
   if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'deMinimisSafeHarborYears')) {
     return NextResponse.json({ error: 'Provide deMinimisSafeHarborYears only.' }, { status: 400 });
   }

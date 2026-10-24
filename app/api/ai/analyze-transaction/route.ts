@@ -13,44 +13,42 @@ import { claimAnalysisLease, persistAnalysisSuggestion, releaseAnalysisLease } f
 import type { AnalysisLease } from '@/lib/ai/analysis-persistence';
 import type { DocumentReference } from 'firebase-admin/firestore';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { readJsonBody } from '@/lib/http/json-body';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 
-// Zod schema for request validation
+const contextText = z.string().max(5000);
 const AnalyzeTransactionRequestSchema = z.object({
-  transactionId: z.string().min(1, 'Transaction ID is required'),
+  transactionId: z.string().min(1, 'Transaction ID is required').max(256),
   transaction: z.object({
-    merchant_name: z.string().min(1, 'Merchant name is required'),
+    merchant_name: z.string().min(1, 'Merchant name is required').max(500),
     amount: z.number(),
-    category: z.string(),
-    date: z.string(),
-    datetime: z.string().optional(), // Full datetime from Plaid
-    account_id: z.string().optional(),
-    description: z.string().optional(),
-    notes: z.string().optional(),
-
-    // User-added transaction context fields
-    business_purpose: z.string().optional(),
-    attendees: z.array(z.string()).optional(),
-    travel_destination: z.string().optional(),
+    category: z.string().max(200),
+    date: z.string().max(64),
+    datetime: z.string().max(64).optional(),
+    account_id: z.string().max(256).optional(),
+    description: contextText.optional(),
+    notes: contextText.optional(),
+    business_purpose: contextText.optional(),
+    attendees: z.array(z.string().max(300)).max(100).optional(),
+    travel_destination: contextText.optional(),
     equipment_details: z.object({
-      make: z.string().optional(),
-      model: z.string().optional(),
+      make: contextText.optional(),
+      model: contextText.optional(),
       year: z.number().optional(),
       business_use_percentage: z.number().optional(),
       depreciation_method: z.enum(['straight_line', 'declining_balance', 'section_179']).optional()
     }).optional(),
-    client_project: z.string().optional(),
+    client_project: contextText.optional(),
     documentation_status: z.enum(['complete', 'partial', 'missing']).optional(),
-    meeting_notes: z.string().optional(),
+    meeting_notes: contextText.optional(),
     mileage_details: z.object({
-      start_location: z.string().optional(),
-      end_location: z.string().optional(),
+      start_location: contextText.optional(),
+      end_location: contextText.optional(),
       miles: z.number().optional(),
-      business_purpose: z.string().optional()
+      business_purpose: contextText.optional()
     }).optional(),
-
-    city: z.string().optional(),
-    state: z.string().optional(),
+    city: z.string().max(200).optional(),
+    state: z.string().max(100).optional(),
   }),
 });
 
@@ -80,13 +78,18 @@ export async function POST(request: NextRequest) {
       error: 'AI analysis is currently unavailable. You can review and classify this transaction manually.',
     }, { status: 503 });
 
-    const validation = AnalyzeTransactionRequestSchema.safeParse(await request.json().catch(() => null));
-    if (!validation.success) return NextResponse.json({ error: 'Invalid request data' }, { status: 400 });
-    const { transactionId } = validation.data;
     // Per-owner model spend is bounded durably across instances (60 per hour);
     // an unreachable limiter store refuses rather than allowing unmetered calls.
     const limit = await enforceRateLimit({ ...RATE_LIMITS.aiAnalyzeTransaction, key: user.uid });
     if (!limit.allowed) return rateLimitResponse(limit, { code: 'AI_RATE_LIMITED', error: 'Analysis request limit reached. Please try again later.' });
+    const raw = await readJsonBody(request);
+    if (raw instanceof NextResponse) {
+      if (raw.status === 413) return raw;
+      return NextResponse.json({ error: 'Invalid request data' }, { status: 400 });
+    }
+    const validation = AnalyzeTransactionRequestSchema.safeParse(raw);
+    if (!validation.success) return NextResponse.json({ error: 'Invalid request data' }, { status: 400 });
+    const { transactionId } = validation.data;
     ref = await ownedTransactionRef(user.uid, transactionId);
     if (!ref) return NextResponse.json({ error: 'Transaction not found' }, { status: 404 });
 

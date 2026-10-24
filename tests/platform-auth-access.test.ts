@@ -160,6 +160,24 @@ describe('server profile API boundaries', () => {
     expect(JSON.stringify(mock.update.mock.calls)).not.toContain('123456789');
     expect(await response.json()).toEqual({ success: true, profile: { id: 'owner', name: 'Owner', ein: '**-***6789' } });
   });
+  it('returns 400 when the profile body cannot be read', async () => {
+    const encoded = new TextEncoder().encode('{"profession":');
+    let sent = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!sent) { sent = true; controller.enqueue(encoded); return; }
+        controller.error(new Error('stopped'));
+      },
+    });
+    const response = await profilePost(new NextRequest('https://writeoff.test/api/database/profiles', {
+      method: 'POST', headers: { authorization: 'Bearer id' }, body, duplex: 'half',
+    } as RequestInit));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'Invalid JSON body' });
+    expect(mock.transaction).not.toHaveBeenCalled();
+    expect(mock.set).not.toHaveBeenCalled();
+    expect(mock.update).not.toHaveBeenCalled();
+  });
   it('returns editable fields without bank or billing credentials', async () => {
     const response = await profileGet(request({ authorization: 'Bearer id' }));
     expect(await response.json()).toEqual({ success: true, profile: { id: 'owner', name: 'Owner' } });

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { enqueueBankTransactionAnalysis, processAnalysisTask, validAnalysisId } from '@/lib/ai/analysis-jobs';
 
 import { enqueueProfileAnalysisRefresh, processProfileAnalysisRefresh } from '@/lib/ai/profile-analysis-refresh';
+import { readJsonBody } from '@/lib/http/json-body';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,7 +25,9 @@ export async function POST(request: NextRequest) {
   if (!expected || expected.length < 32) return NextResponse.json({ code: 'WORKER_UNAVAILABLE' }, { status: 503 });
   const hash = (value: string) => createHash('sha256').update(value).digest();
   if (!timingSafeEqual(hash(provided), hash(expected))) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const raw = await readJsonBody(request);
+  if (raw instanceof NextResponse && raw.status === 413) return raw;
+  const parsed = schema.safeParse(raw instanceof NextResponse ? null : raw);
   if (!parsed.success) return NextResponse.json({ error: 'Invalid work request' }, { status: 400 });
   try {
     if (parsed.data.action === 'enqueue') {

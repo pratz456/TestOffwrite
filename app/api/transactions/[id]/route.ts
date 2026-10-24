@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { updateTransactionServerWithUserId } from '@/lib/firebase/transactions-server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
+import { readJsonBody } from '@/lib/http/json-body';
 import { aiLearningEngine } from '@/lib/ai/learning-engine';
 import { adminDb } from '@/lib/firebase/admin';
 import { transactionIdInput, transactionUpdatesInput } from '@/lib/transactions/client-updates';
@@ -139,7 +140,9 @@ export async function PUT(
 
     const { id: transactionId } = await params;
     if (!transactionIdInput.safeParse(transactionId).success) return NextResponse.json({ error: 'Invalid transaction ID' }, { status: 400 });
-    const parsed = transactionUpdatesInput.safeParse(await request.json().catch(() => null));
+    const raw = await readJsonBody(request);
+    if (raw instanceof NextResponse && raw.status === 413) return raw;
+    const parsed = transactionUpdatesInput.safeParse(raw instanceof NextResponse ? null : raw);
     if (!parsed.success) return NextResponse.json({ error: 'Provide valid editable transaction fields. Ownership, amounts and AI fields cannot be changed here.' }, { status: 400 });
     const updates = parsed.data;
 

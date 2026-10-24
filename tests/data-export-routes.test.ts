@@ -30,6 +30,27 @@ beforeEach(() => {
   mock.sePDF.mockResolvedValue(new Uint8Array([37, 80, 68, 70]));
 });
 describe('data and report export HTTP contracts', () => {
+  it('returns 413 when the export request is over the size limit', async () => {
+    const response = await archive(new NextRequest('http://localhost/api/user/export', { method: 'POST', body: 'x'.repeat(64 * 1024 + 1) }));
+    expect(response.status).toBe(413);
+    expect(mock.archive).not.toHaveBeenCalled();
+  });
+  it('returns 400 when the export body cannot be read', async () => {
+    const encoded = new TextEncoder().encode('{"year":');
+    let sent = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!sent) { sent = true; controller.enqueue(encoded); return; }
+        controller.error(new Error('stopped'));
+      },
+    });
+    const response = await archive(new NextRequest('http://localhost/api/user/export', { method: 'POST', body, duplex: 'half' } as RequestInit));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'Invalid JSON body' });
+    expect(mock.archive).not.toHaveBeenCalled();
+    expect(recordedRateLimitCount(RATE_LIMITS.userExport.scope)).toBe(0);
+    expect(recordedRateLimitCount(RATE_LIMITS.userExportAttempts.scope)).toBe(0);
+  });
   it('rejects unauthenticated archive, CSV and PDF before reading data', async () => {
     mock.auth = false;
     expect((await csv(request('transactions/export-csv'))).status).toBe(401);

@@ -11,6 +11,7 @@ import { getPlaidConnection } from '@/lib/plaid/connections';
 import { assertBankHistoryReadyForNewConnection, BANK_HISTORY_REVIEW_REQUIRED, BANK_HISTORY_REVIEW_MESSAGE } from '@/lib/plaid/history-review';
 import { getPlaidOAuthRedirectUri } from '@/lib/plaid/oauth-config';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { readJsonBody } from '@/lib/http/json-body';
 
 function webhookUrl(): string | undefined {
   const source = process.env.PLAID_WEBHOOK_URL || process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL;
@@ -26,17 +27,19 @@ export async function POST(request: NextRequest) {
   let uid: string;
   try { ({ uid } = await getUserFromReqOrThrow(request)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
-  // Link tokens start provider sessions and can start a trial; bound them per owner.
+  const raw = await readJsonBody(request);
+  if (raw instanceof NextResponse) return raw;
+  const body = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  if (body.itemId !== undefined && (typeof body.itemId !== 'string' || !body.itemId || body.itemId.includes('/'))) {
+    return NextResponse.json({ error: 'Invalid bank connection' }, { status: 400 });
+  }
+  if (body.itemId && body.reconnectSessionId) return NextResponse.json({ error: 'Choose update or history review' }, { status: 400 });
+  // Consistent request validation runs before the per-owner limit.
   const limit = await enforceRateLimit({ ...RATE_LIMITS.plaidLinkToken, key: uid });
   if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many bank connection attempts. Please wait a few minutes and try again.' });
   try {
     const redirectUri = getPlaidOAuthRedirectUri(process.env, request.headers.get('origin'));
-    const body = await request.json().catch(() => ({}));
-    if (body.itemId !== undefined && (typeof body.itemId !== 'string' || !body.itemId || body.itemId.includes('/'))) {
-      return NextResponse.json({ error: 'Invalid bank connection' }, { status: 400 });
-    }
-    if (body.itemId && body.reconnectSessionId) return NextResponse.json({ error: 'Choose update or history review' }, { status: 400 });
-    const connection = body.itemId ? await getPlaidConnection(uid, body.itemId, true) : null;
+    const connection = body.itemId ? await getPlaidConnection(uid, String(body.itemId), true) : null;
     if (body.itemId && !connection) return NextResponse.json({ code: 'BANK_RELINK_REQUIRED', error: 'Connect this bank again using the current bank provider.' }, { status: 409 });
     if (!connection) {
       if (body.reconnectSessionId !== undefined) await assertReconnectCanLink(uid, body.reconnectSessionId);

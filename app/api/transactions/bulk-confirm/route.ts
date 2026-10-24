@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser, isSameOriginRequest } from '@/lib/firebase/api-auth';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 import { BulkConfirmError, bulkConfirmInput, bulkConfirmMerchant } from '@/lib/transactions/bulk-confirm';
+import { readJsonBody } from '@/lib/http/json-body';
 
 const headers = { 'Cache-Control': 'private, no-store' };
 const INVALID_BODY = 'Provide the merchant, a business or personal decision and, for business decisions, an optional purpose and category.';
@@ -22,7 +23,9 @@ export async function POST(request: NextRequest) {
   if (!isSameOriginRequest(request)) return NextResponse.json({ error: 'Cross-site request rejected' }, { status: 403, headers });
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers });
-  const parsed = bulkConfirmInput.safeParse(await request.json().catch(() => null));
+  const raw = await readJsonBody(request);
+  if (raw instanceof NextResponse && raw.status === 413) return raw;
+  const parsed = bulkConfirmInput.safeParse(raw instanceof NextResponse ? null : raw);
   if (!parsed.success) return NextResponse.json({ error: INVALID_BODY }, { status: 400, headers });
   const limit = await enforceRateLimit({ ...RATE_LIMITS.bulkConfirm, key: user.uid });
   if (!limit.allowed) return rateLimitResponse(limit);

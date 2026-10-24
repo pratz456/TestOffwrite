@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 import { accountResultSchema, isAccountActionHref } from '@/lib/tax-assistant/account-contract';
 import { extractTaxPosition, taxPositionResult, transactionAccountResult } from '@/lib/tax-assistant/account-tools';
@@ -11,6 +11,7 @@ vi.mock('@/app/api/ai/tax-assistant/route', () => ({ POST: h.guidance }));
 vi.mock('@/app/api/tax/compute-1040/route', () => ({ GET: h.tax }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
+import { assistantRequestSchema } from '@/lib/tax-assistant/contract';
 import { POST } from '@/app/api/ai/account-assistant/route';
 const now = new Date('2026-09-23T12:00:00Z');
 const row = { id: 'one', userId: 'owner', merchant_name: 'Adobe', amount: 59, date: '2026-09-10', iso_currency_code: 'USD' };
@@ -18,8 +19,28 @@ const tax = { taxYear: 2026, income: { grossReceipts: 60000, totalDeductible: 50
 const completion = (value: unknown) => ({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(value), refusal: null } }] });
 const req = (body: unknown = { message: 'What needs review?', taxYear: 2026 }) => new NextRequest('http://localhost/api/ai/account-assistant', { method: 'POST', body: JSON.stringify(body), headers: { authorization: 'Bearer synthetic', 'content-type': 'application/json' } });
 beforeEach(() => { vi.clearAllMocks(); resetRateLimitStore(); h.key = true; h.authenticate.mockResolvedValue({ user: { uid: 'owner' } }); h.create.mockResolvedValue(completion({ intent: 'review_transactions' })); h.records.mockResolvedValue([row]); h.tax.mockImplementation(async () => NextResponse.json(tax)); h.guidance.mockImplementation(async () => NextResponse.json({ reply: 'Reviewed legal guidance' })); h.save.mockResolvedValue(null); });
+afterEach(() => { vi.restoreAllMocks(); });
 
 describe('account assistant read boundary', () => {
+  it('returns 429 for a limited request before reading input', async () => {
+    const rateLimit = await import('@/lib/security/rate-limit');
+    const limit = vi.spyOn(rateLimit, 'enforceRateLimit').mockResolvedValue({
+      allowed: false, limit: 30, remaining: 0, retryAfterSeconds: 30, resetAt: Date.now() + 30_000, source: 'firestore', unavailable: false,
+    });
+    const input = req();
+    const response = await POST(input);
+    expect(response.status).toBe(429);
+    expect(input.bodyUsed).toBe(false);
+    expect(h.create).not.toHaveBeenCalled();
+  });
+  it('returns 400 for a history of 13 entries', async () => {
+    const parsed = vi.spyOn(assistantRequestSchema, 'safeParse');
+    const history = Array.from({ length: 13 }, () => ({ role: 'user', content: 'hello' }));
+    const response = await POST(req({ message: 'What needs review?', taxYear: 2026, conversationHistory: history }));
+    expect(response.status).toBe(400);
+    expect(parsed).not.toHaveBeenCalled();
+    expect(h.create).not.toHaveBeenCalled();
+  });
   it('authenticates before provider or record reads', async () => {
     h.authenticate.mockResolvedValue({ user: null, error: 'expired' });
     expect((await POST(req())).status).toBe(401); expect(h.create).not.toHaveBeenCalled(); expect(h.records).not.toHaveBeenCalled();

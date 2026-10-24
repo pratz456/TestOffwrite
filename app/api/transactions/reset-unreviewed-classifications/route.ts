@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { DocumentReference } from 'firebase-admin/firestore';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb, FieldValue } from '@/lib/firebase/admin';
+import { readJsonBody } from '@/lib/http/json-body';
 
 type Scope = 'learning_only' | 'unreviewed_tax_labels';
 
@@ -29,12 +30,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let body: { scope?: Scope; confirm?: boolean } = {};
-  try {
-    body = await request.json();
-  } catch {
-    body = {};
-  }
+  const raw = await readJsonBody(request);
+  if (raw instanceof NextResponse) return raw;
+  const body: { scope?: Scope; confirm?: boolean } = !raw || typeof raw !== 'object' || Array.isArray(raw) ? {} : raw as { scope?: Scope; confirm?: boolean };
 
   const scope: Scope = body.scope === 'unreviewed_tax_labels' ? 'unreviewed_tax_labels' : 'learning_only';
 

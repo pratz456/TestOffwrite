@@ -7,6 +7,10 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { DEPENDENT_IDENTIFIERS_REMOVED_WARNING, encryptOrganizerIdentifiers } from '@/lib/tax-organizer/identifiers';
 import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
 import { readEligibilityFacts } from '@/lib/tax-rules/eligibility';
+import { readJsonBody } from '@/lib/http/json-body';
+
+/** An organizer can include 80 answers of 5,000 characters each. */
+const ORGANIZER_MAX_BYTES = 2 * 1024 * 1024;
 
 const privateHeaders = { 'Cache-Control': 'private, no-store' };
 
@@ -37,12 +41,12 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const { user } = await getAuthenticatedUser(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  let body;
-  try { body = await request.json(); }
-  catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }); }
+  const body = await readJsonBody(request, ORGANIZER_MAX_BYTES);
+  if (body instanceof NextResponse) return body;
   if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Invalid organizer' }, { status: 400 });
-  if (body.userId && body.userId !== user.uid) return NextResponse.json({ error: 'Cannot change organizer owner' }, { status: 403 });
-  const { taxYear, userId: _owner, id: _id, createdAt: _created, updatedAt: _updated, ...answers } = body;
+  const record = body as Record<string, unknown>;
+  if (record.userId && record.userId !== user.uid) return NextResponse.json({ error: 'Cannot change organizer owner' }, { status: 403 });
+  const { taxYear, userId: _owner, id: _id, createdAt: _created, updatedAt: _updated, ...answers } = record;
   const year = validYear(taxYear);
   if (!year) return NextResponse.json({ error: 'Invalid tax year' }, { status: 400 });
   if (Object.values(answers).some(value => typeof value !== 'string' || value.length > 5000) || Object.keys(answers).length > 80) {

@@ -15,6 +15,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ accountId
     const { accountId } = await context.params;
 
     const body = await readJsonObject(req);
+    if (body instanceof NextResponse) return body;
     if (!body) return invalidJsonResponse();
     const { usageType, businessUsePercent } = body;
     const usageTypes = ['business', 'personal', 'mixed', 'unknown'] as const;

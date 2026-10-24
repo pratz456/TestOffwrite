@@ -178,6 +178,39 @@ describe('signed Stripe lifecycle notifications', () => {
       });
     },
   );
+  it('passes the exact request text to signature verification', async () => {
+    const body = JSON.stringify({ id: 'evt_exact' });
+    await webhook(new Request('https://writeoffapp.com/api/test', { method: 'POST', body, headers: { 'stripe-signature': 'signed-fixture' } }));
+    expect(mock.constructEvent).toHaveBeenCalledWith(body, 'signed-fixture', 'mock-secret');
+  });
+  it('returns 413 when the delivery is over the text limit', async () => {
+    const response = await webhook(new Request('https://writeoffapp.com/api/test', {
+      method: 'POST', headers: { 'stripe-signature': 'signed-fixture' }, body: 'x'.repeat(1024 * 1024 + 1),
+    }));
+    expect(response.status).toBe(413);
+    expect(mock.constructEvent).not.toHaveBeenCalled();
+  });
+  it('returns 400 when the delivery cannot be read', async () => {
+    const encoded = new TextEncoder().encode('{"id":');
+    let sent = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!sent) { sent = true; controller.enqueue(encoded); return; }
+        controller.error(new Error('stopped'));
+      },
+    });
+    const response = await webhook(new Request('https://writeoffapp.com/api/test', {
+      method: 'POST', headers: { 'stripe-signature': 'signed-fixture' }, body, duplex: 'half',
+    } as RequestInit));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'Invalid JSON body' });
+    expect(mock.constructEvent).not.toHaveBeenCalled();
+    expect(mock.sync).not.toHaveBeenCalled();
+    expect(mock.subscriptionsRetrieve).not.toHaveBeenCalled();
+    expect(mock.customersRetrieve).not.toHaveBeenCalled();
+    expect(mock.ownerWhere).not.toHaveBeenCalled();
+    expect(mock.profileUpdate).not.toHaveBeenCalled();
+  });
   it('rejects missing/bad signatures before granting anything', async () => {
     expect((await webhook(req())).status).toBe(400);
     mock.constructEvent.mockImplementation(() => { throw Error('bad signature'); });

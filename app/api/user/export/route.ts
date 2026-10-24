@@ -5,6 +5,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { generateUserDataExport, generateDataPackage, validateExportData } from '@/lib/reports/data-export';
 import { exportYear, ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 import { enforceRateLimit, peekRateLimit, RATE_LIMITS, rateLimitResponse, refundRateLimit, type RateLimitResult } from '@/lib/security/rate-limit';
+import { DEFAULT_JSON_BODY_MAX_BYTES, readTextBody } from '@/lib/http/json-body';
 
 // Owner data portability remains available on every plan. One completed archive
 // per hour is enforced durably across hosting instances; a failed attempt is
@@ -20,7 +21,8 @@ export async function POST(request: NextRequest) {
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers });
   let year: number | undefined;
   try {
-    const text = await request.text();
+    const text = await readTextBody(request, DEFAULT_JSON_BODY_MAX_BYTES);
+    if (text instanceof NextResponse) return text;
     const body = text ? JSON.parse(text) : {};
     if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'year')) throw new Error();
     year = exportYear(body.year);

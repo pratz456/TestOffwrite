@@ -24,6 +24,7 @@ import { ExportDataUnavailableError } from '@/lib/reports/export-records';
 import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 import { INCOME_SOURCE_KINDS, RECONCILIATION_DECISION_TYPES } from '@/lib/tax-rules/income-reconciliation';
 import { prepareReconciliationDecision, summarizeIncomeReconciliation } from '@/lib/tax-rules/income-reconciliation-response';
+import { readJsonBody } from '@/lib/http/json-body';
 
 const NO_STORE = { 'Cache-Control': 'private, no-store' };
 const yearInput = z.union([z.number(), z.string().trim().regex(/^\d{4}$/)]).transform(Number).pipe(z.number().int().min(2000).max(2100));
@@ -70,7 +71,9 @@ export async function POST(request: NextRequest) {
   if (rejected) return rejected;
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const parsed = decisionInput.safeParse(await request.json().catch(() => null));
+  const raw = await readJsonBody(request);
+  if (raw instanceof NextResponse && raw.status === 413) return raw;
+  const parsed = decisionInput.safeParse(raw instanceof NextResponse ? null : raw);
   if (!parsed.success) return NextResponse.json({ error: INVALID_BODY }, { status: 400 });
   try {
     const { taxYear, ...input } = parsed.data;
@@ -89,7 +92,9 @@ export async function PATCH(request: NextRequest) {
   if (rejected) return rejected;
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const parsed = updateInput.safeParse(await request.json().catch(() => null));
+  const raw = await readJsonBody(request);
+  if (raw instanceof NextResponse && raw.status === 413) return raw;
+  const parsed = updateInput.safeParse(raw instanceof NextResponse ? null : raw);
   if (!parsed.success) return NextResponse.json({ error: INVALID_BODY }, { status: 400 });
   try {
     const { id, taxYear, ...input } = parsed.data;

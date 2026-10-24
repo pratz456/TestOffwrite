@@ -7,15 +7,18 @@ import { readOwnedTransactions } from '@/lib/reports/export-records';
 import { exportYear, ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 import { generatePreparerReport } from '@/lib/reports/preparer-report';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { readJsonBody } from '@/lib/http/json-body';
 
 export async function POST(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const denied = await requireFeatureAccess(user.uid, 'exports');
   if (denied) return denied;
+  const raw = await readJsonBody(request);
+  if (raw instanceof NextResponse && raw.status === 413) return raw;
   let year: number;
   try {
-    const body = await request.json();
+    const body = raw instanceof NextResponse ? null : raw as { year?: unknown } | null;
     if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'year')) throw new Error();
     const parsed = exportYear(body.year);
     if (parsed === undefined) throw new Error();

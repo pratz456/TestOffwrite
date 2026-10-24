@@ -36,6 +36,7 @@ export async function POST(request: NextRequest) {
     console.log('✅ [Tax Summary Settings API] User authenticated:', user.uid);
 
     const body = await readJsonObject(request);
+    if (body instanceof NextResponse) return body;
     if (!body) return invalidJsonResponse();
     // Only the three summary fields are stored; anything else in the body is ignored.
     const settings: { scheduleCNetProfit: number; taxYear?: number; adjustments?: number } = { scheduleCNetProfit: NaN };

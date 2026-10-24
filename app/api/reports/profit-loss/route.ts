@@ -5,6 +5,7 @@ import { readOwnedTransactions } from '@/lib/reports/export-records';
 import { exportDate, exportYear, selectExportYear, transactionAmount, ExportReviewRequiredError, type ExportRecord } from '@/lib/reports/transaction-export';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { createPlanningPDF, formatExportMoney } from '@/lib/reports/planning-pdf';
+import { readJsonBody } from '@/lib/http/json-body';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -86,10 +87,11 @@ export async function POST(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return json({ error: 'Unauthorized' }, 401);
   const denied = await requireFeatureAccess(user.uid, 'reports'); if (denied) return denied;
-  let body;
-  try { body = await request.json(); } catch { return json({ error: 'Provide a valid report period.' }, 400); }
+  const body = await readJsonBody(request);
+  if (body instanceof NextResponse) return body.status === 413 ? body : json({ error: 'Provide a valid report period.' }, 400);
   if (!body || typeof body !== 'object' || Array.isArray(body)) return json({ error: 'Provide a valid report period.' }, 400);
-  try { const { year, month } = period(body.year, body.month); return json(await dataFor(user.uid, year, month)); }
+  const record = body as { year?: unknown; month?: unknown };
+  try { const { year, month } = period(record.year, record.month); return json(await dataFor(user.uid, year, month)); }
   catch (error) { return failure(error); }
 }
 export async function GET(request: NextRequest) {

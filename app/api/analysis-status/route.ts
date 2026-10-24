@@ -81,6 +81,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await readJsonObject(request);
+    if (body instanceof NextResponse) return body;
     if (!body) return invalidJsonResponse();
     const { total, status = 'running' } = body;
 
@@ -131,6 +132,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await readJsonObject(request);
+    if (body instanceof NextResponse) return body;
     if (!body) return invalidJsonResponse();
     const { jobId, completed, status } = body;
 

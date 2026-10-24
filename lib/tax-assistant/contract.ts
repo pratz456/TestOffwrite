@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { readJsonBody } from '@/lib/http/json-body';
 import { SELECTABLE_TOPICS } from './knowledge';
 
 export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
@@ -30,30 +31,19 @@ export function isSupportedImage(dataUrl: string): boolean {
   return bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
 }
 
-/** Bound the actual body even when Content-Length is absent or inaccurate. */
+/** Assistant requests can include a photo, so they keep the existing size. */
 export async function readAssistantBody(request: Request): Promise<unknown> {
-  if (Number(request.headers.get('content-length')) > MAX_REQUEST_BYTES) {
-    throw new RangeError('Request is too large');
-  }
-  const reader = request.body?.getReader();
-  if (!reader) throw new SyntaxError('Missing request body');
-  let size = 0;
-  const chunks: Uint8Array[] = [];
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > MAX_REQUEST_BYTES) {
-        await reader.cancel();
-        throw new RangeError('Request is too large');
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  const body = await readJsonBody(request, MAX_REQUEST_BYTES);
+  if (body instanceof Response && body.status === 413) throw new RangeError('Request is too large');
+  if (body instanceof Response) throw new SyntaxError('Invalid request body');
+  return body;
+}
+
+/** True when conversationHistory is a list longer than the cap. */
+export function conversationHistoryTooLong(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const history = (value as { conversationHistory?: unknown }).conversationHistory;
+  return Array.isArray(history) && history.length > MAX_HISTORY_MESSAGES;
 }
 
 export function priorMessages(input: AssistantRequest) {

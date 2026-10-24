@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getOpenAIClientOrThrow, getOpenAIModel, hasOpenAIAPIKey } from '@/lib/openai/client';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
-import { assistantRequestSchema, isSupportedImage, readAssistantBody } from '@/lib/tax-assistant/contract';
+import { assistantRequestSchema, conversationHistoryTooLong, isSupportedImage, readAssistantBody } from '@/lib/tax-assistant/contract';
 import { accountIntentSchema, accountRouterMessages, accountResultSchema, type AccountResult } from '@/lib/tax-assistant/account-contract';
 import { extractTaxPosition, taxPositionResult, transactionAccountResult } from '@/lib/tax-assistant/account-tools';
 import { saveTaxPosition } from '@/lib/tax-assistant/account-history';
@@ -20,9 +20,13 @@ function json(body: unknown, status = 200) {
 export async function POST(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return json({ error: 'Unauthorized' }, 401);
+  if (!hasOpenAIAPIKey()) return json({ error: 'The assistant is not configured. Your draft is ready to retry.' }, 503);
+  const limit = await enforceRateLimit({ ...RATE_LIMITS.aiTaxAssistant, key: `account:${user.uid}` });
+  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many assistant requests. Please retry in a few minutes.' });
   let raw: unknown;
   try { raw = await readAssistantBody(request); }
   catch (err) { return json({ error: err instanceof RangeError ? 'Request is too large.' : 'Invalid request body.' }, err instanceof RangeError ? 413 : 400); }
+  if (conversationHistoryTooLong(raw)) return json({ error: 'Use a valid question, tax year, and photo under 2 MB.' }, 400);
   const parsed = assistantRequestSchema.safeParse(raw);
   if (!parsed.success || parsed.data.imageDataUrl && !isSupportedImage(parsed.data.imageDataUrl)) return json({ error: 'Use a valid question, tax year, and photo under 2 MB.' }, 400);
   const input = parsed.data;
@@ -32,9 +36,6 @@ export async function POST(request: NextRequest) {
   const guidance = () => taxGuidance(new NextRequest(new URL('/api/ai/tax-assistant', request.url), { method: 'POST', headers, body: JSON.stringify(input) }));
   // Photos retain the established bounded, source-backed guidance path.
   if (input.imageDataUrl) return guidance();
-  const limit = await enforceRateLimit({ ...RATE_LIMITS.aiTaxAssistant, key: `account:${user.uid}` });
-  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many assistant requests. Please retry in a few minutes.' });
-  if (!hasOpenAIAPIKey()) return json({ error: 'The assistant is not configured. Your draft is ready to retry.' }, 503);
   try {
     const client = getOpenAIClientOrThrow({ timeout: 30000, maxRetries: 0 });
     const result = await client.chat.completions.create({ model: getOpenAIModel('assistant'), messages: accountRouterMessages(input),

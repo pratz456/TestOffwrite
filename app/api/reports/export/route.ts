@@ -11,6 +11,7 @@ import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal
 import { exportYear } from '@/lib/reports/transaction-export';
 import { HomeOfficeReviewRequiredError, homeOfficeReviewReasons } from '@/lib/reports/calc8829';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { readJsonBody } from '@/lib/http/json-body';
 
 const REVIEW_CODES = ['TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', 'EXPORT_REVIEW_REQUIRED', 'DEPRECIATION_REVIEW_REQUIRED', 'HOME_OFFICE_REVIEW_REQUIRED', 'HOME_OFFICE_DETAILS_REQUIRED', 'INVALID_HOME_OFFICE_INPUT', 'FILING_STATUS_REVIEW_REQUIRED', 'INCOME_RECONCILIATION_REQUIRED'];
 
@@ -20,11 +21,13 @@ export async function POST(request: NextRequest) {
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
   const denied = await requireFeatureAccess(uid, 'exports');
   if (denied) return denied;
+  const raw = await readJsonBody(request);
+  if (raw instanceof NextResponse && raw.status === 413) return raw;
   let type: string, year: number;
   try {
-    const body = await request.json();
+    const body = raw instanceof NextResponse ? null : raw as { type?: unknown; year?: unknown } | null;
     if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['type', 'year'].includes(key))) throw new Error();
-    if (!['form8829', 'form4562', 'scheduleSE'].includes(body.type)) throw new Error();
+    if (typeof body.type !== 'string' || !['form8829', 'form4562', 'scheduleSE'].includes(body.type)) throw new Error();
     type = body.type; year = exportYear(body.year) ?? new Date().getFullYear();
     getFederalTaxRules(year);
   } catch { return NextResponse.json({ error: `Provide form8829, form4562 or scheduleSE and a supported year (${SUPPORTED_TAX_YEARS.join(', ')}).` }, { status: 400 }); }

@@ -6,6 +6,7 @@ import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { enqueueAccountAnalysis, validAnalysisId } from '@/lib/ai/analysis-jobs';
 import { getAIProviderStatus } from '@/lib/ai/provider-status';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { readJsonBody } from '@/lib/http/json-body';
 
 /**
  * Authenticated catch-up: queues the caller's saved records for one account; importing
@@ -16,8 +17,10 @@ export async function POST(request: NextRequest) {
   let uid: string;
   try { ({ uid } = await getUserFromReqOrThrow(request)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
-  const body = await request.json().catch(() => null);
-  if (!validAnalysisId(body?.accountId)) return NextResponse.json({ error: 'Account ID is required' }, { status: 400 });
+  const raw = await readJsonBody(request);
+  if (raw instanceof NextResponse && raw.status === 413) return raw;
+  const body = raw instanceof NextResponse || !raw || typeof raw !== 'object' ? null : raw as { accountId?: unknown };
+  if (!body || !validAnalysisId(body.accountId)) return NextResponse.json({ error: 'Account ID is required' }, { status: 400 });
   if (!getAIProviderStatus().configured) return NextResponse.json({ code: 'AI_UNAVAILABLE', error: 'AI analysis is unavailable. You can review transactions manually.' }, { status: 503 });
   // Checked after the configuration answer so an unavailable provider never spends the owner's retries.
   const limit = await enforceRateLimit({ ...RATE_LIMITS.analysisCatchUp, key: uid });
