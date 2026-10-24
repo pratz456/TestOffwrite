@@ -124,6 +124,9 @@ function holdsInstant(value: unknown): boolean {
   if (value instanceof Date || typeof value === 'number') return true;
   if (!value || typeof value !== 'object') return false;
   if (typeof (value as { toDate?: unknown }).toDate === 'function') return true;
+  // An own seconds or _seconds value that is not finite is still an instant.
+  // instantMillis then returns null and the row is needs more information.
+  if (nonFiniteEpoch(value)) return true;
   return epochSeconds(value as EpochFields) !== null;
 }
 
@@ -203,7 +206,6 @@ function impossibleCalendarDate(value: string): boolean {
  */
 function placeIncomeDate(tx: IncomeRecord, taxYear: number): IncomePlacement {
   const zone = tx.uploadTimeZone;
-  if (nonFiniteEpoch(tx.date)) return { action: 'nmi' };
   if (holdsInstant(tx.date)) {
     const millis = instantMillis(tx.date);
     if (millis === null) return { action: 'nmi' };

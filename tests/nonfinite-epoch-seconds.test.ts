@@ -26,13 +26,18 @@ const placedDay = (year: number, date: unknown) => {
   return candidates.find(candidate => candidate.id === 'corrupt-row')?.date;
 };
 
+const DATE_WARNING = 'Corrupt Seconds Client (corrupt-row) needs more information. This receipt cannot be placed on one calendar day, so it is left out of every year total and the quarter split.';
+
 const holdsForReview = (date: unknown) => {
-  for (const year of [2024, 2025, 2026]) {
+  for (const year of [2026, 2027, 2024, 2025]) {
     const result = reconcile(year, date, DATETIME);
     expect(result.grossReceipts).toBe(0);
     expect(result.quarterlyGrossReceipts).toEqual([0, 0, 0, 0]);
     expect(result.undatedIncome).toEqual({ count: 0, total: 0 });
-    expect(result.needsMoreInformationRows.some(item => item.id === 'corrupt-row' || item.name === 'Corrupt Seconds Client')).toBe(true);
+    expect(result.needsMoreInformationRows).toEqual([
+      { id: 'corrupt-row', name: 'Corrupt Seconds Client', reason: 'The saved date cannot be placed on one calendar day.' },
+    ]);
+    expect(result.warnings).toContain(DATE_WARNING);
   }
 };
 
@@ -40,7 +45,8 @@ it.each([
   ['seconds NaN', { seconds: Number.NaN }],
   ['_seconds Infinity', { _seconds: Number.POSITIVE_INFINITY }],
   ['seconds string', { seconds: '1715000000' }],
-] as const)('%s is needs more information and is out of every year total', (_label, date) => {
+  ['_seconds string', { _seconds: '1715000000' }],
+] as const)('%s is needs more information with its date warning and is out of 2026 and 2027', (_label, date) => {
   holdsForReview(date);
 });
 
