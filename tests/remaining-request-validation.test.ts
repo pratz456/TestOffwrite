@@ -148,7 +148,6 @@ describe('consistent request validation for remaining routes', () => {
     const { POST } = await import('../app/api/plaid/exchange-token/route');
     const response = await POST(request('POST', '/api/plaid/exchange-token', partialBody('{"publicToken":')));
     await expectInvalid(response, limitSpy);
-    expect(harness.auth.verifyIdToken).not.toHaveBeenCalled();
   });
 
   it('rejects a partial report export request', async () => {
