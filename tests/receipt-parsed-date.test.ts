@@ -20,6 +20,7 @@ vi.mock('@/lib/firebase/admin', () => ({ adminApp: { name: 'firebase-frameworks'
 vi.mock('firebase-admin/storage', () => ({ getStorage: () => ({ bucket: mocks.bucket, app: { options: {} } }) }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 import { receiptProcessor } from '@/lib/ocr/receipt-processor';
+import { regionUploadTimeZone } from '@/lib/ocr/region-time-zone';
 import { POST } from '../app/api/receipts/process/route';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
@@ -632,6 +633,50 @@ describe('OCR save uses the printed calendar day', () => {
     const invalid = await saveInstant(instant.getTime(), 'Not/AZone');
     expect(invalid.saved?.date).toBe('2027-01-01');
     expect(invalid.saved?.uploadTimeZone).toBeUndefined();
+  });
+
+  it('does not store est and saves 2026-07-15T04:30Z in Needs more information', async () => {
+    const instant = new Date('2026-07-15T04:30:00Z');
+    expect(normalizeDateToISO(instant, 'est')).toBeNull();
+    expect(normalizeDateToISO(instant, 'America/New_York')).toBe('2026-07-15');
+    const rejected = await saveInstant(instant, 'est');
+    expect(rejected.response.status).toBe(200);
+    expect(rejected.saved?.date).toBe('');
+    expect(rejected.saved?.uploadTimeZone).toBeUndefined();
+    expect(rejected.saved?.deductionStatus).toBe('Needs more information');
+    expect(rejected.saved?.tax_review_required).toBe(true);
+    const eastern = await saveInstant(instant, 'America/New_York');
+    expect(eastern.response.status).toBe(200);
+    expect(eastern.saved).toMatchObject({ date: '2026-07-15', uploadTimeZone: 'America/New_York', amount: 12.34 });
+    expect(eastern.saved?.deductionStatus).toBeUndefined();
+  });
+
+  it('does not store est and saves 2026-06-01T04:30Z in Needs more information', async () => {
+    const instant = new Date('2026-06-01T04:30:00Z');
+    expect(normalizeDateToISO(instant, 'est')).toBeNull();
+    expect(normalizeDateToISO(instant, 'America/New_York')).toBe('2026-06-01');
+    expect(regionUploadTimeZone('est')).toBeUndefined();
+    const processor = receiptProcessor as unknown as {
+      parseReceiptText(text: string): { merchant: string; amount: number; date: Date; category: string; items: [] };
+    };
+    const original = processor.parseReceiptText;
+    processor.parseReceiptText = () => ({
+      merchant: 'SYNTHETIC OFFICE STORE', amount: 12.34, date: instant, category: 'other', items: [],
+    });
+    worker.recognize.mockResolvedValue({ data: { text: 'synthetic', confidence: 95 } });
+    try {
+      const [batched] = await receiptProcessor.processReceiptBatch([Buffer.from('june')], 'est');
+      expect(batched.data?.date).toBe('');
+    } finally {
+      processor.parseReceiptText = original;
+    }
+    const rejected = await saveInstant(instant, 'est');
+    expect(rejected.response.status).toBe(200);
+    expect(rejected.saved?.date).toBe('');
+    expect(rejected.saved?.uploadTimeZone).toBeUndefined();
+    expect(rejected.saved?.deductionStatus).toBe('Needs more information');
+    const eastern = await saveInstant(instant, 'America/New_York');
+    expect(eastern.saved).toMatchObject({ date: '2026-06-01', uploadTimeZone: 'America/New_York' });
   });
 
   it('saves a no-zone row at 05:00Z in Needs more information', async () => {

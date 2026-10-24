@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { receiptProcessor, type OCRResult } from '@/lib/ocr/receipt-processor';
+import { regionUploadTimeZone } from '@/lib/ocr/region-time-zone';
 import {
   createTransactionServer,
   getTransactionServer,
@@ -39,14 +40,9 @@ function isRealCalendarDay(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
 }
 
-/** The browser zone, kept only when it is a real IANA name, stored as the canonical name. */
+/** The browser zone. A region name is stored as Node returns it. A listed zero-offset alias is stored as UTC. */
 function uploadedTimeZone(value: FormDataEntryValue | null): string | undefined {
-  if (typeof value !== 'string' || value.length === 0) return undefined;
-  try {
-    return new Intl.DateTimeFormat('en-US', { timeZone: value }).resolvedOptions().timeZone;
-  } catch {
-    return undefined;
-  }
+  return regionUploadTimeZone(value);
 }
 
 function stagingReceiptFailure(step: string, error: unknown) {

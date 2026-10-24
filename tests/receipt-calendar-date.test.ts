@@ -3,6 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const worker = vi.hoisted(() => ({ recognize: vi.fn(), terminate: vi.fn() }));
 vi.mock('tesseract.js', () => ({ default: { createWorker: vi.fn(async () => worker) } }));
 import { receiptProcessor } from '@/lib/ocr/receipt-processor';
+import { regionUploadTimeZone } from '@/lib/ocr/region-time-zone';
+
+const UTC_ALIASES = ['utc', 'UTC', 'Etc/UTC', 'etc/utc', 'Etc/GMT', 'GMT', 'gmt', 'Etc/Universal', 'Universal', 'Etc/Zulu', 'Zulu', 'ZULU', 'GMT0', 'Etc/GMT0', 'Etc/GMT+0', 'GMT+0', 'GMT-0', 'Etc/GMT-0', 'UCT', 'Etc/UCT', 'Greenwich', 'Etc/Greenwich'];
+const REJECTED_ZONES = ['Z', 'z', '+05:00', '+00:00', '-00:00', 'GMT+5', 'Etc/GMT+1', 'UTC+0', 'Etc/GMT+5', 'Etc/GMT-3', 'EST', 'est', 'PST', 'EST5EDT', 'CST6CDT'];
 
 const normalizeDateToISO = (value: unknown, userTimeZone?: string) =>
   (receiptProcessor as unknown as { normalizeDateToISO(dateLike: unknown, userTimeZone?: string): string | null }).normalizeDateToISO(value, userTimeZone);
@@ -81,6 +85,69 @@ describe('OCR receipt dates must be real calendar days', () => {
       expect(withZone.data?.date).toBe('2026-12-31');
       const [withoutZone] = await receiptProcessor.processReceiptBatch([Buffer.from('synthetic')]);
       expect(withoutZone.data?.date).toBe('');
+    } finally {
+      processor.parseReceiptText = original;
+    }
+  });
+
+  it('rejects an abbreviation in a receipt batch and keeps a region zone', async () => {
+    const processor = receiptProcessor as unknown as {
+      parseReceiptText(text: string): { merchant: string; amount: number; date: Date; category: string; items: [] };
+    };
+    const original = processor.parseReceiptText;
+    const useInstant = (iso: string) => {
+      processor.parseReceiptText = () => ({
+        merchant: 'SYNTHETIC OFFICE STORE', amount: 12.34, date: new Date(iso), category: 'other', items: [],
+      });
+    };
+    worker.recognize.mockResolvedValue({ data: { text: 'synthetic', confidence: 95 } });
+    try {
+      useInstant('2026-07-15T04:30:00Z');
+      const [july] = await receiptProcessor.processReceiptBatch([Buffer.from('july')], 'America/New_York');
+      expect(july.data?.date).toBe('2026-07-15');
+      const [julyAbbreviation] = await receiptProcessor.processReceiptBatch([Buffer.from('july')], 'est');
+      expect(julyAbbreviation.data?.date).toBe('');
+      useInstant('2026-06-01T04:30:00Z');
+      const [june] = await receiptProcessor.processReceiptBatch([Buffer.from('june')], 'America/New_York');
+      expect(june.data?.date).toBe('2026-06-01');
+      const [juneAbbreviation] = await receiptProcessor.processReceiptBatch([Buffer.from('june-est')], 'est');
+      expect(regionUploadTimeZone('est')).toBeUndefined();
+      expect(juneAbbreviation.data?.date).toBe('');
+      // Etc/GMT+N and Etc/GMT-N are refused on purpose. Their signs are reversed (Etc/GMT+1 is UTC minus 1) and browsers rarely report them. A refused zone stays unset, so the row goes to the Pago Pago and St Thomas check; the worst case is a flag, never a wrong day.
+      for (const zone of ['PST', 'EST5EDT', 'CST6CDT', 'Etc/GMT+5', 'Etc/GMT-3', 'Etc/GMT+1', 'Etc/GMT-5', 'UTC+0', 'GMT+5', 'Z']) {
+        const [rejected] = await receiptProcessor.processReceiptBatch([Buffer.from('june')], zone);
+        expect(regionUploadTimeZone(zone)).toBeUndefined();
+        expect(rejected.data?.date).toBe('');
+      }
+    } finally {
+      processor.parseReceiptText = original;
+    }
+  });
+
+  it('stores exact UTC aliases on a receipt batch and rejects every other zero-offset name', async () => {
+    const instant = new Date('2027-01-01T07:30:00Z');
+    const processor = receiptProcessor as unknown as {
+      parseReceiptText(text: string): { merchant: string; amount: number; date: Date; category: string; items: [] };
+    };
+    const original = processor.parseReceiptText;
+    processor.parseReceiptText = () => ({
+      merchant: 'SYNTHETIC OFFICE STORE', amount: 12.34, date: instant, category: 'other', items: [],
+    });
+    worker.recognize.mockResolvedValue({ data: { text: 'synthetic', confidence: 95 } });
+    try {
+      const [withoutZone] = await receiptProcessor.processReceiptBatch([Buffer.from('synthetic')]);
+      expect(withoutZone.data?.date).toBe('');
+      for (const zone of UTC_ALIASES) {
+        expect(regionUploadTimeZone(zone)).toBe('UTC');
+        const [stored] = await receiptProcessor.processReceiptBatch([Buffer.from('alias')], zone);
+        expect(stored.data?.date).toBe('2027-01-01');
+      }
+      // GMT+5 stays unset. Intl rejects that name before the alias list is checked, so the batch date stays blank.
+      for (const zone of REJECTED_ZONES) {
+        expect(regionUploadTimeZone(zone)).toBeUndefined();
+        const [rejected] = await receiptProcessor.processReceiptBatch([Buffer.from('rejected')], zone);
+        expect(rejected.data?.date).toBe('');
+      }
     } finally {
       processor.parseReceiptText = original;
     }
