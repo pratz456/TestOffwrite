@@ -11,16 +11,22 @@ import { CONSENT_SAVE_ERROR, persistConsentRecord } from '@/lib/onboarding/conse
 interface DocumentImageConsentSettingsProps {
   userId: string;
   persist?: typeof persistConsentRecord;
+  /** When set, render this record instead of loading the profile. Tests use it to pin a stored zone. */
+  record?: unknown;
+  /** Browser zone used when the signature has no stored signing zone. */
+  timeZone?: string;
 }
 
 /** Settings > Data & Privacy: shows whether the §7216 document-image consent is signed and lets the person withdraw it. */
-export function DocumentImageConsentSettings({ userId, persist = persistConsentRecord }: DocumentImageConsentSettingsProps) {
-  const [record, setRecord] = useState<unknown>(null);
-  const [loaded, setLoaded] = useState(false);
+export function DocumentImageConsentSettings({ userId, persist = persistConsentRecord, record: suppliedRecord, timeZone }: DocumentImageConsentSettingsProps) {
+  const supplied = suppliedRecord !== undefined;
+  const [record, setRecord] = useState<unknown>(supplied ? suppliedRecord : null);
+  const [loaded, setLoaded] = useState(supplied);
   const [withdrawing, setWithdrawing] = useState(false);
   const [message, setMessage] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
+    if (supplied) return;
     let cancelled = false;
     setLoaded(false);
     makeAuthenticatedRequest('/api/database/profiles')
@@ -32,7 +38,7 @@ export function DocumentImageConsentSettings({ userId, persist = persistConsentR
       .catch(() => undefined)
       .finally(() => { if (!cancelled) setLoaded(true); });
     return () => { cancelled = true; };
-  }, [userId]);
+  }, [userId, supplied]);
 
   const current = parseConsentRecord(record);
   const signature = current?.document_import ? current.document_import_signature : undefined;
@@ -60,7 +66,7 @@ export function DocumentImageConsentSettings({ userId, persist = persistConsentR
       ) : signature ? (
         <>
           <p className="text-xs text-muted-foreground">
-            Signed by {signature.signed_name} on {formatConsentCalendarDate(new Date(signature.signed_at))}. It lets WriteOff send the full image of a tax document you upload to OpenAI when the text cannot be read on WriteOff&apos;s own server.
+            Signed by {signature.signed_name} on {formatConsentCalendarDate(new Date(signature.signed_at), signature.signed_time_zone ?? timeZone)}. It lets WriteOff send the full image of a tax document you upload to OpenAI when the text cannot be read on WriteOff&apos;s own server.
           </p>
           <Button type="button" variant="outline" size="sm" disabled={withdrawing} onClick={withdraw} className="gap-2">
             {withdrawing && <Loader2 className="h-4 w-4 animate-spin" />}Withdraw consent
