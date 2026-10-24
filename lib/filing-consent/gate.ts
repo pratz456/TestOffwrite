@@ -19,7 +19,9 @@ import {
 } from './record';
 import { isAcceptedSignatureMethod, isSignatureMethod } from './signature';
 import { filingConsentNow } from './clock';
+import { beforeWorkHandOffRefusal } from './before-work';
 import { consentTextSha256, draftDisclosureConsentText } from './text';
+import { vtHandOffRefusal } from './vt-declaration';
 
 export interface HandOffReturn {
   code: string;
@@ -42,6 +44,8 @@ export interface HandOffRequest {
   returns: HandOffReturn[];
   consentRecordId?: string;
   browserConsentChecked?: boolean;
+  /** Home state. Omitted for a hand off that is not a state specific check. */
+  residentState?: string;
 }
 
 export type HandOffDecision =
@@ -185,6 +189,21 @@ export async function evaluateFilingHandOff(request: HandOffRequest): Promise<Ha
       }
     }
   }
+
+  const vtRefusal = await vtHandOffRefusal({
+    residentState: request.residentState,
+    uid: request.signedInUid,
+    partnerLegalName: request.recipientLegalName,
+    returns: request.returns.map(item => ({ code: item.code, taxYear: item.taxYear })),
+  });
+  if (vtRefusal) return vtRefusal;
+
+  const screenRefusal = await beforeWorkHandOffRefusal({
+    residentState: request.residentState,
+    uid: request.signedInUid,
+    taxYear: request.taxYear,
+  });
+  if (screenRefusal) return screenRefusal;
 
   return {
     ok: true,

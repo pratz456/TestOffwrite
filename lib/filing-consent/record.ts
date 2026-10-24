@@ -132,6 +132,47 @@ export function disclosingPreparerMatchesConfig(name: string): boolean {
   return name === DISCLOSING_PREPARER_LEGAL_NAME;
 }
 
+/** A consent record is one of these two kinds. One stored document never holds both. */
+export type ConsentKind = 'use' | 'disclosure';
+
+/**
+ * Stored use consent. `kind` is only `use`. Recipients belong on the disclosure
+ * document, so this record does not carry them.
+ */
+export interface UseConsentRecord {
+  uid: string;
+  taxYear: number;
+  disclosingPreparerLegalName: string;
+  taxpayerName: string;
+  purpose: string;
+  returnsCovered: CoveredReturn[];
+  scope: DisclosureScope;
+  signatureMethod: SignatureMethod;
+  signatureValue: string;
+  userTypedNotPrefilled: boolean;
+  signedAt: string;
+  expiresAt: string;
+  durationStated: DurationStated;
+  consentTextVersion: string;
+  consentTextSha256: string;
+  kind: 'use';
+  withdrawnAt: string | null;
+}
+
+/** A use record that also authorizes a disclosure. Separate documents are required. */
+export function coversDisclosureAsWell(data: {
+  coversDisclosure?: unknown;
+  disclosureConsent?: unknown;
+  kind?: unknown;
+  recipients?: unknown;
+}): boolean {
+  if (data.coversDisclosure === true) return true;
+  if (data.disclosureConsent != null) return true;
+  if (Array.isArray(data.recipients) && data.recipients.length > 0) return true;
+  if (typeof data.kind !== 'string' || data.kind === 'use') return false;
+  return data.kind.includes('disclosure');
+}
+
 export function signatureMethodValue(value: unknown): SignatureMethod | null {
   return isSignatureMethod(value) ? value : null;
 }
