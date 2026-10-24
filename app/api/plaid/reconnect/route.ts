@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { actOnReconnect, getReconnectView, latestReconnectSession, ReconnectError } from '@/lib/plaid/reconnect';
 import type { ReconnectAction } from '@/lib/plaid/reconnect-contract';
-import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse, RECONNECT_USER_LIMIT, RECONNECT_USER_WINDOW_MS, withInvalidRequestLimit } from '@/lib/security/rate-limit';
 import { readJsonBody } from '@/lib/http/json-body';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,13 +20,19 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   let uid: string;
   try { ({ uid } = await getUserFromReqOrThrow(request)); } catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers }); }
-  const limit = await enforceRateLimit({ ...RATE_LIMITS.plaidSync, limit: 120, windowMs: 10 * 60_000, key: `reconnect:${uid}` });
-  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Please wait a moment before continuing bank review.' });
+  // Read the body and check the action before the usage counter. Invalid requests use this route's invalid request counter.
   const body = await readJsonBody(request);
-  if (body instanceof NextResponse) return body.status === 413 ? body : NextResponse.json({ error: 'Invalid JSON body' }, { status: 400, headers });
+  if (body instanceof NextResponse) {
+    const failure = body.status === 413 ? body : NextResponse.json({ error: 'Invalid JSON body' }, { status: 400, headers });
+    return withInvalidRequestLimit(uid, RATE_LIMITS.reconnectInvalidRequest, failure);
+  }
   const action = body && typeof body === 'object' && 'action' in body ? (body as { action?: unknown }).action : undefined;
+  if (typeof action !== 'string' || !['start', 'map', 'decide', 'sync', 'activate', 'cancel'].includes(action)) {
+    return withInvalidRequestLimit(uid, RATE_LIMITS.reconnectInvalidRequest, NextResponse.json({ error: 'Invalid bank review action' }, { status: 400, headers }));
+  }
+  const limit = await enforceRateLimit({ ...RATE_LIMITS.plaidSync, limit: RECONNECT_USER_LIMIT, windowMs: RECONNECT_USER_WINDOW_MS, key: `reconnect:${uid}` });
+  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Please wait a moment before continuing bank review.' });
   try {
-    if (typeof action !== 'string' || !['start', 'map', 'decide', 'sync', 'activate', 'cancel'].includes(action)) return NextResponse.json({ error: 'Invalid bank review action' }, { status: 400, headers });
     return NextResponse.json({ success: true, reconnect: await actOnReconnect(uid, body as ReconnectAction) }, { headers });
   } catch (error) {
     // Only our validation errors contain owner-safe prose. Provider details remain private.

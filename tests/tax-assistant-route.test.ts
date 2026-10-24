@@ -64,7 +64,7 @@ describe('authenticated photo guidance endpoint', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  it('returns 429 for a limited request before reading input', async () => {
+  it('returns 429 when the request limit is already reached', async () => {
     const rateLimit = await import('../lib/security/rate-limit');
     const limit = vi.spyOn(rateLimit, 'enforceRateLimit').mockResolvedValue({
       allowed: false, limit: 30, remaining: 0, retryAfterSeconds: 30, resetAt: Date.now() + 30_000, source: 'firestore', unavailable: false,
@@ -72,7 +72,7 @@ describe('authenticated photo guidance endpoint', () => {
     const req = request();
     const response = await POST(req);
     expect(response.status).toBe(429);
-    expect(req.bodyUsed).toBe(false);
+    expect(req.bodyUsed).toBe(true);
     expect(create).not.toHaveBeenCalled();
   });
 

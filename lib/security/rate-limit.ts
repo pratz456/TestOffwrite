@@ -70,6 +70,23 @@ export interface RateLimitResult {
   unavailable: boolean;
 }
 
+/** Usage limits for routes that also count invalid requests. The invalid request limit is twice the usage limit over the same window. */
+export const RECONNECT_USER_LIMIT = 120;
+export const RECONNECT_USER_WINDOW_MS = 10 * 60_000;
+export const RECONNECT_INVALID_REQUEST_LIMIT = RECONNECT_USER_LIMIT * 2;
+
+export const ANALYZE_TRANSACTION_USER_LIMIT = 60;
+export const ANALYZE_TRANSACTION_USER_WINDOW_MS = 60 * 60_000;
+export const ANALYZE_TRANSACTION_INVALID_REQUEST_LIMIT = ANALYZE_TRANSACTION_USER_LIMIT * 2;
+
+export const ACCOUNT_ASSISTANT_USER_LIMIT = 30;
+export const ACCOUNT_ASSISTANT_USER_WINDOW_MS = 10 * 60_000;
+export const ACCOUNT_ASSISTANT_INVALID_REQUEST_LIMIT = ACCOUNT_ASSISTANT_USER_LIMIT * 2;
+
+export const TAX_ASSISTANT_USER_LIMIT = 30;
+export const TAX_ASSISTANT_USER_WINDOW_MS = 10 * 60_000;
+export const TAX_ASSISTANT_INVALID_REQUEST_LIMIT = TAX_ASSISTANT_USER_LIMIT * 2;
+
 /**
  * Route policies. Keys are the authenticated UID unless noted. Middleware keeps
  * its coarser per-instance address limits in front of all of these.
@@ -84,14 +101,14 @@ export const RATE_LIMITS = {
   /** Bank statement / receipt photo import: up to two vision-model calls per upload. */
   taxStatementImport: { scope: 'tax.import-statement', limit: 30, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   aiVoiceCommand: { scope: 'ai.voice-command', limit: 60, windowMs: 10 * 60_000, onUnavailable: 'deny' },
-  aiTaxAssistant: { scope: 'ai.tax-assistant', limit: 30, windowMs: 10 * 60_000, onUnavailable: 'deny' },
+  aiTaxAssistant: { scope: 'ai.tax-assistant', limit: TAX_ASSISTANT_USER_LIMIT, windowMs: TAX_ASSISTANT_USER_WINDOW_MS, onUnavailable: 'deny' },
   /** Each question writes a support record and sends a team email. */
   cpaQuestion: { scope: 'cpa.question', limit: 10, windowMs: 60 * 60_000, onUnavailable: 'deny' },
   /** Preparer PDFs, CSVs and audit packets each read the owner's full transaction history. */
   reportExport: { scope: 'report.export', limit: 30, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   /** Bank sync, balance and recurring pulls call Plaid once per connection. */
   plaidSync: { scope: 'plaid.sync', limit: 20, windowMs: 10 * 60_000, onUnavailable: 'deny' },
-  aiAnalyzeTransaction: { scope: 'ai.analyze-transaction', limit: 60, windowMs: 60 * 60_000, onUnavailable: 'deny' },
+  aiAnalyzeTransaction: { scope: 'ai.analyze-transaction', limit: ANALYZE_TRANSACTION_USER_LIMIT, windowMs: ANALYZE_TRANSACTION_USER_WINDOW_MS, onUnavailable: 'deny' },
   /** Account-wide catch-up / "Retry analysis": each call re-reads every transaction of one account. */
   analysisCatchUp: { scope: 'analysis.catch-up', limit: 6, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   /** Completed archives; a failed attempt is refunded so recovery is not locked out. */
@@ -105,6 +122,14 @@ export const RATE_LIMITS = {
   supportAccountLookup: { scope: 'support.account', limit: 60, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   /** Each call may stamp up to 200 of the caller's transactions, so the window stays small. */
   bulkConfirm: { scope: 'transactions.bulk-confirm', limit: 20, windowMs: 10 * 60_000, onUnavailable: 'deny' },
+  /** Invalid request counter for bank review. Keyed by user id. It does not consume a usage count. */
+  reconnectInvalidRequest: { scope: 'plaid.reconnect.invalid', limit: RECONNECT_INVALID_REQUEST_LIMIT, windowMs: RECONNECT_USER_WINDOW_MS, onUnavailable: 'allow' },
+  /** Invalid request counter for transaction analysis. Keyed by user id. It does not consume a usage count. */
+  analyzeTransactionInvalidRequest: { scope: 'ai.analyze-transaction.invalid', limit: ANALYZE_TRANSACTION_INVALID_REQUEST_LIMIT, windowMs: ANALYZE_TRANSACTION_USER_WINDOW_MS, onUnavailable: 'allow' },
+  /** Invalid request counter for the account assistant. Keyed by user id. It does not consume a usage count. */
+  accountAssistantInvalidRequest: { scope: 'ai.account-assistant.invalid', limit: ACCOUNT_ASSISTANT_INVALID_REQUEST_LIMIT, windowMs: ACCOUNT_ASSISTANT_USER_WINDOW_MS, onUnavailable: 'allow' },
+  /** Invalid request counter for the tax assistant. Keyed by user id. It does not consume a usage count. */
+  taxAssistantInvalidRequest: { scope: 'ai.tax-assistant.invalid', limit: TAX_ASSISTANT_INVALID_REQUEST_LIMIT, windowMs: TAX_ASSISTANT_USER_WINDOW_MS, onUnavailable: 'allow' },
 } as const satisfies Record<string, Omit<RateLimitOptions, 'key'>>;
 
 interface WindowState { windowStart: number; count: number }
@@ -222,6 +247,18 @@ function unavailableResult(id: string, options: RateLimitOptions, now: number, c
   }
   return { allowed: false, limit: options.limit, remaining: 0, retryAfterSeconds: UNAVAILABLE_RETRY_SECONDS,
     resetAt: now + UNAVAILABLE_RETRY_SECONDS * 1000, source: 'policy', unavailable: true };
+}
+
+/**
+ * Count an invalid request on that route's counter.
+ * The key is the user id, so a different client address does not start a new window.
+ * The route usage window is left unchanged.
+ * When the limiter store is unavailable, the original rejection is returned.
+ */
+export async function withInvalidRequestLimit(uid: string, policy: Omit<RateLimitOptions, 'key'>, failure: NextResponse): Promise<NextResponse> {
+  const result = await enforceRateLimit({ ...policy, key: uid });
+  if (result.unavailable || result.allowed) return failure;
+  return rateLimitResponse(result, { error: 'Too many invalid requests. Please try again later.' });
 }
 
 /** Consume one request from the owner's window. Never throws for store failures. */

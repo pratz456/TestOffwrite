@@ -22,7 +22,7 @@ beforeEach(() => { vi.clearAllMocks(); resetRateLimitStore(); h.key = true; h.au
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe('account assistant read boundary', () => {
-  it('returns 429 for a limited request before reading input', async () => {
+  it('returns 429 when the request limit is already reached', async () => {
     const rateLimit = await import('@/lib/security/rate-limit');
     const limit = vi.spyOn(rateLimit, 'enforceRateLimit').mockResolvedValue({
       allowed: false, limit: 30, remaining: 0, retryAfterSeconds: 30, resetAt: Date.now() + 30_000, source: 'firestore', unavailable: false,
@@ -30,7 +30,7 @@ describe('account assistant read boundary', () => {
     const input = req();
     const response = await POST(input);
     expect(response.status).toBe(429);
-    expect(input.bodyUsed).toBe(false);
+    expect(input.bodyUsed).toBe(true);
     expect(h.create).not.toHaveBeenCalled();
   });
   it('returns 400 for a history of 13 entries', async () => {

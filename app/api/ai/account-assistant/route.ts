@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getOpenAIClientOrThrow, getOpenAIModel, hasOpenAIAPIKey } from '@/lib/openai/client';
-import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { ACCOUNT_ASSISTANT_USER_LIMIT, ACCOUNT_ASSISTANT_USER_WINDOW_MS, enforceRateLimit, RATE_LIMITS, rateLimitResponse, withInvalidRequestLimit } from '@/lib/security/rate-limit';
 import { assistantRequestSchema, conversationHistoryTooLong, isSupportedImage, readAssistantBody } from '@/lib/tax-assistant/contract';
 import { accountIntentSchema, accountRouterMessages, accountResultSchema, type AccountResult } from '@/lib/tax-assistant/account-contract';
 import { extractTaxPosition, taxPositionResult, transactionAccountResult } from '@/lib/tax-assistant/account-tools';
@@ -21,14 +21,27 @@ export async function POST(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
   if (error || !user) return json({ error: 'Unauthorized' }, 401);
   if (!hasOpenAIAPIKey()) return json({ error: 'The assistant is not configured. Your draft is ready to retry.' }, 503);
-  const limit = await enforceRateLimit({ ...RATE_LIMITS.aiTaxAssistant, key: `account:${user.uid}` });
-  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many assistant requests. Please retry in a few minutes.' });
+  // Read the body and check its fields before the usage counter. Invalid requests use this route's invalid request counter.
   let raw: unknown;
   try { raw = await readAssistantBody(request); }
-  catch (err) { return json({ error: err instanceof RangeError ? 'Request is too large.' : 'Invalid request body.' }, err instanceof RangeError ? 413 : 400); }
-  if (conversationHistoryTooLong(raw)) return json({ error: 'Use a valid question, tax year, and photo under 2 MB.' }, 400);
+  catch (err) {
+    const tooLarge = err instanceof RangeError;
+    const failure = json({ error: tooLarge ? 'Request is too large.' : 'Invalid request body.' }, tooLarge ? 413 : 400);
+    return withInvalidRequestLimit(user.uid, RATE_LIMITS.accountAssistantInvalidRequest, failure);
+  }
+  const fieldError = () => json({ error: 'Use a valid question, tax year, and photo under 2 MB.' }, 400);
+  if (conversationHistoryTooLong(raw)) return withInvalidRequestLimit(user.uid, RATE_LIMITS.accountAssistantInvalidRequest, fieldError());
   const parsed = assistantRequestSchema.safeParse(raw);
-  if (!parsed.success || parsed.data.imageDataUrl && !isSupportedImage(parsed.data.imageDataUrl)) return json({ error: 'Use a valid question, tax year, and photo under 2 MB.' }, 400);
+  if (!parsed.success || parsed.data.imageDataUrl && !isSupportedImage(parsed.data.imageDataUrl)) {
+    return withInvalidRequestLimit(user.uid, RATE_LIMITS.accountAssistantInvalidRequest, fieldError());
+  }
+  const limit = await enforceRateLimit({
+    ...RATE_LIMITS.aiTaxAssistant,
+    limit: ACCOUNT_ASSISTANT_USER_LIMIT,
+    windowMs: ACCOUNT_ASSISTANT_USER_WINDOW_MS,
+    key: `account:${user.uid}`,
+  });
+  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many assistant requests. Please retry in a few minutes.' });
   const input = parsed.data;
   const headers = new Headers(request.headers);
   headers.delete('content-length');
