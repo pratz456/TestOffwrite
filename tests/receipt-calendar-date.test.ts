@@ -113,7 +113,8 @@ describe('OCR receipt dates must be real calendar days', () => {
       const [juneAbbreviation] = await receiptProcessor.processReceiptBatch([Buffer.from('june-est')], 'est');
       expect(regionUploadTimeZone('est')).toBeUndefined();
       expect(juneAbbreviation.data?.date).toBe('');
-      for (const zone of ['PST', 'EST5EDT', 'CST6CDT', 'Etc/GMT+5', 'Etc/GMT-3', 'Etc/GMT+1', 'UTC+0', 'GMT+5', 'Z']) {
+      // Etc/GMT+N and Etc/GMT-N are refused on purpose. Their signs are reversed (Etc/GMT+1 is UTC minus 1) and browsers rarely report them. A refused zone stays unset, so the row goes to the Pago Pago and St Thomas check; the worst case is a flag, never a wrong day.
+      for (const zone of ['PST', 'EST5EDT', 'CST6CDT', 'Etc/GMT+5', 'Etc/GMT-3', 'Etc/GMT+1', 'Etc/GMT-5', 'UTC+0', 'GMT+5', 'Z']) {
         const [rejected] = await receiptProcessor.processReceiptBatch([Buffer.from('june')], zone);
         expect(regionUploadTimeZone(zone)).toBeUndefined();
         expect(rejected.data?.date).toBe('');
@@ -141,9 +142,7 @@ describe('OCR receipt dates must be real calendar days', () => {
         const [stored] = await receiptProcessor.processReceiptBatch([Buffer.from('alias')], zone);
         expect(stored.data?.date).toBe('2027-01-01');
       }
-      // GMT+5 cannot fail a revert of region-time-zone.ts to 1f147a89. Intl throws
-      // "Invalid time zone specified: GMT+5" before the alias check, and that revision
-      // already returns undefined when Intl throws. The zone stays unset on both.
+      // GMT+5 stays unset. Intl rejects that name before the alias list is checked, so the batch date stays blank.
       for (const zone of REJECTED_ZONES) {
         expect(regionUploadTimeZone(zone)).toBeUndefined();
         const [rejected] = await receiptProcessor.processReceiptBatch([Buffer.from('rejected')], zone);

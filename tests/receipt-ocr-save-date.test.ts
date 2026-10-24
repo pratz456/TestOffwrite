@@ -138,7 +138,7 @@ describe('OCR receipt save requires a real calendar day', () => {
     }));
   });
 
-  it.each(['Etc/UTC', 'Etc/GMT', 'GMT', 'utc'])('stores %s as UTC on an attached receipt', async zone => {
+  it.each(['Etc/UTC', 'Etc/GMT', 'GMT', 'utc', 'GMT+0', 'GMT-0', 'Etc/GMT-0', 'UCT', 'Etc/UCT', 'Greenwich', 'Etc/Greenwich'])('stores %s as UTC on an attached receipt', async zone => {
     mocks.getTransaction.mockResolvedValue({ data: {
       trans_id: 'owned-bank-transaction', notes: 'Existing note', merchant_name: 'Bank merchant', amount: 10, date: '2026-01-01',
     }, error: null });
@@ -150,9 +150,7 @@ describe('OCR receipt save requires a real calendar day', () => {
     expect(updates.uploadTimeZone).toBe('UTC');
   });
 
-  // GMT+5 cannot fail a revert of region-time-zone.ts to 1f147a89. Intl throws
-  // "Invalid time zone specified: GMT+5" before the alias check, and that revision
-  // already returns undefined when Intl throws. The upload stays 200 and the zone stays unset.
+  // GMT+5 stays unset. Intl rejects that name before the alias list is checked. The upload still returns 200.
   it.each(['est', 'EST', 'pst', 'PST', 'EST5EDT', 'CST6CDT', 'GMT+5', 'Etc/GMT+1', 'UTC+0', 'Etc/GMT+5', 'Etc/GMT-3', '+05:00', 'Z'])('rejects %s and still returns 200', async zone => {
     ocrDate('2026-09-15');
     const response = await POST(request(zone));
