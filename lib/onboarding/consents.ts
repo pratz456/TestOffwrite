@@ -4,7 +4,7 @@
  * stored on the profile document and written only through
  * POST /api/database/profiles, which validates it with parseConsentRecord.
  */
-import { DOCUMENT_IMPORT_CONSENT_VERSION } from './document-import-consent';
+import { acceptConsentTimeZone, DOCUMENT_IMPORT_CONSENT_VERSION } from './document-import-consent';
 
 export const CONSENT_TERMS_VERSION = '2026-09-18';
 
@@ -31,6 +31,8 @@ export interface DocumentImportConsentSignature {
   version: string;
   signed_name: string;
   signed_at: string;
+  /** IANA zone of the calendar day the signer saw. Absent on older signatures. */
+  signed_time_zone?: string;
 }
 
 export interface ConsentRecord extends ConsentChoices {
@@ -70,12 +72,22 @@ const MAX_SIGNED_NAME_LENGTH = 200;
 function parseDocumentImportSignature(input: unknown): { signature: DocumentImportConsentSignature | null; stale: boolean } {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { signature: null, stale: false };
   const value = input as Record<string, unknown>;
-  if (Object.keys(value).some(key => !['version', 'signed_name', 'signed_at'].includes(key))) return { signature: null, stale: false };
+  if (Object.keys(value).some(key => !['version', 'signed_name', 'signed_at', 'signed_time_zone'].includes(key))) return { signature: null, stale: false };
   const name = typeof value.signed_name === 'string' ? value.signed_name.trim() : '';
   if (!name || name.length > MAX_SIGNED_NAME_LENGTH || typeof value.version !== 'string') return { signature: null, stale: false };
   if (typeof value.signed_at !== 'string' || value.signed_at.length > 40 || Number.isNaN(Date.parse(value.signed_at))) return { signature: null, stale: false };
+  if ('signed_time_zone' in value && typeof value.signed_time_zone !== 'string') return { signature: null, stale: false };
   if (value.version !== DOCUMENT_IMPORT_CONSENT_VERSION) return { signature: null, stale: true };
-  return { signature: { version: value.version, signed_name: name, signed_at: new Date(value.signed_at).toISOString() }, stale: false };
+  const signedTimeZone = acceptConsentTimeZone(typeof value.signed_time_zone === 'string' ? value.signed_time_zone : null);
+  return {
+    signature: {
+      version: value.version,
+      signed_name: name,
+      signed_at: new Date(value.signed_at).toISOString(),
+      ...(signedTimeZone ? { signed_time_zone: signedTimeZone } : {}),
+    },
+    stale: false,
+  };
 }
 
 /**
@@ -134,14 +146,20 @@ export function hasDocumentImportConsent(record: unknown): boolean {
 }
 
 /** Adds the typed signature to the account's existing acknowledgments; null when the name is blank or there is no current record. */
-export function signDocumentImportConsent(record: unknown, signedName: string, now = new Date()): ConsentRecord | null {
+export function signDocumentImportConsent(record: unknown, signedName: string, now = new Date(), timeZone?: string | null): ConsentRecord | null {
   const current = parseConsentRecord(record);
   const name = signedName.trim();
   if (!current || !name || name.length > MAX_SIGNED_NAME_LENGTH) return null;
+  const signedTimeZone = acceptConsentTimeZone(timeZone);
   return {
     ...current,
     document_import: true,
-    document_import_signature: { version: DOCUMENT_IMPORT_CONSENT_VERSION, signed_name: name, signed_at: now.toISOString() },
+    document_import_signature: {
+      version: DOCUMENT_IMPORT_CONSENT_VERSION,
+      signed_name: name,
+      signed_at: now.toISOString(),
+      ...(signedTimeZone ? { signed_time_zone: signedTimeZone } : {}),
+    },
   };
 }
 

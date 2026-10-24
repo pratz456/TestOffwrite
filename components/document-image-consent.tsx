@@ -8,6 +8,7 @@ import { hasDocumentImportConsent, parseConsentRecord, signDocumentImportConsent
 import { CONSENT_SAVE_ERROR, persistConsentRecord } from '@/lib/onboarding/consents-client';
 import {
   DOCUMENT_IMPORT_CONSENT_DATE_BLANK, DOCUMENT_IMPORT_CONSENT_NAME_BLANK, DOCUMENT_IMPORT_CONSENT_TEXT,
+  formatConsentCalendarDate, resolveConsentTimeZone,
 } from '@/lib/onboarding/document-import-consent';
 
 export type DocumentImageFallbackReason = 'ocr_unavailable' | 'ocr_low_confidence' | 'model_requested_image';
@@ -20,6 +21,8 @@ interface DocumentImageConsentProps {
   onCancel: () => void;
   persist?: typeof persistConsentRecord;
   today?: Date;
+  /** IANA zone for the signer's calendar day. Defaults to the browser zone. */
+  timeZone?: string;
 }
 
 const REASONS: Record<DocumentImageFallbackReason, string> = {
@@ -28,21 +31,20 @@ const REASONS: Record<DocumentImageFallbackReason, string> = {
   model_requested_image: 'WriteOff read this document on its own server and removed identification numbers from the text, but the amounts could not be extracted from that text.',
 };
 
-const formatDate = (date: Date) => date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-
 /**
  * Own screen for the IRC §7216 consent (Rev. Proc. 2013-14 format): the checkbox
  * label is the consent text verbatim, the typed full name is the signature and is
  * never pre-filled, the date is shown, and a printable copy is one click away.
  */
-export function DocumentImageConsent({ record, reason, onAuthorized, onCancel, persist = persistConsentRecord, today = new Date() }: DocumentImageConsentProps) {
+export function DocumentImageConsent({ record, reason, onAuthorized, onCancel, persist = persistConsentRecord, today = new Date(), timeZone }: DocumentImageConsentProps) {
   const current = parseConsentRecord(record);
   const onFile = hasDocumentImportConsent(record) ? current?.document_import_signature ?? null : null;
   const [agreed, setAgreed] = useState(false);
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const date = formatDate(today);
+  const zone = resolveConsentTimeZone(timeZone);
+  const date = formatConsentCalendarDate(today, zone);
   const typedName = name.trim();
   // The label stays the drafted wording; the two blanks are completed by the person, not pre-filled.
   const signerName = onFile?.signed_name || typedName || DOCUMENT_IMPORT_CONSENT_NAME_BLANK;
@@ -54,7 +56,7 @@ export function DocumentImageConsent({ record, reason, onAuthorized, onCancel, p
   const handleContinue = async () => {
     if (!canContinue) return;
     if (onFile && current) { onAuthorized(current); return; }
-    const signed = signDocumentImportConsent(record, typedName, today);
+    const signed = signDocumentImportConsent(record, typedName, today, zone);
     if (!signed) { setError('Your account acknowledgments must be current before this consent can be signed. Reload the page and try again.'); return; }
     setSaving(true); setError(null);
     try {
@@ -89,7 +91,7 @@ export function DocumentImageConsent({ record, reason, onAuthorized, onCancel, p
 
       {onFile ? (
         <p className="text-sm text-muted-foreground">
-          Signed by {onFile.signed_name} on {formatDate(new Date(onFile.signed_at))}. You can withdraw this consent at any time in Settings &gt; Data &amp; Privacy.
+          Signed by {onFile.signed_name} on {formatConsentCalendarDate(new Date(onFile.signed_at), onFile.signed_time_zone ?? zone)}. You can withdraw this consent at any time in Settings &gt; Data &amp; Privacy.
         </p>
       ) : (
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end print:hidden">

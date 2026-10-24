@@ -66,3 +66,40 @@ telephone at 1-800-366-4484, or by email at complaints@tigta.treas.gov.`;
 
 /** Error code returned by the import route when the image fallback is needed but not authorized. */
 export const DOCUMENT_IMAGE_CONSENT_REQUIRED = 'DOCUMENT_IMAGE_CONSENT_REQUIRED';
+
+/** The zone the page is actually running in. This is the signer's zone in a browser. */
+export function browserConsentTimeZone(): string | undefined {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return typeof zone === 'string' && zone.length > 0 ? zone : undefined;
+}
+
+/**
+ * A usable IANA zone, or null. Missing names, names Intl rejects, and legacy
+ * SystemV/ names are unusable. Callers fall back to the browser zone themselves.
+ */
+export function acceptConsentTimeZone(timeZone?: string | null): string | null {
+  const candidate = typeof timeZone === 'string' ? timeZone.trim() : '';
+  if (!candidate || candidate.startsWith('SystemV/')) return null;
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: candidate });
+    return candidate;
+  } catch {
+    return null;
+  }
+}
+
+/** Explicit IANA zone, or the browser zone when that name is missing or unusable. */
+export function resolveConsentTimeZone(timeZone?: string | null): string | undefined {
+  return acceptConsentTimeZone(timeZone) ?? browserConsentTimeZone();
+}
+
+/** Calendar day of a consent instant in the signer's zone. */
+export function formatConsentCalendarDate(instant: Date, timeZone?: string | null): string {
+  const zone = resolveConsentTimeZone(timeZone);
+  return instant.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    ...(zone ? { timeZone: zone } : {}),
+  });
+}

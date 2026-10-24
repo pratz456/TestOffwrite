@@ -13,18 +13,25 @@ import { DOCUMENT_IMPORT_CONSENT_DATE_BLANK, DOCUMENT_IMPORT_CONSENT_TEXT, DOCUM
 const record = { version: CONSENT_TERMS_VERSION, source: 'sign-up', accepted_at: '2026-09-17T12:00:00.000Z', terms: true, bank_data: true, ai_review: true, communications: false, document_import: false };
 const signed = { ...record, document_import: true, document_import_signature: { version: DOCUMENT_IMPORT_CONSENT_VERSION, signed_name: 'Synthetic Signer', signed_at: '2026-09-18T09:00:00.000Z' } };
 const today = new Date('2026-09-19T15:00:00.000Z');
+const signerZone = 'America/Los_Angeles';
 const unescape = (html: string) => html.replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 const labelText = (html: string) => unescape(html.match(/<label for="document-image-consent"[^>]*>([\s\S]*?)<\/label>/)![1]);
+const consentHtml = (iso: string, timeZone: string, signedAt?: string, signedTimeZone?: string) => {
+  const row = signedAt
+    ? { ...record, document_import: true, document_import_signature: { version: DOCUMENT_IMPORT_CONSENT_VERSION, signed_name: 'Synthetic Signer', signed_at: signedAt, ...(signedTimeZone ? { signed_time_zone: signedTimeZone } : {}) } }
+    : record;
+  return renderToStaticMarkup(<DocumentImageConsent record={row} reason="ocr_low_confidence" onAuthorized={() => {}} onCancel={() => {}} today={new Date(iso)} timeZone={timeZone} />);
+};
 
 describe('§7216 document-image consent screen', () => {
   it('uses the drafted consent text verbatim as the checkbox label, with only the date completed', () => {
-    const html = renderToStaticMarkup(<DocumentImageConsent record={record} reason="ocr_low_confidence" onAuthorized={() => {}} onCancel={() => {}} today={today} />);
+    const html = renderToStaticMarkup(<DocumentImageConsent record={record} reason="ocr_low_confidence" onAuthorized={() => {}} onCancel={() => {}} today={today} timeZone={signerZone} />);
     expect(labelText(html)).toBe(DOCUMENT_IMPORT_CONSENT_TEXT.replace(DOCUMENT_IMPORT_CONSENT_DATE_BLANK, 'September 19, 2026'));
     expect(html).toContain('[type your full name]');
     expect(html).toContain('Date: September 19, 2026');
   });
   it('starts unchecked and unsigned, with the signature field empty and the send button disabled', () => {
-    const html = renderToStaticMarkup(<DocumentImageConsent record={record} reason="model_requested_image" onAuthorized={() => {}} onCancel={() => {}} today={today} />);
+    const html = renderToStaticMarkup(<DocumentImageConsent record={record} reason="model_requested_image" onAuthorized={() => {}} onCancel={() => {}} today={today} timeZone={signerZone} />);
     expect(html).not.toMatch(/checked=""/);
     expect(html).toMatch(/<input[^>]*id="document-image-consent-name"[^>]*value=""/);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>[^<]*Sign and send the image/);
@@ -33,8 +40,26 @@ describe('§7216 document-image consent screen', () => {
     expect(html).toContain('Federal law (IRC §7216) requires your signed consent first.');
     expect(html).not.toMatch(/maximi[sz]e|guarantee|file your taxes/i);
   });
+  it('pins the signer calendar day for an explicit zone, including both sides of local midnight', () => {
+    const losAngeles = consentHtml('2026-09-19T15:00:00.000Z', 'America/Los_Angeles');
+    expect(labelText(losAngeles)).toBe(DOCUMENT_IMPORT_CONSENT_TEXT.replace(DOCUMENT_IMPORT_CONSENT_DATE_BLANK, 'September 19, 2026'));
+    expect(losAngeles).toContain('Date: September 19, 2026');
+
+    const tokyo = consentHtml('2026-09-19T15:00:00.000Z', 'Asia/Tokyo');
+    expect(labelText(tokyo)).toBe(DOCUMENT_IMPORT_CONSENT_TEXT.replace(DOCUMENT_IMPORT_CONSENT_DATE_BLANK, 'September 20, 2026'));
+    expect(tokyo).toContain('Date: September 20, 2026');
+
+    const evening = consentHtml('2026-09-20T01:00:00.000Z', 'America/Los_Angeles');
+    expect(evening).toContain('Date: September 19, 2026');
+    expect(evening).not.toContain('September 20, 2026');
+
+    expect(consentHtml('2026-09-19T09:59:00.000Z', 'Pacific/Kiritimati')).toContain('Date: September 19, 2026');
+    expect(consentHtml('2026-09-19T10:01:00.000Z', 'Pacific/Kiritimati')).toContain('Date: September 20, 2026');
+    expect(consentHtml('2026-09-19T11:59:00.000Z', 'Etc/GMT+12')).toContain('Date: September 18, 2026');
+    expect(consentHtml('2026-09-19T12:01:00.000Z', 'Etc/GMT+12')).toContain('Date: September 19, 2026');
+  });
   it('shows the signature on file instead of a new signature field when the consent is already signed', () => {
-    const html = renderToStaticMarkup(<DocumentImageConsent record={signed} reason="ocr_unavailable" onAuthorized={() => {}} onCancel={() => {}} today={today} />);
+    const html = renderToStaticMarkup(<DocumentImageConsent record={signed} reason="ocr_unavailable" onAuthorized={() => {}} onCancel={() => {}} today={today} timeZone={signerZone} />);
     expect(html).toContain('Signed by Synthetic Signer on September 18, 2026');
     expect(html).not.toContain('id="document-image-consent-name"');
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Send the image/);
@@ -54,5 +79,20 @@ describe('document import copy and settings withdrawal block', () => {
     const html = renderToStaticMarkup(<DocumentImageConsentSettings userId="owner" />);
     expect(html).toContain('Document image consent (IRC §7216)');
     expect(html).not.toMatch(/maximi[sz]e|guarantee|file your taxes/i);
+  });
+  it('uses a stored signing zone for the settings date', () => {
+    const stored = {
+      ...record,
+      document_import: true,
+      document_import_signature: {
+        version: DOCUMENT_IMPORT_CONSENT_VERSION,
+        signed_name: 'Synthetic Signer',
+        signed_at: '2026-09-19T15:00:00.000Z',
+        signed_time_zone: 'Asia/Tokyo',
+      },
+    };
+    const html = renderToStaticMarkup(<DocumentImageConsentSettings userId="owner" record={stored} timeZone="America/Los_Angeles" />);
+    expect(html).toContain('Signed by Synthetic Signer on September 20, 2026');
+    expect(html).not.toContain('September 19, 2026');
   });
 });
