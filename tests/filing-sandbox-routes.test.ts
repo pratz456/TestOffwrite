@@ -219,8 +219,8 @@ describe('filing route gates and provider handoff', () => {
     const posted = await POST(postRequest());
     expect(posted.status).toBe(200);
     const body = await posted.json();
-    expect(body.heldOutDuplicates.count).toBe(0);
-    expect(body.heldOutDuplicates.message).not.toContain('$900.00');
+    expect(body.heldOutDuplicates ?? null).toMatchObject({ count: 0 });
+    expect(body.heldOutDuplicates?.message ?? '').not.toContain('$900.00');
     expect(body).not.toHaveProperty('code');
     expect(state.initialize).toHaveBeenCalledWith(expect.objectContaining({ environment: 'sandbox', taxYear: 2025 }), { userIdentifier: expectedIdentifier, email: `${uid}@example.com`, metadata });
   });

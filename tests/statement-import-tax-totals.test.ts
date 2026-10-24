@@ -260,7 +260,7 @@ describe('statement import rows before review', () => {
     expect(scheduleCTotal).toBe(500);
     expect(packet.summary.recordedAmount).toBe(scheduleCTotal);
     expect(packet.summary.deductionCount).toBe(1);
-    expect(packet.summary.heldOutDuplicates.count).toBe(0);
+    expect(packet.summary.heldOutDuplicates?.count ?? null).toBe(0);
     const packetCsv = auditSupportPacketCSV(packet);
     expect(packetCsv).toContain('500');
     expect(packetCsv).not.toContain('PLACEHOLDER');
@@ -276,7 +276,7 @@ describe('statement import rows before review', () => {
     const inflow = summary.groups.get('USD')!.reduce((sum, row) => sum + row.inflow, 0) / 100;
     expect(gross).toBe(500);
     expect(inflow).toBe(gross);
-    expect(summary.heldOutDuplicates.count).toBe(0);
+    expect(summary.heldOutDuplicates?.count ?? null).toBe(0);
     const reportSpy = vi.spyOn(PDFPage.prototype, 'drawText');
     await generatePreparerReport([keptIncome], 2026);
     expect(reportSpy.mock.calls.map(call => String(call[0])).join('\n')).not.toContain('Held out');
