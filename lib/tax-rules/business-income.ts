@@ -28,8 +28,9 @@ export function listIncomeSourceCandidates(taxYear: number, transactions: Readon
   const txById = new Set<string>();
   let unclassifiedCreditCount = 0;
   for (const tx of transactions) {
-    // Pending, bank-removed and superseded duplicate records are never income candidates.
-    if (!isCountableRecord(tx) || typeof tx.date !== 'string' || Number(tx.date.slice(0, 4)) !== taxYear) continue;
+    // Pending, bank-removed, superseded, and flagged possible duplicates are never income candidates.
+    // Unflagged credits are unchanged: an income or revenue category still counts.
+    if (!isCountableRecord(tx) || tx.possibleDuplicate === true || typeof tx.date !== 'string' || Number(tx.date.slice(0, 4)) !== taxYear) continue;
     const category = typeof tx.category === 'string' ? tx.category.toLowerCase() : '';
     // Both transaction readers derive `type` from the amount sign, including
     // manual-account refunds. Require a recorded income category for every

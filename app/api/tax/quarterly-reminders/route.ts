@@ -92,6 +92,7 @@ export async function GET(request: NextRequest) {
       taxYear, filingStatus: annual.filingStatus,
       estimateBasis: 'saved_annual_records',
       grossReceipts: annual.income.grossReceipts, w2Wages: annual.w2.wages,
+      heldOutDuplicates: annual.heldOutDuplicates,
       netProfit: annual.income.scheduleCNetProfit, seCalc: annual.seCalc,
       agi: annual.form1040.agi, taxableIncome: annual.form1040.taxableIncome,
       incomeTax: annual.form1040.incomeTax, totalEstimatedTax: annual.form1040.totalTax,

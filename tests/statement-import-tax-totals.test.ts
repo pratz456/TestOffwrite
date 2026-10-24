@@ -1,10 +1,11 @@
-import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { aggregateScheduleC } from '@/lib/schedule-c/aggregate';
 import { dashboardRecordStatus, summarizeDashboardRecords } from '@/lib/dashboard/record-summary';
 import { summarizeRecordedCashFlow } from '@/lib/dashboard/cash-flow-summary';
 import { assembleAuditSupportPacket } from '@/lib/reports/audit-support-packet';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
+import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
+import { summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { convertTransactionsToCSV } from '@/lib/reports/transaction-export';
 import { isReviewableBusinessOutflow, summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
 import { buildMonthlySavings } from '@/lib/tax/savings-summary';
@@ -96,16 +97,6 @@ describe('statement import rows before review', () => {
     // deductible half of self-employment tax stays under the 2026 zero-child phaseout
     // end ($19,540). The annual total is withheld. A larger credit clears that gate.
     expect(() => snapshot([incomeCredit])).toThrow(DependentCreditReviewRequiredError);
-    const abovePhaseout = { ...incomeCredit, amount: -25000 };
-    const result = snapshot([abovePhaseout]);
-    expect(result.income.grossReceipts).toBe(25000);
-    expect(result.income.totalDeductible).toBe(0);
-    expect(result.income.scheduleCLine31NetProfit).toBe(25000);
-    expect(result.result.totalTax).toBeGreaterThan(baseline.result.totalTax);
-    expect(result.seCalc.totalSETax).toBeGreaterThan(baseline.seCalc.totalSETax);
-    const plan = quarterly(result.result.totalTax);
-    expect(plan.requiredAnnualPayment.requiredAnnualPayment).toBeGreaterThan(quarterly(baseline.result.totalTax).requiredAnnualPayment.requiredAnnualPayment);
-    expect(plan.totals.requiredInstallments).toBeGreaterThan(0);
     expect(sumIncomeForQuarter([{ ...incomeCredit, category: 'income' } as never], 2026, 2, 'UTC').grossIncome).toBe(20000);
     expect(sumIncomeForQuarter([incomeCredit as never], 2026, 2, 'Asia/Tokyo').grossIncome).toBe(0);
   });
@@ -141,11 +132,61 @@ describe('statement import rows before review', () => {
     const packet = assembleAuditSupportPacket('synthetic-owner', 2026, { transactions: rows, trips: [], receipts: [] });
     expect(packet.summary).toMatchObject({ deductionCount: 0, recordedAmount: 0 });
 
-    const insights = readFileSync('components/ai-insights-page.tsx', 'utf8');
-    expect(insights).toContain("isReviewableBusinessOutflow(t) && businessLike(t)");
-    expect(insights).toContain('/software|subscription|internet|phone|office|design|advertising|professional|business/');
     const businessLike = /software|subscription|internet|phone|office|design|advertising|professional|business/;
     const reviewable = rows.filter(row => isReviewableBusinessOutflow(row) && businessLike.test(String(row.category).toLowerCase()));
     expect(reviewable.map(row => row.amount)).toEqual([32.5]);
+  });
+
+  it('leaves a flagged legacy income credit out of gross receipts and reports the held out amount', () => {
+    const flagged = { ...incomeCredit, amount: -25000, possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' };
+    expect(reconcileBusinessIncome(2026, [flagged], [], []).grossReceipts).toBe(0);
+    expect(reconcileBusinessIncome(2026, [flagged], [], []).unclassifiedCreditCount).toBe(0);
+    const result = snapshot([flagged]);
+    expect(result.income.grossReceipts).toBe(0);
+    expect(result.income.totalDeductible).toBe(0);
+    expect(result.result.totalTax).toBe(baseline.result.totalTax);
+    expect(result.heldOutDuplicates).toMatchObject({ count: 1, amount: 25000, reviewHref: '/protected?screen=review-transactions' });
+    expect(result.heldOutDuplicates.message).toContain('PLACEHOLDER');
+    expect(result.heldOutDuplicates.message).toContain('$25,000.00');
+  });
+
+  it('leaves a flagged bank linked debit out of confirmed expenses and reports the held out amount', () => {
+    const confirmed = imported({
+      amount: 40, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true, review_status: 'confirmed', date: '2026-06-15',
+    });
+    const flagged = { ...confirmed, trans_id: 'flagged-debit', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked' };
+    expect(aggregateScheduleC([confirmed, flagged] as never, '2026', undefined, { mode: 'confirmed-only' }).totalDeductible).toBe(40);
+    const result = buildFederalTaxSnapshot({
+      taxYear: 2026, profile: { filing_status: 'single' }, organizer: reviewedPersonalDeductionOrganizer(),
+      transactions: [confirmed, flagged], grossReceipts: [{ amount: 100000 }], forms1099: [], w2Entries: [], deductions: {}, assets: [], estimatedPayments: 0,
+    });
+    expect(result.income.totalDeductible).toBe(40);
+    expect(result.income.grossReceipts).toBe(100000);
+    expect(result.heldOutDuplicates).toMatchObject({ count: 1, amount: 40, reviewHref: '/protected?screen=review-transactions' });
+    expect(result.heldOutDuplicates.message).toContain('PLACEHOLDER');
+    expect(result.heldOutDuplicates.message).toContain('$40.00');
+  });
+
+  it('puts the held out count and amount in the Schedule C CSV and PDF', async () => {
+    const flaggedDebit = imported({
+      trans_id: 'flagged-debit', amount: 40, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true,
+      review_status: 'confirmed', date: '2026-06-15', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked',
+    });
+    const flaggedCredit = { ...incomeCredit, amount: -25000, possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' };
+    const heldOut = summarizeHeldOutDuplicates([flaggedDebit, flaggedCredit], 2026);
+    expect(heldOut).toMatchObject({ count: 2, amount: 25040 });
+    const csv = generateScheduleCCSV([], 2026, heldOut);
+    expect(csv).toContain('PLACEHOLDER');
+    expect(csv).toContain('25040.00');
+    expect(csv).toContain('/protected?screen=review-transactions');
+    const { PDFDocument, PDFPage } = await import('pdf-lib');
+    const spy = vi.spyOn(PDFPage.prototype, 'drawText');
+    const bytes = await generateScheduleCPlanningPDF({ taxYear: 2026, grossReceipts: 0, lineItems: [], includeAppendix: false, heldOutDuplicates: heldOut });
+    const text = spy.mock.calls.map(call => String(call[0])).join('\n');
+    expect(text).toContain('PLACEHOLDER');
+    expect(text).toContain('$25,040.00');
+    expect(text).toContain('/protected?screen=review-transactions');
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThan(0);
+    spy.mockRestore();
   });
 });

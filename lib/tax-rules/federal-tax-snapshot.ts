@@ -5,6 +5,7 @@ import { calcScheduleSE } from '@/lib/reports/calcSE';
 import { compute1040 } from './compute-1040';
 import { computeScheduleCProfit } from './schedule-c-profit';
 import { reconcileBusinessIncome, type IncomeRecord } from './business-income';
+import { summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { summarizeW2Income } from './w2-income';
 import { normalizeFilingStatus } from './filing-status';
 import { assertWageOwnershipScope, TaxCalculationScopeReviewRequiredError } from './calculation-scope';
@@ -172,5 +173,6 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     w2: { wages: w2.wages, withheld: w2FederalWithheld, count: input.w2Entries.length, stateWithheld: w2.stateWithheld },
     deductions: { healthInsurancePremiums, sepIraContribution, solo401kContribution, simpleIraContribution, hsaContribution, studentLoanInterest },
     payments: { estimatedPayments: input.estimatedPayments, w2FederalWithheld, socialSecurityFederalWithheld, totalFederalWithheld: w2FederalWithheld + socialSecurityFederalWithheld },
+    heldOutDuplicates: summarizeHeldOutDuplicates(transactions, taxYear),
   };
 }

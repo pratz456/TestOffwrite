@@ -177,9 +177,19 @@ function legacyMatchKey(date: string, cents: number, direction: string, descript
   return JSON.stringify([date, cents, direction, normalizedDescription(description)]);
 }
 
-function importDocumentId(uid: string, row: ImportedTransaction, occurrence: number): string {
+type ImportNamespace = 'statement' | 'receipt';
+
+/** Card last digits plus institution, when the model detected either. Never the shared import account id. */
+function detectedAccountScope(bankName: string | null | undefined, accountLast4: string | null | undefined): string | null {
+  const last4 = typeof accountLast4 === 'string' ? accountLast4.trim() : '';
+  const bank = typeof bankName === 'string' ? bankName.trim() : '';
+  if (!last4 && !bank) return null;
+  return `account:${last4}:${normalizedDescription(bank)}`;
+}
+
+function importDocumentId(uid: string, namespace: ImportNamespace, scope: string, row: ImportedTransaction, occurrence: number): string {
   return createHash('sha256').update(JSON.stringify([
-    uid, IMPORT_ACCOUNT_ID, row.date, amountCents(storedAmount(row)), row.transaction_type,
+    uid, namespace, scope, row.date, amountCents(storedAmount(row)), row.transaction_type,
     normalizedDescription(row.description), occurrence,
   ])).digest('hex');
 }
@@ -226,6 +236,18 @@ async function bankOverlapKeys(uid: string): Promise<Set<string>> {
   return keys;
 }
 
+function recordedMatchKey(data: Record<string, unknown>): string | null {
+  const date = textValue(data.date).slice(0, 10);
+  const direction = data.transaction_type === 'debit' || data.transaction_type === 'credit' ? data.transaction_type : '';
+  const description = textValue(data.merchant_name) || textValue(data.name) || textValue(data.description);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !direction || !description.trim() || typeof data.amount !== 'number' || !Number.isFinite(data.amount)) return null;
+  return legacyMatchKey(date, amountCents(data.amount), direction, description);
+}
+
+function isReceiptRecord(data: Record<string, unknown>): boolean {
+  return data.source === 'receipt' || data.importedFromReceipt === true;
+}
+
 /** Older statement imports used a random document id and have no import_row_id. */
 async function legacyImportKeys(account: DocumentReference): Promise<Set<string>> {
   const snapshot = await account.collection('transactions')
@@ -234,11 +256,22 @@ async function legacyImportKeys(account: DocumentReference): Promise<Set<string>
   for (const transaction of snapshot.docs) {
     const data = transaction.data() ?? {};
     if (typeof data.import_row_id === 'string' && data.import_row_id.length > 0) continue;
-    const date = textValue(data.date).slice(0, 10);
-    const direction = data.transaction_type === 'debit' || data.transaction_type === 'credit' ? data.transaction_type : '';
-    const description = textValue(data.merchant_name) || textValue(data.name) || textValue(data.description);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !direction || !description.trim() || typeof data.amount !== 'number' || !Number.isFinite(data.amount)) continue;
-    keys.add(legacyMatchKey(date, amountCents(data.amount), direction, description));
+    const key = recordedMatchKey(data);
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+/** Existing statement rows, stable or legacy, so a receipt can be flagged instead of dropped. */
+async function statementImportKeys(account: DocumentReference): Promise<Set<string>> {
+  const snapshot = await account.collection('transactions')
+    .select('date', 'amount', 'transaction_type', 'merchant_name', 'name', 'description', 'source', 'importedFromReceipt').get();
+  const keys = new Set<string>();
+  for (const transaction of snapshot.docs) {
+    const data = transaction.data() ?? {};
+    if (isReceiptRecord(data)) continue;
+    const key = recordedMatchKey(data);
+    if (key) keys.add(key);
   }
   return keys;
 }
@@ -266,7 +299,7 @@ async function createDocuments(items: PlannedImport[]): Promise<PlannedImport[]>
 }
 
 /** Validate the entire extraction before creating the account or any transaction. */
-async function saveTransactions(uid: string, rows: ImportedTransaction[], metadata: Record<string, unknown>): Promise<ImportSaveCounts> {
+async function saveTransactions(uid: string, rows: ImportedTransaction[], metadata: Record<string, unknown>, identity: { namespace: ImportNamespace; scope: string }): Promise<ImportSaveCounts> {
   const account = adminDb.collection('user_profiles').doc(uid).collection('accounts').doc(IMPORT_ACCOUNT_ID);
   await adminDb.runTransaction(async transaction => {
     const existing = await transaction.get(account);
@@ -287,7 +320,7 @@ async function saveTransactions(uid: string, rows: ImportedTransaction[], metada
     const tuple = legacyMatchKey(row.date, cents, row.transaction_type, row.description);
     const occurrence = (seen.get(tuple) ?? 0) + 1;
     seen.set(tuple, occurrence);
-    const id = importDocumentId(uid, row, occurrence);
+    const id = importDocumentId(uid, identity.namespace, identity.scope, row, occurrence);
     const ref = account.collection('transactions').doc(id);
     const now = new Date();
     return {
@@ -305,14 +338,22 @@ async function saveTransactions(uid: string, rows: ImportedTransaction[], metada
       },
     };
   });
-  const [legacyKeys, linkedKeys] = await Promise.all([legacyImportKeys(account), bankOverlapKeys(uid)]);
+  const [legacyKeys, linkedKeys, statementKeys] = await Promise.all([
+    legacyImportKeys(account),
+    bankOverlapKeys(uid),
+    identity.namespace === 'receipt' ? statementImportKeys(account) : Promise.resolve(new Set<string>()),
+  ]);
   for (const item of planned) {
-    const legacyMatch = legacyKeys.has(legacyMatchKey(textValue(item.data.date), amountCents(Number(item.data.amount)), textValue(item.data.transaction_type), textValue(item.data.merchant_name)));
+    const key = legacyMatchKey(textValue(item.data.date), amountCents(Number(item.data.amount)), textValue(item.data.transaction_type), textValue(item.data.merchant_name));
+    const statementMatch = statementKeys.has(key);
+    const legacyMatch = identity.namespace === 'statement' && legacyKeys.has(key);
     const linked = overlapKey(item.data);
+    const bankLinked = linked !== null && linkedKeys.has(linked);
     item.legacyMatch = legacyMatch;
-    if (legacyMatch || (linked !== null && linkedKeys.has(linked))) {
+    const reason = statementMatch ? 'statement_match' : legacyMatch ? 'legacy_match' : bankLinked ? 'bank_linked' : null;
+    if (reason) {
       item.data.possibleDuplicate = true;
-      item.data.possibleDuplicateReason = legacyMatch ? 'legacy_match' : 'bank_linked';
+      item.data.possibleDuplicateReason = reason;
     }
   }
   const created = await createDocuments(planned);
@@ -340,6 +381,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Upload a PNG, JPEG, or WebP image of this document.' }, { status: 415 });
     }
     const bytes = Buffer.from(await file.arrayBuffer());
+    const fileHash = createHash('sha256').update(bytes).digest('hex');
     if (!receiptSignatureMatches(bytes, file.type)) return NextResponse.json({ error: 'The file contents do not match its image type.' }, { status: 415 });
     const base64 = bytes.toString('base64');
 
@@ -365,7 +407,7 @@ export async function POST(request: NextRequest) {
       const saved = await saveTransactions(user.uid, parsed.transactions, {
         source: 'manual', import_source: 'manual_statement', importedFromStatement: true,
         statementBank: parsed.bankName || 'Unknown', accountLast4: parsed.accountLast4 || null,
-      });
+      }, { namespace: 'statement', scope: detectedAccountScope(parsed.bankName, parsed.accountLast4) ?? `file:${fileHash}` });
       return NextResponse.json({
         success: true, docType: 'bank_statement', bankName: parsed.bankName, accountLast4: parsed.accountLast4,
         statementPeriod: parsed.statementPeriod, imported: saved.imported, alreadyImported: saved.alreadyImported,
@@ -381,7 +423,7 @@ export async function POST(request: NextRequest) {
     }
     const saved = await saveTransactions(user.uid, [{ date: parsed.date, description: parsed.merchant, amount: parsed.total, category: parsed.category, transaction_type: 'debit' }], {
       source: 'receipt', importedFromReceipt: true, receiptItems: parsed.items || [], business_purpose: parsed.businessPurpose || '',
-    });
+    }, { namespace: 'receipt', scope: `file:${fileHash}` });
     return NextResponse.json({
       success: true, docType: 'receipt', merchant: parsed.merchant, amount: parsed.total, date: parsed.date,
       category: parsed.category, imported: saved.imported, alreadyImported: saved.alreadyImported,

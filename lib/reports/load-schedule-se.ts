@@ -11,6 +11,7 @@ import { getFederalTaxRules } from '@/lib/tax-rules/federal-year-rules';
 import { computeScheduleCProfit } from '@/lib/tax-rules/schedule-c-profit';
 import { calcScheduleSE } from './calcSE';
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
+import { summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 export class TaxExportDataUnavailableError extends Error {
   readonly code = 'TAX_EXPORT_DATA_UNAVAILABLE';
   constructor() { super('Could not load all records needed for this calculation. Please retry.'); }
@@ -96,5 +97,6 @@ export async function loadScheduleSEData(uid: string, taxYear: number) {
     // become allowed deductions or AGI without the annual eligibility worksheets.
     aboveTheLineDeductions: null, totalIncome: netProfit + w2.wages, estimatedAGI: null,
     dataSource: 'auto', calculationScope: 'Nonfarm SE planning for one taxpayer. Partial income picture, not an annual return or final AGI. Confirm wage ownership; spouses require separate Schedule SE calculations.',
+    heldOutDuplicates: summarizeHeldOutDuplicates(records.transactions, records.taxYear),
   };
 }

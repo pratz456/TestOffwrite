@@ -103,6 +103,9 @@ export interface Transaction {
    * lists and excluded from every total; the detail view explains why.
    */
   superseded_by?: string | null;
+  /** Saved import flagged as a possible duplicate. Totals omit it until review. The stored row is not changed here. */
+  possibleDuplicate?: boolean;
+  possibleDuplicateReason?: string;
 
   // AI Analysis Fields from initial analysis
   ai?: {

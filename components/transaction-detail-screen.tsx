@@ -70,6 +70,8 @@ interface TransactionDetailScreenProps {
     trans_id?: string; // Transaction ID from Plaid
     account_id?: string; // Account ID
     superseded_by?: string | null; // Server-only: this bank record duplicates an earlier reviewed one
+    possibleDuplicate?: boolean;
+    possibleDuplicateReason?: string;
     pending?: boolean | null;
     review_status?: string;
     // Durable analysis pipeline stamps (lib/ai/analysis-jobs.ts).
@@ -834,6 +836,7 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
       <div className="mx-auto max-w-4xl space-y-3 px-3 py-3 sm:px-5">
         {isSupersededRecord(transaction) && <p role="note" className="rounded-xl border border-border bg-muted p-3 text-sm text-muted-foreground">This bank record duplicates an earlier one you already reviewed; it is excluded from totals.</p>}
+        {transaction.possibleDuplicate === true && <p role="note" className="rounded-xl border border-border bg-muted p-3 text-sm text-muted-foreground">PLACEHOLDER: This row is flagged as a possible duplicate{transaction.possibleDuplicateReason ? ` (${transaction.possibleDuplicateReason})` : ''} and is held out of tax totals until you review it. Resolving it is not available yet. The saved row is not changed or deleted.</p>}
         <DetailTabs.Root value={detailSection} onValueChange={changeDetailSection} className="space-y-3">
           <DetailTabs.List aria-label="Transaction sections" className="grid grid-cols-3 gap-1 rounded-xl bg-muted/70 p-1">
             {[{ value: 'summary', label: 'Summary' }, { value: 'details', label: 'Details' }, { value: 'receipt', label: 'Receipt' }].map(tab =>

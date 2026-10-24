@@ -250,6 +250,35 @@ it('blocks duplicate logical records across storage paths instead of counting bo
 });
 
 
+it('returns held out duplicates on the Schedule C preview and prints them in the CSV and PDF', async () => {
+  state.transactions = [
+    { id: 'kept', date: '2026-03-01', iso_currency_code: 'USD', amount: 40, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true, review_status: 'confirmed', merchant_name: 'Kept supplies' },
+    { id: 'flagged-debit', date: '2026-03-02', iso_currency_code: 'USD', amount: 40, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true, review_status: 'confirmed', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked', merchant_name: 'Flagged supplies' },
+    { id: 'flagged-credit', date: '2026-03-03', iso_currency_code: 'USD', amount: -25000, category: 'income', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match', merchant_name: 'Flagged deposit' },
+  ];
+  const preview = await calculateC(new NextRequest('http://localhost/api/tax/schedule-c/calculate?year=2026'));
+  expect(preview.status).toBe(200);
+  const previewBody = await preview.json();
+  expect(previewBody.data.confirmedExpenses).toBe(40);
+  expect(previewBody.data.heldOutDuplicates).toMatchObject({ count: 2, amount: 25040, reviewHref: '/protected?screen=review-transactions' });
+  expect(previewBody.data.heldOutDuplicates.message).toContain('PLACEHOLDER');
+  const csv = await (await scheduleC(request({ year: 2026, format: 'csv' }))).text();
+  expect(csv).toContain('PLACEHOLDER');
+  expect(csv).toContain('25040.00');
+  expect(csv).toContain('/protected?screen=review-transactions');
+  expect(csv).toContain('Kept supplies');
+  expect(csv).not.toContain('Flagged supplies');
+  const view = inspectText();
+  const pdf = await scheduleC(request({ year: 2026, format: 'pdf', includeAppendix: false }));
+  expect(pdf.status).toBe(200);
+  const text = view.text();
+  expect(text).toContain('PLACEHOLDER');
+  expect(text).toContain('$25,040.00');
+  expect(text).toContain('/protected?screen=review-transactions');
+  expect(text).not.toContain('Flagged supplies');
+  view.checkBounds();
+});
+
 it('serves complete signed Schedule C CSV with formula-safe merchant text', async () => {
   state.transactions = [{ id: 'refund', date: '2026-01-01', iso_currency_code: 'USD', amount: -20, is_deductible: true, merchant_name: '=HYPERLINK("bad")', category: 'unknown' }];
   const response = await scheduleC(request({ year: 2026, format: 'csv' }));

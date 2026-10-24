@@ -82,14 +82,20 @@ import { POST } from '../app/api/tax/import-bank-statement/route';
 const mocks = vi.hoisted(() => ({ create: vi.fn() }));
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64');
 type Row = { date: string; description: string; amount: number; transaction_type: 'debit' | 'credit'; category?: string };
-const completion = (transactions: Row[]) => ({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({
-  currency: 'USD', bankName: 'Synthetic Bank', accountLast4: '0000', statementPeriod: { start: '2026-09-01', end: '2026-09-30' },
+const DEFAULT_BANK = 'Synthetic Bank';
+const DEFAULT_LAST4 = '0000';
+type Identity = { bankName?: string | null; accountLast4?: string | null };
+const completion = (transactions: Row[], identity: Identity = {}) => ({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({
+  currency: 'USD',
+  bankName: identity.bankName === undefined ? DEFAULT_BANK : identity.bankName,
+  accountLast4: identity.accountLast4 === undefined ? DEFAULT_LAST4 : identity.accountLast4,
+  statementPeriod: { start: '2026-09-01', end: '2026-09-30' },
   transactions, confidence: 'high',
 }), refusal: null } }] });
-function request() {
+function request(docType = 'bank_statement', bytes: Buffer = PNG) {
   const form = new FormData();
-  form.set('file', new File([PNG], 'synthetic.png', { type: 'image/png' }));
-  form.set('docType', 'bank_statement');
+  form.set('file', new File([bytes], 'synthetic.png', { type: 'image/png' }));
+  form.set('docType', docType);
   form.set('year', '2026');
   return new NextRequest('http://localhost/api/tax/import-bank-statement', { method: 'POST', body: form });
 }
@@ -99,17 +105,28 @@ function importDocs() {
 function frozenImportDocs() {
   return new Map(importDocs().map(doc => [doc.path, freeze(doc.data)]));
 }
-async function upload(transactions: Row[]) {
-  mocks.create.mockResolvedValueOnce(completion(transactions));
-  const response = await POST(request());
+async function upload(transactions: Row[], identity: Identity = {}, bytes: Buffer = PNG) {
+  mocks.create.mockResolvedValueOnce(completion(transactions, identity));
+  const response = await POST(request('bank_statement', bytes));
   const body = await response.json() as { imported: number; alreadyImported: number; flaggedLegacy: number; transactionsImported: number };
   return { status: response.status, body };
 }
-function expectedId(row: Row, occurrence: number) {
+function accountScope(identity: Identity = {}): string {
+  const bank = identity.bankName === undefined ? DEFAULT_BANK : identity.bankName;
+  const last4 = identity.accountLast4 === undefined ? DEFAULT_LAST4 : identity.accountLast4;
+  const bankText = typeof bank === 'string' ? bank.trim() : '';
+  const last4Text = typeof last4 === 'string' ? last4.trim() : '';
+  if (!bankText && !last4Text) return '';
+  return `account:${last4Text}:${bankText.toUpperCase().replace(/\s+/g, ' ').trim()}`;
+}
+function fileScope(bytes: Buffer = PNG): string {
+  return `file:${createHash('sha256').update(bytes).digest('hex')}`;
+}
+function expectedId(row: Row, occurrence: number, scope = accountScope(), namespace: 'statement' | 'receipt' = 'statement') {
   const amount = row.transaction_type === 'credit' ? -Math.abs(row.amount) : Math.abs(row.amount);
   const description = row.description.toUpperCase().replace(/\s+/g, ' ').trim();
   return createHash('sha256').update(JSON.stringify([
-    OWNER, 'statement-imports', row.date, Math.round(amount * 100), row.transaction_type, description, occurrence,
+    OWNER, namespace, scope, row.date, Math.round(amount * 100), row.transaction_type, description, occurrence,
   ])).digest('hex');
 }
 function seedLegacy(id: string, row: Row) {
@@ -231,5 +248,81 @@ describe('statement import document ids', () => {
     expect(result.body).toMatchObject({ imported: 1, alreadyImported: 0, flaggedLegacy: 0 });
     expect(importDocs().find(doc => !doc.id.startsWith('random-'))?.data).not.toHaveProperty('possibleDuplicate');
     for (const [path, frozen] of before) expect(freeze(docs.get(path))).toBe(frozen);
+  });
+
+  it('saves two identical 5.00 coffees and a second upload of the same statement imports nothing', async () => {
+    const five: Row = { date: '2026-09-15', description: 'Coffee Shop', amount: 5, transaction_type: 'debit', category: 'Food & Drink' };
+    const first = await upload([five, { ...five }]);
+    expect(first.body).toMatchObject({ imported: 2, alreadyImported: 0, flaggedLegacy: 0 });
+    expect(importDocs().map(doc => doc.id).sort()).toEqual([expectedId(five, 1), expectedId(five, 2)].sort());
+    const second = await upload([five, { ...five }]);
+    expect(second.body).toMatchObject({ imported: 0, alreadyImported: 2, flaggedLegacy: 0 });
+    expect(importDocs()).toHaveLength(2);
+  });
+
+  it('saves the same charge on two different cards', async () => {
+    const charge: Row = { date: '2026-09-15', description: 'Coffee Shop', amount: 5, transaction_type: 'debit' };
+    const first = await upload([charge], { accountLast4: '1111' });
+    const second = await upload([charge], { accountLast4: '2222' });
+    expect(first.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    expect(second.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    expect(importDocs().map(doc => doc.id).sort()).toEqual([
+      expectedId(charge, 1, accountScope({ accountLast4: '1111' })),
+      expectedId(charge, 1, accountScope({ accountLast4: '2222' })),
+    ].sort());
+  });
+
+  it('dedupes a statement with no account identity only when the file bytes match', async () => {
+    const identity = { bankName: null, accountLast4: null };
+    const first = await upload([coffee], identity);
+    expect(first.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    expect(importDocs()[0].id).toBe(expectedId(coffee, 1, fileScope(PNG)));
+    const second = await upload([coffee], identity);
+    expect(second.body).toMatchObject({ imported: 0, alreadyImported: 1 });
+    const other = Buffer.concat([PNG, Buffer.from([1])]);
+    const third = await upload([coffee], identity, other);
+    expect(third.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    expect(importDocs().map(doc => doc.id).sort()).toEqual([
+      expectedId(coffee, 1, fileScope(PNG)),
+      expectedId(coffee, 1, fileScope(other)),
+    ].sort());
+  });
+
+  it('saves a receipt that matches a statement row, flags it, and leaves the statement row unchanged', async () => {
+    const first = await upload([coffee]);
+    expect(first.body.imported).toBe(1);
+    const before = frozenImportDocs();
+    mocks.create.mockResolvedValueOnce({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({
+      currency: 'USD', merchant: ' coffee   shop ', date: coffee.date, total: coffee.amount, category: 'Food & Drink',
+      businessPurpose: 'Client meeting', items: [{ description: 'latte', amount: 6.5 }], confidence: 'high',
+    }), refusal: null } }] });
+    const response = await POST(request('receipt'));
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ imported: 1, alreadyImported: 0, flaggedLegacy: 0 });
+    const created = importDocs().filter(doc => !before.has(doc.path));
+    expect(created).toHaveLength(1);
+    expect(created[0].data).toMatchObject({
+      possibleDuplicate: true, possibleDuplicateReason: 'statement_match', source: 'receipt',
+      business_purpose: 'Client meeting', receiptItems: [{ description: 'latte', amount: 6.5 }], amount: 6.5,
+    });
+    expect(created[0].id).toBe(expectedId(
+      { date: coffee.date, description: ' coffee   shop ', amount: coffee.amount, transaction_type: 'debit' },
+      1, fileScope(PNG), 'receipt',
+    ));
+    for (const [path, frozen] of before) expect(freeze(docs.get(path))).toBe(frozen);
+  });
+
+  it('keeps document ids opaque', async () => {
+    const five: Row = { date: '2026-09-15', description: 'Coffee Shop', amount: 5, transaction_type: 'debit' };
+    await upload([five, { ...five }], { bankName: 'First National', accountLast4: '1111' });
+    expect(importDocs().length).toBeGreaterThan(0);
+    for (const doc of importDocs()) {
+      expect(doc.id).toMatch(/^[0-9a-f]{64}$/);
+      expect(doc.id.includes(five.date)).toBe(false);
+      expect(doc.id.includes(five.description)).toBe(false);
+      expect(doc.id.includes('5.00')).toBe(false);
+      expect(doc.id.includes('First National')).toBe(false);
+    }
   });
 });
