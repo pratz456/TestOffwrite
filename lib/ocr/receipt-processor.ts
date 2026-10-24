@@ -852,7 +852,7 @@ export class ReceiptProcessor {
     transactions: any[],
     limit = 5
   ): Promise<ReceiptMatchCandidate[]> {
-    const receiptDateIso = this.normalizeDateToISO(receiptData.date);
+    const receiptDateIso = receiptData.date ? this.normalizeDateToISO(receiptData.date) : null;
     const receiptMerchantNorm = this.normalizeMerchant(receiptData.merchant);
     const receiptAmountAbs = Math.abs(Number(receiptData.amount || 0));
 
@@ -878,7 +878,7 @@ export class ReceiptProcessor {
 
       const merchantScore = this.scoreMerchants(receiptMerchantNorm, txMerchantNorm);
 
-      const dateScore = txDateIso && receiptDateIso && txDateIso === receiptDateIso ? 1 : 0;
+      const dateScore = receiptDateIso && txDateIso && txDateIso === receiptDateIso ? 1 : 0;
 
       // If category is available, use it as a soft boost only.
       const categoryScore = this.scoreStringsOptional(receiptData.category, tx.category);
@@ -892,7 +892,7 @@ export class ReceiptProcessor {
       const matchReasons: string[] = [];
       if (amountScore >= 0.9) matchReasons.push('amount');
       if (merchantScore >= 0.8) matchReasons.push('merchant');
-      if (dateScore >= 0.9) matchReasons.push('date');
+      if (receiptDateIso && dateScore >= 0.9) matchReasons.push('date');
       if (categoryScore >= 0.9) matchReasons.push('category');
 
       candidates.push({

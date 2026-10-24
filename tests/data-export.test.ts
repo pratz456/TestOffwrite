@@ -18,7 +18,6 @@ vi.mock('@/lib/firebase/admin', () => {
 });
 import { readOwnedTransactions, ExportDataUnavailableError } from '@/lib/reports/export-records';
 import { generateUserDataExport, generateDataPackage } from '@/lib/reports/data-export';
-import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 function seed(path: string, data: Record<string, unknown>) { state.rows.set(path, data); }
 beforeEach(() => {
   state.rows.clear(); state.fail = ''; state.reads.length = 0;
@@ -106,10 +105,20 @@ describe('owner export source completeness and privacy', () => {
   it('fails the entire archive if an included tax dataset is unreadable', async () => {
     state.fail = 'income_1099'; await expect(generateUserDataExport('owner')).rejects.toBeInstanceOf(ExportDataUnavailableError);
   });
-  it('requires review for undated transactions instead of silently omitting them from a selected year', async () => {
-    seed('transactions/undated', { userId: 'owner', amount: 10 });
-    await expect(generateUserDataExport('owner', 2026)).rejects.toBeInstanceOf(ExportReviewRequiredError);
-    expect((await generateUserDataExport('owner')).transactions).toHaveLength(4);
+  it('keeps an undated transaction out of the selected-year total and reports its dollars', async () => {
+    seed('transactions/undated', { userId: 'owner', amount: 10, merchant_name: 'Needs more information' });
+    const selected = await generateUserDataExport('owner', 2026);
+    expect(selected.transactions.map(row => row.amount).sort((a, b) => Number(a) - Number(b))).toEqual([-1200, 100]);
+    expect(selected.dateNeeded).toMatchObject({ count: 1, total: 10, label: 'Date needed: 1 row, $10.00' });
+    const selectedCsv = generateDataPackage(selected).csv;
+    expect(selectedCsv).toContain('Date needed: 1 row, $10.00');
+    expect(selectedCsv).toContain('Needs more information');
+    const allYears = await generateUserDataExport('owner');
+    expect(allYears.transactions).toHaveLength(4);
+    expect(allYears.dateNeeded).toBeUndefined();
+    const allCsv = generateDataPackage(allYears).csv;
+    expect(allCsv).toContain('Missing/invalid date');
+    expect(allCsv).not.toContain('Date needed:');
   });
 });
 

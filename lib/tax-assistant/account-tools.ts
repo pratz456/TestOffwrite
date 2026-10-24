@@ -2,6 +2,7 @@ import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { AccountResult } from './account-contract';
 import { exportDate } from '@/lib/reports/transaction-export';
+import { compareTransactionDates } from '@/lib/transactions/date-order';
 
 export const ACCOUNT_SCAN_LIMIT = 500;
 export const ACCOUNT_FIELDS = ['merchant_name', 'merchant', 'name', 'amount', 'date', 'type', 'transaction_kind', 'category',
@@ -26,7 +27,7 @@ export function transactionAccountResult(options: {
     !text(row.receipt_url);
   const matching = rows.filter(row => intent === 'missing_receipts' ? needsReceipt(row) :
     !row.pending && (transactionNeedsCategoryReview(row) || transactionNeedsTaxReview(row)));
-  matching.sort((a, b) => Number(Boolean(b.tax_review_required)) - Number(Boolean(a.tax_review_required)) || String(b.date).localeCompare(String(a.date)));
+  matching.sort((a, b) => Number(Boolean(b.tax_review_required)) - Number(Boolean(a.tax_review_required)) || compareTransactionDates(a.date, b.date, 'desc'));
   const items = matching.slice(0, 8).flatMap(row => {
     const id = text(row.trans_id || row.id, 200);
     if (!id) return [];

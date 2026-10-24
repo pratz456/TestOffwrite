@@ -16,7 +16,7 @@
  * PDF generation path: route → getTransactionsServer(uid) → aggregateScheduleC → pdf-lib.
  */
 
-import { safeTaxYear } from './taxDate';
+import { transactionDateParts } from '@/lib/transactions/calendar-date';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
 import { isCountableRecord, isSupersededRecord } from '@/lib/transactions/record-scope';
 
@@ -206,8 +206,8 @@ export function aggregateScheduleC<T extends ScheduleCTransactionLike>(
   // Superseded duplicates of an earlier reviewed record never reach either mode.
   const yearTransactions = transactions.filter((t) => {
     if (isSupersededRecord(t)) return false;
-    const y = safeTaxYear(t.date);
-    return y !== null && y.toString() === yearStr;
+    const parts = transactionDateParts(t.date);
+    return parts !== null && parts.year.toString() === yearStr;
   });
 
   // CPA-grade logic:

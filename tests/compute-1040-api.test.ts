@@ -190,13 +190,22 @@ describe('Form1040 API integration', () => {
   });
 
   it.each([
-    { date: 'invalid', amount: 100, category: 'SERVICE_SUBSCRIPTION', is_deductible: true },
     { date: '2026-01-15', amount: 'invalid', category: 'SERVICE_SUBSCRIPTION', is_deductible: true },
     { date: '2026-01-15', amount: 100, iso_currency_code: 'EUR', category: 'SERVICE_SUBSCRIPTION', is_deductible: true },
   ])('withholds the annual estimate when export inputs require review: %j', async transaction => {
     state.transactions = [transaction];
     const result = await GET(request()); expect(result.status).toBe(422);
     expect(await result.json()).toMatchObject({ code: 'EXPORT_REVIEW_REQUIRED' });
+  });
+  it('leaves an invalid date out of the annual estimate instead of blocking it', async () => {
+    const baseline = await (await GET(request())).json();
+    state.transactions = [{ date: 'invalid', amount: 100, category: 'SERVICE_SUBSCRIPTION', is_deductible: true, iso_currency_code: 'USD' }];
+    const result = await GET(request());
+    expect(result.status).toBe(200);
+    const body = await result.json();
+    expect(body.totalTax).toBe(baseline.totalTax);
+    expect(body.agi).toBe(baseline.agi);
+    expect(JSON.stringify(body)).not.toMatch(/1970|Invalid Date/);
   });
 
   it('names the overlapping records by reference and deep-links the reconciliation workflow in the income 422', async () => {

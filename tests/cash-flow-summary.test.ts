@@ -11,7 +11,7 @@ describe('posted USD cash flow display', () => {
     const result = summarizeRecordedCashFlow([record(), record({ pending: true }), record({ bank_removed: true }), record({ superseded_by: 'original' }), record({ date: '2027-01-01' })], 2026);
     expect(result.months[11].net).toBe(-10.01);
   });
-  it.each([{ amount: Infinity }, { amount: '100' }, { date: '2026-02-30' }, { iso_currency_code: undefined }, { iso_currency_code: 'EUR' }])('blocks ambiguous cash-flow totals %j', facts => {
+  it.each([{ amount: Infinity }, { amount: '100' }, { iso_currency_code: undefined }, { iso_currency_code: 'EUR' }])('blocks ambiguous cash-flow totals %j', facts => {
     const result = summarizeRecordedCashFlow([record(facts)], 2026);
     expect(result.reviewMessage).toBeTruthy(); expect(result.months).toEqual([]);
   });

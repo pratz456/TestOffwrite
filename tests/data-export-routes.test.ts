@@ -71,10 +71,28 @@ describe('data and report export HTTP contracts', () => {
       expect(response.status).toBe(503); expect(await response.text()).not.toContain('secret');
     }
   });
-  it('returns typed422 for a selected-year review requirement', async () => {
-    mock.rows.mockResolvedValue([{ amount: 100 }]);
+  it('puts a blank date in the selected-year Date needed section instead of failing the export', async () => {
+    mock.rows.mockResolvedValue([{ amount: 100, merchant_name: 'Needs more information' }]);
     const response = await csv(request('transactions/export-csv?year=2026'));
-    expect(response.status).toBe(422); expect(await response.json()).toMatchObject({ code: 'EXPORT_REVIEW_REQUIRED' });
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain('Date needed: 1 row, $100.00');
+    expect(body).toContain('Date needed');
+    expect(body).not.toContain('1970');
+    expect(body).not.toContain('Invalid Date');
+  });
+  it('reports two blank rows and their combined dollars in the selected-year CSV', async () => {
+    mock.rows.mockResolvedValue([
+      { amount: 999.99, merchant_name: 'Needs more information', date: '' },
+      { amount: 50.25, merchant_name: 'Second blank', date: '2026-02-30' },
+    ]);
+    const response = await csv(request('transactions/export-csv?year=2026'));
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain('Date needed: 2 rows, $1,050.24');
+    expect(body).toContain('Needs more information');
+    expect(body).toContain('Second blank');
+    expect(body).not.toContain('1970');
   });
   it('uses reconciled live Schedule SE data with the authenticated owner and selected year', async () => {
     const response = await forms(request('reports/export', { type: 'scheduleSE', year: 2026 }));

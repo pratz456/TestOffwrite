@@ -229,10 +229,37 @@ describe('Form 1040 planning PDF prints its review notes', () => {
 });
 
 describe('complete tax-export input validation', () => {
-  it.each([{ date: '2026-02-30', amount: 10 }, { date: '2026-02-01', amount: 'unknown' }, { date: '2026-02-01', amount: 10, iso_currency_code: 'EUR' }])('requires review instead of silently dropping malformed records %j', async invalid => {
+  it.each([{ date: '2026-02-01', amount: 'unknown' }, { date: '2026-02-01', amount: 10, iso_currency_code: 'EUR' }])('requires review instead of silently dropping malformed records %j', async invalid => {
     state.transactions = [{ iso_currency_code: 'USD', ...invalid, category: 'unknown', is_deductible: true }];
     const response = await scheduleC(request({ year: 2026 }));
     expect(response.status).toBe(422); expect(await response.json()).toMatchObject({ code: 'EXPORT_REVIEW_REQUIRED' });
+  });
+  it('lists an invalid date in Date needed instead of failing the selected-year export', async () => {
+    state.transactions = [{ iso_currency_code: 'USD', date: '2026-02-30', amount: 10, category: 'unknown', is_deductible: true, merchant_name: 'Needs more information' }];
+    const view = inspectText();
+    const response = await scheduleC(request({ year: 2026 }));
+    expect(response.status).toBe(200);
+    const text = view.text();
+    expect(text).toContain('Date needed: 1 row, $10.00');
+    expect(text).toContain('Needs more information');
+    expect(text).not.toContain('1970');
+    expect(text).not.toContain('Invalid Date');
+  });
+  it('lists two undated rows and their combined dollars beside the year total', async () => {
+    state.transactions = [
+      { iso_currency_code: 'USD', date: '', amount: 999.99, category: 'unknown', is_deductible: true, merchant_name: 'Needs more information' },
+      { iso_currency_code: 'USD', date: '2026-02-30', amount: 50.25, category: 'unknown', is_deductible: true, merchant_name: 'Second blank' },
+    ];
+    const view = inspectText();
+    const pdf = await scheduleC(request({ year: 2026 }));
+    expect(pdf.status).toBe(200);
+    expect(view.text()).toContain('Date needed: 2 rows, $1,050.24');
+    const csv = await scheduleC(request({ year: 2026, format: 'csv' }));
+    expect(csv.status).toBe(200);
+    const body = await csv.text();
+    expect(body).toContain('Date needed: 2 rows, $1,050.24');
+    expect(body).toContain('Needs more information');
+    expect(body).toContain('Second blank');
   });
   it.each([{ iso_currency_code: undefined }, { deduction_override: 0 }, { deductible_amount: 30 }, { deduction_amount: 30 }, { deductible_amount_override: 30 }, { deduction_percentage: 50 }])('requires review for unknown currency or an unapplied deduction adjustment %j', async facts => {
     state.transactions = [{ id: 'review', date: '2026-03-01', amount: 100, category: 'unknown', is_deductible: true, iso_currency_code: 'USD', ...facts }];

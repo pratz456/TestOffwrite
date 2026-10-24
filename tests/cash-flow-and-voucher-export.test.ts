@@ -29,12 +29,38 @@ describe('recorded cash-flow JSON/PDF uses complete verified records without tax
     const data = await (await POST(post({ year: 2026, month: 1 }))).json();
     expect(data).toMatchObject({ totalIncome: 100, periodLabel: '2026-01', priorPeriod: { totalIncome: 20 } });
   });
-  it.each([{ amount: '' }, { amount: 'not-an-amount' }, { amount: null }, { amount: 1e308 }, { date: '' }, { date: '2026-02-30' }, { iso_currency_code: undefined }, { iso_currency_code: 'EUR' }, { unofficial_currency_code: 'BTC' }])('blocks unverifiable input instead of printing plausible USD totals: %j', async invalid => {
+  it.each([{ amount: '' }, { amount: 'not-an-amount' }, { amount: null }, { amount: 1e308 }, { iso_currency_code: undefined }, { iso_currency_code: 'EUR' }, { unofficial_currency_code: 'BTC' }])('blocks unverifiable input instead of printing plausible USD totals: %j', async invalid => {
     fixture.records = [tx(100, invalid)]; const create = vi.spyOn(PDFDocument, 'create');
     for (const response of [await POST(post()), await GET(get())]) {
       expect(response.status).toBe(422); const data = await response.json(); expect(data.code).toBe('EXPORT_REVIEW_REQUIRED'); expect(data).not.toHaveProperty('netProfit');
     }
     expect(create).not.toHaveBeenCalled();
+  });
+  it('keeps dated cash movement when a row has a blank or invalid date and reports that excluded money', async () => {
+    fixture.records = [tx(100, { date: '2026-03-10', merchant_name: 'March' }), tx(999.99, { date: '', merchant_name: 'Needs more information' })];
+    const data = await (await POST(post())).json();
+    expect(data).toMatchObject({ totalExpenses: 100, netProfit: -100, dateNeeded: { count: 1, total: 999.99, label: 'Date needed: 1 row, $999.99' } });
+    const text = vi.spyOn(PDFPage.prototype, 'drawText');
+    expect((await GET(get())).status).toBe(200);
+    const printed = text.mock.calls.map(([value]) => value).join('\n');
+    expect(printed).toContain('Date needed: 1 row, $999.99');
+    expect(printed).toContain('Needs more information');
+    expect(printed).not.toContain('1970');
+    expect(printed).not.toContain('Invalid Date');
+  });
+  it('reports two blank rows and their combined dollars beside the cash-flow year total', async () => {
+    fixture.records = [
+      tx(100, { date: '2026-03-10', merchant_name: 'March' }),
+      tx(999.99, { date: '', merchant_name: 'Needs more information' }),
+      tx(50.25, { date: '2026-02-30', merchant_name: 'Second blank' }),
+    ];
+    const data = await (await POST(post())).json();
+    expect(data).toMatchObject({ totalExpenses: 100, netProfit: -100, dateNeeded: { count: 2, total: 1050.24, label: 'Date needed: 2 rows, $1,050.24' } });
+    const text = vi.spyOn(PDFPage.prototype, 'drawText');
+    expect((await GET(get())).status).toBe(200);
+    const printed = text.mock.calls.map(([value]) => String(value)).join('\n');
+    expect(printed).toContain('Date needed: 2 rows, $1,050.24');
+    expect(printed).toContain('Second blank');
   });
   it('does not combine USD and foreign/unknown currency, even for amounts marked deductible', async () => {
     fixture.records = [tx(-1000), tx(100, { iso_currency_code: 'CAD', is_deductible: true })];

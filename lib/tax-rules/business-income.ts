@@ -1,3 +1,4 @@
+import { exportDate } from '@/lib/reports/transaction-export';
 import { resolveIncomeSources, type FeeExpenseCandidate, type IncomeReconciliationConflict, type IncomeSourceCandidate } from './income-reconciliation';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 
@@ -29,7 +30,8 @@ export function listIncomeSourceCandidates(taxYear: number, transactions: Readon
   let unclassifiedCreditCount = 0;
   for (const tx of transactions) {
     // Pending, bank-removed and superseded duplicate records are never income candidates.
-    if (!isCountableRecord(tx) || typeof tx.date !== 'string' || Number(tx.date.slice(0, 4)) !== taxYear) continue;
+    const dated = exportDate(tx.date);
+    if (!isCountableRecord(tx) || !dated || Number(dated.slice(0, 4)) !== taxYear) continue;
     const category = typeof tx.category === 'string' ? tx.category.toLowerCase() : '';
     // Both transaction readers derive `type` from the amount sign, including
     // manual-account refunds. Require a recorded income category for every
@@ -47,7 +49,7 @@ export function listIncomeSourceCandidates(taxYear: number, transactions: Readon
     if (key && txById.has(key)) continue;
     if (key) txById.add(key);
     const name = text(tx.merchant_name) || text(tx.name) || 'Bank deposit';
-    candidates.push({ kind: 'transaction', id, amount: money(-tx.amount) / 100, label: `Bank income · ${name}`, date: tx.date.slice(0, 10) });
+    candidates.push({ kind: 'transaction', id, amount: money(-tx.amount) / 100, label: `Bank income · ${name}`, date: dated });
   }
 
   const receiptsById = new Map<string, number>();

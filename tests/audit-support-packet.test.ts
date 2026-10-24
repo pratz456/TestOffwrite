@@ -167,11 +167,16 @@ describe('inclusion, exclusion and review provenance', () => {
     expect(record.detailPath).toBe('/protected?screen=transaction-detail&transactionId=PROVIDER-ID&from=reports');
     expect(JSON.stringify(record)).not.toMatch(/SECRET_|deduction_score|ai_analysis/);
   });
-  it('requires review instead of guessing for duplicates, invalid amounts, foreign currency and undated records', () => {
+  it('requires review instead of guessing for duplicates, invalid amounts and foreign currency', () => {
     expect(() => packet([confirmed({ trans_id: 'same' }), confirmed({ trans_id: 'same' })])).toThrow(ExportReviewRequiredError);
     expect(() => packet([confirmed({ amount: 'unknown' })])).toThrow(/invalid amount/);
     expect(() => packet([confirmed({ iso_currency_code: 'EUR' })])).toThrow(/Non-USD/);
-    expect(() => packet([confirmed(), confirmed({ is_deductible: false, date: undefined })])).toThrow(ExportReviewRequiredError);
+  });
+  it('reports an undated record beside the year total instead of failing the packet', () => {
+    const result = packet([confirmed(), confirmed({ is_deductible: false, date: undefined, amount: 999.99, merchant_name: 'Needs more information' })]);
+    expect(result.deductions).toHaveLength(1);
+    expect(result.summary.recordedAmount).toBe(40);
+    expect(result.summary.dateNeeded).toMatchObject({ count: 1, total: 999.99, label: 'Date needed: 1 row, $999.99' });
   });
 });
 
@@ -238,11 +243,14 @@ describe('CSV, PDF and owner-scoped loading', () => {
   });
   it('exports deductions and trips with hashed references only and formula-safe text', () => {
     const csv = auditSupportPacketCSV(packet(inputs().transactions, inputs()));
-    const lines = csv.split('\r\n'); expect(lines).toHaveLength(3);
+    const lines = csv.split('\r\n'); expect(lines).toHaveLength(4);
     expect(lines[0]).toContain('Record Type,Reference,Date,Merchant / Trip'); expect(lines[0]).toContain('Private Receipt Paths (sign-in required)');
     expect(lines[1]).toContain('Confirmed deduction,transaction-abc,2026-03-10,"\'=HYPERLINK(""bad"")",180,TRAVEL_LODGING,24a,Lodging while traveling,Needs records,');
     expect(lines[1]).toContain('receipt (required for lodging at any amount); business purpose; travel destination; travel dates (departure and return)');
     expect(lines[2]).toMatch(/^Mileage trip,trip-[0-9a-f]{16},2026-03-10,Home office -> Client site \(round trip\),72\.5,Mileage log,9,Vehicle,Complete,/);
+    expect(lines[3]).toContain('Year total');
+    expect(lines[3]).toContain('180');
+    expect(lines[3]).toContain('Date needed: 0 rows, $0.00');
     expect(csv).not.toContain('PROVIDER-ID');
   });
   it('prints the cover note, a deduction line with its missing records, the mileage log and retention table in bounds', async () => {

@@ -55,8 +55,13 @@ describe('monthly displayed deductions and income-tax planning estimates', () =>
     expect(buildMonthlySavings([historical], 2026, .2, now).availableYears).toEqual([2026]);
   });
   it.each([{ iso_currency_code: undefined }, { iso_currency_code: 'EUR' }, { business_use_percentage: 50 },
-    { deductible_amount: 50 }, { date: 'invalid' }, { amount: Infinity }])('requires review for ambiguous amount facts %j', facts => {
+    { deductible_amount: 50 }, { amount: Infinity }])('requires review for ambiguous amount facts %j', facts => {
     expect(() => buildMonthlySavings([expense(facts)], 2026, .2, now)).toThrow();
+  });
+  it('leaves an invalid date out of the monthly estimate', () => {
+    const result = buildMonthlySavings([expense({ date: 'invalid', amount: 999.99 }), expense()], 2026, .2, now);
+    expect(result.summary.deductionBasis).toBe(100);
+    expect(result.diagnostics.expensesInYear).toBe(1);
   });
   it('withholds unpublished years and invalid rates; permits a genuine zero rate', () => {
     expect(() => buildMonthlySavings([], 2027, .2, now)).toThrow();

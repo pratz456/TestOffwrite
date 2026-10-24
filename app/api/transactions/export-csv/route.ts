@@ -4,7 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { readOwnedTransactions } from '@/lib/reports/export-records';
-import { convertTransactionsToCSV, exportYear, selectExportYear, recordedDeductibility, ExportReviewRequiredError } from '@/lib/reports/transaction-export';
+import { appendTransactionDateNeeded, convertTransactionsToCSV, exportYear, partitionExportYear, recordedDeductibility, ExportReviewRequiredError } from '@/lib/reports/transaction-export';
+import { compareTransactionDates } from '@/lib/transactions/date-order';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 export async function GET(request: NextRequest) {
@@ -21,12 +22,15 @@ export async function GET(request: NextRequest) {
   const limit = await enforceRateLimit({ ...RATE_LIMITS.reportExport, key: user.uid });
   if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many exports. Please wait a few minutes and try again.' });
   try {
-    let records = selectExportYear(await readOwnedTransactions(user.uid), year);
+    const owned = await readOwnedTransactions(user.uid);
+    const split = year === undefined ? { dated: owned, dateNeeded: [] as typeof owned } : partitionExportYear(owned, year);
+    let records = split.dated;
     if (filter === 'deductible') records = records.filter(tx => recordedDeductibility(tx) === true);
     if (filter === 'non-deductible') records = records.filter(tx => recordedDeductibility(tx) === false);
     if (filter === 'unreviewed') records = records.filter(tx => recordedDeductibility(tx) === null);
-    records.sort((a, b) => String(a.date ?? a.datetime ?? '').localeCompare(String(b.date ?? b.datetime ?? '')));
-    return new NextResponse(convertTransactionsToCSV(records), { headers: {
+    records.sort((a, b) => compareTransactionDates(a.date ?? a.datetime, b.date ?? b.datetime, 'asc'));
+    const csv = year === undefined ? convertTransactionsToCSV(records) : appendTransactionDateNeeded(convertTransactionsToCSV(records), records, split.dateNeeded);
+    return new NextResponse(csv, { headers: {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': `attachment; filename="writeoff-preparer-transactions-${year ?? 'all-years'}-${filter}.csv"`,
       'Cache-Control': 'private, no-store',

@@ -24,6 +24,12 @@ export function formatTransactionDate(value: unknown, locales: Intl.LocalesArgum
   return date.toLocaleDateString(locales, { ...options, timeZone: 'UTC' });
 }
 
+/** Blank and invalid transaction dates. Existing '-' formatting is unchanged. */
+export function displayTransactionDate(value: unknown, locales: Intl.LocalesArgument = 'en-US', options?: Omit<Intl.DateTimeFormatOptions, 'timeZone'>): string {
+  if (!transactionDateParts(value)) return 'Date needed';
+  return formatTransactionDate(value, locales, options);
+}
+
 /** Local-midnight boundary for comparing calendar date filters, never timestamp events. */
 export function transactionCalendarDate(value: unknown): Date | null {
   const parts = transactionDateParts(value);

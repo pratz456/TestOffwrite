@@ -1,5 +1,5 @@
 import { readOwnedTransactions } from './export-records';
-import { exportDate, selectExportYear, transactionAmount, ExportReviewRequiredError } from './transaction-export';
+import { exportDate, partitionExportYear, summarizeDateNeeded, transactionAmount, ExportReviewRequiredError, type DateNeededSummary } from './transaction-export';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
 
@@ -8,8 +8,15 @@ import type { ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
  * tax calculation. Superseded duplicates are dropped here as well as in the
  * reader, so no tax total can count them.
  */
+export async function readTaxExportBundle(uid: string, taxYear: number): Promise<{ transactions: ScheduleCTransactionLike[]; dateNeeded: DateNeededSummary }> {
+  const owned = (await readOwnedTransactions(uid)).filter(record => !isSupersededRecord(record));
+  const split = partitionExportYear(owned, taxYear);
+  return { transactions: mapTaxExportRecords(split.dated), dateNeeded: summarizeDateNeeded(split.dateNeeded) };
+}
 export async function readTaxExportTransactions(uid: string, taxYear: number): Promise<ScheduleCTransactionLike[]> {
-  const records = selectExportYear((await readOwnedTransactions(uid)).filter(record => !isSupersededRecord(record)), taxYear);
+  return (await readTaxExportBundle(uid, taxYear)).transactions;
+}
+function mapTaxExportRecords(records: Awaited<ReturnType<typeof readOwnedTransactions>>): ScheduleCTransactionLike[] {
   const seen = new Set<string>();
   return records.map(record => {
     const identity = record.trans_id ?? record.id;

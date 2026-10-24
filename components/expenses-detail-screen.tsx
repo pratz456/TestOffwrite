@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, CreditCard, DollarSign, FileText, TrendingUp, PieChart, Receipt } from 'lucide-react';
 import { formatCategory } from '@/lib/utils';
+import { displayTransactionDate, transactionDateParts } from '@/lib/transactions/calendar-date';
+import { compareTransactionDates } from '@/lib/transactions/date-order';
 
 interface Transaction {
   id: string;
@@ -50,6 +52,8 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
   // Apply period filter
   const filteredTransactions = expenseTransactions.filter(transaction => {
     if (selectedPeriod !== 'All Time') {
+      // A blank or invalid date is not a year, but it stays in the list as "Date needed".
+      if (!transactionDateParts(transaction.date)) return true;
       const transactionDate = new Date(transaction.date);
       const now = new Date();
       
@@ -92,12 +96,13 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
     return true;
   });
 
-  const totalExpenses = displayTransactions.reduce((sum, t) => sum + t.amount, 0);
-  const deductibleExpenses = displayTransactions.filter(t => t.is_deductible).reduce((sum, t) => sum + t.amount, 0);
-  const personalExpenses = displayTransactions.filter(t => !t.is_deductible).reduce((sum, t) => sum + t.amount, 0);
+  const datedTransactions = displayTransactions.filter(t => transactionDateParts(t.date));
+  const totalExpenses = datedTransactions.reduce((sum, t) => sum + t.amount, 0);
+  const deductibleExpenses = datedTransactions.filter(t => t.is_deductible).reduce((sum, t) => sum + t.amount, 0);
+  const personalExpenses = datedTransactions.filter(t => !t.is_deductible).reduce((sum, t) => sum + t.amount, 0);
 
   // Category breakdown
-  const categoryBreakdown = displayTransactions.reduce((acc, transaction) => {
+  const categoryBreakdown = datedTransactions.reduce((acc, transaction) => {
     if (!acc[transaction.category]) {
       acc[transaction.category] = { total: 0, deductible: 0, personal: 0, count: 0 };
     }
@@ -115,8 +120,8 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
     .sort(([,a], [,b]) => b.total - a.total);
 
   // Monthly trend (simplified)
-  const monthlyData = displayTransactions.reduce((acc, transaction) => {
-    const month = new Date(transaction.date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  const monthlyData = datedTransactions.reduce((acc, transaction) => {
+    const month = displayTransactionDate(transaction.date, 'en-US', { month: 'short', year: 'numeric' });
     if (!acc[month]) acc[month] = 0;
     acc[month] += transaction.amount;
     return acc;
@@ -230,7 +235,7 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
                   </div>
                 ) : (
                   displayTransactions
-                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                    .sort((a, b) => compareTransactionDates(a.date, b.date, 'desc'))
                     .map((transaction) => (
                       <div key={transaction.id} className="flex items-center justify-between gap-3 p-3 bg-muted/35 rounded-lg hover:bg-muted/60 transition-colors">
                         <div className="flex items-center gap-3">
@@ -246,7 +251,7 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                               <span>{formatCategory(transaction.category)}</span>
                               <span>•</span>
-                              <span>{new Date(transaction.date).toLocaleDateString()}</span>
+                              <span>{displayTransactionDate(transaction.date)}</span>
                               <span>•</span>
                               <span className={transaction.is_deductible ? 'text-emerald-600' : 'text-gray-600'}>
                                 {transaction.is_deductible ? 'Business' : 'Personal'}

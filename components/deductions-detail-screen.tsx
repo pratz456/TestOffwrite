@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, DollarSign, FileText, TrendingUp, Calendar } from 'lucide-react';
 import { formatCategory } from '@/lib/utils';
+import { displayTransactionDate } from '@/lib/transactions/calendar-date';
+import { compareTransactionDates } from '@/lib/transactions/date-order';
 import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
 
 interface Transaction {
@@ -254,7 +256,7 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
                   </div>
                 ) : (
                   filteredTransactions
-                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                    .sort((a, b) => compareTransactionDates(a.date, b.date, 'desc'))
                     .map((transaction) => (
                       <div key={transaction.id} className="flex items-center justify-between gap-3 p-3 bg-muted/35 rounded-lg hover:bg-muted/60 transition-colors">
                         <div className="flex items-center gap-3">
@@ -266,7 +268,7 @@ export const DeductionsDetailScreen: React.FC<DeductionsDetailScreenProps> = ({
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                               <span>{formatCategory(transaction.category)}</span>
                               <span>•</span>
-                              <span>{transaction.date.slice(0, 10)}</span>
+                              <span>{displayTransactionDate(transaction.date)}</span>
                             </div>
                           </div>
                         </div>

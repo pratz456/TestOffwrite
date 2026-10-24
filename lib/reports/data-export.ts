@@ -2,7 +2,7 @@ import { readBankHistoryReviewSummary, type BankHistoryReviewSummary } from '@/l
 import { adminDb } from '@/lib/firebase/admin';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { readOwnedTransactions, ownedExportRecord, exportReference, ExportDataUnavailableError } from './export-records';
-import { convertTransactionsToCSV, exportDate, selectExportYear, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
+import { appendTransactionDateNeeded, convertTransactionsToCSV, exportDate, partitionExportYear, selectExportYear, summarizeDateNeeded, ExportReviewRequiredError, type DateNeededSummary, type ExportRecord } from './transaction-export';
 import { redactIdentifierText } from '@/lib/security/identifier-redaction';
 export { convertTransactionsToCSV } from './transaction-export';
 
@@ -44,6 +44,7 @@ export interface UserDataExport {
   aiAnalysis: ExportRecord[];
   taxRecords: Record<string, ExportRecord[]>;
   bankHistoryReview?: BankHistoryReviewSummary;
+  dateNeeded?: DateNeededSummary;
 }
 
 /** Owner data archive / preparer handoff. It is not a filed return or a completeness certification. */
@@ -70,7 +71,9 @@ export async function generateUserDataExport(userId: string, year?: number): Pro
       }),
     ]);
     const bankHistoryReview = await readBankHistoryReviewSummary(userId, year);
-    const selected = selectExportYear(rawTransactions, year);
+    const split = year === undefined ? { dated: rawTransactions, dateNeeded: [] as ExportRecord[] } : partitionExportYear(rawTransactions, year);
+    const selected = split.dated;
+    const dateNeeded = year === undefined ? undefined : summarizeDateNeeded(split.dateNeeded);
     const transactions = selected.map(record => {
       const result = clean(record);
       result.id = record.exportReference; result.trans_id = record.exportReference;
@@ -107,7 +110,7 @@ export async function generateUserDataExport(userId: string, year?: number): Pro
     return {
       exportInfo: { exportDate: new Date().toISOString(), userId, exportId: `export_${crypto.randomUUID()}`, dataVersion: '2.0', taxYear: year ?? null, purpose: 'Owner data archive and tax-preparer handoff; not an official tax return' },
       userProfile: profile.exists ? clean(ownedExportRecord(profile as Parameters<typeof ownedExportRecord>[0], userId, true)) : null,
-      accounts, transactions, receipts, aiAnalysis, bankHistoryReview, taxRecords: Object.fromEntries(datasets),
+      accounts, transactions, receipts, aiAnalysis, bankHistoryReview, dateNeeded, taxRecords: Object.fromEntries(datasets),
     };
   } catch (error) {
     if (error instanceof ExportReviewRequiredError) throw error;
@@ -131,7 +134,8 @@ export function generateDataPackage(data: UserDataExport) {
     'Only records saved in WriteOff are included. Missing W2/1099 forms, basis, carryovers, credits and other tax facts must be supplied separately.',
     'Audit support records (each confirmed deduction with its records on file, missing substantiation elements, mileage log and Pub 583 retention note) are a separate owner export from Reports > Audit support records; JSON and CSV are included on every plan.',
   ];
-  return { json: data, csv: convertTransactionsToCSV(data.transactions), summary: { exportInfo: data.exportInfo, counts,
+  const csv = data.dateNeeded ? appendTransactionDateNeeded(convertTransactionsToCSV(data.transactions), data.transactions, data.dateNeeded.rows.map(row => ({ merchant_name: row.merchant, amount: row.amount }))) : convertTransactionsToCSV(data.transactions);
+  return { json: data, csv, summary: { exportInfo: data.exportInfo, counts,
     dateRange: { earliest: dates[0] ?? null, latest: dates.at(-1) ?? null }, receiptBinariesIncluded: false, limitations },
     readme: `WriteOff - preparer data handoff\n\nGenerated: ${data.exportInfo.exportDate}\nScope: ${data.exportInfo.taxYear ?? 'All saved years'}\n\nPackage: JSON contains all datasets plus the transaction CSV and this README as text. Some download screens save those text fields as separate files; the filing hub downloads one JSON package. No source records are modified by this export.\n\nRecord counts:\n${Object.entries(counts).map(([name, count]) => `- ${name}: ${count}`).join('\n')}\n\nLimits and interpretation:\n${limitations.map(text => `- ${text}`).join('\n')}\n`,
   };
