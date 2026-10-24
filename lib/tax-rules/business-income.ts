@@ -86,6 +86,17 @@ function epochNanos(value: EpochFields): number {
   return finiteNumber(value.nanoseconds) ?? finiteNumber(value._nanoseconds) ?? 0;
 }
 
+function hasOwnEpochKey(value: object, key: 'seconds' | '_seconds'): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+/** Own seconds or _seconds is present, and neither value is a finite number. */
+function nonFiniteEpoch(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  if (!hasOwnEpochKey(value, 'seconds') && !hasOwnEpochKey(value, '_seconds')) return false;
+  return epochSeconds(value as EpochFields) === null;
+}
+
 /** Epoch millis for a Date, Firestore Timestamp, {seconds, nanoseconds}, {_seconds, _nanoseconds}, or finite number. Strings stay written days. */
 function instantMillis(value: unknown): number | null {
   if (value instanceof Date) {
@@ -187,9 +198,12 @@ function impossibleCalendarDate(value: string): boolean {
  * calendar day uses that day, including a full validity check. Blank and
  * unreadable dates stay with this tax year. A following datetime is used only
  * then, and only to decide the year. It does not invent a quarter.
+ * An own seconds or _seconds value that is not a finite number is needs more
+ * information. A later datetime is not used. A finite sibling key is still read.
  */
 function placeIncomeDate(tx: IncomeRecord, taxYear: number): IncomePlacement {
   const zone = tx.uploadTimeZone;
+  if (nonFiniteEpoch(tx.date)) return { action: 'nmi' };
   if (holdsInstant(tx.date)) {
     const millis = instantMillis(tx.date);
     if (millis === null) return { action: 'nmi' };
