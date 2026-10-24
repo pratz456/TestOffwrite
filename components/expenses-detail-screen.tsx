@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, CreditCard, DollarSign, FileText, TrendingUp, PieChart, Receipt } from 'lucide-react';
 import { formatCategory } from '@/lib/utils';
+import { formatListAmount } from '@/lib/transactions/amount-display';
 
 interface Transaction {
   id: string;
@@ -92,21 +93,24 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
     return true;
   });
 
-  const totalExpenses = displayTransactions.reduce((sum, t) => sum + t.amount, 0);
-  const deductibleExpenses = displayTransactions.filter(t => t.is_deductible).reduce((sum, t) => sum + t.amount, 0);
-  const personalExpenses = displayTransactions.filter(t => !t.is_deductible).reduce((sum, t) => sum + t.amount, 0);
+  const finiteAmount = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : null;
+  const totalExpenses = displayTransactions.reduce((sum, t) => sum + (finiteAmount(t.amount) ?? 0), 0);
+  const deductibleExpenses = displayTransactions.filter(t => t.is_deductible).reduce((sum, t) => sum + (finiteAmount(t.amount) ?? 0), 0);
+  const personalExpenses = displayTransactions.filter(t => !t.is_deductible).reduce((sum, t) => sum + (finiteAmount(t.amount) ?? 0), 0);
 
-  // Category breakdown
+  // Category breakdown. A blank amount stays on the row and is not added as zero.
   const categoryBreakdown = displayTransactions.reduce((acc, transaction) => {
+    const amount = finiteAmount(transaction.amount);
+    if (amount == null) return acc;
     if (!acc[transaction.category]) {
       acc[transaction.category] = { total: 0, deductible: 0, personal: 0, count: 0 };
     }
-    acc[transaction.category].total += transaction.amount;
+    acc[transaction.category].total += amount;
     acc[transaction.category].count += 1;
     if (transaction.is_deductible) {
-      acc[transaction.category].deductible += transaction.amount;
+      acc[transaction.category].deductible += amount;
     } else {
-      acc[transaction.category].personal += transaction.amount;
+      acc[transaction.category].personal += amount;
     }
     return acc;
   }, {} as Record<string, { total: number; deductible: number; personal: number; count: number }>);
@@ -117,8 +121,10 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
   // Monthly trend (simplified)
   const monthlyData = displayTransactions.reduce((acc, transaction) => {
     const month = new Date(transaction.date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    const amount = finiteAmount(transaction.amount);
+    if (amount == null) return acc;
     if (!acc[month]) acc[month] = 0;
-    acc[month] += transaction.amount;
+    acc[month] += amount;
     return acc;
   }, {} as Record<string, number>);
 
@@ -264,7 +270,7 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="font-bold text-foreground">${transaction.amount.toFixed(2)}</p>
+                          <p className="font-bold text-foreground">{formatListAmount(transaction.amount)}</p>
                         </div>
                       </div>
                     ))

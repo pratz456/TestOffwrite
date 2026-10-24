@@ -19,6 +19,7 @@ describe('confirmed transaction amounts displayed to the owner', () => {
     expect(formatRecordedTransactionAmount({ amount: 20 })).toBe('20.00 (currency unknown)');
     expect(formatRecordedTransactionAmount({ amount: 1, unofficial_currency_code: 'BTC' })).toBe('1.00 (BTC)');
     expect(formatRecordedTransactionAmount({ amount: NaN, iso_currency_code: 'USD' })).toBe('Amount needs review');
+    expect(formatRecordedTransactionAmount({ amount: null, iso_currency_code: 'USD' })).toBe('Amount needed');
   });
   it('returns the adjustment amounts actually applied, including SIMPLE, after supported limits', () => {
     const result = compute1040({ taxYear: 2025, filingStatus: 'single', scheduleCNetProfit: 100000, w2Wages: 0,

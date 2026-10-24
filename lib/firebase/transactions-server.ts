@@ -135,13 +135,13 @@ function stripUndefinedDeep<T>(value: T): T {
 function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction {
   const data: any = doc.data();
   const dateIso = parseDateToISO(data.date ?? data.created_at ?? data.updated_at);
-  const amount = typeof data.amount === 'number' ? data.amount : Number(data.amount) || 0;
+  const amount = data.amount === null ? null : (typeof data.amount === 'number' ? data.amount : Number(data.amount) || 0);
 
   return {
     id: data.trans_id || doc.id,
     trans_id: data.trans_id || doc.id,
     merchant_name: data.merchant_name || data.merchant || '',
-    amount,
+    amount: amount as number,
     category: data.category || '',
     date: dateIso,
     type: recordedTransactionType({ ...data, amount }),
@@ -404,6 +404,8 @@ export async function updateTransactionServerWithUserId(
     ai_analysis?: string;
     user_classification_reason?: string;
     notes?: string;
+    amount?: number;
+    amountNeedsReview?: boolean;
     analyzed?: boolean;
     analysisStatus?: 'pending' | 'running' | 'completed' | 'failed';
     analysisStartedAt?: Date;
@@ -706,7 +708,7 @@ export async function getPaginatedTransactionsServer(
         id: data.trans_id || doc.id,
         trans_id: data.trans_id || doc.id,
         merchant_name: data.merchant_name || '',
-        amount: data.amount || 0,
+        amount: (data.amount === null ? null : (data.amount || 0)) as number,
         category: data.category || '',
         date: data.date || '',
         type: data.amount < 0 ? 'income' : 'expense',
@@ -837,7 +839,7 @@ export async function createTransactionServer(
           id: existingData?.trans_id || existingDoc.id,
           trans_id: existingData?.trans_id || existingDoc.id,
           merchant_name: existingData?.merchant_name || '',
-          amount: existingData?.amount || 0,
+          amount: (existingData?.amount === null ? null : (existingData?.amount || 0)) as number,
           category: existingData?.category || '',
           date: existingData?.date || '',
           type: existingData?.amount < 0 ? 'income' : 'expense',

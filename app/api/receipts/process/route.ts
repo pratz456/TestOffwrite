@@ -16,7 +16,8 @@ import {
   receiptBucket, receiptFormData, receiptMimeType, ReceiptRequestError,
   receiptSignatureMatches, safeReceiptName,
 } from '@/lib/firebase/receipt-security';
-import { transactionIdInput, transactionUpdatesInput } from '@/lib/transactions/client-updates';
+import { filledAmountUpdate, transactionIdInput, transactionUpdatesInput } from '@/lib/transactions/client-updates';
+import { NULL_AMOUNT_DEDUCTION_MESSAGE } from '@/lib/transactions/tax-decision';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 export const runtime = 'nodejs';
@@ -330,12 +331,21 @@ export async function PUT(request: NextRequest) {
     const updates = transactionUpdatesInput.safeParse(body?.updates);
     if (!transactionId.success || !updates.success) return receiptResponse({ error: 'Provide a valid transaction and editable fields.' }, 400);
 
+    let nextUpdates = updates.data;
+    if (updates.data.amount !== undefined) {
+      const existing = await getTransactionServer(user.uid, transactionId.data);
+      const filled = filledAmountUpdate(existing.data?.amount, updates.data);
+      if (!filled) return receiptResponse({ error: 'An amount can be entered only while the saved amount is blank.' }, 400);
+      nextUpdates = filled;
+    }
+
     // Update transaction with user corrections
     const { updateTransactionServerWithUserId } = await import('@/lib/firebase/transactions-server');
-    const { data, error } = await updateTransactionServerWithUserId(user.uid, transactionId.data, updates.data);
+    const { data, error } = await updateTransactionServerWithUserId(user.uid, transactionId.data, nextUpdates);
 
     if (error) {
       console.error('❌ [Receipt OCR] Update failed:', error);
+      if (error instanceof Error && error.message === NULL_AMOUNT_DEDUCTION_MESSAGE) return receiptResponse({ error: error.message }, 400);
       return receiptResponse({ error: 'Unable to update receipt details. Please retry.' }, 503);
     }
 

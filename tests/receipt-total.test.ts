@@ -93,4 +93,78 @@ describe('receipt totals from US and EU layouts', () => {
     expect(data.amountNeedsReview).toBe(true);
     expect(data.amount).not.toBe(0);
   });
+
+  it.each([
+    ['before the total', ['BALANCE DUE 0.00', 'TOTAL 12.50']],
+    ['after the total', ['TOTAL 12.50', 'BALANCE DUE 0.00']],
+  ])('keeps a positive total when a zero balance due is %s', async (_label, lines) => {
+    const data = await read(market(['COFFEE 4.00', 'BAGEL 8.00', 'SUBTOTAL 20.00', 'DISCOUNT 7.50', 'TAX 1.25', 'TIP 5.00', ...lines]));
+    expect(data.amount).toBeCloseTo(12.5, 2);
+    expect(data.amountNeedsReview).toBe(false);
+    expect(data.amount).not.toBe(0);
+  });
+
+  it.each([
+    'TAX TOTAL 1.25',
+    'TIP TOTAL 5.00',
+    'TOTAL TAX 1.25',
+    'TOTAL TIP 5.00',
+    'TOTAL SAVINGS 3.00',
+    'TOTAL DISCOUNT 7.50',
+    'TOTAL TENDERED 20.00',
+    'TOTAL ITEMS 3',
+    'TOTAL NUMBER OF ITEMS SOLD 3',
+    'AMOUNT TAX 9.00',
+    'TIP AMOUNT 5.00',
+  ])('does not let %s replace TOTAL 12.50', async noise => {
+    const data = await read(market(['COFFEE 4.00', 'BAGEL 8.00', 'SUBTOTAL 20.00', 'TOTAL 12.50', noise]));
+    expect(data.amount).toBeCloseTo(12.5, 2);
+    expect(data.amountNeedsReview).toBe(false);
+  });
+
+  it.each([
+    ['TOTAL -12.50', market(['TOTAL -12.50'])],
+    ['TOTAL (12.50)', market(['TOTAL (12.50)'])],
+    ['TOTAL $-12.50', market(['TOTAL $-12.50'])],
+  ])('leaves a negative total %s blank', async (_label, text) => {
+    const data = await read(text);
+    expect(data.amount).toBeNull();
+    expect(data.amountNeedsReview).toBe(true);
+    expect(data.amount).not.toBe(12.5);
+  });
+
+  it.each([
+    ['$12.50', market(['$12.50'])],
+    ['largest dollar amount', market(['$4.00', '$8.00', '$12.50'])],
+    ['12.50 USD', market(['12.50 USD'])],
+  ])('reads unlabeled US amount %s', async (_label, text) => {
+    const data = await read(text);
+    expect(data.amount).toBeCloseTo(12.5, 2);
+    expect(data.amountNeedsReview).toBe(false);
+  });
+
+  it('ignores a dollar amount printed only on a tax or subtotal line', async () => {
+    const data = await read(market(['SUBTOTAL $20.00', 'TAX TOTAL $8.00', '$4.00', '$12.50']));
+    expect(data.amount).toBeCloseTo(12.5, 2);
+    expect(data.amountNeedsReview).toBe(false);
+  });
+
+  it.each([
+    ['dollar sign', market(['FEE $1', 'TOTAL 1,234']), 1234],
+    ['USD', market(['PAID USD', 'TOTAL 1,234']), 1234],
+    ['state and ZIP', market(['CA 94105', 'AMOUNT 2,000']), 2000],
+    ['slash date', market(['09/02/2026', 'WIDGET 4', 'TOTAL 12,500']), 12500],
+  ])('reads a thousands comma when the receipt shows a US signal (%s)', async (_label, text, amount) => {
+    const data = await read(text);
+    expect(data.amount).toBe(amount);
+    expect(data.amountNeedsReview).toBe(false);
+  });
+
+  it('leaves a thousands comma blank when another amount uses comma cents', async () => {
+    const data = await read(market(['CA 94105', 'TAX 1,25', 'TOTAL 1,234']));
+    expect(data.amount).toBeNull();
+    expect(data.amountNeedsReview).toBe(true);
+    expect(data.amount).not.toBe(1234);
+    expect(data.amount).not.toBe(1);
+  });
 });

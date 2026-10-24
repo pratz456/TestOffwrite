@@ -47,6 +47,12 @@ const TOTAL_LABELS: ReadonlyArray<{ rank: number; source: string }> = [
 
 const CURRENCY_CODES = 'USD|EUR|GBP|INR|CAD|AUD|CHF|JPY|CNY';
 
+/** Words that sit beside a total label but are not the amount due. Applied at every rank. */
+const TOTAL_NOISE = /\b(?:tax|tip|gratuity|discount|change|tender(?:ed)?|savings|items)\b/i;
+
+const US_POSTAL = 'AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC';
+const US_STATE_NAMES = 'ALABAMA|ALASKA|ARIZONA|ARKANSAS|CALIFORNIA|COLORADO|CONNECTICUT|DELAWARE|FLORIDA|GEORGIA|HAWAII|IDAHO|ILLINOIS|INDIANA|IOWA|KANSAS|KENTUCKY|LOUISIANA|MAINE|MARYLAND|MASSACHUSETTS|MICHIGAN|MINNESOTA|MISSISSIPPI|MISSOURI|MONTANA|NEBRASKA|NEVADA|NEW HAMPSHIRE|NEW JERSEY|NEW MEXICO|NEW YORK|NORTH CAROLINA|NORTH DAKOTA|OHIO|OKLAHOMA|OREGON|PENNSYLVANIA|RHODE ISLAND|SOUTH CAROLINA|SOUTH DAKOTA|TENNESSEE|TEXAS|UTAH|VERMONT|VIRGINIA|WASHINGTON|WEST VIRGINIA|WISCONSIN|WYOMING|DISTRICT OF COLUMBIA';
+
 function blankTotal(): TotalRead {
   return { amount: null, amountNeedsReview: true };
 }
@@ -81,6 +87,14 @@ function hasEuMoneyClue(text: string, raw: string): boolean {
     || hasGroupedAmount(rest, String.raw`\d+,\d{2}`);
 }
 
+/** $, USD, a US state with a ZIP, or an MM/DD/YYYY date. A comma and exactly three digits is thousands only with one of these. */
+function hasUsReceiptSignal(text: string): boolean {
+  if (/\$/.test(text) || /\bUSD\b/i.test(text)) return true;
+  if (new RegExp(String.raw`\b(?:${US_POSTAL})\s+\d{5}(?:-\d{4})?\b`, 'i').test(text)) return true;
+  if (new RegExp(String.raw`\b(?:${US_STATE_NAMES})\s+\d{5}(?:-\d{4})?\b`, 'i').test(text)) return true;
+  return /\b(?:0?[1-9]|1[0-2])\/(?:0?[1-9]|[12]\d|3[01])\/\d{4}\b/.test(text);
+}
+
 /**
  * Read one numeric token. A comma and exactly two digits, with no dot, is a decimal.
  * A thousands group with no decimal part is used only when another amount on the
@@ -100,7 +114,9 @@ function interpretNumber(raw: string, leadingDollar: boolean, receiptText: strin
   }
   if (comma) {
     if (/^\d+,\d{2}$/.test(raw)) return confidentTotal(Number(raw.replace(',', '.')));
-    if (/^\d{1,3}(?:,\d{3})+$/.test(raw) && (leadingDollar || (hasUsMoneyClue(receiptText, raw) && !hasEuMoneyClue(receiptText, raw)))) {
+    // Comma cents anywhere else mean this group is not a US thousands separator.
+    if (/^\d{1,3}(?:,\d{3})+$/.test(raw) && !hasEuMoneyClue(receiptText, raw)
+      && (leadingDollar || hasUsMoneyClue(receiptText, raw) || hasUsReceiptSignal(receiptText))) {
       return confidentTotal(Number(raw.replace(/,/g, '')));
     }
     return blankTotal();
@@ -121,7 +137,11 @@ function interpretNumber(raw: string, leadingDollar: boolean, receiptText: strin
  * sign, on either side. Other currency symbols before the number are not read here.
  */
 function readAmountAfterLabel(rest: string, receiptText: string): TotalRead {
-  const cleaned = rest.replace(/^[\s:.#\-]+/, '');
+  // A leading minus or parentheses is a credit, not an expense. Leave it blank.
+  const cleaned = rest.replace(/^[\s:.#]+/, '');
+  if (/^[-(]/.test(cleaned) || new RegExp(String.raw`^(?:(?:${CURRENCY_CODES})\s+|\$\s*)[-(]`, 'i').test(cleaned)) {
+    return blankTotal();
+  }
   const match = cleaned.match(new RegExp(
     String.raw`^(?:(?:${CURRENCY_CODES})\s+|(\$)\s*)?(\d[\d.,]*)(.*)$`,
     'i',
@@ -134,11 +154,15 @@ function readAmountAfterLabel(rest: string, receiptText: string): TotalRead {
   return interpretNumber(raw, match[1] === '$', receiptText);
 }
 
-function findTotalLine(lines: string[]): string | null {
-  let best: { rank: number; lineIndex: number; rest: string } | null = null;
+function isIgnoredTotalLine(line: string): boolean {
+  return /\bsub[\s-]?total\b/i.test(line) || TOTAL_NOISE.test(line);
+}
+
+function findTotalCandidates(lines: string[]): { rank: number; lineIndex: number; rest: string }[] {
+  const candidates: { rank: number; lineIndex: number; rest: string }[] = [];
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const line = lines[lineIndex];
-    if (/\bsub[\s-]?total\b/i.test(line)) continue;
+    if (isIgnoredTotalLine(line)) continue;
     const hits: { rank: number; end: number }[] = [];
     for (const label of TOTAL_LABELS) {
       const pattern = new RegExp(String.raw`\b(?:${label.source})\b`, 'gi');
@@ -148,21 +172,45 @@ function findTotalLine(lines: string[]): string | null {
     }
     if (hits.length === 0) continue;
     const rank = Math.min(...hits.map(hit => hit.rank));
-    if (rank > 3 && /\b(?:tax|tip|gratuity|discount|change|tender)\b/i.test(line)) continue;
     const end = Math.max(...hits.map(hit => hit.end));
-    if (!best || rank < best.rank || (rank === best.rank && lineIndex > best.lineIndex)) {
-      best = { rank, lineIndex, rest: line.slice(end) };
-    }
+    candidates.push({ rank, lineIndex, rest: line.slice(end) });
   }
-  return best?.rest ?? null;
+  return candidates;
 }
 
-/** Prefer the labeled total. Subtotal, tax, and tip never supply the saved amount. */
+/** Largest unlabeled $ or USD amount. Subtotal, tax, tip, and other noise lines never count. */
+function readUnlabeledUsAmount(lines: string[]): TotalRead {
+  const amounts: number[] = [];
+  for (const line of lines) {
+    if (isIgnoredTotalLine(line)) continue;
+    const dollar = /(?:^|[^\d.,])\$\s*(\d{1,3}(?:,\d{3})*\.\d{2}|\d+\.\d{2})(?![\d.,])/g;
+    const usd = /(?:^|[^\d.,])(\d{1,3}(?:,\d{3})*\.\d{2}|\d+\.\d{2})\s+USD\b/gi;
+    for (const match of line.matchAll(dollar)) amounts.push(Number(match[1].replace(/,/g, '')));
+    for (const match of line.matchAll(usd)) amounts.push(Number(match[1].replace(/,/g, '')));
+  }
+  const positive = amounts.filter(value => Number.isFinite(value) && value > 0);
+  if (positive.length === 0) return blankTotal();
+  return confidentTotal(Math.max(...positive));
+}
+
+/**
+ * Prefer a positive labeled total. A zero balance due does not replace one.
+ * When no total label is present, fall back to an unlabeled US dollar amount.
+ */
 function readReceiptTotal(text: string): TotalRead {
   const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-  const rest = findTotalLine(lines);
-  if (rest == null) return blankTotal();
-  return readAmountAfterLabel(rest, text);
+  const candidates = findTotalCandidates(lines);
+  let best: { rank: number; lineIndex: number; read: TotalRead } | null = null;
+  for (const candidate of candidates) {
+    const read = readAmountAfterLabel(candidate.rest, text);
+    if (!(typeof read.amount === 'number' && read.amount > 0)) continue;
+    if (!best || candidate.rank < best.rank || (candidate.rank === best.rank && candidate.lineIndex > best.lineIndex)) {
+      best = { rank: candidate.rank, lineIndex: candidate.lineIndex, read };
+    }
+  }
+  if (best) return best.read;
+  if (candidates.length > 0) return blankTotal();
+  return readUnlabeledUsAmount(lines);
 }
 
 export class ReceiptProcessor {

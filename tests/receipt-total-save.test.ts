@@ -74,6 +74,15 @@ describe('saved receipt totals', () => {
     ['TOTAL DUE 12.50', market(['COFFEE 4.00', 'SUBTOTAL 20.00', 'TAX 1.25', 'TIP 5.00', 'TOTAL DUE 12.50']), 12.5],
     ['TOTAL 12,50', market(['ESPRESSO 4,00', 'SUBTOTAL 20,00', 'TAX 1,25', 'TIP 3,00', 'TOTAL 12,50']), 12.5],
     ['TOTAL 1,250.00', market(['COFFEE 4.00', 'SUBTOTAL 20.00', 'TOTAL 1,250.00']), 1250],
+    ['BALANCE DUE 0.00 before TOTAL 12.50', market(['SUBTOTAL 20.00', 'BALANCE DUE 0.00', 'TOTAL 12.50']), 12.5],
+    ['BALANCE DUE 0.00 after TOTAL 12.50', market(['SUBTOTAL 20.00', 'TOTAL 12.50', 'BALANCE DUE 0.00']), 12.5],
+    ['TOTAL TAX after TOTAL 12.50', market(['SUBTOTAL 20.00', 'TOTAL 12.50', 'TOTAL TAX 1.25']), 12.5],
+    ['unlabeled $12.50', market(['$12.50']), 12.5],
+    ['largest of $4.00 $8.00 $12.50', market(['$4.00', '$8.00', '$12.50']), 12.5],
+    ['12.50 USD', market(['12.50 USD']), 12.5],
+    ['TOTAL 1,234 with a state and ZIP', market(['CA 94105', 'TOTAL 1,234']), 1234],
+    ['AMOUNT 2,000 with USD', market(['PAID USD', 'AMOUNT 2,000']), 2000],
+    ['TOTAL 12,500 with a slash date', market(['09/02/2026', 'TOTAL 12,500']), 12500],
   ])('saves %s', async (_label, text, amount) => {
     recognize(text);
     const response = await POST(request());
@@ -94,6 +103,9 @@ describe('saved receipt totals', () => {
     ['cut off TOTAL 12,5', market(['TOTAL 12,5']), [0, 12, 12.5, 125]],
     ['unreadable TOTAL', market(['COFFEE 4.50', 'TOTAL']), [0, 4.5]],
     ['items without a total', market(['COFFEE 4.50', 'MUFFIN 3.25']), [0, 4.5, 3.25, 7.75]],
+    ['TOTAL -12.50', market(['TOTAL -12.50']), [0, 12.5, 12]],
+    ['TOTAL (12.50)', market(['TOTAL (12.50)']), [0, 12.5, 12]],
+    ['thousands with comma cents', market(['CA 94105', 'TAX 1,25', 'TOTAL 1,234']), [0, 1, 1234, 12.34]],
   ])('saves %s blank for review', async (_label, text, forbidden) => {
     recognize(text);
     const response = await POST(request());

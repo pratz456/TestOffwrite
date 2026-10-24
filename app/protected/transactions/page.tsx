@@ -25,6 +25,7 @@ import {
 import { consolidateCategory } from '@/lib/utils';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
+import { formatSignedListAmount } from '@/lib/transactions/amount-display';
 
 interface Transaction {
   id: string;
@@ -480,7 +481,7 @@ export default function TransactionsPage() {
                         <td className="max-w-52 px-4 py-3 text-muted-foreground"><span className="block truncate">{consolidateCategory(transaction.category).displayName}</span></td>
                         <td className="px-4 py-3">{getStatusBadge(transaction)}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-right">
-                          <span className="block font-semibold tabular-nums">{isReceived ? '+' : '-'}${Math.abs(transaction.amount).toFixed(2)}</span>
+                          <span className="block font-semibold tabular-nums">{formatSignedListAmount(transaction.amount, isReceived)}</span>
                           <span className="mt-0.5 block text-xs text-muted-foreground">{transactionDirection(transaction)}</span>
                         </td>
                         <td className="px-2"><ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" /></td>
@@ -498,14 +499,14 @@ export default function TransactionsPage() {
                     key={transaction.id}
                     role="button"
                     tabIndex={0}
-                    aria-label={`View ${transaction.merchant_name}, ${transactionDirection(transaction).toLowerCase()} $${Math.abs(transaction.amount).toFixed(2)}`}
+                    aria-label={`View ${transaction.merchant_name}, ${transactionDirection(transaction).toLowerCase()} ${formatSignedListAmount(transaction.amount, isReceived)}`}
                     className="min-h-11 cursor-pointer px-3 py-3 transition-colors hover:bg-muted/30 active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     onClick={() => openTransaction(transaction)}
                     onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openTransaction(transaction); } }}
                   >
                     <div className="flex items-baseline justify-between gap-3">
                       <p className="min-w-0 truncate text-sm font-semibold">{transaction.merchant_name}</p>
-                      <span className="shrink-0 text-sm font-semibold tabular-nums">{isReceived ? '+' : '-'}${Math.abs(transaction.amount).toFixed(2)}</span>
+                      <span className="shrink-0 text-sm font-semibold tabular-nums">{formatSignedListAmount(transaction.amount, isReceived)}</span>
                     </div>
                     <div className="mt-0.5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
                       <p className="min-w-0 truncate">

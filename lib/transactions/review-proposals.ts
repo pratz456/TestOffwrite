@@ -256,6 +256,7 @@ export function bulkConfirmedLocally(transaction: Transaction, offer: BulkConfir
   };
 }
 
-export function formatMoney(amount: number): string {
+export function formatMoney(amount: number | null): string {
+  if (amount == null) return 'Amount needed';
   return Number.isFinite(amount) ? `$${Math.abs(amount).toFixed(2)}` : 'Amount needs review';
 }
