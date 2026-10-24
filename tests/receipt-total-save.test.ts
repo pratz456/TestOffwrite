@@ -164,6 +164,34 @@ describe('saved receipt totals', () => {
     expect(body.transaction.amountNeedsReview).toBe(true);
   });
 
+  it('saves TOTAL $12,50 as 12.50 through the receipt route', async () => {
+    recognize(market(['TOTAL $12,50']));
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)[2];
+    expect(saved.amount).toBeCloseTo(12.5, 2);
+    expect(saved.suggestedAmount).toBeUndefined();
+    expect(saved.amountNeedsReview).toBeUndefined();
+    expect(saved.amount).not.toBe(0);
+    expect(saved.amount).not.toBe(12);
+    expect(formatListAmount(saved.amount)).toBe('$12.50');
+    expect((await response.json()).transaction.amount).toBeCloseTo(12.5, 2);
+  });
+
+  it('saves TOTAL 12,50 as 12.50 when the address is San Francisco, CA 94107', async () => {
+    recognize(market(['San Francisco, CA 94107', 'TOTAL 12,50']));
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)[2];
+    expect(saved.amount).toBeCloseTo(12.5, 2);
+    expect(saved.suggestedAmount).toBeUndefined();
+    expect(saved.amountNeedsReview).toBeUndefined();
+    expect(saved.amount).not.toBe(0);
+    expect(saved.amount).not.toBe(12);
+    expect(formatListAmount(saved.amount)).toBe('$12.50');
+    expect((await response.json()).transaction.amount).toBeCloseTo(12.5, 2);
+  });
+
   it.each([
     ['a bare dollar', market(['FEE $1', 'TOTAL 12,50'])],
     ['USD', market(['PAID USD', 'TOTAL 12,50'])],

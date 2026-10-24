@@ -276,6 +276,24 @@ describe('receipt totals from US and EU layouts', () => {
     expect(data.amount).not.toBe(12);
   });
 
+  it('saves TOTAL $12,50 as 12.50', async () => {
+    const data = await read(market(['TOTAL $12,50']));
+    expect(data.amount).toBeCloseTo(12.5, 2);
+    expect(data.amountNeedsReview).toBe(false);
+    expect(data.suggestedAmount).toBeUndefined();
+    expect(data.amount).not.toBe(0);
+    expect(data.amount).not.toBe(12);
+  });
+
+  it('saves TOTAL 12,50 when the address is San Francisco, CA 94107', async () => {
+    const data = await read(market(['San Francisco, CA 94107', 'TOTAL 12,50']));
+    expect(data.amount).toBeCloseTo(12.5, 2);
+    expect(data.amountNeedsReview).toBe(false);
+    expect(data.suggestedAmount).toBeUndefined();
+    expect(data.amount).not.toBe(0);
+    expect(data.amount).not.toBe(12);
+  });
+
   it.each([
     ['a bare dollar', market(['FEE $1', 'TOTAL 12,50'])],
     ['USD', market(['PAID USD', 'TOTAL 12,50'])],
@@ -305,7 +323,7 @@ describe('receipt totals from US and EU layouts', () => {
     expect(data.amount).not.toBe(12);
   });
 
-  it('keeps a suggested comma total out of totals, on the held out line, and blocks filing', async () => {
+  it('saves bare TOTAL 12,50 with no US signal blank, suggests 12.50 under Amount needed, and excludes it from totals', async () => {
     const data = await read(market(['TOTAL 12,50']));
     expect(data.amount).toBeNull();
     expect(data.suggestedAmount).toBe(12.5);
