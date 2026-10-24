@@ -24,6 +24,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb } from '@/lib/firebase/admin';
 import { getOpenAIClientOrThrow, getOpenAIModel } from '@/lib/openai/client';
 import { overlapKey } from '@/lib/transactions/historical-overlap';
+import { duplicateHoldOutMember } from '@/lib/transactions/duplicate-hold-out';
 import { z } from 'zod';
 import { MAX_RECEIPT_BYTES, ReceiptRequestError, receiptFormData, receiptSignatureMatches } from '@/lib/firebase/receipt-security';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
@@ -417,6 +418,7 @@ async function saveTransactions(uid: string, rows: ImportedTransaction[], metada
     let statementMatch = false;
     let crossDocument = false;
     let ambiguousAccount = false;
+    let holdOutIncoming = false;
     for (const existing of existingRows) {
       if (existing.date !== date || existing.cents !== cents || existing.direction !== direction) continue;
       const crossType = incomingReceipt !== existing.receipt;
@@ -424,14 +426,18 @@ async function saveTransactions(uid: string, rows: ImportedTransaction[], metada
         if (incomingReceipt && !existing.receipt && existing.description === description) statementMatch = true;
         else {
           crossDocument = true;
-          if (!existing.legacy) item.flagExisting.push({ ref: existing.ref, reason: 'cross_document' });
+          const choice = duplicateHoldOutMember({ incomingIsReceipt: incomingReceipt, existingIsReceipt: existing.receipt });
+          if (choice === 'incoming' || choice === 'both') holdOutIncoming = true;
+          if ((choice === 'existing' || choice === 'both') && !existing.legacy) item.flagExisting.push({ ref: existing.ref, reason: 'cross_document' });
         }
         continue;
       }
       if (existing.description !== description) continue;
       if (accountRelation(incomingIdentity, existing) === 'uncertain') {
         ambiguousAccount = true;
-        if (!existing.legacy) item.flagExisting.push({ ref: existing.ref, reason: 'ambiguous_account' });
+        const choice = duplicateHoldOutMember({ incomingIsReceipt: incomingReceipt, existingIsReceipt: existing.receipt });
+        if (choice === 'incoming' || choice === 'both') holdOutIncoming = true;
+        if ((choice === 'existing' || choice === 'both') && !existing.legacy) item.flagExisting.push({ ref: existing.ref, reason: 'ambiguous_account' });
       }
     }
     item.legacyMatch = legacyMatch;
@@ -443,7 +449,9 @@ async function saveTransactions(uid: string, rows: ImportedTransaction[], metada
       : ambiguousAccount ? 'ambiguous_account'
       : bankLinked ? 'bank_linked'
       : null;
-    if (reason) {
+    const holdIncoming = reason === 'statement_match' || reason === 'legacy_match' || reason === 'bank_linked'
+      || ((reason === 'cross_document' || reason === 'ambiguous_account') && holdOutIncoming);
+    if (reason && holdIncoming) {
       item.data.possibleDuplicate = true;
       item.data.possibleDuplicateReason = reason;
     }

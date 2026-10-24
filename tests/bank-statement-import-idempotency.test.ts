@@ -2,8 +2,12 @@ import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { aggregateScheduleC } from '@/lib/schedule-c/aggregate';
+import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
+import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
 import { preparerMonthlySummary } from '@/lib/reports/preparer-report';
+import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
 import { overlapKey } from '@/lib/transactions/historical-overlap';
+import { summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { sumExpensesForQuarter } from '@/lib/tax-provider/quarterly-estimates';
 import { buildFederalTaxSnapshot } from '@/lib/tax-rules/federal-tax-snapshot';
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
@@ -348,10 +352,42 @@ describe('statement import document ids', () => {
       preparer,
     };
   }
-  function expectNotDoubleCounted() {
-    const totals = expenseTotals();
-    expect(totals).toEqual({ scheduleC: 0, snapshot: 0, quarter: 0, preparer: 0 });
-    for (const value of Object.values(totals)) expect(value).not.toBe(1000);
+  async function expectOneChargeCounted() {
+    const rows = confirmedRows();
+    const schedule = aggregateScheduleC(rows as never, '2026', undefined, { mode: 'confirmed-only' });
+    const snapshot = buildFederalTaxSnapshot({
+      taxYear: 2026, profile: { filing_status: 'single' }, organizer: reviewedPersonalDeductionOrganizer(),
+      transactions: rows, grossReceipts: [{ amount: 100000 }], forms1099: [], w2Entries: [], deductions: {}, assets: [], estimatedPayments: 0,
+    });
+    const quarter = sumExpensesForQuarter(rows as never, 2026, 2, 'UTC').confirmed_deductible_expenses;
+    const dashboard = summarizeConfirmedDeductions(rows, 2026).totalDeductible;
+    const preparer = [...preparerMonthlySummary(rows, 2026).groups.values()].reduce((sum, months) => sum + months.reduce((inner, row) => inner + row.outflow, 0), 0) / 100;
+    const totals = { scheduleC: schedule.totalDeductible, annual: snapshot.income.totalDeductible, quarter, dashboard, preparer };
+    expect(totals).toEqual({ scheduleC: 500, annual: 500, quarter: 500, dashboard: 500, preparer: 500 });
+    for (const value of Object.values(totals)) {
+      expect(value).not.toBe(0);
+      expect(value).not.toBe(1000);
+    }
+    const heldOut = summarizeHeldOutDuplicates(rows, 2026);
+    expect(heldOut).toMatchObject({ count: 1, income: { count: 0, amount: 0 }, expenses: { count: 1, amount: 500 } });
+    expect(heldOut.message).toContain('1 possible duplicate row');
+    expect(heldOut.message).toContain('$500.00');
+    expect(heldOut.message).not.toContain('$1,000.00');
+    expect(heldOut.message).not.toContain('$0.00');
+    const csv = generateScheduleCCSV(schedule.lineItemsArray, 2026);
+    expect(csv).toContain('500');
+    expect(csv).not.toContain('1000');
+    expect(csv).not.toContain('0.00');
+    const { PDFPage } = await import('pdf-lib');
+    const spy = vi.spyOn(PDFPage.prototype, 'drawText');
+    await generateScheduleCPlanningPDF({ taxYear: 2026, grossReceipts: 100000, lineItems: schedule.lineItemsArray, includeAppendix: false, heldOutDuplicates: heldOut });
+    const text = spy.mock.calls.map(call => String(call[0])).join('\n').replace(/\s+/g, ' ');
+    expect(text).toContain('$500.00');
+    expect(text).toContain('1 row');
+    expect(text).toContain('Held out expenses');
+    expect(text).not.toContain('$1,000.00');
+    expect(text).not.toContain('$0.00');
+    spy.mockRestore();
   }
   async function uploadReceipt(merchant: string, date: string, amount: number) {
     mocks.create.mockResolvedValueOnce({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({
@@ -369,7 +405,7 @@ describe('statement import document ids', () => {
     return freeze(copy);
   }
 
-  it('flags both reads of the same card when the digits are missing and the charge is not 1000 in any tax total', async () => {
+  it('holds out the later read of the same card and counts the first 500 charge', async () => {
     const first = await upload([officeCharge], { bankName: 'Chase', accountLast4: '4242' }, PNG, 'credit_card');
     const before = frozenImportDocs();
     const second = await upload([officeCharge], { bankName: 'Chase', accountLast4: null }, PNG, 'credit_card');
@@ -377,15 +413,13 @@ describe('statement import document ids', () => {
     expect(second.body).toMatchObject({ imported: 1, alreadyImported: 0, flaggedLegacy: 0 });
     expect(importDocs()).toHaveLength(2);
     const flagged = importDocs().filter(doc => doc.data.possibleDuplicate === true);
-    expect(flagged).toHaveLength(2);
-    expect(flagged.every(doc => doc.data.possibleDuplicateReason === 'ambiguous_account')).toBe(true);
-    expect(flagged.every(doc => doc.data.amount === 500)).toBe(true);
-    expect(importDocs().find(doc => doc.data.accountLast4 == null)?.data.statementKind).toBe('credit_card');
-    for (const [path, frozen] of before) expect(withoutFlags(docs.get(path)!)).toBe(frozen);
-    expectNotDoubleCounted();
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].data).toMatchObject({ possibleDuplicateReason: 'ambiguous_account', amount: 500, accountLast4: null, statementKind: 'credit_card' });
+    for (const [path, frozen] of before) expect(freeze(docs.get(path))).toBe(frozen);
+    await expectOneChargeCounted();
   });
 
-  it('flags both the receipt and the later statement row and the charge is not 1000 in any tax total', async () => {
+  it('holds out the statement imported after the receipt and counts the receipt', async () => {
     const receipt = await uploadReceipt('Office Depot', officeCharge.date, 500);
     expect(receipt.body).toMatchObject({ imported: 1, alreadyImported: 0 });
     const before = frozenImportDocs();
@@ -393,15 +427,14 @@ describe('statement import document ids', () => {
     expect(statement.body).toMatchObject({ imported: 1, alreadyImported: 0, flaggedLegacy: 0 });
     expect(importDocs()).toHaveLength(2);
     const flagged = importDocs().filter(doc => doc.data.possibleDuplicate === true);
-    expect(flagged).toHaveLength(2);
-    expect(flagged.every(doc => doc.data.possibleDuplicateReason === 'cross_document' && doc.data.amount === 500)).toBe(true);
-    expect(flagged.some(doc => doc.data.importedFromStatement === true)).toBe(true);
-    expect(flagged.some(doc => doc.data.source === 'receipt')).toBe(true);
-    for (const [path, frozen] of before) expect(withoutFlags(docs.get(path)!)).toBe(frozen);
-    expectNotDoubleCounted();
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].data).toMatchObject({ possibleDuplicateReason: 'cross_document', amount: 500, importedFromStatement: true });
+    expect(importDocs().find(doc => doc.data.source === 'receipt')?.data.possibleDuplicate).not.toBe(true);
+    for (const [path, frozen] of before) expect(freeze(docs.get(path))).toBe(frozen);
+    await expectOneChargeCounted();
   });
 
-  it('flags both the statement descriptor and the different receipt merchant and the charge is not 1000 in any tax total', async () => {
+  it('holds out the statement when the later receipt merchant differs and counts the receipt', async () => {
     const statement = await upload([{ ...officeCharge, description: 'SQ *OFFICE DEPOT 4421' }], { bankName: 'Chase', accountLast4: '4242' }, PNG, 'credit_card');
     expect(statement.body).toMatchObject({ imported: 1, alreadyImported: 0 });
     const before = frozenImportDocs();
@@ -409,10 +442,11 @@ describe('statement import document ids', () => {
     expect(receipt.body).toMatchObject({ imported: 1, alreadyImported: 0 });
     expect(importDocs()).toHaveLength(2);
     const flagged = importDocs().filter(doc => doc.data.possibleDuplicate === true);
-    expect(flagged).toHaveLength(2);
-    expect(flagged.every(doc => doc.data.possibleDuplicateReason === 'cross_document' && doc.data.amount === 500)).toBe(true);
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].data).toMatchObject({ possibleDuplicateReason: 'cross_document', amount: 500, importedFromStatement: true });
+    expect(importDocs().find(doc => doc.data.source === 'receipt')?.data.possibleDuplicate).not.toBe(true);
     for (const [path, frozen] of before) expect(withoutFlags(docs.get(path)!)).toBe(frozen);
-    expectNotDoubleCounted();
+    await expectOneChargeCounted();
   });
 
   it('counts a card charge and a same day checking charge at the same merchant as two expenses', async () => {
