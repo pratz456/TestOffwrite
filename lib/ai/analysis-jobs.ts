@@ -3,6 +3,8 @@ import { adminDb } from '@/lib/firebase/admin';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 import { analyzeTransactionWithRetry, convertToEnhancedContext, findMissingUserFields, type TransactionInput } from './analyzeTransaction';
 import { getAIProviderStatus } from './provider-status';
+import { getOpenAIClientOrThrow } from '@/lib/openai/client';
+import { isConsentRequired, isOpenAINotConfigured } from '@/lib/openai/consent';
 import { analysisProfileHash } from './profile-context';
 import { loadTaxpayerContext } from './taxpayer-context-server';
 import { analysisInputHash, analysisLeaseUpdate, analysisSuggestionUpdate, createAnalysisLease,
@@ -173,6 +175,23 @@ export async function processAnalysisTask(taskId: string, generation: string): P
   const address = { userId: initial.userId, accountId: initial.accountId, transactionId: initial.transactionId };
   if (!Object.values(address).every(validAnalysisId) || analysisTaskId(address) !== taskId) return { status: 'invalid', retry: false };
   const ref = refs(address);
+  if (initial.status === 'queued' || initial.status === 'retry_wait') {
+    try {
+      await getOpenAIClientOrThrow({ uid: address.userId, purpose: 'transaction_analysis', requestedAt: new Date() });
+    } catch (error) {
+      if (!isConsentRequired(error)) {
+        if (!isOpenAINotConfigured(error)) throw error;
+      } else {
+        await adminDb.runTransaction(async tx => {
+          const task = await tx.get(taskRef);
+          const work = task.data();
+          if (!work || work.generation !== generation || ['completed', 'failed', 'paused', 'skipped'].includes(work.status)) return;
+          tx.update(taskRef, { status: 'paused', lastErrorCode: 'CONSENT_REQUIRED', finishedAt: Date.now() });
+        });
+        return { status: 'paused', retry: false, code: 'CONSENT_REQUIRED' };
+      }
+    }
+  }
 
   const claim = await adminDb.runTransaction(async tx => {
     const [task, record, profile, account, job] = await Promise.all([tx.get(taskRef), tx.get(ref.transaction), tx.get(ref.profile), tx.get(ref.account), tx.get(ref.job)]);

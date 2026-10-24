@@ -26,13 +26,24 @@ export async function POST(request: NextRequest) {
   if (input.imageDataUrl && !isSupportedImage(input.imageDataUrl)) {
     return NextResponse.json({ error: 'Attach a valid JPEG, PNG, or WebP photo under 2 MB.' }, { status: 400 });
   }
+  let openai;
+  try {
+    openai = await getOpenAIClientOrThrow({ uid: user.uid, purpose: 'tax_assistant', requestedAt: new Date(), timeout: 45000, maxRetries: 0 });
+  } catch (error) {
+    if (isConsentRequired(error) || isImageProcessingNotApproved(error)) {
+      return NextResponse.json({ code: isConsentRequired(error) ? 'CONSENT_REQUIRED' : 'IMAGE_PROCESSING_NOT_APPROVED', error: MODEL_CONSENT_UNAVAILABLE }, { status: 403 });
+    }
+    if (isOpenAINotConfigured(error)) {
+      return NextResponse.json({ error: 'The tax assistant is not configured yet. Your question has not been sent for analysis.' }, { status: 503 });
+    }
+    return NextResponse.json({ error: 'The assistant is temporarily unavailable. Your draft is ready to retry.' }, { status: 503 });
+  }
   const limit = await enforceRateLimit({ ...RATE_LIMITS.aiTaxAssistant, key: user.uid });
   if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many assistant requests. Please wait a few minutes and try again.' });
   // Owner-scoped saved facts and (only when a merchant is named) a bounded read of the user's own rows.
   const context = await loadAssistantContext(user.uid, input.message, input.taxYear).catch(() => null);
 
   try {
-    const openai = await getOpenAIClientOrThrow({ uid: user.uid, purpose: 'tax_assistant', requestedAt: new Date(), timeout: 45000, maxRetries: 0 });
     const completion = await openai.chat.completions.create({
       model: getOpenAIModel('assistant'),
       messages: buildGuidanceMessages(input, context),

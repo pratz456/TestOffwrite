@@ -158,12 +158,14 @@ afterEach(() => {
 });
 
 async function expectNoModel(response: Response) {
+  const body = await response.json().catch(() => null) as { code?: string } | null;
+  const detail = `status ${response.status} code ${body?.code ?? 'none'} create ${state.create.mock.calls.length}`;
+  expect(state.construct.mock.calls.length, detail).toBe(0);
+  expect(state.create.mock.calls.length, detail).toBe(0);
   expect(response.status).not.toBe(500);
   expect(response.status).not.toBe(503);
   expect(response.status).toBe(403);
-  expect(await response.json()).toMatchObject({ code: 'CONSENT_REQUIRED' });
-  expect(state.construct).not.toHaveBeenCalled();
-  expect(state.create).not.toHaveBeenCalled();
+  expect(body).toMatchObject({ code: 'CONSENT_REQUIRED' });
 }
 
 describe('entry points make zero model calls without a disclosure grant', () => {
@@ -199,13 +201,27 @@ describe('entry points make zero model calls without a disclosure grant', () => 
     expect(state.construct).not.toHaveBeenCalled();
     expect(state.create).not.toHaveBeenCalled();
   });
-  it('zero calls: legacy analysis helpers', async () => {
+  it('zero calls: legacy analyzeTransaction', async () => {
     await expect(legacyAnalysis.analyzeTransaction({ merchant_name: 'Adobe', amount: 10, userId: state.uid }, { user_id: state.uid })).rejects.toMatchObject({ code: 'CONSENT_REQUIRED' });
-    await expect(legacyAnalysis.analyzeTransactionDeductibility({ merchant_name: 'Adobe', amount: 10, userId: state.uid })).rejects.toMatchObject({ code: 'CONSENT_REQUIRED' });
-    await expect(legacyAnalysis.analyzeAllTransactions(state.uid)).resolves.toMatchObject({ success: false });
-    await expect(legacyAnalysis.generateTaxSummary(state.uid)).resolves.toMatchObject({ success: false });
     expect(state.construct).not.toHaveBeenCalled();
     expect(state.create).not.toHaveBeenCalled();
+  });
+  it('zero calls: legacy analyzeTransactionDeductibility', async () => {
+    await expect(legacyAnalysis.analyzeTransactionDeductibility({ merchant_name: 'Adobe', amount: 10, userId: state.uid })).rejects.toMatchObject({ code: 'CONSENT_REQUIRED' });
+    expect(state.construct).not.toHaveBeenCalled();
+    expect(state.create).not.toHaveBeenCalled();
+  });
+  it('zero calls: analyzeAllTransactions', async () => {
+    const result = await legacyAnalysis.analyzeAllTransactions(state.uid);
+    expect(state.construct).not.toHaveBeenCalled();
+    expect(state.create).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ success: false, code: 'CONSENT_REQUIRED' });
+  });
+  it('zero calls: generateTaxSummary', async () => {
+    const result = await legacyAnalysis.generateTaxSummary(state.uid);
+    expect(state.construct).not.toHaveBeenCalled();
+    expect(state.create).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ success: false, code: 'CONSENT_REQUIRED' });
   });
   it('zero calls: analysis worker', async () => {
     const address = { userId: state.uid, accountId: 'acct', transactionId: 'tx1' };

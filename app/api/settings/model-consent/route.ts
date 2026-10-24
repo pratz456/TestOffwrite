@@ -4,6 +4,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import {
   acceptDisclosureConsent, acceptReuseConsent, declineModelConsent, readModelConsentBundle, withdrawModelConsent,
 } from '@/lib/openai/consent';
+import { MODEL_CONSENT_SAVE_ERROR, isModelPurpose, isValidTimeZone } from '@/lib/openai/consent-contract';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,10 +16,13 @@ const postInput = z.discriminatedUnion('action', [
     action: z.literal('accept'),
     acknowledged: z.literal(true),
     signedName: z.string().trim().min(1).max(200),
+    purpose: z.string().refine(isModelPurpose),
+    timeZone: z.string().trim().min(1).max(120),
   }).strict(),
   z.object({
     action: z.literal('accept_reuse'),
     acknowledged: z.literal(true),
+    timeZone: z.string().trim().min(1).max(120),
   }).strict(),
 ]);
 
@@ -46,9 +50,13 @@ export async function POST(request: NextRequest) {
   try {
     if (parsed.data.action === 'withdraw') return json({ success: true, ...(await withdrawModelConsent(user.uid, requestedAt)) });
     if (parsed.data.action === 'decline') return json({ success: true, ...(await declineModelConsent(user.uid, requestedAt)) });
-    if (parsed.data.action === 'accept_reuse') return json({ success: true, ...(await acceptReuseConsent(user.uid, requestedAt)) });
-    return json({ success: true, ...(await acceptDisclosureConsent(user.uid, parsed.data.signedName, requestedAt)) });
+    if (parsed.data.action === 'accept_reuse') {
+      if (!isValidTimeZone(parsed.data.timeZone)) return json({ error: 'Send a supported consent action.' }, 400);
+      return json({ success: true, ...(await acceptReuseConsent(user.uid, parsed.data.timeZone, requestedAt)) });
+    }
+    if (!isModelPurpose(parsed.data.purpose) || !isValidTimeZone(parsed.data.timeZone)) return json({ error: 'Send a supported consent action.' }, 400);
+    return json({ success: true, ...(await acceptDisclosureConsent(user.uid, parsed.data.signedName, parsed.data.purpose, parsed.data.timeZone, requestedAt)) });
   } catch {
-    return json({ error: 'Consent could not be saved.' }, 500);
+    return json({ error: MODEL_CONSENT_SAVE_ERROR }, 500);
   }
 }

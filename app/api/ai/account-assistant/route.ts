@@ -33,10 +33,19 @@ export async function POST(request: NextRequest) {
   const guidance = () => taxGuidance(new NextRequest(new URL('/api/ai/tax-assistant', request.url), { method: 'POST', headers, body: JSON.stringify(input) }));
   // Photos retain the established bounded, source-backed guidance path.
   if (input.imageDataUrl) return guidance();
+  let client;
+  try {
+    client = await getOpenAIClientOrThrow({ uid: user.uid, purpose: 'account_assistant', requestedAt: new Date(), timeout: 30000, maxRetries: 0 });
+  } catch (error) {
+    if (isConsentRequired(error) || isImageProcessingNotApproved(error)) {
+      return json({ code: isConsentRequired(error) ? 'CONSENT_REQUIRED' : 'IMAGE_PROCESSING_NOT_APPROVED', error: MODEL_CONSENT_UNAVAILABLE }, 403);
+    }
+    if (isOpenAINotConfigured(error)) return json({ error: 'The assistant is not configured. Your draft is ready to retry.' }, 503);
+    return json({ error: 'The assistant is temporarily unavailable. Your draft is ready to retry.' }, 503);
+  }
   const limit = await enforceRateLimit({ ...RATE_LIMITS.aiTaxAssistant, key: `account:${user.uid}` });
   if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many assistant requests. Please retry in a few minutes.' });
   try {
-    const client = await getOpenAIClientOrThrow({ uid: user.uid, purpose: 'account_assistant', requestedAt: new Date(), timeout: 30000, maxRetries: 0 });
     const result = await client.chat.completions.create({ model: getOpenAIModel('assistant'), messages: accountRouterMessages(input),
       response_format: { type: 'json_object' }, max_completion_tokens: 120, store: false });
     const choice = result.choices[0];
