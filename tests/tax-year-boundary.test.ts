@@ -104,8 +104,8 @@ it('keeps 2027-01-01 00:30 Asia/Tokyo in tax year 2027', () => {
 it.each([
   ['no saved zone', undefined],
   ['refused zone Z', 'Z'],
-] as const)('2027-01-01T07:30Z with %s is in neither year', (_label, zone) => {
-  // Pago Pago reads 2026-12-31 and St Thomas reads 2027-01-01, so the fallback leaves the charge out of both years.
+] as const)('2027-01-01T07:30Z with %s needs more information and has no tax year', (_label, zone) => {
+  // Pago Pago reads 2026-12-31 and St Thomas reads 2027-01-01. They disagree, so the row is needs more information and is not in 2026 or 2027.
   const row = charge('boundary-row', LOS_ANGELES_NEW_YEAR, zone);
   for (const year of [2026, 2027]) {
     const result = reconcile(year, row);
@@ -120,8 +120,8 @@ it.each([
 it.each([
   ['no saved zone', undefined],
   ['refused zone Z', 'Z'],
-] as const)('2026-12-31T15:30Z with %s lands in 2026', (_label, zone) => {
-  // Pago Pago and St Thomas both read 2026-12-31, so the fallback year is 2026.
+] as const)('2026-12-31T15:30Z with %s lands in tax year 2026', (_label, zone) => {
+  // Pago Pago and St Thomas both read 2026-12-31, so the row is in tax year 2026 and not in 2027.
   const row = charge('boundary-row', TOKYO_NEW_YEAR, zone);
   const year2026 = reconcile(2026, row);
   expect(placedDay(2026, row)).toBe('2026-12-31');
