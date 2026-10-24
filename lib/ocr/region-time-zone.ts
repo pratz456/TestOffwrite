@@ -1,7 +1,8 @@
 /**
  * A region zone, or UTC.
- * The canonical name must look like Area/Location. Etc/ names, fixed offsets,
- * and abbreviations such as est are not stored and are not used as the zone.
+ * The canonical name must look like Area/Location. Etc/ names, SystemV/ names,
+ * fixed offsets, and abbreviations such as est are not stored and are not used
+ * as the zone.
  * An abbreviation is never rewritten into a region.
  * The saved region name is whatever this Node zone table returns. Asia/Kolkata
  * may be saved as Asia/Calcutta, and Asia/Kathmandu as Asia/Katmandu. A saved
@@ -10,7 +11,7 @@
  * utc, etc/utc, etc/gmt, gmt, etc/universal, universal, etc/zulu, zulu, gmt0,
  * etc/gmt0, etc/gmt+0, gmt+0, gmt-0, etc/gmt-0, uct, etc/uct, greenwich, and
  * etc/greenwich. Z, numeric offsets, GMT+5, Etc/GMT with an hour other than 0,
- * EST, PST, EST5EDT, and CST6CDT stay unset.
+ * EST, PST, EST5EDT, CST6CDT, and names starting with SystemV/ stay unset.
  */
 
 /** Names stored as UTC. Comparison is lowercase. Intl resolves each of these to UTC. */
@@ -44,7 +45,7 @@ export function regionUploadTimeZone(value: unknown): string | undefined {
     return undefined;
   }
   if (canonical === 'UTC') return UTC_ZONE_ALIASES.has(value.toLowerCase()) ? 'UTC' : undefined;
-  if (!canonical.includes('/') || canonical.startsWith('Etc/')) return undefined;
+  if (!canonical.includes('/') || canonical.startsWith('Etc/') || canonical.startsWith('SystemV/')) return undefined;
   if (!value.includes('/') && value.toLowerCase() !== canonical.toLowerCase()) return undefined;
   return canonical;
 }

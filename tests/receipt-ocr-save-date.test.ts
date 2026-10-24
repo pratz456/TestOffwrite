@@ -160,6 +160,24 @@ describe('OCR receipt save requires a real calendar day', () => {
     expect(updates.uploadTimeZone).toBe('UTC');
   });
 
+  // Legacy fixed offset names under SystemV/ stay unset, same as Etc/. America/Los_Angeles is still stored.
+  it.each(['SystemV/PST8', 'SystemV/EST5EDT'])('refuses %s, stores nothing, and still stores America/Los_Angeles', async zone => {
+    ocrDate('2026-09-15');
+    expect(regionUploadTimeZone(zone)).toBeUndefined();
+    const refused = await POST(request(zone));
+    expect(refused.status).toBe(200);
+    expect(mocks.processReceipt).toHaveBeenCalledWith(expect.any(Buffer), undefined);
+    const refusedSaved = mocks.createTransaction.mock.calls.at(-1)?.[2] as Record<string, unknown>;
+    expect(refusedSaved).not.toHaveProperty('uploadTimeZone');
+    const accepted = await POST(request('America/Los_Angeles'));
+    expect(accepted.status).toBe(200);
+    expect(regionUploadTimeZone('America/Los_Angeles')).toBe('America/Los_Angeles');
+    expect(mocks.createTransaction).toHaveBeenLastCalledWith(owner, 'manual', expect.objectContaining({
+      date: '2026-09-15',
+      uploadTimeZone: 'America/Los_Angeles',
+    }));
+  });
+
   // GMT+5 stays unset. Intl rejects that name before the alias list is checked. The upload still returns 200.
   it.each(['est', 'EST', 'pst', 'PST', 'EST5EDT', 'CST6CDT', 'GMT+5', 'Etc/GMT+1', 'UTC+0', 'Etc/GMT+5', 'Etc/GMT-3', '+05:00', 'Z'])('rejects %s and still returns 200', async zone => {
     ocrDate('2026-09-15');
