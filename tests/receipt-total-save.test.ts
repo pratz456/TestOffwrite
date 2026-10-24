@@ -20,6 +20,7 @@ vi.mock('@/lib/firebase/admin', () => ({ adminApp: { name: 'firebase-frameworks'
 vi.mock('firebase-admin/storage', () => ({ getStorage: () => ({ bucket: mocks.bucket, app: { options: {} } }) }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 import { POST } from '../app/api/receipts/process/route';
+import { formatListAmount } from '@/lib/transactions/amount-display';
 import { receiptProcessor } from '@/lib/ocr/receipt-processor';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
@@ -131,6 +132,36 @@ describe('saved receipt totals', () => {
     expect(body.transaction.amount).not.toBe(0);
     expect(body.transaction.deductionStatus).toBe('Needs more information');
     expect(body.transaction.tax_review_required).toBe(true);
+  });
+
+  it('saves TOTAL DUE 12.50, TOTAL DUE ALL 12.50, and TOTAL 12,50 through the receipt route', async () => {
+    for (const line of ['TOTAL DUE 12.50', 'TOTAL DUE ALL 12.50']) {
+      recognize(market([line]));
+      const response = await POST(request());
+      expect(response.status).toBe(200);
+      const saved = mocks.createTransaction.mock.calls.at(-1)[2];
+      expect(saved.amount).toBeCloseTo(12.5, 2);
+      expect(saved.amount).not.toBe(0);
+      expect(saved.amount).not.toBe(12);
+      expect(saved.amountNeedsReview).toBeUndefined();
+      expect(formatListAmount(saved.amount)).toBe('$12.50');
+      expect((await response.json()).transaction.amount).toBeCloseTo(12.5, 2);
+    }
+    recognize(market(['TOTAL 12,50']));
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)[2];
+    expect(saved.amount).toBeNull();
+    expect(saved.amountNeedsReview).toBe(true);
+    expect(saved.amount).not.toBe(0);
+    expect(saved.amount).not.toBe(12);
+    expect(saved.amount).not.toBe(12.5);
+    expect(formatListAmount(saved.amount)).toBe('Amount needed');
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
+    const body = await response.json();
+    expect(body.transaction.amount).toBeNull();
+    expect(body.transaction.amountNeedsReview).toBe(true);
   });
 
   it.each([80.25, 12.5])('keeps a user typed amount %s', async amount => {

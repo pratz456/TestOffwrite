@@ -146,9 +146,10 @@ function hasUsReceiptSignal(text: string): boolean {
 }
 
 /**
- * Read one numeric token. A comma and exactly two digits, with no dot, is a decimal.
- * A thousands group with no decimal part is used only when another amount on the
- * receipt shows the same format. Otherwise the total is left blank.
+ * Read one numeric token. A comma and exactly two digits is a decimal when another
+ * amount uses that form, or a US signal is present. With neither, the total is blank
+ * so 12,50 is not saved as 12. A thousands group is used only when the receipt shows
+ * the same format. Otherwise the total is left blank.
  */
 function interpretNumber(raw: string, leadingDollar: boolean, receiptText: string): TotalRead {
   if (!/^\d+(?:[.,]\d+)*$/.test(raw)) return blankTotal();
@@ -171,7 +172,12 @@ function interpretNumber(raw: string, leadingDollar: boolean, receiptText: strin
       }
       return blankTotal();
     }
-    if (/^\d+,\d{2}$/.test(raw)) return confidentTotal(Number(raw.replace(',', '.')));
+    if (/^\d+,\d{2}$/.test(raw)) {
+      if (hasEuMoneyClue(receiptText, raw) || leadingDollar || hasUsReceiptSignal(receiptText)) {
+        return confidentTotal(Number(raw.replace(',', '.')));
+      }
+      return blankTotal();
+    }
     // Comma cents anywhere else mean this group is not a US thousands separator.
     if (/^\d{1,3}(?:,\d{3})+$/.test(raw) && !hasEuMoneyClue(receiptText, raw)
       && (leadingDollar || hasUsMoneyClue(receiptText, raw) || hasUsReceiptSignal(receiptText))) {
@@ -195,7 +201,8 @@ function interpretNumber(raw: string, leadingDollar: boolean, receiptText: strin
  * sign, on either side. Other currency symbols before the number are not read here.
  */
 function readAmountAfterLabel(rest: string, receiptText: string): TotalRead {
-  const cleaned = rest.replace(/^[\s:.#]+/, '');
+  // "TOTAL DUE ALL 12.50" keeps the amount. ALL is not part of the number.
+  const cleaned = rest.replace(/^[\s:.#]+/, '').replace(/^ALL\b\s+/i, '');
   // Keep the minus. Parentheses are the same credit. Never return a positive expense.
   const signed = cleaned.match(new RegExp(
     String.raw`^(?:(?:${CURRENCY_CODES})\s+|(\$)\s*)?(?:-\s*(\$)?\s*(\d[\d.,]*)|\(\s*(\$)?\s*(\d[\d.,]*)\s*\))`,

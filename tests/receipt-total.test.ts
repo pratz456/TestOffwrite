@@ -255,4 +255,28 @@ describe('receipt totals from US and EU layouts', () => {
     expect(data.amountNeedsReview).toBe(false);
     expect(data.amount).not.toBe(0.33);
   });
+
+  it('reads TOTAL DUE 12.50', async () => {
+    const data = await read(market(['TOTAL DUE 12.50']));
+    expect(data.amount).toBeCloseTo(12.5, 2);
+    expect(data.amountNeedsReview).toBe(false);
+    expect(data.amount).not.toBe(0);
+  });
+
+  it('reads TOTAL DUE ALL 12.50', async () => {
+    const data = await read(market(['TOTAL DUE ALL 12.50']));
+    expect(data.amount).toBeCloseTo(12.5, 2);
+    expect(data.amountNeedsReview).toBe(false);
+    expect(data.amount).not.toBe(0);
+    expect(data.amount).not.toBe(12);
+  });
+
+  it('leaves TOTAL 12,50 blank when the receipt has no US signal', async () => {
+    const data = await read(market(['TOTAL 12,50']));
+    expect(data.amount).toBeNull();
+    expect(data.amountNeedsReview).toBe(true);
+    expect(data.amount).not.toBe(0);
+    expect(data.amount).not.toBe(12);
+    expect(data.amount).not.toBe(12.5);
+  });
 });
