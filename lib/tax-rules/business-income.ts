@@ -1,4 +1,5 @@
 import { resolveIncomeSources, type FeeExpenseCandidate, type IncomeReconciliationConflict, type IncomeSourceCandidate } from './income-reconciliation';
+import { isExcludedFromTaxTotals } from '@/lib/transactions/duplicate-hold-out';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 
 export type IncomeRecord = Record<string, unknown>;
@@ -30,7 +31,7 @@ export function listIncomeSourceCandidates(taxYear: number, transactions: Readon
   for (const tx of transactions) {
     // Pending, bank-removed, superseded, and flagged possible duplicates are never income candidates.
     // Unflagged credits are unchanged: an income or revenue category still counts.
-    if (!isCountableRecord(tx) || tx.possibleDuplicate === true || typeof tx.date !== 'string' || Number(tx.date.slice(0, 4)) !== taxYear) continue;
+    if (!isCountableRecord(tx) || isExcludedFromTaxTotals(tx) || typeof tx.date !== 'string' || Number(tx.date.slice(0, 4)) !== taxYear) continue;
     const category = typeof tx.category === 'string' ? tx.category.toLowerCase() : '';
     // Both transaction readers derive `type` from the amount sign, including
     // manual-account refunds. Require a recorded income category for every

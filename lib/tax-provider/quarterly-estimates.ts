@@ -1,5 +1,6 @@
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { isExcludedFromTaxTotals } from '@/lib/transactions/duplicate-hold-out';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { QuarterlyReviewRequiredError, QUARTERLY_REVIEW_MESSAGE } from './regular-estimated-payments';
 
@@ -32,6 +33,7 @@ export type QuarterlyTransactionLike = {
   tax_review_required?: boolean;
   is_deductible?: boolean | null; // confirmed true, or null/undefined for needs review, false for non-deductible
   possibleDuplicate?: boolean;
+  duplicateResolution?: 'both_real' | 'duplicate';
 };
 
 const BUSINESS_CATEGORIES = new Set(Object.keys(CATEGORY_MAP));
@@ -186,7 +188,7 @@ export function sumIncomeForQuarter(
 
   let grossIncomeCents = 0;
   for (const tx of deduped) {
-    if (tx.possibleDuplicate === true) continue;
+    if (isExcludedFromTaxTotals(tx)) continue;
     if (!isPosted(tx)) continue;
     if (!tx.category) continue;
 
@@ -227,7 +229,7 @@ function sumExpensesLikeForQuarter(
 
   let totalCents = 0;
   for (const tx of deduped) {
-    if (tx.possibleDuplicate === true) continue;
+    if (isExcludedFromTaxTotals(tx)) continue;
     if (!isPosted(tx)) continue;
     if (!BUSINESS_CATEGORIES.has(tx.category)) continue;
 

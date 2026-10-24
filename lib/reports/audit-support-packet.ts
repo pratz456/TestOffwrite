@@ -4,7 +4,8 @@ import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { BUSINESS_STANDARD_MILEAGE_RATES, businessMileageRateForDate, summarizeBusinessMileage } from '@/lib/tax-rules/mileage-rates';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
-import { DuplicateReviewRequiredError, isPossibleDuplicateRecord, summarizeHeldOutDuplicates, type HeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
+import { isExcludedFromTaxTotals } from '@/lib/transactions/duplicate-hold-out';
+import { DuplicateReviewRequiredError, summarizeHeldOutDuplicates, type HeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { ExportDataUnavailableError, exportReference, ownedExportRecord, readOwnedTransactions } from './export-records';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
@@ -284,7 +285,7 @@ export function assembleAuditSupportPacket(uid: string, year: number, inputs: Au
   const excluded = { notConfirmed: 0, reviewRequired: 0, pending: 0, bankRemoved: 0, superseded: 0 };
   const confirmed: ExportRecord[] = [];
   for (const record of inYear) {
-    if (isPossibleDuplicateRecord(record)) continue;
+    if (isExcludedFromTaxTotals(record)) continue;
     if (record.is_deductible !== true) continue;
     if (isSupersededRecord(record)) excluded.superseded += 1;
     else if (record.pending === true) excluded.pending += 1;

@@ -18,6 +18,7 @@
 
 import { safeTaxYear } from './taxDate';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
+import { isExcludedFromTaxTotals } from '@/lib/transactions/duplicate-hold-out';
 import { isCountableRecord, isSupersededRecord } from '@/lib/transactions/record-scope';
 
 export type CategoryMapEntry = { line: string; name: string; code: string };
@@ -143,6 +144,8 @@ export interface ScheduleCTransactionLike {
   tax_review_required?: boolean;
   /** Server-only: path of the earlier record this one duplicates; such records never count. */
   superseded_by?: string | null;
+  possibleDuplicate?: boolean;
+  duplicateResolution?: 'both_real' | 'duplicate';
   merchant_name?: string;
   id?: string;
   [key: string]: unknown;
@@ -160,10 +163,10 @@ export function isBusinessExpense(tx: ScheduleCTransactionLike): boolean {
   return false;
 }
 
-/** confirmed-only filter: countable (posted, not superseded), server-confirmed, and not a tax-method placeholder category. Flagged possible duplicates stay saved and are omitted until review. */
+/** confirmed-only filter: countable (posted, not superseded), server-confirmed, and not a tax-method placeholder category. Unresolved possible duplicates and rows marked duplicate stay saved and are omitted. */
 export function isConfirmedScheduleCExpense(tx: ScheduleCTransactionLike): boolean {
   return isCountableRecord(tx)
-    && tx.possibleDuplicate !== true
+    && !isExcludedFromTaxTotals(tx)
     && !(typeof tx.category === 'string' && tx.category.endsWith('_REVIEW_REQUIRED'))
     && isServerConfirmedDeduction(tx);
 }

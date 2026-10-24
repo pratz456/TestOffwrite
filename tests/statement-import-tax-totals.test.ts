@@ -6,7 +6,7 @@ import { assembleAuditSupportPacket, auditSupportPacketCSV, generateAuditSupport
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
 import { preparerMonthlySummary, generatePreparerReport } from '@/lib/reports/preparer-report';
-import { HELD_OUT_REASON_TEXT, HELD_OUT_REVIEW_ARIA_LABEL, HELD_OUT_REVIEW_LINK_TEXT, summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
+import { DUPLICATE_MARK_TEXT, HELD_OUT_REASON_TEXT, HELD_OUT_REVIEW_ARIA_LABEL, HELD_OUT_REVIEW_LINK_TEXT, RESOLVE_BOTH_REAL_LABEL, RESOLVE_DUPLICATE_HELP, RESOLVE_DUPLICATE_LABEL, summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { convertTransactionsToCSV } from '@/lib/reports/transaction-export';
 import { isReviewableBusinessOutflow, summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
 import { buildMonthlySavings } from '@/lib/tax/savings-summary';
@@ -309,7 +309,7 @@ describe('statement import rows before review', () => {
   });
 
   it('marks the review link, label, and reason as placeholders and hides stored reason codes', () => {
-    for (const value of [HELD_OUT_REVIEW_LINK_TEXT, HELD_OUT_REVIEW_ARIA_LABEL, HELD_OUT_REASON_TEXT]) {
+    for (const value of [HELD_OUT_REVIEW_LINK_TEXT, HELD_OUT_REVIEW_ARIA_LABEL, HELD_OUT_REASON_TEXT, DUPLICATE_MARK_TEXT, RESOLVE_BOTH_REAL_LABEL, RESOLVE_DUPLICATE_LABEL, RESOLVE_DUPLICATE_HELP]) {
       expect(value.startsWith('PLACEHOLDER')).toBe(true);
       expect(value).not.toMatch(/legacy_match|bank_linked|statement_match|cross_document|ambiguous_account/);
     }

@@ -5,7 +5,11 @@ export const HELD_OUT_REVIEW_HREF = '/protected?screen=review-transactions';
 /** User-visible copy. These stay placeholders and never include a stored reason code. */
 export const HELD_OUT_REVIEW_LINK_TEXT = 'PLACEHOLDER: Review possible duplicates';
 export const HELD_OUT_REVIEW_ARIA_LABEL = 'PLACEHOLDER: Possible duplicates held out of tax totals';
-export const HELD_OUT_REASON_TEXT = 'PLACEHOLDER: This row is a possible duplicate and is held out of tax totals until you review it. Resolving it is not available yet. The saved row is not changed or deleted.';
+export const HELD_OUT_REASON_TEXT = 'PLACEHOLDER: This row is a possible duplicate and is held out of tax totals until you review it. The saved row is not deleted.';
+export const DUPLICATE_MARK_TEXT = 'PLACEHOLDER: This saved row is marked as a duplicate and stays out of tax totals.';
+export const RESOLVE_BOTH_REAL_LABEL = 'PLACEHOLDER: Both real';
+export const RESOLVE_DUPLICATE_LABEL = 'PLACEHOLDER: Duplicate';
+export const RESOLVE_DUPLICATE_HELP = 'PLACEHOLDER: Both real counts both saved rows. Duplicate keeps the later row saved and marked, and leaves it out of tax totals. Nothing is deleted.';
 
 export interface HeldOutSide {
   count: number;

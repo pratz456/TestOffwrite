@@ -25,7 +25,7 @@ import { AnalysisStatusNotice } from '@/components/analysis-status-notice';
 import { summarizeAnalysisBacklog } from '@/lib/ai/analysis-state';
 import { prioritizeTransactionReview } from '@/lib/transactions/review-priority';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
-import { HELD_OUT_REASON_TEXT, HELD_OUT_REVIEW_ARIA_LABEL, summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
+import { HELD_OUT_REASON_TEXT, HELD_OUT_REVIEW_ARIA_LABEL, RESOLVE_BOTH_REAL_LABEL, RESOLVE_DUPLICATE_HELP, RESOLVE_DUPLICATE_LABEL, summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 
 interface ReviewTransactionsScreenProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
@@ -48,12 +48,38 @@ function transactionYear(date: unknown): number | null {
   return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(date) ? Number(date.slice(0, 4)) : null;
 }
 
-export function PossibleDuplicatesReview({ transactions, taxYear }: { transactions: Transaction[]; taxYear?: number | string | null }) {
+export function PossibleDuplicatesReview({ transactions, taxYear, onResolved }: {
+  transactions: Transaction[];
+  taxYear?: number | string | null;
+  onResolved?: (transaction: Transaction) => void;
+}) {
   const [selectedYear, setSelectedYear] = useState(() => selectedTaxYear(taxYear));
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const anyFlagged = transactions.some(transaction => transaction.possibleDuplicate === true);
   if (!anyFlagged) return null;
   const flagged = transactions.filter(transaction => transaction.possibleDuplicate === true && transactionYear(transaction.date) === selectedYear);
   const summary = summarizeHeldOutDuplicates(transactions, selectedYear);
+  async function resolve(transaction: Transaction, outcome: 'both_real' | 'duplicate') {
+    const id = transaction.trans_id || transaction.id;
+    setPendingId(id);
+    setNotice(null);
+    try {
+      const response = await makeAuthenticatedRequest('/api/tax/duplicate-review', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transactionId: id, outcome }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body?.transaction) {
+        setNotice(typeof body?.error === 'string' ? body.error : 'PLACEHOLDER: The duplicate review was not saved.');
+        return;
+      }
+      onResolved?.(body.transaction as Transaction);
+    } catch {
+      setNotice('PLACEHOLDER: The duplicate review was not saved.');
+    } finally {
+      setPendingId(null);
+    }
+  }
   return (
     <section aria-label={HELD_OUT_REVIEW_ARIA_LABEL} className="mb-3 rounded-xl border border-border bg-muted p-3 text-sm">
       <h2 className="font-semibold">PLACEHOLDER: Possible duplicates need review</h2>
@@ -71,14 +97,22 @@ export function PossibleDuplicatesReview({ transactions, taxYear }: { transactio
       <p className="mt-1">{summary.message}</p>
       {summary.income.count > 0 && <p className="mt-1">{summary.incomeMessage}</p>}
       {summary.expenses.count > 0 && <p className="mt-1">{summary.expenseMessage}</p>}
-      <p className="mt-1 text-muted-foreground">PLACEHOLDER: Resolving a duplicate is not available yet. These rows stay saved. This screen does not change or delete them.</p>
+      <p className="mt-1 text-muted-foreground">{RESOLVE_DUPLICATE_HELP}</p>
+      {notice && <p role="status" className="mt-1">{notice}</p>}
       {flagged.length > 0 && (
-        <ul className="mt-2 space-y-1">
-          {flagged.map(transaction => (
-            <li key={transaction.trans_id || transaction.id}>
-              {transaction.date} · {transaction.merchant_name || 'Unnamed'} · {formatRecordedTransactionAmount(transaction)} · {HELD_OUT_REASON_TEXT}
-            </li>
-          ))}
+        <ul className="mt-2 space-y-2">
+          {flagged.map(transaction => {
+            const id = transaction.trans_id || transaction.id;
+            return (
+              <li key={id}>
+                <p>{transaction.date} · {transaction.merchant_name || 'Unnamed'} · {formatRecordedTransactionAmount(transaction)} · {HELD_OUT_REASON_TEXT}</p>
+                <div className="mt-1 flex gap-2">
+                  <button type="button" className="min-h-11 rounded-lg border border-input px-3" disabled={pendingId === id} onClick={() => resolve(transaction, 'both_real')}>{RESOLVE_BOTH_REAL_LABEL}</button>
+                  <button type="button" className="min-h-11 rounded-lg border border-input px-3" disabled={pendingId === id} onClick={() => resolve(transaction, 'duplicate')}>{RESOLVE_DUPLICATE_LABEL}</button>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
@@ -328,7 +362,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
             </div>
             {viewToggle}
           </header>
-          <PossibleDuplicatesReview transactions={resolved} taxYear={taxYear} />
+          <PossibleDuplicatesReview transactions={resolved} taxYear={taxYear} onResolved={onTransactionUpdate} />
           {bulkOfferBanner && <div className="mb-3">{bulkOfferBanner}</div>}
           <MerchantGroupList groups={groups} results={groupResults} disabled={busy} onApplied={applyGroupLocally}
             onDismissResult={merchantKey => setGroupResults(previous => previous.filter(entry => entry.request.merchantKey !== merchantKey))}
@@ -385,7 +419,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
           ? `${remaining.length} transaction${remaining.length === 1 ? ' still needs' : 's still need'} review. Nothing was confirmed when you chose Later.`
           : transactions.length ? 'Your categorization decisions are saved. New transactions will appear here for review.'
           : 'Add a transaction or connect a bank to start building your tax records.'}</p>
-        <PossibleDuplicatesReview transactions={resolved} taxYear={taxYear} />
+        <PossibleDuplicatesReview transactions={resolved} taxYear={taxYear} onResolved={onTransactionUpdate} />
         {taxQuestions.length > 0 && <p className="text-sm text-amber-700 dark:text-amber-400">{taxQuestions.length} categorized transaction{taxQuestions.length === 1 ? ' still needs' : 's still need'} tax details. Deductions remain unresolved.</p>}
         {bulkOfferBanner && <div className="text-left">{bulkOfferBanner}</div>}
         {taxQuestions.length > 0 && onTransactionClick && <Button className="w-full" onClick={() => onTransactionClick({ ...taxQuestions[0], _source: 'review-transactions' }, 'details')}>Resolve missing tax details</Button>}
@@ -418,7 +452,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
           {!editing && viewToggle}
         </header>
 
-        <PossibleDuplicatesReview transactions={resolved} taxYear={taxYear} />
+        <PossibleDuplicatesReview transactions={resolved} taxYear={taxYear} onResolved={onTransactionUpdate} />
         {bulkOfferBanner && <div className="mb-3">{bulkOfferBanner}</div>}
 
         <article className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm" aria-label="Transaction to review"

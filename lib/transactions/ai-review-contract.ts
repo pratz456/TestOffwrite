@@ -110,6 +110,7 @@ export function reviewHydrationFields(record: Record<string, any>) {
     superseded_by: typeof record.superseded_by === 'string' && record.superseded_by ? record.superseded_by : null,
     ...(record.possibleDuplicate === true ? { possibleDuplicate: true } : {}),
     ...(typeof record.possibleDuplicateReason === 'string' && record.possibleDuplicateReason ? { possibleDuplicateReason: record.possibleDuplicateReason } : {}),
+    ...(record.duplicateResolution === 'both_real' || record.duplicateResolution === 'duplicate' ? { duplicateResolution: record.duplicateResolution } : {}),
   };
 }
 

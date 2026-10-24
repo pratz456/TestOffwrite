@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { isExcludedFromTaxTotals } from '@/lib/transactions/duplicate-hold-out';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { DuplicateReviewRequiredError, summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { exportDate, transactionAmount, selectExportYear, recordedDeductibility, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
@@ -8,7 +9,7 @@ export function preparerMonthlySummary(records: ExportRecord[], year: number) {
   // Flagged possible duplicates stay saved and are omitted from monthly amounts, the same way Schedule C omits them.
   const inYear = selectExportYear(records.filter(record => !isSupersededRecord(record)), year);
   const heldOutDuplicates = summarizeHeldOutDuplicates(inYear, year);
-  const selected = inYear.filter(record => record.possibleDuplicate !== true);
+  const selected = inYear.filter(record => !isExcludedFromTaxTotals(record));
   if (selected.some(record => transactionAmount(record) === null)) throw new ExportReviewRequiredError('Some saved amounts are invalid. Correct them or download all records for review.');
   const seen = new Set<string>();
   for (const record of selected) {
