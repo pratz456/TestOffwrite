@@ -23,6 +23,7 @@ interface Transaction {
   receipt_url?: string;
   receipt_filename?: string;
   signedAmountReview?: number;
+  suggestedAmount?: number;
 }
 
 interface ExpensesDetailScreenProps {
@@ -275,7 +276,7 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
                         </div>
                         <div className="text-right">
                           {transaction.amount === null
-                            ? <BlankAmountEntry receiptUrl={transaction.receipt_url} signedAmountReview={transaction.signedAmountReview} />
+                            ? <BlankAmountEntry receiptUrl={transaction.receipt_url} signedAmountReview={transaction.signedAmountReview} suggestedAmount={transaction.suggestedAmount} />
                             : <p className="font-bold text-foreground">{formatListAmount(transaction.amount)}</p>}
                         </div>
                       </div>

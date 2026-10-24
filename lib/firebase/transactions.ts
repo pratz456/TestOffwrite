@@ -53,6 +53,8 @@ export interface Transaction {
   receipt_url?: string; // URL to uploaded receipt image
   receipt_filename?: string; // Original filename of the receipt
   signedAmountReview?: number;
+  /** Positive comma decimal shown in the amount field while the saved amount is blank. */
+  suggestedAmount?: number;
 
   // Transaction-Specific Context Fields
   business_purpose?: string; // Why this expense was necessary for business
@@ -288,6 +290,8 @@ export const hydrateTransactionRecord = (data: DocumentData, fallbackId: string)
     notes: data.notes,
     receipt_url: data.receipt_url,
     receipt_filename: data.receipt_filename,
+    ...(typeof data.signedAmountReview === 'number' && data.signedAmountReview < 0 ? { signedAmountReview: data.signedAmountReview } : {}),
+    ...(typeof data.suggestedAmount === 'number' && data.suggestedAmount > 0 ? { suggestedAmount: data.suggestedAmount } : {}),
 
     ...reviewHydrationFields(data),
 

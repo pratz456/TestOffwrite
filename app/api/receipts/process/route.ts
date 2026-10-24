@@ -195,6 +195,9 @@ export async function POST(request: NextRequest) {
           ...(typeof receiptData.signedAmountReview === 'number' && receiptData.signedAmountReview < 0
             ? { signedAmountReview: receiptData.signedAmountReview }
             : {}),
+          ...(typeof receiptData.suggestedAmount === 'number' && receiptData.suggestedAmount > 0
+            ? { suggestedAmount: receiptData.suggestedAmount }
+            : {}),
           date: receiptData.date,
           category: receiptData.category || 'other',
           confidence: receiptData.confidence,
@@ -268,6 +271,7 @@ export async function POST(request: NextRequest) {
       amount: number | null;
       amountNeedsReview?: boolean;
       signedAmountReview?: number;
+      suggestedAmount?: number;
       deductionStatus?: 'Needs more information';
     } = {
       trans_id: newTransId,
@@ -279,6 +283,9 @@ export async function POST(request: NextRequest) {
         tax_review_required: true,
         ...(typeof receiptData.signedAmountReview === 'number' && receiptData.signedAmountReview < 0
           ? { signedAmountReview: receiptData.signedAmountReview }
+          : {}),
+        ...(typeof receiptData.suggestedAmount === 'number' && receiptData.suggestedAmount > 0
+          ? { suggestedAmount: receiptData.suggestedAmount }
           : {}),
       } : {}),
       ...(manualReceipt?.iso_currency_code ? { iso_currency_code: manualReceipt.iso_currency_code } : {}),

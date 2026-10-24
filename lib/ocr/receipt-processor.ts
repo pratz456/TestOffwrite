@@ -7,6 +7,8 @@ export interface ReceiptData {
   amountNeedsReview?: boolean;
   /** Negative total kept for review. Never stored as a positive expense. */
   signedAmountReview?: number;
+  /** Comma cents kept for review when the receipt has no US signal. Not a saved expense. */
+  suggestedAmount?: number;
   date: string;
   category?: string;
   confidence: number;
@@ -38,7 +40,7 @@ export interface OCRResult {
   processingTime: number;
 }
 
-type TotalRead = { amount: number | null; amountNeedsReview: boolean; signedAmountReview?: number };
+type TotalRead = { amount: number | null; amountNeedsReview: boolean; signedAmountReview?: number; suggestedAmount?: number };
 
 const TOTAL_LABELS: ReadonlyArray<{ rank: number; source: string }> = [
   { rank: 1, source: String.raw`grand\s+total` },
@@ -81,6 +83,13 @@ function confidentTotal(value: number): TotalRead {
   const rounded = Math.round(value * 100) / 100;
   if (!(rounded > 0)) return blankTotal();
   return { amount: rounded, amountNeedsReview: false };
+}
+
+/** A comma decimal without a US signal. The amount stays blank and the value is only a suggestion. */
+function suggestedTotal(value: number): TotalRead {
+  const rounded = Math.round(value * 100) / 100;
+  if (!Number.isFinite(rounded) || !(rounded > 0)) return blankTotal();
+  return { amount: null, amountNeedsReview: true, suggestedAmount: rounded };
 }
 
 /** Drop one exact copy of the total token so other amounts can act as format clues. */
@@ -146,10 +155,9 @@ function hasUsReceiptSignal(text: string): boolean {
 }
 
 /**
- * Read one numeric token. A comma and exactly two digits is a decimal when another
- * amount uses that form, or a US signal is present. With neither, the total is blank
- * so 12,50 is not saved as 12. A thousands group is used only when the receipt shows
- * the same format. Otherwise the total is left blank.
+ * Read one numeric token. A comma and exactly two digits saves when a US signal is
+ * present. Without one, the amount stays blank and the decimal is only a suggestion.
+ * A thousands group is used only when the receipt shows the same format.
  */
 function interpretNumber(raw: string, leadingDollar: boolean, receiptText: string): TotalRead {
   if (!/^\d+(?:[.,]\d+)*$/.test(raw)) return blankTotal();
@@ -164,20 +172,14 @@ function interpretNumber(raw: string, leadingDollar: boolean, receiptText: strin
     return confidentTotal(Number(raw.replace(/\./g, '').replace(',', '.')));
   }
   if (comma) {
-    // Quebec uses the comma as the decimal mark. A comma group is not US thousands
-    // on a Canadian receipt, and a bare dollar disagrees with comma cents.
-    if (hasCanadianReceiptSignal(receiptText)) {
-      if (/^\d+,\d{2}$/.test(raw) && !hasBareDollar(receiptText)) {
-        return confidentTotal(Number(raw.replace(',', '.')));
-      }
-      return blankTotal();
-    }
+    // Two digits after the comma are a decimal. A US signal saves it. Otherwise it is only a suggestion.
     if (/^\d+,\d{2}$/.test(raw)) {
-      if (hasEuMoneyClue(receiptText, raw) || leadingDollar || hasUsReceiptSignal(receiptText)) {
-        return confidentTotal(Number(raw.replace(',', '.')));
-      }
-      return blankTotal();
+      const decimal = Number(raw.replace(',', '.'));
+      if (hasUsReceiptSignal(receiptText)) return confidentTotal(decimal);
+      return suggestedTotal(decimal);
     }
+    // Quebec uses the comma as the decimal mark, so a thousands group stays blank.
+    if (hasCanadianReceiptSignal(receiptText)) return blankTotal();
     // Comma cents anywhere else mean this group is not a US thousands separator.
     if (/^\d{1,3}(?:,\d{3})+$/.test(raw) && !hasEuMoneyClue(receiptText, raw)
       && (leadingDollar || hasUsMoneyClue(receiptText, raw) || hasUsReceiptSignal(receiptText))) {
@@ -282,6 +284,7 @@ function readReceiptTotal(text: string): TotalRead {
   const candidates = findTotalCandidates(lines);
   let best: { rank: number; lineIndex: number; read: TotalRead } | null = null;
   let signed: { rank: number; lineIndex: number; read: TotalRead } | null = null;
+  let suggested: { rank: number; lineIndex: number; read: TotalRead } | null = null;
   for (const candidate of candidates) {
     const read = readAmountAfterLabel(candidate.rest, text);
     const preferred = (current: { rank: number; lineIndex: number } | null) => !current
@@ -291,10 +294,13 @@ function readReceiptTotal(text: string): TotalRead {
       if (preferred(best)) best = { rank: candidate.rank, lineIndex: candidate.lineIndex, read };
     } else if (typeof read.signedAmountReview === 'number' && read.signedAmountReview < 0 && preferred(signed)) {
       signed = { rank: candidate.rank, lineIndex: candidate.lineIndex, read };
+    } else if (typeof read.suggestedAmount === 'number' && read.suggestedAmount > 0 && preferred(suggested)) {
+      suggested = { rank: candidate.rank, lineIndex: candidate.lineIndex, read };
     }
   }
   if (best) return best.read;
   if (signed) return signed.read;
+  if (suggested) return suggested.read;
   if (candidates.length > 0) return blankTotal();
   return readUnlabeledUsAmount(lines);
 }
@@ -363,6 +369,9 @@ export class ReceiptProcessor {
           ...(amountNeedsReview && typeof receiptData.signedAmountReview === 'number' && receiptData.signedAmountReview < 0
             ? { signedAmountReview: receiptData.signedAmountReview }
             : {}),
+          ...(amountNeedsReview && typeof receiptData.suggestedAmount === 'number' && receiptData.suggestedAmount > 0
+            ? { suggestedAmount: receiptData.suggestedAmount }
+            : {}),
           // An unreadable date must be entered by the user, never defaulted to today.
           date: this.normalizeDateToISO(receiptData.date) || '',
           category: receiptData.category,
@@ -416,6 +425,7 @@ export class ReceiptProcessor {
       amount: total.amount,
       amountNeedsReview: total.amountNeedsReview,
       signedAmountReview: total.signedAmountReview,
+      suggestedAmount: total.suggestedAmount,
       date,
       category,
       items

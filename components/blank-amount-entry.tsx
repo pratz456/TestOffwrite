@@ -7,13 +7,17 @@ import { AMOUNT_ENTRY_COPY, AMOUNT_NEEDED_LABEL } from '@/lib/transactions/amoun
 export function BlankAmountEntry({
   receiptUrl,
   signedAmountReview,
+  suggestedAmount,
   onSave,
 }: {
   receiptUrl?: string;
   signedAmountReview?: number;
+  suggestedAmount?: number;
   onSave?: (amount: number) => void;
 }) {
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState(
+    typeof suggestedAmount === 'number' && suggestedAmount > 0 ? suggestedAmount.toFixed(2) : '',
+  );
   const amount = Number(draft);
   const ready = draft.trim() !== '' && Number.isFinite(amount) && amount > 0;
   return (

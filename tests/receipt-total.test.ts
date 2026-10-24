@@ -1,4 +1,11 @@
+import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ExpensesDetailScreen } from '@/components/expenses-detail-screen';
+import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { assembleAuditSupportPacket } from '@/lib/reports/audit-support-packet';
+import { assertFilingExportAllowed, FilingExportBlockedError } from '@/lib/reports/transaction-export';
+import { sumExpensesForQuarter } from '@/lib/tax-provider/quarterly-estimates';
 
 const worker = vi.hoisted(() => ({ recognize: vi.fn(), terminate: vi.fn() }));
 vi.mock('tesseract.js', () => ({ default: { createWorker: vi.fn(async () => worker) } }));
@@ -44,10 +51,7 @@ describe('receipt totals from US and EU layouts', () => {
     ['GRAND TOTAL 1,234.56', usReceipt('GRAND TOTAL 1,234.56'), 1234.56],
     ['TOTAL 1,250.00', usReceipt('TOTAL 1,250.00'), 1250],
     ['TOTAL 12.50 USD', usReceipt('TOTAL 12.50 USD'), 12.5],
-    ['TOTAL 12,50', euReceipt('TOTAL 12,50'), 12.5],
     ['TOTAL 1.234,56', euReceipt('TOTAL 1.234,56'), 1234.56],
-    ['Total 25,00 €', euReceipt('Total 25,00 €'), 25],
-    ['TOTAL EUR 12,50', euReceipt('TOTAL EUR 12,50'), 12.5],
   ])('reads %s', async (_label, text, amount) => {
     const data = await read(text);
     expect(data.amount).toBeCloseTo(amount, 2);
@@ -232,6 +236,7 @@ describe('receipt totals from US and EU layouts', () => {
     expect(data.amount).not.toBe(1250);
     expect(data.amount).not.toBe(12);
     expect(data.amount).not.toBe(0);
+    expect(data.suggestedAmount).toBe(12.5);
   });
 
   it('leaves TOTAL 1,234 blank when a Canadian signal is present', async () => {
@@ -271,12 +276,78 @@ describe('receipt totals from US and EU layouts', () => {
     expect(data.amount).not.toBe(12);
   });
 
-  it('leaves TOTAL 12,50 blank when the receipt has no US signal', async () => {
-    const data = await read(market(['TOTAL 12,50']));
-    expect(data.amount).toBeNull();
-    expect(data.amountNeedsReview).toBe(true);
+  it.each([
+    ['a bare dollar', market(['FEE $1', 'TOTAL 12,50'])],
+    ['USD', market(['PAID USD', 'TOTAL 12,50'])],
+    ['a state and ZIP', market(['WILMINGTON, DE 19801', 'TOTAL 12,50'])],
+    ['California CA beside a dollar', market(['San Jose, CA 95112', 'TAX CA $0.33', 'TOTAL 12,50'])],
+  ])('saves TOTAL 12,50 when the receipt has %s', async (_label, text) => {
+    const data = await read(text);
+    expect(data.amount).toBeCloseTo(12.5, 2);
+    expect(data.amountNeedsReview).toBe(false);
+    expect(data.suggestedAmount).toBeUndefined();
     expect(data.amount).not.toBe(0);
     expect(data.amount).not.toBe(12);
-    expect(data.amount).not.toBe(12.5);
+  });
+
+  it.each([
+    ['TOTAL 12,50', euReceipt('TOTAL 12,50'), 12.5],
+    ['Total 25,00 €', euReceipt('Total 25,00 €'), 25],
+    ['TOTAL EUR 12,50', euReceipt('TOTAL EUR 12,50'), 12.5],
+    ['TOTAL 12,50 alone', market(['TOTAL 12,50']), 12.5],
+  ])('suggests %s when the receipt has no US signal', async (_label, text, suggestion) => {
+    const data = await read(text);
+    expect(data.amount).toBeNull();
+    expect(data.amountNeedsReview).toBe(true);
+    expect(data.suggestedAmount).toBe(suggestion);
+    expect(data.amount).not.toBe(suggestion);
+    expect(data.amount).not.toBe(0);
+    expect(data.amount).not.toBe(12);
+  });
+
+  it('keeps a suggested comma total out of totals, on the held out line, and blocks filing', async () => {
+    const data = await read(market(['TOTAL 12,50']));
+    expect(data.amount).toBeNull();
+    expect(data.suggestedAmount).toBe(12.5);
+    const blank = {
+      id: 'comma', trans_id: 'comma', account_id: 'a1', merchant_name: 'Comma Market', description: 'Comma Market',
+      amount: data.amount, suggestedAmount: data.suggestedAmount, category: 'TRANSPORTATION_FUEL', date: '2026-09-02',
+      type: 'expense' as const, pending: false, is_deductible: true, iso_currency_code: 'USD', receipt_url: '/api/receipts/synthetic',
+    };
+    const paid = { ...blank, id: 'paid', trans_id: 'paid', amount: 10, suggestedAmount: undefined, description: 'Known Market', merchant_name: 'Known Market', receipt_url: undefined };
+    const schedule = aggregateScheduleC(
+      [
+        { amount: 10, date: '2024-01-01', category: 'TRANSPORTATION_FUEL', is_deductible: true },
+        { amount: data.amount as unknown as number, date: '2024-01-02', category: 'TRANSPORTATION_FUEL', is_deductible: true },
+      ],
+      '2024',
+      CATEGORY_MAP,
+      { mode: 'confirmed-only' },
+    );
+    expect(schedule.totalExpenses).toBe(10);
+    expect(schedule.counts.deductible).toBe(1);
+    for (const timezone of ['America/Los_Angeles', 'UTC', 'Asia/Tokyo']) {
+      const quarter = sumExpensesForQuarter([paid, blank] as never, 2026, 3, timezone);
+      expect(quarter.confirmed_deductible_expenses).toBe(10);
+      expect(quarter.held_out_expenses).toBe(1);
+    }
+    expect(() => assertFilingExportAllowed([blank], 2026)).toThrow(FilingExportBlockedError);
+    expect(() => assertFilingExportAllowed([blank], 2026)).toThrow('PLACEHOLDER');
+    expect(() => assembleAuditSupportPacket('owner', 2026, { transactions: [blank], trips: [], receipts: [] }, new Date('2026-09-17T12:00:00Z'))).toThrow('PLACEHOLDER');
+    const html = renderToStaticMarkup(React.createElement(ExpensesDetailScreen, {
+      user: { id: 'owner' },
+      onBack: () => undefined,
+      transactions: [
+        { ...blank, category: 'office', date: '2026-06-15', amount: data.amount as unknown as number },
+        { ...paid, category: 'office', date: '2026-06-16', amount: 10 },
+      ],
+    }));
+    expect(html).toContain('Amount needed');
+    expect(html).toContain('value="12.50"');
+    expect(html).toContain('data-held-out-expenses');
+    expect(html).toContain('PLACEHOLDER');
+    expect(html).toContain('$10.00');
+    expect(html).not.toContain('22.5');
+    expect(html).not.toContain('$0.00');
   });
 });

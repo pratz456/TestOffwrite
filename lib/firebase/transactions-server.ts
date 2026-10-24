@@ -155,6 +155,8 @@ function normalizeDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Transaction
     notes: data.notes,
     receipt_url: data.receipt_url ?? undefined,
     receipt_filename: data.receipt_filename ?? undefined,
+    ...(typeof data.signedAmountReview === 'number' && data.signedAmountReview < 0 ? { signedAmountReview: data.signedAmountReview } : {}),
+    ...(typeof data.suggestedAmount === 'number' && data.suggestedAmount > 0 ? { suggestedAmount: data.suggestedAmount } : {}),
 
     account_id: data.account_id || data.accountId || null,
     userId: data.userId || data.user_id || null,
@@ -817,6 +819,7 @@ export async function createTransactionServer(
     amount?: number | null;
     amountNeedsReview?: boolean;
     signedAmountReview?: number;
+    suggestedAmount?: number;
     deductionStatus?: string;
   }
 ): Promise<{ data: Transaction | null; error: any }> {
@@ -904,6 +907,7 @@ export async function createTransactionServer(
           category: data?.category || '',
           ...(data?.amountNeedsReview === true ? { amountNeedsReview: true } : {}),
           ...(typeof data?.signedAmountReview === 'number' && data.signedAmountReview < 0 ? { signedAmountReview: data.signedAmountReview } : {}),
+          ...(typeof data?.suggestedAmount === 'number' && data.suggestedAmount > 0 ? { suggestedAmount: data.suggestedAmount } : {}),
           ...(typeof data?.deductionStatus === 'string' ? { deductionStatus: data.deductionStatus } : {}),
           ...(typeof data?.tax_review_required === 'boolean' ? { tax_review_required: data.tax_review_required } : {}),
           date: data?.date || '',

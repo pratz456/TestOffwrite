@@ -393,7 +393,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
             <div className="flex justify-between gap-3">
               <div className="min-w-0"><h2 className="break-words text-lg font-semibold leading-snug">{current.merchant_name || 'Transaction'}</h2><p className="mt-0.5 text-xs text-muted-foreground">{formatTransactionDate(current.date, 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{current.pending ? ' · Bank pending' : ''}</p></div>
               <div className="shrink-0 text-right">{current.amount === null
-                ? <BlankAmountEntry receiptUrl={current.receipt_url} signedAmountReview={current.signedAmountReview} onSave={amount => { void saveDecision({ amount }, 'PLACEHOLDER', true); }} />
+                ? <BlankAmountEntry receiptUrl={current.receipt_url} signedAmountReview={current.signedAmountReview} suggestedAmount={current.suggestedAmount} onSave={amount => { void saveDecision({ amount }, 'PLACEHOLDER', true); }} />
                 : <><p className="text-xl font-semibold tabular-nums">{formatRecordedTransactionAmount(current)}</p><p className="text-xs text-muted-foreground">{current.amount < 0 ? 'Received' : 'Spent'}</p></>}</div>
             </div>
 

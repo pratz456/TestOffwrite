@@ -73,7 +73,6 @@ afterEach(async () => { await receiptProcessor.terminate(); vi.restoreAllMocks()
 describe('saved receipt totals', () => {
   it.each([
     ['TOTAL DUE 12.50', market(['COFFEE 4.00', 'SUBTOTAL 20.00', 'TAX 1.25', 'TIP 5.00', 'TOTAL DUE 12.50']), 12.5],
-    ['TOTAL 12,50', market(['ESPRESSO 4,00', 'SUBTOTAL 20,00', 'TAX 1,25', 'TIP 3,00', 'TOTAL 12,50']), 12.5],
     ['TOTAL 1,250.00', market(['COFFEE 4.00', 'SUBTOTAL 20.00', 'TOTAL 1,250.00']), 1250],
     ['BALANCE DUE 0.00 before TOTAL 12.50', market(['SUBTOTAL 20.00', 'BALANCE DUE 0.00', 'TOTAL 12.50']), 12.5],
     ['BALANCE DUE 0.00 after TOTAL 12.50', market(['SUBTOTAL 20.00', 'TOTAL 12.50', 'BALANCE DUE 0.00']), 12.5],
@@ -153,6 +152,7 @@ describe('saved receipt totals', () => {
     const saved = mocks.createTransaction.mock.calls.at(-1)[2];
     expect(saved.amount).toBeNull();
     expect(saved.amountNeedsReview).toBe(true);
+    expect(saved.suggestedAmount).toBe(12.5);
     expect(saved.amount).not.toBe(0);
     expect(saved.amount).not.toBe(12);
     expect(saved.amount).not.toBe(12.5);
@@ -162,6 +162,23 @@ describe('saved receipt totals', () => {
     const body = await response.json();
     expect(body.transaction.amount).toBeNull();
     expect(body.transaction.amountNeedsReview).toBe(true);
+  });
+
+  it.each([
+    ['a bare dollar', market(['FEE $1', 'TOTAL 12,50'])],
+    ['USD', market(['PAID USD', 'TOTAL 12,50'])],
+    ['a state and ZIP', market(['WILMINGTON, DE 19801', 'TOTAL 12,50'])],
+  ])('saves TOTAL 12,50 when the receipt has %s', async (_label, text) => {
+    recognize(text);
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)[2];
+    expect(saved.amount).toBeCloseTo(12.5, 2);
+    expect(saved.suggestedAmount).toBeUndefined();
+    expect(saved.amountNeedsReview).toBeUndefined();
+    expect(saved.amount).not.toBe(0);
+    expect(saved.amount).not.toBe(12);
+    expect((await response.json()).transaction.amount).toBeCloseTo(12.5, 2);
   });
 
   it.each([80.25, 12.5])('keeps a user typed amount %s', async amount => {
