@@ -14,6 +14,7 @@ interface Summary {
   quarters: { quarter: number; dueDate: string; amountPaid: number }[];
   planner?: QuarterlyPlannerResponse | null;
   chargesNeedingDate?: { needsDateCopy: string };
+  unplaced?: { count: number; total: number };
 }
 const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const percent = (rate: number) => `${Math.round(rate * 10000) / 100}%`;
@@ -113,6 +114,7 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
       </>}
       <dl className="grid gap-3 sm:grid-cols-3">
         <div><dt>Federal estimate from saved annual records</dt><dd className="font-semibold">{money(data.totalEstimatedTax)}</dd></div>
+        <div><dt>Unplaced receipts</dt><dd className="font-semibold">{money(data.unplaced?.total ?? 0)}</dd></div>
         <div><dt>Recorded estimated payments</dt><dd className="font-semibold">{money(data.recordedEstimatedPayments)}</dd></div>
         <div><dt>Recorded federal withholding</dt><dd className="font-semibold">{money(data.totalFederalWithheld ?? data.w2Withheld)}</dd></div>
       </dl>
