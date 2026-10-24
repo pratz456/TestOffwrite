@@ -48,8 +48,12 @@ export const MODEL_CONSENT_STATUS_COPY = {
 
 export function isValidTimeZone(value: string): boolean {
   if (!value || value.length > 120) return false;
+  // SystemV/ names are legacy fixed offset zones. The resolved name is what gets checked,
+  // so a different spelling that still resolves under SystemV/ is refused too.
+  if (value.startsWith('SystemV/')) return false;
   try {
-    new Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date());
+    const canonical = new Intl.DateTimeFormat('en-US', { timeZone: value }).resolvedOptions().timeZone;
+    if (canonical.startsWith('SystemV/')) return false;
     return true;
   } catch {
     return false;
@@ -126,7 +130,7 @@ export const IMAGE_MODEL_PURPOSES = [
 
 export type ConsentStatus = 'granted' | 'declined' | 'withdrawn';
 export type ConsentRecordType = 'disclosure' | 'reuse';
-export type ConsentRefusalReason = 'missing' | 'not_granted' | 'purpose' | 'expired' | 'before_signed_at';
+export type ConsentRefusalReason = 'missing' | 'not_granted' | 'purpose' | 'expired' | 'before_signed_at' | 'invalid_record';
 
 export const MODEL_CONSENT_DOCUMENT_VERSION = 'pending-legal-review';
 
@@ -153,6 +157,10 @@ function civilTime(date: Date, timeZone: string): CivilTime {
   return { year: value('year'), month: value('month'), day: value('day'), hour: value('hour') % 24, minute: value('minute'), second: value('second') };
 }
 
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
 function utcFromCivilTime(time: CivilTime, timeZone: string): Date {
   const wall = Date.UTC(time.year, time.month - 1, time.day, time.hour, time.minute, time.second);
   let instant = wall;
@@ -168,13 +176,16 @@ function utcFromCivilTime(time: CivilTime, timeZone: string): Date {
 
 /**
  * One year after the local signing date when a zone is stored.
- * A grant that stores no length uses this default under 301.7216-3(b)(5).
- * With no zone, the default is one UTC year after the exact signing instant.
+ * The local time of day stays the same. February 29 moves to February 28 of the following year
+ * in that zone, because that year has no February 29.
+ * With no zone, the result is one UTC year after the exact signing instant.
  */
 export function defaultConsentExpiry(signedAt: Date, timeZone?: string | null): Date {
   if (timeZone && isValidTimeZone(timeZone)) {
     const signed = civilTime(signedAt, timeZone);
-    return utcFromCivilTime({ ...signed, year: signed.year + 1 }, timeZone);
+    const year = signed.year + 1;
+    const day = Math.min(signed.day, daysInMonth(year, signed.month));
+    return utcFromCivilTime({ ...signed, year, day }, timeZone);
   }
   const expires = new Date(signedAt.getTime());
   expires.setUTCFullYear(expires.getUTCFullYear() + 1);

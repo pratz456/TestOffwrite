@@ -62,8 +62,8 @@ function disclosure(overrides: Record<string, unknown> = {}) {
   return {
     status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review',
     purposes: [...MODEL_PURPOSES],
-    signedAt: new Date('2020-01-01T00:00:00.000Z'),
-    expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+    signedAt: new Date('2026-01-01T00:00:00.000Z'),
+    expiresAt: new Date('2027-01-01T00:00:00.000Z'),
     ...overrides,
   };
 }
@@ -347,7 +347,9 @@ describe('consent refusals make zero model calls on the next request', () => {
     state.construct.mockClear();
     state.create.mockClear();
     grant();
-    db().records.set(`user_profiles/${state.uid}/model_consents/disclosure`, disclosure({ expiresAt: new Date('2020-02-01T00:00:00.000Z') }));
+    db().records.set(`user_profiles/${state.uid}/model_consents/disclosure`, disclosure({
+      signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2020-02-01T00:00:00.000Z'),
+    }));
     await expectNoModel(await voice(voiceBody()));
   });
   it('refuses a purpose the disclosure does not cover', async () => {
@@ -380,27 +382,20 @@ describe('consent refusals make zero model calls on the next request', () => {
     const view = await readConsent(new NextRequest('http://localhost/api/settings/model-consent'));
     expect(await view.json()).toMatchObject({ status: 'declined' });
   });
-  it('defaults a grant with no stored length to one year from signing', async () => {
+  it('refuses a grant with no stored expiresAt', async () => {
     const signedAt = new Date('2025-06-01T00:00:00.000Z');
-    const expiresAt = defaultConsentExpiry(signedAt);
-    const record = disclosure({ signedAt });
+    const record = disclosure({ signedAt, purposes: ['voice_command'] });
     delete record.expiresAt;
     db().records.set(`user_profiles/${state.uid}/model_consents/disclosure`, record);
-    expect(db().records.get(`user_profiles/${state.uid}/model_consents/disclosure`)).not.toHaveProperty('consentLength');
     expect(db().records.get(`user_profiles/${state.uid}/model_consents/disclosure`)).not.toHaveProperty('expiresAt');
     vi.useFakeTimers();
-    vi.setSystemTime(new Date(expiresAt.getTime() - 1000));
-    expect((await voice(voiceBody())).status).toBe(200);
-    expect(state.create).toHaveBeenCalledTimes(1);
-    state.construct.mockClear();
-    state.create.mockClear();
-    vi.setSystemTime(new Date(expiresAt.getTime() + 1000));
+    vi.setSystemTime(new Date('2025-08-01T00:00:00.000Z'));
     await expectNoModel(await voice(voiceBody()));
   });
   it('refuses a request time before signedAt and allows the same instant', async () => {
     const signedAt = new Date('2026-06-01T12:00:00.000Z');
     grant();
-    db().records.set(`user_profiles/${state.uid}/model_consents/disclosure`, disclosure({ signedAt, expiresAt: new Date('2099-01-01T00:00:00.000Z') }));
+    db().records.set(`user_profiles/${state.uid}/model_consents/disclosure`, disclosure({ signedAt, expiresAt: new Date('2027-06-01T12:00:00.000Z') }));
     vi.useFakeTimers();
     vi.setSystemTime(new Date(signedAt.getTime() - 1));
     await expectNoModel(await voice(voiceBody()));

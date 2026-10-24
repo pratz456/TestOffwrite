@@ -51,7 +51,7 @@ beforeEach(() => {
   mocks.docs.set(profilePath, { profession: 'Designer', subscriptionStatus: 'none' });
   mocks.docs.set(`${profilePath}/model_consents/disclosure`, {
     status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review',
-    purposes: ['transaction_analysis'], signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+    purposes: ['transaction_analysis'], signedAt: new Date('2026-01-01T00:00:00.000Z'), expiresAt: new Date('2027-01-01T00:00:00.000Z'),
   });
   mocks.docs.set(accountPath, { user_id: address.userId, type: 'depository', usageType: 'mixed' });
   mocks.docs.set(path, { userId: address.userId, account_id: address.accountId, amount: 75,

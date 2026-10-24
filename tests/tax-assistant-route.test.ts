@@ -15,7 +15,7 @@ vi.mock('@/lib/firebase/admin', () => ({
   adminDb: { doc: () => ({ get: async () => ({ exists: true, data: () => ({
     status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review',
     purposes: ['tax_assistant', 'account_assistant'],
-    signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+    signedAt: new Date('2026-01-01T00:00:00.000Z'), expiresAt: new Date('2027-01-01T00:00:00.000Z'),
   }) }) }) },
 }));
 import { POST } from '../app/api/ai/tax-assistant/route';
