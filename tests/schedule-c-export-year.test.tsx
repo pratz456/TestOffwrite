@@ -117,4 +117,9 @@ describe('Schedule C safe export controls', () => {
     await walk(render()).find(node => typeof node.props?.onClick === 'function' && text(node).includes('Export 2026 Schedule C Data')).props.onClick();
     expect(harness.download.click).not.toHaveBeenCalled(); expect(harness.error).toHaveBeenCalledWith('Could not load all export records. Please retry.');
   });
+  it('keeps Schedule and C together in the PDF appendix sentence', () => {
+    walk(render()).filter(node => node.type === 'select')[1].props.onChange({ target: { value: 'PDF' } });
+    const appendix = walk(render()).map(text).find(value => value.startsWith('PDF will include each confirmed expense'));
+    expect(appendix).toContain('Schedule\u00A0C');
+  });
 });
