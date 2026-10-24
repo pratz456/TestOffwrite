@@ -155,6 +155,7 @@ export function listIncomeSourceCandidates(taxYear: number, transactions: Readon
   const quarterCents = [0, 0, 0, 0];
   const dateWarnings: string[] = [];
   const needsMoreInformationRows: NeedsMoreInformationRow[] = [];
+  const dateNeedsReview: DateNeedsReviewRow[] = [];
   let undatedCount = 0;
   let undatedCents = 0;
   let unclassifiedCreditCount = 0;
@@ -192,6 +193,10 @@ export function listIncomeSourceCandidates(taxYear: number, transactions: Readon
     if (placement.action === 'dated') {
       quarterCents[quarterIndex(placement.day)] += cents;
       candidates.push({ kind: 'transaction', id, amount: cents / 100, label: `Bank income · ${payer}`, date: placement.day });
+      if (tx.dateOrderAssumed === 'month_day') {
+        dateWarnings.push(`${label} was read as month then day and has not been reviewed.`);
+        dateNeedsReview.push({ id, date: placement.day, amount: cents / 100 });
+      }
       continue;
     }
     undatedCount += 1;
@@ -232,13 +237,20 @@ export function listIncomeSourceCandidates(taxYear: number, transactions: Readon
     }
     candidates.push(candidate);
   }
-  return { candidates, unclassifiedCreditCount, linkedForms, form1099Cents, quarterCents, dateWarnings, needsMoreInformationRows, undatedCount, undatedCents };
+  return { candidates, unclassifiedCreditCount, linkedForms, form1099Cents, quarterCents, dateWarnings, needsMoreInformationRows, dateNeedsReview, undatedCount, undatedCents };
 }
 
 export interface NeedsMoreInformationRow {
   id?: string;
   name?: string;
   reason: string;
+}
+
+/** A real date read as month then day from an ambiguous receipt, still waiting for review. Amount is positive dollars counted in gross receipts. */
+export interface DateNeedsReviewRow {
+  id: string;
+  date: string;
+  amount: number;
 }
 
 export interface BusinessIncomeReconciliation {
@@ -258,6 +270,8 @@ export interface BusinessIncomeReconciliation {
   undatedIncome: { count: number; total: number };
   /** Rows that cannot be placed in any year. They are in no year total. */
   needsMoreInformationRows: NeedsMoreInformationRow[];
+  /** Dated income whose month and day order was assumed and has not been reviewed. These rows stay in quarterlyGrossReceipts. */
+  dateNeedsReview: DateNeedsReviewRow[];
 }
 
 /**
@@ -268,7 +282,7 @@ export interface BusinessIncomeReconciliation {
  * decision can establish that two records describe the same payments.
  */
 export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyArray<IncomeRecord>, receipts: ReadonlyArray<IncomeRecord>, forms: ReadonlyArray<IncomeRecord>, decisions: ReadonlyArray<IncomeRecord> = []): BusinessIncomeReconciliation {
-  const { candidates, unclassifiedCreditCount, linkedForms, form1099Cents, quarterCents, dateWarnings, needsMoreInformationRows, undatedCount, undatedCents } = listIncomeSourceCandidates(taxYear, transactions, receipts, forms);
+  const { candidates, unclassifiedCreditCount, linkedForms, form1099Cents, quarterCents, dateWarnings, needsMoreInformationRows, dateNeedsReview, undatedCount, undatedCents } = listIncomeSourceCandidates(taxYear, transactions, receipts, forms);
   const resolution = resolveIncomeSources(taxYear, candidates, decisions);
   if (resolution.conflicts.length) {
     throw new IncomeReconciliationRequiredError(resolution.conflicts[0].message, resolution.conflicts);
@@ -295,5 +309,6 @@ export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyA
     quarterlyGrossReceipts: [quarterCents[0] / 100, quarterCents[1] / 100, quarterCents[2] / 100, quarterCents[3] / 100],
     undatedIncome: { count: undatedCount, total: undatedCents / 100 },
     needsMoreInformationRows,
+    dateNeedsReview,
   };
 }

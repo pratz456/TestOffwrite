@@ -259,3 +259,30 @@ describe('live path through the federal snapshot and quarterly reminders', () =>
     expect(JSON.stringify(disputed.body.calculationWarnings)).toMatch(NMI);
   });
 });
+
+describe('month then day dates stay in the period that ends March 31', () => {
+  const march = (id: string, merchant: string, assumed: boolean) => ({
+    id, trans_id: id, account_id: 'bank-1', amount: -ADDED, category: 'income',
+    merchant_name: merchant, pending: false, iso_currency_code: 'USD', date: '2026-03-04',
+    ...(assumed ? { dateOrderAssumed: 'month_day' } : {}),
+  });
+  const names = (warnings: string[], token: string) => warnings.some(warning => warning.includes(token));
+
+  it('keeps 2026-03-04 in that period, names the row, and leaves it out of needsMoreInformationRows', () => {
+    const result = reconcile(2026, [march('march-flag', 'March Boundary Client', true)]);
+    expect(result.grossReceipts).toBe(ADDED);
+    expect(names(result.warnings, 'March Boundary Client') || names(result.warnings, 'march-flag')).toBe(true);
+    expect(result.needsMoreInformationRows.some(row => row.id === 'march-flag' || row.name === 'March Boundary Client')).toBe(false);
+    expect(result.quarterlyGrossReceipts).toEqual([ADDED, 0, 0, 0]);
+    expect(result.dateNeedsReview).toEqual([{ id: 'march-flag', date: '2026-03-04', amount: ADDED }]);
+  });
+
+  it('does not warn for 2026-03-04 when dateOrderAssumed is absent', () => {
+    const result = reconcile(2026, [march('march-plain', 'March Plain Client', false)]);
+    expect(result.grossReceipts).toBe(ADDED);
+    expect(names(result.warnings, 'March Plain Client') || names(result.warnings, 'march-plain')).toBe(false);
+    expect(result.needsMoreInformationRows).toEqual([]);
+    expect(result.dateNeedsReview).toEqual([]);
+    expect(result.quarterlyGrossReceipts).toEqual([ADDED, 0, 0, 0]);
+  });
+});
