@@ -152,7 +152,9 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
       setReceiptType(suggestedReceiptType);
       setAttachmentChoice(shouldAttach ? 'attach' : 'create');
       setSelectedCandidateTransId(shouldAttach && topCandidate ? topCandidate.trans_id : null);
-      setDraft({ merchant: String(ocr.merchant || ''), amount: String(ocr.amount ?? ''), date: String(ocr.date || ''), category: String(ocr.category || 'other') });
+      const readAmount = typeof ocr.amount === 'number' ? ocr.amount : Number(ocr.amount);
+      const amountText = ocr.amountNeedsReview || !(readAmount > 0) ? '' : String(readAmount);
+      setDraft({ merchant: String(ocr.merchant || ''), amount: amountText, date: String(ocr.date || ''), category: String(ocr.category || 'other') });
       setIsEditing(false);
 
       setExtractedData({
@@ -388,7 +390,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                   </fieldset> : <>
                     <div><span className="text-sm font-medium text-foreground">Merchant</span><p className="text-foreground font-medium">{draft.merchant || 'Needs review'}</p></div>
                     <div className="grid grid-cols-2 gap-4">
-                      <div><span className="text-sm font-medium text-foreground">Amount (USD)</span><p className="text-foreground font-medium">${draft.amount || '0'}</p></div>
+                      <div><span className="text-sm font-medium text-foreground">Amount (USD)</span><p className="text-foreground font-medium">{draft.amount ? `$${draft.amount}` : 'Needs review'}</p></div>
                       <div><span className="text-sm font-medium text-foreground">Date</span><p className="text-foreground font-medium">{draft.date}</p></div>
                     </div>
                     <div><span className="text-sm font-medium text-foreground">Category</span><p className="text-foreground font-medium">{draft.category}</p></div>

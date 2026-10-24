@@ -2,7 +2,9 @@ import Tesseract from 'tesseract.js';
 
 export interface ReceiptData {
   merchant: string;
-  amount: number;
+  amount: number | null;
+  /** True when the total was missing, unreadable, or ambiguous. The amount is then blank. */
+  amountNeedsReview?: boolean;
   date: string;
   category?: string;
   confidence: number;
@@ -32,6 +34,135 @@ export interface OCRResult {
   data?: ReceiptData;
   error?: string;
   processingTime: number;
+}
+
+type TotalRead = { amount: number | null; amountNeedsReview: boolean };
+
+const TOTAL_LABELS: ReadonlyArray<{ rank: number; source: string }> = [
+  { rank: 1, source: String.raw`grand\s+total` },
+  { rank: 2, source: String.raw`(?:balance|amount|total)\s+due` },
+  { rank: 3, source: String.raw`total` },
+  { rank: 4, source: String.raw`amount` },
+];
+
+const CURRENCY_CODES = 'USD|EUR|GBP|INR|CAD|AUD|CHF|JPY|CNY';
+
+function blankTotal(): TotalRead {
+  return { amount: null, amountNeedsReview: true };
+}
+
+function confidentTotal(value: number): TotalRead {
+  if (!Number.isFinite(value) || value <= 0) return blankTotal();
+  const rounded = Math.round(value * 100) / 100;
+  if (!(rounded > 0)) return blankTotal();
+  return { amount: rounded, amountNeedsReview: false };
+}
+
+/** Drop one exact copy of the total token so other amounts can act as format clues. */
+function hideToken(text: string, raw: string): string {
+  const escaped = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return text.replace(new RegExp(String.raw`(?:^|[^\d.,])${escaped}(?![\d.,])`), ' ');
+}
+
+function hasGroupedAmount(text: string, body: string): boolean {
+  return new RegExp(String.raw`(?:^|[^\d.,])(?:${body})(?![\d.,])`).test(text);
+}
+
+function hasUsMoneyClue(text: string, raw: string): boolean {
+  const rest = hideToken(text, raw);
+  if (/\$\s*\d/.test(rest)) return true;
+  return hasGroupedAmount(rest, String.raw`\d{1,3}(?:,\d{3})*\.\d{2}`)
+    || hasGroupedAmount(rest, String.raw`\d+\.\d{2}`);
+}
+
+function hasEuMoneyClue(text: string, raw: string): boolean {
+  const rest = hideToken(text, raw);
+  return hasGroupedAmount(rest, String.raw`\d{1,3}(?:\.\d{3})*,\d{2}`)
+    || hasGroupedAmount(rest, String.raw`\d+,\d{2}`);
+}
+
+/**
+ * Read one numeric token. A comma and exactly two digits, with no dot, is a decimal.
+ * A thousands group with no decimal part is used only when another amount on the
+ * receipt shows the same format. Otherwise the total is left blank.
+ */
+function interpretNumber(raw: string, leadingDollar: boolean, receiptText: string): TotalRead {
+  if (!/^\d+(?:[.,]\d+)*$/.test(raw)) return blankTotal();
+  const comma = raw.includes(',');
+  const dot = raw.includes('.');
+  if (comma && dot) {
+    if (raw.lastIndexOf('.') > raw.lastIndexOf(',')) {
+      if (!/^\d{1,3}(?:,\d{3})*\.\d{2}$/.test(raw)) return blankTotal();
+      return confidentTotal(Number(raw.replace(/,/g, '')));
+    }
+    if (!/^\d{1,3}(?:\.\d{3})*,\d{2}$/.test(raw)) return blankTotal();
+    return confidentTotal(Number(raw.replace(/\./g, '').replace(',', '.')));
+  }
+  if (comma) {
+    if (/^\d+,\d{2}$/.test(raw)) return confidentTotal(Number(raw.replace(',', '.')));
+    if (/^\d{1,3}(?:,\d{3})+$/.test(raw) && (leadingDollar || (hasUsMoneyClue(receiptText, raw) && !hasEuMoneyClue(receiptText, raw)))) {
+      return confidentTotal(Number(raw.replace(/,/g, '')));
+    }
+    return blankTotal();
+  }
+  if (dot) {
+    if (/^\d+\.\d{2}$/.test(raw)) return confidentTotal(Number(raw));
+    if (/^\d{1,3}(?:\.\d{3})+$/.test(raw) && !leadingDollar && hasEuMoneyClue(receiptText, raw) && !hasUsMoneyClue(receiptText, raw)) {
+      return confidentTotal(Number(raw.replace(/\./g, '')));
+    }
+    return blankTotal();
+  }
+  if (/^\d+$/.test(raw)) return confidentTotal(Number(raw));
+  return blankTotal();
+}
+
+/**
+ * The amount sits on the total line, with an optional currency code, or a dollar
+ * sign, on either side. Other currency symbols before the number are not read here.
+ */
+function readAmountAfterLabel(rest: string, receiptText: string): TotalRead {
+  const cleaned = rest.replace(/^[\s:.#\-]+/, '');
+  const match = cleaned.match(new RegExp(
+    String.raw`^(?:(?:${CURRENCY_CODES})\s+|(\$)\s*)?(\d[\d.,]*)(.*)$`,
+    'i',
+  ));
+  if (!match) return blankTotal();
+  const raw = match[2].replace(/\.$/, '');
+  const trailing = match[3] ?? '';
+  const tail = trailing.match(new RegExp(String.raw`^\s*(?:(?:${CURRENCY_CODES})|[$€£¥₹])?\s*(.*)$`, 'i'));
+  if (/\d/.test(tail?.[1] ?? '')) return blankTotal();
+  return interpretNumber(raw, match[1] === '$', receiptText);
+}
+
+function findTotalLine(lines: string[]): string | null {
+  let best: { rank: number; lineIndex: number; rest: string } | null = null;
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
+    if (/\bsub[\s-]?total\b/i.test(line)) continue;
+    const hits: { rank: number; end: number }[] = [];
+    for (const label of TOTAL_LABELS) {
+      const pattern = new RegExp(String.raw`\b(?:${label.source})\b`, 'gi');
+      for (const match of line.matchAll(pattern)) {
+        hits.push({ rank: label.rank, end: (match.index ?? 0) + match[0].length });
+      }
+    }
+    if (hits.length === 0) continue;
+    const rank = Math.min(...hits.map(hit => hit.rank));
+    if (rank > 3 && /\b(?:tax|tip|gratuity|discount|change|tender)\b/i.test(line)) continue;
+    const end = Math.max(...hits.map(hit => hit.end));
+    if (!best || rank < best.rank || (rank === best.rank && lineIndex > best.lineIndex)) {
+      best = { rank, lineIndex, rest: line.slice(end) };
+    }
+  }
+  return best?.rest ?? null;
+}
+
+/** Prefer the labeled total. Subtotal, tax, and tip never supply the saved amount. */
+function readReceiptTotal(text: string): TotalRead {
+  const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+  const rest = findTotalLine(lines);
+  if (rest == null) return blankTotal();
+  return readAmountAfterLabel(rest, text);
 }
 
 export class ReceiptProcessor {
@@ -86,11 +217,15 @@ export class ReceiptProcessor {
       
       const processingTime = Date.now() - startTime;
       
+      const amountNeedsReview = receiptData.amountNeedsReview === true
+        || !(typeof receiptData.amount === 'number' && Number.isFinite(receiptData.amount) && receiptData.amount > 0);
       return {
         success: true,
         data: {
           merchant: receiptData.merchant || 'Unknown Merchant',
-          amount: receiptData.amount || 0,
+          // A missing or uncertain total stays blank. Zero would be a false expense.
+          amount: amountNeedsReview ? null : receiptData.amount ?? null,
+          amountNeedsReview,
           // An unreadable date must be entered by the user, never defaulted to today.
           date: this.normalizeDateToISO(receiptData.date) || '',
           category: receiptData.category,
@@ -128,7 +263,7 @@ export class ReceiptProcessor {
     const merchant = this.extractMerchant(lines);
     
     // Extract total amount (look for currency patterns)
-    const amount = this.extractAmount(text);
+    const total = this.extractAmount(text);
     
     // Extract date (look for date patterns)
     const date = this.extractDate(text);
@@ -141,7 +276,8 @@ export class ReceiptProcessor {
     
     return {
       merchant,
-      amount,
+      amount: total.amount,
+      amountNeedsReview: total.amountNeedsReview,
       date,
       category,
       items
@@ -162,29 +298,8 @@ export class ReceiptProcessor {
     return lines[0] || 'Unknown Merchant';
   }
 
-  private extractAmount(text: string): number {
-    // Look for currency patterns: $X.XX, X.XX, $X,XX (European format)
-    const currencyPatterns = [
-      /\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/g, // $1,234.56
-      /(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*USD/g, // 1234.56 USD
-      /TOTAL[:\s]*\$?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/gi, // TOTAL: $1234.56
-      /AMOUNT[:\s]*\$?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/gi, // AMOUNT: $1234.56
-      /SUBTOTAL[:\s]*\$?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/gi, // SUBTOTAL: $1234.56
-    ];
-    
-    let maxAmount = 0;
-    
-    for (const pattern of currencyPatterns) {
-      const matches = text.matchAll(pattern);
-      for (const match of matches) {
-        const amount = parseFloat(match[1].replace(/,/g, ''));
-        if (amount > maxAmount) {
-          maxAmount = amount;
-        }
-      }
-    }
-    
-    return maxAmount;
+  private extractAmount(text: string): { amount: number | null; amountNeedsReview: boolean } {
+    return readReceiptTotal(text);
   }
 
   private extractDate(text: string): string {
@@ -273,7 +388,9 @@ export class ReceiptProcessor {
   ): Promise<ReceiptMatchCandidate[]> {
     const receiptDateIso = this.normalizeDateToISO(receiptData.date);
     const receiptMerchantNorm = this.normalizeMerchant(receiptData.merchant);
-    const receiptAmountAbs = Math.abs(Number(receiptData.amount || 0));
+    const receiptAmountAbs = receiptData.amountNeedsReview || !(typeof receiptData.amount === 'number' && receiptData.amount > 0)
+      ? null
+      : Math.abs(receiptData.amount);
 
     const candidates: ReceiptMatchCandidate[] = [];
 
@@ -288,12 +405,15 @@ export class ReceiptProcessor {
       const txDateIso = this.normalizeDateToISO(tx.date);
       const txAmountAbs = Math.abs(Number(tx.amount || 0));
 
-      const amountDiff = Math.abs(txAmountAbs - receiptAmountAbs);
-      const amountTol = receiptAmountAbs >= 100 ? 2 : receiptAmountAbs >= 10 ? 1 : 0.25;
-
-      const amountScore = amountDiff <= amountTol
-        ? 1
-        : Math.max(0, 1 - amountDiff / (amountTol * 3));
+      // A blank total is not zero, so it must not match nearby amounts.
+      let amountScore = 0;
+      if (receiptAmountAbs != null) {
+        const amountDiff = Math.abs(txAmountAbs - receiptAmountAbs);
+        const amountTol = receiptAmountAbs >= 100 ? 2 : receiptAmountAbs >= 10 ? 1 : 0.25;
+        amountScore = amountDiff <= amountTol
+          ? 1
+          : Math.max(0, 1 - amountDiff / (amountTol * 3));
+      }
 
       const merchantScore = this.scoreMerchants(receiptMerchantNorm, txMerchantNorm);
 

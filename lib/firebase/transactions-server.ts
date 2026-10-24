@@ -811,7 +811,11 @@ export async function getPaginatedTransactionsServer(
 export async function createTransactionServer(
   userId: string,
   accountId: string,
-  transactionData: Partial<Transaction>
+  transactionData: Omit<Partial<Transaction>, 'amount'> & {
+    amount?: number | null;
+    amountNeedsReview?: boolean;
+    deductionStatus?: string;
+  }
 ): Promise<{ data: Transaction | null; error: any }> {
   try {
     const transId = transactionData.trans_id || `trans_${Date.now()}`;
@@ -893,8 +897,11 @@ export async function createTransactionServer(
           id: data?.trans_id || createdDoc.id,
           trans_id: data?.trans_id || createdDoc.id,
           merchant_name: data?.merchant_name || '',
-          amount: data?.amount || 0,
+          amount: data?.amount === null ? null : (data?.amount || 0),
           category: data?.category || '',
+          ...(data?.amountNeedsReview === true ? { amountNeedsReview: true } : {}),
+          ...(typeof data?.deductionStatus === 'string' ? { deductionStatus: data.deductionStatus } : {}),
+          ...(typeof data?.tax_review_required === 'boolean' ? { tax_review_required: data.tax_review_required } : {}),
           date: data?.date || '',
           type: data?.amount < 0 ? 'income' : 'expense',
           is_deductible: data?.is_deductible,
