@@ -9,6 +9,7 @@ export const MODEL_DISCLOSURE_PURPOSE = '[PLACEHOLDER] One purpose';
 export const MODEL_DISCLOSURE_CHECKBOX = '[PLACEHOLDER] Disclosure checkbox';
 export const MODEL_DISCLOSURE_NAME_LABEL = '[PLACEHOLDER] Typed name';
 export const MODEL_DISCLOSURE_DATE_LABEL = '[PLACEHOLDER] Date';
+export const MODEL_DISCLOSURE_LENGTH = '[PLACEHOLDER] This consent is valid for one year from the date you sign.';
 export const MODEL_DISCLOSURE_TIGTA = '[PLACEHOLDER] TIGTA line';
 export const MODEL_DISCLOSURE_SUBMIT = '[PLACEHOLDER] Submit disclosure';
 export const MODEL_DISCLOSURE_DECLINE = '[PLACEHOLDER] Decline';
@@ -98,7 +99,11 @@ export function modelConsentPath(uid: string, recordType: ConsentRecordType): st
   return `user_profiles/${uid}/model_consents/${recordType}`;
 }
 
-/** One UTC year after signing when a writer omits expiresAt. Readers still require an explicit expiresAt. */
+/**
+ * One UTC year after signing.
+ * A grant that stores no length uses this default under 301.7216-3(b)(5).
+ * The disclosure placeholder states this same length, and a new grant stores expiresAt from it.
+ */
 export function defaultConsentExpiry(signedAt: Date): Date {
   const expires = new Date(signedAt.getTime());
   expires.setUTCFullYear(expires.getUTCFullYear() + 1);

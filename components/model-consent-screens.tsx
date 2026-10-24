@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import {
   MODEL_DISCLOSURE_CHECKBOX, MODEL_DISCLOSURE_DATA_LIST, MODEL_DISCLOSURE_DATE_LABEL, MODEL_DISCLOSURE_DECLINE,
-  MODEL_DISCLOSURE_NAME_LABEL, MODEL_DISCLOSURE_PURPOSE, MODEL_DISCLOSURE_RECIPIENT, MODEL_DISCLOSURE_REVPROC_5041A,
+  MODEL_DISCLOSURE_LENGTH, MODEL_DISCLOSURE_NAME_LABEL, MODEL_DISCLOSURE_PURPOSE, MODEL_DISCLOSURE_RECIPIENT, MODEL_DISCLOSURE_REVPROC_5041A,
   MODEL_DISCLOSURE_SUBMIT, MODEL_DISCLOSURE_TIGTA, MODEL_DISCLOSURE_TITLE, MODEL_REUSE_CHECKBOX, MODEL_REUSE_PURPOSE,
   MODEL_REUSE_REVPROC_5041C, MODEL_REUSE_SUBMIT, MODEL_REUSE_TITLE, disclosureAcceptBody, disclosureDeclineBody,
   formatConsentDate, reuseAcceptBody,
@@ -76,6 +76,7 @@ export function ModelDisclosureConsentScreen({ today = new Date(), submit = post
         />
       </div>
       <p className="text-sm text-muted-foreground">{MODEL_DISCLOSURE_DATE_LABEL}: {date}</p>
+      <p className="text-sm text-foreground">{MODEL_DISCLOSURE_LENGTH}</p>
       {message && <p role="alert" className="text-xs text-destructive">{message}</p>}
       <div className="flex flex-wrap gap-2">
         <button type="button" id="model-disclosure-consent-decline" onClick={decline} className="rounded-lg border border-border px-3 py-2 text-sm">

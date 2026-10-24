@@ -5,9 +5,9 @@ import { NextRequest } from 'next/server';
 import { createFakeFirestore, type FakeFirestore } from './fixtures/fake-firestore';
 import { ModelDisclosureConsentScreen, ModelReuseConsentScreen } from '@/components/model-consent-screens';
 import {
-  MODEL_DISCLOSURE_DATA_LIST, MODEL_DISCLOSURE_DATE_LABEL, MODEL_DISCLOSURE_PURPOSE,
+  MODEL_DISCLOSURE_DATA_LIST, MODEL_DISCLOSURE_DATE_LABEL, MODEL_DISCLOSURE_LENGTH, MODEL_DISCLOSURE_PURPOSE,
   MODEL_DISCLOSURE_RECIPIENT, MODEL_DISCLOSURE_REVPROC_5041A, MODEL_DISCLOSURE_TIGTA, MODEL_REUSE_PURPOSE,
-  MODEL_REUSE_REVPROC_5041C, MODEL_REUSE_TITLE, disclosureAcceptBody, disclosureDeclineBody, formatConsentDate,
+  MODEL_REUSE_REVPROC_5041C, MODEL_REUSE_TITLE, defaultConsentExpiry, disclosureAcceptBody, disclosureDeclineBody, formatConsentDate,
   reuseAcceptBody,
 } from '@/lib/openai/consent-contract';
 
@@ -61,6 +61,7 @@ describe('disclosure and reuse consent screens', () => {
     expect(html).toContain(MODEL_DISCLOSURE_PURPOSE);
     expect(html).toContain(`${MODEL_DISCLOSURE_DATE_LABEL}: ${formatConsentDate(today)}`);
     expect(html).toContain(MODEL_DISCLOSURE_TIGTA);
+    expect(html).toContain(MODEL_DISCLOSURE_LENGTH);
     for (const sentence of MODEL_DISCLOSURE_REVPROC_5041A) expect(html).toContain(sentence);
     expect(html).not.toContain(MODEL_REUSE_TITLE);
     expect(html).not.toContain('1-800-366-4484');
@@ -121,12 +122,17 @@ describe('disclosure and reuse consent screens', () => {
     const accepted = await post({ action: 'accept', acknowledged: true, signedName: ' Synthetic Owner ' });
     expect(accepted.status).toBe(200);
     expect(await accepted.json()).toMatchObject({ status: 'granted', recordType: 'disclosure' });
-    expect(db().records.get(disclosurePath)).toMatchObject({ status: 'granted', signedName: 'Synthetic Owner', recordType: 'disclosure' });
+    expect(db().records.get(disclosurePath)).toMatchObject({ status: 'granted', signedName: 'Synthetic Owner', recordType: 'disclosure', consentLength: MODEL_DISCLOSURE_LENGTH });
+    const stored = db().records.get(disclosurePath)!;
+    expect(stored.expiresAt).toBeInstanceOf(Date);
+    expect((stored.expiresAt as Date).getTime()).toBe(defaultConsentExpiry(stored.signedAt as Date).getTime());
     expect(db().records.has(reusePath)).toBe(false);
 
     const withdrawn = await post({ action: 'withdraw' });
     expect(withdrawn.status).toBe(200);
-    expect(await withdrawn.json()).toMatchObject({ status: 'withdrawn', recordType: 'disclosure' });
+    const withdrawnBody = await withdrawn.json();
+    expect(withdrawnBody).toMatchObject({ status: 'withdrawn', recordType: 'disclosure' });
+    expect(JSON.stringify(withdrawnBody)).not.toMatch(/301\.7216|Rev\. Proc/);
     expect(db().records.has(reusePath)).toBe(false);
   });
 

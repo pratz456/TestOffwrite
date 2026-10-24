@@ -1,6 +1,6 @@
 import { adminDb } from '@/lib/firebase/admin';
 import {
-  MODEL_CONSENT_DOCUMENT_VERSION, MODEL_CONSENT_UNAVAILABLE, MODEL_PURPOSES,
+  MODEL_CONSENT_DOCUMENT_VERSION, MODEL_CONSENT_UNAVAILABLE, MODEL_DISCLOSURE_LENGTH, MODEL_PURPOSES,
   defaultConsentExpiry, isImageModelPurpose, isModelPurpose, modelConsentPath,
   type ConsentRecordType, type ConsentRefusalReason, type ConsentStatus, type ModelPurpose,
 } from './consent-contract';
@@ -77,9 +77,10 @@ export function readDisclosureConsent(data: Record<string, unknown> | null | und
   if (!data || data.recordType !== 'disclosure') return null;
   if (data.status !== 'granted' && data.status !== 'declined' && data.status !== 'withdrawn') return null;
   const signedAt = asDate(data.signedAt);
-  const expiresAt = asDate(data.expiresAt);
   const version = typeof data.consentDocumentVersion === 'string' ? data.consentDocumentVersion.trim() : '';
-  if (!signedAt || !expiresAt || !version) return null;
+  if (!signedAt || !version) return null;
+  // Stored expiresAt is the signing time plus the stated length. No stored length means one year.
+  const expiresAt = asDate(data.expiresAt) ?? defaultConsentExpiry(signedAt);
   const purposes = Array.isArray(data.purposes) ? data.purposes.filter(isModelPurpose) : [];
   return { status: data.status, purposes, consentDocumentVersion: version, signedAt, expiresAt, recordType: 'disclosure' };
 }
@@ -131,15 +132,16 @@ export interface ModelConsentView {
   recordType: ConsentRecordType | null;
 }
 
-export async function readModelConsentView(uid: string): Promise<ModelConsentView> {
+export async function readModelConsentView(uid: string, now = new Date()): Promise<ModelConsentView> {
   const snapshot = await adminDb.doc(modelConsentPath(uid, 'disclosure')).get();
   const record = snapshot.exists ? readDisclosureConsent(snapshot.data() as Record<string, unknown>) : null;
   if (!record) {
     return { status: 'declined', purposes: [], consentDocumentVersion: null, signedAt: null, expiresAt: null, recordType: null };
   }
+  const expired = record.status === 'granted' && now.getTime() >= record.expiresAt.getTime();
   return {
-    status: record.status,
-    purposes: record.purposes,
+    status: expired ? 'declined' : record.status,
+    purposes: expired ? [] : record.purposes,
     consentDocumentVersion: record.consentDocumentVersion,
     signedAt: record.signedAt.toISOString(),
     expiresAt: record.expiresAt.toISOString(),
@@ -204,6 +206,7 @@ export async function acceptDisclosureConsent(uid: string, signedName: string, r
     purposes: [...MODEL_PURPOSES],
     consentDocumentVersion: MODEL_CONSENT_DOCUMENT_VERSION,
     signedAt,
+    consentLength: MODEL_DISCLOSURE_LENGTH,
     expiresAt: defaultConsentExpiry(signedAt),
     recordType: 'disclosure',
     signedName: name,
@@ -242,7 +245,7 @@ export async function acceptReuseConsent(uid: string, requestedAt: Date): Promis
   return readReuseConsentView(uid);
 }
 
-/** Owner withdrawal. A missing disclosure becomes an explicit withdrawn record. */
+/** Owner withdrawal. A missing disclosure becomes an explicit withdrawn record. No duration rule is cited. */
 export async function withdrawModelConsent(uid: string, requestedAt: Date): Promise<ModelConsentView> {
   const ref = adminDb.doc(modelConsentPath(uid, 'disclosure'));
   const snapshot = await ref.get();
