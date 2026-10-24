@@ -497,10 +497,10 @@ function ambiguousNumericDate(value: string): boolean {
 /** Capital dollar prefixes, including one space before the $. A bare $ is not a US signal. */
 const PREFIXED_DOLLAR = /(?<![A-Za-z])(?:CA|AU|NZ|MX|C|A|R) ?\$/;
 const PREFIXED_DOLLAR_ALL = /(?<![A-Za-z])(?:CA|AU|NZ|MX|C|A|R) ?\$/g;
-/** ISO codes that are also ordinary English words. They count only on a total or currency line. */
-const WORD_LIKE_CODE = 'ALL|BAM|BOB|COP|CUP|GEL|MAD|MOP|PEN|RUB|SOS|TOP|TRY';
-const AMOUNT_CODE = 'EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|AED|SAR|ILS';
-const CURRENCY_CODE = new RegExp(`(?:${WORD_LIKE_CODE}|${AMOUNT_CODE})`);
+/** Capitals-only ISO codes. One code on an item line never blanks the date by itself. */
+const CURRENCY_CODE = 'EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|AED|SAR|ILS|ALL|BAM|BOB|COP|CUP|GEL|MAD|MOP|PEN|RUB|SOS|TOP|TRY';
+/** Russian total words name the same currency as RUB. */
+const RUB_TOTAL_WORD = /ИТОГО|ВСЕГО|К ОПЛАТЕ|итого|всего|к оплате/;
 
 function usReceiptSignals(text: string): boolean {
   return /\bUSD\b/i.test(text) || /\bUS\$/.test(text) || /\bUSA\b/.test(text) || /United States/i.test(text);
@@ -508,15 +508,30 @@ function usReceiptSignals(text: string): boolean {
 
 /** A capital code on a total, tax, due, or currency-label line. Item lines do not count. */
 function qualifyingCurrencyCode(text: string): boolean {
-  const code = new RegExp(`\\b${CURRENCY_CODE.source}\\b`);
-  const totalLine = /\b(?:subtotal|total|tax)\b|\b(?:amount|balance)\s+due\b|\bcurrency\s*:|\ball amounts in\b|ИТОГО|ВСЕГО|К ОПЛАТЕ|итого|всего|к оплате/i;
+  const code = new RegExp(`\\b(?:${CURRENCY_CODE})\\b`);
+  const totalLine = new RegExp(`\\b(?:subtotal|total|tax)\\b|\\b(?:amount|balance)\\s+due\\b|\\bcurrency\\s*:|\\ball amounts in\\b|${RUB_TOTAL_WORD.source}`, 'i');
   return text.split(/\r?\n/).some(line => code.test(line) && totalLine.test(line));
 }
 
-/** With no bare $, a capital code that is not an ordinary word counts beside an amount on any line. */
-function codeNextToAmount(text: string): boolean {
-  const code = `(?:${AMOUNT_CODE})`;
-  return new RegExp(`\\b${code} ?\\d`).test(text) || new RegExp(`\\d+(?:\\.\\d+)? ?\\b${code}\\b`).test(text);
+/** Each code beside an amount is one signal. A matching foreign total word is one more. */
+function agreeingCurrencySignals(text: string): boolean {
+  const counts = new Map<string, number>();
+  const seen = new Set<number>();
+  const patterns = [
+    new RegExp(`\\b(${CURRENCY_CODE}) ?\\d`, 'g'),
+    new RegExp(`\\d+(?:\\.\\d+)? ?\\b(${CURRENCY_CODE})\\b`, 'g'),
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const token = match[1];
+      const at = (match.index ?? 0) + match[0].indexOf(token);
+      if (seen.has(at)) continue;
+      seen.add(at);
+      counts.set(token, (counts.get(token) ?? 0) + 1);
+    }
+  }
+  if (RUB_TOTAL_WORD.test(text)) counts.set('RUB', (counts.get('RUB') ?? 0) + 1);
+  return [...counts.values()].some(count => count >= 2);
 }
 
 function bareDollar(text: string): boolean {
@@ -527,9 +542,10 @@ function bareDollar(text: string): boolean {
 function nonUsReceiptSignals(text: string): boolean {
   if (PREFIXED_DOLLAR.test(text)) return true;
   if (/[€£¥₹₩₱₺₽]/.test(text) || /\bkr\b/i.test(text)) return true;
-  // A bare $ disagrees with a code. The code then counts only on a total, tax, due, or currency line, and the date stays.
+  // A bare $ disagrees with a code, so a code alone does not blank the date.
   if (bareDollar(text)) return false;
-  return codeNextToAmount(text) || qualifyingCurrencyCode(text);
+  // Blank for a code on a total, tax, due, or currency line, or when two signals name the same currency.
+  return qualifyingCurrencyCode(text) || agreeingCurrencySignals(text);
 }
 
 /** Clearly non US: a foreign signal is present, and USD, US$, USA, or United States text is not. A bare $ does not decide. */

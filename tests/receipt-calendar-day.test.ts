@@ -326,7 +326,9 @@ describe('ambiguous numeric receipt dates', () => {
     ['PEN 2.99', 'MAIN STREET DRUG\n05/01/2026\nPEN 2.99\nTOTAL 2.99', 2.99],
     ['GEL 6.99', 'BEAUTY COUNTER\n05/01/2026\nGEL 6.99\nTOTAL 6.99', 6.99],
     ['CUP 3.50', 'CORNER CAFE\n05/01/2026\nCUP 3.50\nTOTAL 3.50', 3.5],
-  ])('keeps the date on an all caps receipt with no dollar that lists %s', async (_item, text, amount) => {
+    ['WINGS DRY RUB 12.99', 'WING HOUSE\n05/01/2026\nWINGS DRY RUB 12.99\nTOTAL 12.99', 12.99],
+    ['TRY-ME COMBO 8.00', 'DINER COUNTER\n05/01/2026\nTRY-ME COMBO 8.00\nTOTAL 8.00', 8],
+  ])('keeps 05/01/2026 and the month/day flag when a receipt with no dollar lists %s', async (_item, text, amount) => {
     recognize(text);
     const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
     expect(scanned.data?.date).toBe('2026-05-01');
@@ -338,6 +340,21 @@ describe('ambiguous numeric receipt dates', () => {
     expect(saved.amount).toBe(amount);
     expect(saved.dateOrderAssumed).toBe('month_day');
     expect(saved.deductionStatus).toBeUndefined();
+  });
+
+  it('leaves the date blank when two item lines agree on RUB and the total line has no code', async () => {
+    recognize('MOSCOW CAFE\n05/01/2026\nCOFFEE 120.00 RUB\nBREAD 80.00 RUB\nTOTAL 200.00');
+    const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(scanned.data?.date).toBe('');
+    expect(scanned.data?.dateOrderAssumed).toBeUndefined();
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; deductionStatus?: string; dateOrderAssumed?: string; tax_review_required?: boolean };
+    expect(saved.date).toBe('');
+    expect(saved.amount).toBe(200);
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
+    expect(saved.dateOrderAssumed).toBeUndefined();
   });
 
   it('leaves the date blank for C $25.00', async () => {
