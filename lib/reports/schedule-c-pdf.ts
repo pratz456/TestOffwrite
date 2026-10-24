@@ -1,4 +1,6 @@
-import { aggregateScheduleC, CATEGORY_MAP, type LineItemSummary } from '@/lib/schedule-c/aggregate';
+import { aggregateScheduleC, CATEGORY_MAP, type LineItemSummary, type ScheduleCTransactionLike } from '@/lib/schedule-c/aggregate';
+import { scheduleCNow } from '@/lib/schedule-c/filed-year';
+import type { ScheduleCComparisonSection } from '@/lib/schedule-c/filed-year';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 
@@ -7,9 +9,13 @@ export interface ScheduleCExportData {
   /** `ssn` and `ein` are masked display values (last four digits); callers never pass full identifiers. */
   name?: string; ssn?: string; profession?: string; naicsCode?: string; ein?: string;
   includeAppendix: boolean;
+  contribution?: (tx: ScheduleCTransactionLike) => number;
+  comparison?: ScheduleCComparisonSection | null;
+  generatedAt?: Date;
 }
 export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   const pdf = await createPlanningPDF('Schedule C - business records for review', data.taxYear);
+  const contributionOf = data.contribution ?? ((tx: ScheduleCTransactionLike) => aggregateScheduleC([tx], String(data.taxYear), CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible);
   pdf.paragraph('This is a preparer handoff, not an IRS Schedule C or an e-file-ready return. Recorded receipts and confirmed expense totals are included below; missing tax facts are not treated as zero.', true);
   pdf.paragraph(data.taxYear >= 2026 ? '2026 planning amounts use published 2025 Schedule C line references. Final 2026 form labels must be checked before filing.' : `Line references use the published ${data.taxYear} Schedule C.`);
   pdf.section('Owner and business records');
@@ -35,11 +41,23 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   if (data.includeAppendix) {
     pdf.section('Complete confirmed-transaction appendix');
     const rows = data.lineItems.flatMap(item => item.transactions.map(tx => {
-      const contribution = aggregateScheduleC([tx], String(data.taxYear), CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible;
+      const contribution = contributionOf(tx);
       return [tx.date, tx.merchant_name || tx.id || 'Unnamed record', scheduleCExportLine(item.lineCode, data.taxYear), money(tx.amount), money(contribution)];
     }));
     pdf.table(['Date', 'Merchant / record', 'Line', 'Signed amount', 'Contribution'], rows.length ? rows : [['', 'No confirmed records in this year', '', money(0), money(0)]], [68, 235, 35, 95, 95]);
   } else pdf.paragraph('Transaction appendix omitted at your request. Retain the detailed records and receipts with your preparer.');
+  if (data.comparison) {
+    pdf.section('Comparison');
+    pdf.paragraph(data.comparison.notice);
+    if (data.comparison.lineChanges.length) {
+      pdf.table(['Line', 'Old total', 'New total', 'Dollar change'], data.comparison.lineChanges.map(row => [
+        row.line, money(row.oldAmount), money(row.newAmount), row.change < 0 ? `down ${money(Math.abs(row.change))}` : row.change > 0 ? `up ${money(row.change)}` : money(0),
+      ]), [70, 150, 150, 158]);
+    }
+    if (data.comparison.movedCharges.length) {
+      pdf.table(['Charge', 'Reason'], data.comparison.movedCharges.map(charge => [charge.id, charge.reason]), [200, 328]);
+    }
+  }
   pdf.paragraph('Reference: irs.gov/pub/irs-pdf/f1040sc.pdf and irs.gov/pub/irs-prior/f1040sc--2024.pdf. Unsupported font characters are preserved as U+codepoints.');
-  return pdf.save();
+  return pdf.save(0, data.generatedAt ?? scheduleCNow());
 }

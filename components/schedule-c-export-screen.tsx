@@ -1,7 +1,8 @@
 "use client";
 
-import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { currentCalendarYear, decideScheduleCExport, DRAFT_LATEST_EXPORT_UNRECORDED_NOTICE, SCHEDULE_C_EXPORT_LOAD_FAILED_NOTICE, scheduleCExportLine, shouldHoldYear } from '@/lib/schedule-c/export-lines';
+import { readStoredScheduleCPrior, type ScheduleCExportSnapshot } from '@/lib/schedule-c/held-year-client';
+import React, { useState, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -10,7 +11,7 @@ import { Download, FileText, Calendar, Lock } from 'lucide-react';
 import { useSubscription } from '@/lib/hooks/use-subscription';
 import { PremiumFeatureGate, subscriptionGateDestination } from '@/components/premium-feature-gate';
 import { useRouter } from 'next/navigation';
-import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 
 interface Transaction {
@@ -21,6 +22,8 @@ interface Transaction {
   date: string;
   type?: 'expense' | 'income';
   is_deductible?: boolean | null;
+  review_status?: string;
+  tax_review_required?: boolean;
   deductible_reason?: string;
   deduction_score?: number;
   description?: string;
@@ -38,6 +41,23 @@ interface ScheduleCExportScreenProps {
   };
   onBack: () => void;
   transactions: Transaction[];
+  /**
+   * Rules version stored for this user. A string applies to the selected year.
+   * A map is the year to version record from user_tax_year_confirmations.
+   * A match with the current rules shows that total and hides the hold notice.
+   * Nothing in the app calls the confirm route yet, and this screen has no confirm control.
+   */
+  confirmedRulesVersion?: string | null | Readonly<Record<string, string>>;
+}
+
+function confirmedVersionForYear(
+  value: string | null | Readonly<Record<string, string>> | undefined,
+  year: number,
+): string | null {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object') return null;
+  const found = value[String(year)];
+  return typeof found === 'string' ? found : null;
 }
 
 interface CategorySummary {
@@ -51,7 +71,8 @@ interface CategorySummary {
 export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   user,
   onBack,
-  transactions: transactionsProp
+  transactions: transactionsProp,
+  confirmedRulesVersion = null,
 }) => {
   // Ensure transactions is always an array
   const transactions = Array.isArray(transactionsProp) ? transactionsProp : [];
@@ -65,40 +86,56 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
     SUPPORTED_TAX_YEARS.find(year => year === new Date().getFullYear()) ?? SUPPORTED_TAX_YEARS[SUPPORTED_TAX_YEARS.length - 1]
   ));
   const [exportFormat, setExportFormat] = useState('CSV (Spreadsheet)');
-  const [categorySummaries, setCategorySummaries] = useState<CategorySummary[]>([]);
-  const [totalDeductible, setTotalDeductible] = useState(0);
-  const [deductibleCount, setDeductibleCount] = useState(0);
-  const [confirmedCount, setConfirmedCount] = useState(0);
-  const [potentialCount, setPotentialCount] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
   const [includeAppendix, setIncludeAppendix] = useState(true);
-  const [lineDetails, setLineDetails] = useState<Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }>>({});
+  const [prior, setPrior] = useState<ScheduleCExportSnapshot | null>(null);
+  const [latestExportUnrecorded, setLatestExportUnrecorded] = useState(false);
+  const [priorReadFailed, setPriorReadFailed] = useState(false);
+  const [priorPending, setPriorPending] = useState(false);
+  const [priorYear, setPriorYear] = useState<number | null>(null);
+  const confirmedForYear = confirmedVersionForYear(confirmedRulesVersion, Number(selectedYear));
+  const selectedYearNumber = Number(selectedYear);
+  const heldYearSelected = Number.isInteger(selectedYearNumber)
+    && selectedYearNumber < currentCalendarYear()
+    && shouldHoldYear(user.id, selectedYearNumber);
+  const priorSettled = heldYearSelected && priorYear === selectedYearNumber && !priorPending;
+  const showHeldTotals = priorSettled && !priorReadFailed;
+  const showFailedTotals = priorSettled && priorReadFailed;
+  const showLoading = heldYearSelected && !priorSettled;
 
 
-  // Memoize transactions array reference to prevent unnecessary re-renders
-  const transactionsKey = useMemo(() => {
-    return transactions.map(t => `${t.id}-${t.date}-${t.amount}-${t.is_deductible}-${String(t.pending ?? '')}`).join('|');
-  }, [transactions]);
-
-  // Memoize calculateDeductions to prevent recreation on every render
-  const calculateDeductions = useCallback((overrideYearTx?: Transaction[]) => {
-    // Use shared CPA-grade Schedule C aggregation logic.
-    // confirmed-only excludes is_deductible === null/undefined and nets credits/refunds via signed totals.
-    const sourceTx = Array.isArray(overrideYearTx) ? overrideYearTx : (Array.isArray(transactions) ? transactions : []);
-    const aggregation = aggregateScheduleC(sourceTx as any[], selectedYear, CATEGORY_MAP, { mode: 'confirmed-only' });
-
-    const nextLineDetails: Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }> = {};
-    aggregation.lineItemsArray.forEach((item) => {
-      nextLineDetails[item.lineName] = {
+  // The preview matches the export decision in the same render the read settles.
+  // A held year keeps the stored total, including while a marker is open.
+  const preview = useMemo(() => {
+    if (showLoading || showFailedTotals) return null;
+    const sourceTx = Array.isArray(transactions) ? transactions : [];
+    const decision = decideScheduleCExport({
+      uid: user.id,
+      year: selectedYearNumber,
+      transactions: sourceTx.map(tx => ({
+        id: tx.id,
+        amount: tx.amount,
+        date: tx.date,
+        category: tx.category,
+        is_deductible: tx.is_deductible,
+        pending: tx.pending,
+        merchant_name: tx.merchant_name,
+        review_status: tx.review_status,
+        tax_review_required: tx.tax_review_required,
+      })),
+      prior: heldYearSelected ? prior : null,
+      confirmedRulesVersion: confirmedForYear,
+    });
+    const lineDetails: Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }> = {};
+    decision.lineItems.forEach((item) => {
+      lineDetails[item.lineName] = {
         confirmed: item.transactionCount,
         potential: 0,
         amount: item.deductible,
         transactions: item.transactions as Transaction[],
       };
     });
-    setLineDetails(nextLineDetails);
-
-    const summaries: CategorySummary[] = aggregation.lineItemsArray
+    const categorySummaries: CategorySummary[] = decision.lineItems
       .map((item) => ({
         category: item.lineName,
         lineCode: item.lineCode,
@@ -106,21 +143,44 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
         amount: item.deductible,
         transactionCount: item.transactionCount,
       }))
-      // UI currently sorts by descending magnitude.
       .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+    const deductibleCount = decision.lineItems.reduce((sum, item) => sum + item.transactionCount, 0);
+    return { decision, lineDetails, categorySummaries, totalDeductible: decision.totalDeductible, deductibleCount };
+  }, [transactions, selectedYearNumber, user.id, confirmedForYear, prior, heldYearSelected, showLoading, showFailedTotals]);
 
-    setCategorySummaries(summaries);
-    setTotalDeductible(aggregation.totalDeductible);
-    setDeductibleCount(aggregation.counts.deductible);
-    setConfirmedCount(aggregation.counts.deductible);
-    setPotentialCount(0);
-  }, [transactions, selectedYear]);
+  const categorySummaries = preview?.categorySummaries ?? [];
+  const lineDetails = preview?.lineDetails ?? {};
+  const totalDeductible = preview?.totalDeductible ?? 0;
+  const confirmedCount = preview?.deductibleCount ?? 0;
+  const potentialCount = 0;
+  const heldComparison = showHeldTotals && !latestExportUnrecorded ? preview?.decision.comparison ?? null : null;
 
   useEffect(() => {
-    calculateDeductions();
-    // This preview reflects loaded records. The PDF reloads complete saved data
-    // server-side for both formats.
-  }, [calculateDeductions, transactionsKey]);
+    const year = Number(selectedYear);
+    if (!Number.isInteger(year) || year >= currentCalendarYear() || !shouldHoldYear(user.id, year)) {
+      setPrior(null);
+      setLatestExportUnrecorded(false);
+      setPriorReadFailed(false);
+      setPriorPending(false);
+      setPriorYear(null);
+      return;
+    }
+    setPrior(null);
+    setLatestExportUnrecorded(false);
+    setPriorReadFailed(false);
+    setPriorPending(true);
+    setPriorYear(null);
+    let cancel = false;
+    void readStoredScheduleCPrior(year).then(value => {
+      if (cancel) return;
+      setPrior(value.prior);
+      setLatestExportUnrecorded(value.latestExportUnrecorded);
+      setPriorReadFailed(value.readFailed);
+      setPriorPending(false);
+      setPriorYear(year);
+    });
+    return () => { cancel = true; };
+  }, [selectedYear, user.id]);
 
   const lineNameToLineCode = useMemo(() => {
     const map: Record<string, string> = {};
@@ -168,6 +228,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
       });
 
       if (!response.ok) {
+        if (response.status === 503) setPriorReadFailed(true);
         // Check if it's a subscription required error
         const contentType = response.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
@@ -314,8 +375,28 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
             Schedule C Preview - Tax Year {selectedYear}
           </h3>
 
+          {showLoading ? (
+            <p className="mb-4 text-sm text-foreground">Loading</p>
+          ) : null}
+
+          {showFailedTotals ? (
+            <p className="mb-4 text-sm text-foreground">{SCHEDULE_C_EXPORT_LOAD_FAILED_NOTICE}</p>
+          ) : null}
+
+          {showHeldTotals && latestExportUnrecorded ? (
+            <div className="mb-4 space-y-1 text-sm text-foreground">
+              <p>{DRAFT_LATEST_EXPORT_UNRECORDED_NOTICE}</p>
+            </div>
+          ) : showHeldTotals && heldComparison ? (
+            <div className="mb-4 space-y-1 text-sm text-foreground">
+              {heldComparison.notice.split('\n').map((line, index) => (
+                <p key={`${index}-${line.slice(0, 24)}`}>{line}</p>
+              ))}
+            </div>
+          ) : null}
+
           {/* Enhanced Form Style Preview */}
-          {categorySummaries.length > 0 && (
+          {(showHeldTotals || !heldYearSelected) && categorySummaries.length > 0 && (
             <div className="mb-4">
               <div className="mb-4">
                 <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Form 1040 - Schedule C (Draft Preview)</h4>
@@ -365,6 +446,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
           )}
 
           {/* Summary Cards */}
+          {(showHeldTotals || showFailedTotals || !heldYearSelected) && (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <div className="bg-card rounded-xl p-4 border border-border">
               <div className="text-2xl font-bold text-foreground mb-1 tabular-nums">{confirmedCount}</div>
@@ -386,8 +468,10 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
               <div className="text-sm text-muted-foreground">Total Business Expenses</div>
             </div>
           </div>
+          )}
 
           {/* IRS Schedule C Line Items */}
+          {(showHeldTotals || !heldYearSelected) && (
           <div>
             <h4 className="text-lg font-semibold text-foreground mb-4">IRS Schedule C Line Items</h4>
 
@@ -442,6 +526,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
               </div>
             )}
           </div>
+          )}
         </Card>
 
         {/* Instructions */}

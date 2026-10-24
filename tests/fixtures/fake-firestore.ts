@@ -51,9 +51,60 @@ export const fakeFieldValue = { delete: () => DELETE_FIELD as unknown as never }
 export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
   const records: FakeRecords = options.records ?? new Map();
   let generated = 0;
+  let committedWrites = 0;
+  /** While true, a transaction holds its locks. Clearing it lets that transaction commit. */
+  const control = { holdOpenTransaction: false };
+  /** Collection ids whose document and query reads never settle. */
+  const stuckReads = new Set<string>();
+  /** Collection ids whose document and query reads reject immediately. */
+  const failReads = new Set<string>();
+  /** Document paths read by a transaction that is still open. */
+  const lockedPaths = new Set<string>();
+  /** Collection paths whose query reads are held by an open transaction. */
+  const lockedQueries = new Set<string>();
+  /** Writes and query reads waiting on an open transaction. Released after it commits. */
+  const blockedWrites: Array<() => void> = [];
+  const blockedReads: Array<() => void> = [];
+  /** Resumes for reads inside transactions that are being held. */
+  const heldResumes: Array<Array<() => void>> = [];
+  let heldOpen = 0;
+  let idle: Promise<void> = Promise.resolve();
+  const trackIdle = (work: Promise<unknown>) => {
+    let finish: () => void = () => undefined;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    const current = idle;
+    idle = Promise.all([current, gate]).then(() => undefined);
+    void work.then(() => finish(), () => finish());
+  };
   const fail = () => { const error = options.failure?.(); if (error) throw error; };
   const clone = (data: Record<string, any> | undefined) => data === undefined ? undefined : { ...data };
   const nextId = () => `generated-${++generated}`;
+  const collectionId = (path: string) => path.split('/')[0] ?? '';
+  const readStuck = (path: string) => stuckReads.has(collectionId(path));
+  const readFails = (path: string) => failReads.has(collectionId(path));
+  const never = () => new Promise(() => {});
+  const parentPath = (path: string) => path.split('/').slice(0, -1).join('/');
+  const writeLocked = (path: string) => lockedPaths.has(path) || lockedQueries.has(parentPath(path));
+  const queryLocked = (path: string) => {
+    if (lockedQueries.has(path)) return true;
+    for (const locked of lockedPaths) if (parentPath(locked) === path || locked === path) return true;
+    return false;
+  };
+  const waitForUnlock = async (locked: () => boolean, queue: Array<() => void>) => {
+    while (locked()) await new Promise<void>(resolve => queue.push(resolve));
+  };
+  const releaseBlocked = () => {
+    if (control.holdOpenTransaction || heldOpen > 0) return;
+    const writes = blockedWrites.splice(0);
+    const reads = blockedReads.splice(0);
+    for (const wake of writes) wake();
+    for (const wake of reads) wake();
+  };
+  const lockTarget = (target: any) => {
+    if (typeof target?.path !== 'string') return;
+    if (typeof target?.where === 'function') lockedQueries.add(target.path);
+    else lockedPaths.add(target.path);
+  };
 
   const snapshot = (path: string) => ({
     id: path.split('/').at(-1), ref: ref(path), exists: records.has(path), data: () => clone(records.get(path)),
@@ -62,17 +113,18 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
   const ref = (path: string): any => ({
     path, id: path.split('/').at(-1),
     parent: query(path.split('/').slice(0, -1).join('/')),
-    get: async () => { fail(); return snapshot(path); },
-    set: async (data: Record<string, any>, setOptions?: { merge?: boolean }) => { fail(); write(path, data, setOptions); },
-    update: async (data: Record<string, any>) => { fail(); if (!records.has(path)) throw new Error(`No document at ${path}`); write(path, data, { merge: true }); },
-    create: async (data: Record<string, any>) => { fail(); if (records.has(path)) throw new Error(`Document exists at ${path}`); write(path, data); },
-    delete: async () => { fail(); records.delete(path); },
+    get: async () => { fail(); if (readFails(path)) throw new Error('read failed'); if (readStuck(path)) return never(); await waitForUnlock(() => writeLocked(path), blockedReads); return snapshot(path); },
+    set: async (data: Record<string, any>, setOptions?: { merge?: boolean }) => { fail(); await waitForUnlock(() => writeLocked(path), blockedWrites); write(path, data, setOptions); },
+    update: async (data: Record<string, any>) => { fail(); await waitForUnlock(() => writeLocked(path), blockedWrites); if (!records.has(path)) throw new Error(`No document at ${path}`); write(path, data, { merge: true }); },
+    create: async (data: Record<string, any>) => { fail(); await waitForUnlock(() => writeLocked(path), blockedWrites); if (records.has(path)) throw new Error(`Document exists at ${path}`); write(path, data); },
+    delete: async () => { fail(); await waitForUnlock(() => writeLocked(path), blockedWrites); records.delete(path); committedWrites += 1; },
     collection: (name: string) => query(`${path}/${name}`),
     listCollections: async () => { fail(); const depth = path.split('/').length + 1; const names = new Set<string>();
       for (const key of records.keys()) if (key.startsWith(`${path}/`) && key.split('/').length >= depth + 1) names.add(key.split('/')[depth - 1]);
       return [...names].map(name => query(`${path}/${name}`)); },
   });
   const write = (path: string, data: Record<string, any>, setOptions?: { merge?: boolean }) => {
+    committedWrites += 1;
     const next: Record<string, any> = { ...(setOptions?.merge ? records.get(path) : {}) };
     for (const [key, value] of Object.entries(data)) { if (value === DELETE_FIELD) delete next[key]; else next[key] = value; }
     records.set(path, next);
@@ -103,7 +155,7 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
     startAfter: (...cursor: any[]) => builder(path, entries, { ...state, after: cursor }, extra),
     select: () => builder(path, entries, state, extra),
     count: () => ({ get: async () => { fail(); return { data: () => ({ count: select(entries(), state).size }) }; } }),
-    get: async () => { fail(); return select(entries(), state); },
+    get: async () => { fail(); if (readFails(path)) throw new Error('read failed'); if (readStuck(path)) return never(); await waitForUnlock(() => queryLocked(path), blockedReads); return select(entries(), state); },
   });
   const query = (path: string): any => {
     const depth = path.split('/').length + 1;
@@ -117,19 +169,83 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
   };
   const collectionGroup = (name: string): any =>
     builder(name, () => [...records].filter(([key]) => key.split('/').at(-2) === name), initialState());
+  const runTransactionBody = async <T>(work: (tx: any) => Promise<T>): Promise<T> => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const writes: Array<() => void> = [];
+      const reads = new Map<string, string>();
+      const result = await work({
+        get: (target: any) => {
+          if (typeof target?.path === 'string' && typeof target.where !== 'function') {
+            reads.set(target.path, JSON.stringify(records.get(target.path) ?? null));
+          }
+          return target.get();
+        },
+        getAll: (...targets: any[]) => Promise.all(targets.map(target => target.get())),
+        set: (target: any, data: Record<string, any>, setOptions?: { merge?: boolean }) => writes.push(() => write(target.path, data, setOptions)),
+        update: (target: any, data: Record<string, any>) => writes.push(() => write(target.path, data, { merge: true })),
+        create: (target: any, data: Record<string, any>) => writes.push(() => { if (records.has(target.path)) throw new Error(`Document exists at ${target.path}`); write(target.path, data); }),
+        delete: (target: any) => writes.push(() => { records.delete(target.path); }),
+      });
+      const conflict = [...reads].some(([path, json]) => JSON.stringify(records.get(path) ?? null) !== json);
+      if (conflict) continue;
+      writes.forEach(apply => apply());
+      return result;
+    }
+    throw new Error('Firestore transaction failed after 5 attempts');
+  };
   const runTransaction = async <T>(work: (tx: any) => Promise<T>): Promise<T> => {
     fail();
-    const writes: Array<() => void> = [];
-    const result = await work({
-      get: (target: any) => target.get(),
-      getAll: (...targets: any[]) => Promise.all(targets.map(target => target.get())),
-      set: (target: any, data: Record<string, any>, setOptions?: { merge?: boolean }) => writes.push(() => write(target.path, data, setOptions)),
-      update: (target: any, data: Record<string, any>) => writes.push(() => write(target.path, data, { merge: true })),
-      create: (target: any, data: Record<string, any>) => writes.push(() => { if (records.has(target.path)) throw new Error(`Document exists at ${target.path}`); write(target.path, data); }),
-      delete: (target: any) => writes.push(() => { records.delete(target.path); }),
-    });
-    writes.forEach(apply => apply());
-    return result;
+    if (control.holdOpenTransaction) {
+      const writes: Array<() => void> = [];
+      const resumeReads: Array<() => void> = [];
+      heldResumes.push(resumeReads);
+      heldOpen += 1;
+      const finishHold = () => {
+        heldOpen -= 1;
+        releaseBlocked();
+      };
+      try {
+        const pending = work({
+          get: (target: any) => {
+            if (!control.holdOpenTransaction) return target.get();
+            lockTarget(target);
+            return new Promise(resolveGet => {
+              resumeReads.push(() => { void Promise.resolve(target.get()).then(resolveGet); });
+            });
+          },
+          getAll: (...targets: any[]) => {
+            if (!control.holdOpenTransaction) return Promise.all(targets.map(target => target.get()));
+            targets.forEach(lockTarget);
+            return new Promise(resolveGet => {
+              resumeReads.push(() => { void Promise.all(targets.map(target => target.get())).then(resolveGet); });
+            });
+          },
+          set: (target: any, data: Record<string, any>, setOptions?: { merge?: boolean }) => writes.push(() => write(target.path, data, setOptions)),
+          update: (target: any, data: Record<string, any>) => writes.push(() => write(target.path, data, { merge: true })),
+          create: (target: any, data: Record<string, any>) => writes.push(() => { if (records.has(target.path)) throw new Error(`Document exists at ${target.path}`); write(target.path, data); }),
+          delete: (target: any) => writes.push(() => { records.delete(target.path); }),
+        }).then(
+          value => {
+            try {
+              writes.forEach(apply => apply());
+              return value;
+            } finally {
+              finishHold();
+            }
+          },
+          (error: unknown) => {
+            finishHold();
+            throw error;
+          },
+        );
+        trackIdle(pending);
+        return pending;
+      } catch (error) {
+        finishHold();
+        throw error;
+      }
+    }
+    return runTransactionBody(work);
   };
   const batch = () => {
     const writes: Array<() => void> = [];
@@ -143,6 +259,21 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
     return self;
   };
   return { records, doc: ref, collection: query, collectionGroup, runTransaction, batch,
+    stuckReads,
+    failReads,
+    get committedWrites() { return committedWrites; },
+    get holdOpenTransaction() { return control.holdOpenTransaction; },
+    /** Resolves after a held transaction has committed and its waiters have been released. */
+    get settled() { return idle; },
+    set holdOpenTransaction(value: boolean) {
+      control.holdOpenTransaction = value;
+      if (value) return;
+      const resumes = heldResumes.splice(0);
+      lockedPaths.clear();
+      lockedQueries.clear();
+      for (const list of resumes) for (const resume of list.splice(0)) resume();
+      releaseBlocked();
+    },
     getAll: async (...targets: any[]) => { fail(); return targets.map(target => snapshot(target.path)); },
     recursiveDelete: async (target: any) => { for (const key of [...records.keys()]) if (key === target.path || key.startsWith(`${target.path}/`)) records.delete(key); } };
 }

@@ -1,5 +1,14 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 
+/** pdf-lib date strings are fixed width, so replacing them keeps the xref offsets valid. */
+function pinPdfDates(bytes: Uint8Array, generatedAt: Date): Uint8Array {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const stamp = `D:${generatedAt.getUTCFullYear()}${pad(generatedAt.getUTCMonth() + 1)}${pad(generatedAt.getUTCDate())}${pad(generatedAt.getUTCHours())}${pad(generatedAt.getUTCMinutes())}${pad(generatedAt.getUTCSeconds())}Z`;
+  const text = Buffer.from(bytes).toString('latin1');
+  const pinned = text.replace(/\/(CreationDate|ModDate)\s*\(D:[^)]*\)/g, (_match, key: string) => `/${key} (${stamp})`);
+  return Uint8Array.from(Buffer.from(pinned, 'latin1'));
+}
+
 /** Readable preparer records, deliberately distinct from a fileable IRS form. */
 export async function createPlanningPDF(title: string, taxYear: number) {
   const doc = await PDFDocument.create();
@@ -79,13 +88,16 @@ export async function createPlanningPDF(title: string, taxYear: number) {
       }
       y -= 9;
     },
-    async save(pageOffset = 0) {
+    async save(pageOffset = 0, generatedAt?: Date) {
       const pages = doc.getPages();
       pages.forEach((item, index) => {
         item.drawText('Planning records only. Not an official form or complete return. Review with your tax preparer.', { x: left, y: 34, size: 7, font });
         item.drawText(`Page ${index + 1 + pageOffset} of ${pages.length + pageOffset}`, { x: right - 58, y: 22, size: 7, font });
       });
-      return doc.save();
+      if (!generatedAt) return doc.save();
+      doc.setCreationDate(generatedAt);
+      doc.setModificationDate(generatedAt);
+      return pinPdfDates(await doc.save({ updateFieldAppearances: false }), generatedAt);
     },
   };
 }
