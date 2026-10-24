@@ -782,15 +782,16 @@ describe('ambiguous numeric receipt dates', () => {
   });
 
   it.each([
-    'TURN ON',
-    'SHELF BC',
-    'SHELF AB',
-    'SHELF NS',
-    'SHELF NB',
-    'SHELF PE',
     '10:32 PM PST',
     '10:32 PM PST 7%',
     'SAN JOSE CA 95110',
+    'BREAD, ON SALE 2.99',
+    'SHELF BC 4.50',
+    'ONTARIO CA 91761',
+    'SKU A1B2C3',
+    '10:32 PM GST 5%',
+    '1234 ALBERTA ST',
+    'BC HYDRO',
   ])('keeps 05/01/2026 and the saved month/day flag when spaced CA $ is paired with %s', async line => {
     const saved = await savedReceipt(spacedCaReceipt(line));
     expect(saved.date).toBe('2026-05-01');
@@ -841,5 +842,38 @@ describe('ambiguous numeric receipt dates', () => {
     expect(saved.amount).toBe(4.33);
     expect(saved.dateOrderAssumed).toBe('month_day');
     expect(saved.deductionStatus).toBeUndefined();
+  });
+
+  it.each([
+    'Vancouver BC',
+    'VANCOUVER BC',
+    'TURN ON',
+    'SHELF BC',
+    'SHELF AB',
+    'SHELF NS',
+    'SHELF NB',
+    'SHELF PE',
+    'QC H2X 1Y4',
+    'ON M5V3L9',
+    'TORONTO ON M5V3L9',
+    'GST $0.65',
+    'HST: 13%',
+    'GST 5% 1.25',
+  ])('leaves the date blank when spaced CA $12.50 is paired with %s', async line => {
+    const saved = await savedReceipt(spacedCaReceipt(line));
+    expect(saved.date).toBe('');
+    expect(saved.amount).toBe(12.5);
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
+    expect(saved.dateOrderAssumed).toBeUndefined();
+  });
+
+  it('leaves 09/02/2026 blank when a province code is mid line and saves Needs more information', async () => {
+    const saved = await savedReceipt('GROCERY\n09/02/2026\nSEE ON AISLE\nAPPLES $4.00\nTOTAL $12.50');
+    expect(saved.date).toBe('');
+    expect(saved.amount).toBe(12.5);
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
+    expect(saved.dateOrderAssumed).toBeUndefined();
   });
 });
