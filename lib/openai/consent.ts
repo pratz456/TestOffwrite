@@ -1,7 +1,7 @@
 import { adminDb } from '@/lib/firebase/admin';
 import {
-  MODEL_CONSENT_DOCUMENT_VERSION, MODEL_CONSENT_UNAVAILABLE, MODEL_PURPOSES,
-  defaultConsentExpiry, isImageModelPurpose, isModelPurpose, modelConsentPath,
+  MODEL_CONSENT_DOCUMENT_VERSION, MODEL_CONSENT_UNAVAILABLE, MODEL_DISCLOSURE_LENGTH,
+  defaultConsentExpiry, isImageModelPurpose, isModelPurpose, isValidTimeZone, modelConsentPath,
   type ConsentRecordType, type ConsentRefusalReason, type ConsentStatus, type ModelPurpose,
 } from './consent-contract';
 
@@ -17,6 +17,7 @@ export interface DisclosureConsent {
   consentDocumentVersion: string;
   signedAt: Date;
   expiresAt: Date;
+  timeZone: string | null;
   recordType: 'disclosure';
 }
 
@@ -77,11 +78,13 @@ export function readDisclosureConsent(data: Record<string, unknown> | null | und
   if (!data || data.recordType !== 'disclosure') return null;
   if (data.status !== 'granted' && data.status !== 'declined' && data.status !== 'withdrawn') return null;
   const signedAt = asDate(data.signedAt);
-  const expiresAt = asDate(data.expiresAt);
   const version = typeof data.consentDocumentVersion === 'string' ? data.consentDocumentVersion.trim() : '';
-  if (!signedAt || !expiresAt || !version) return null;
+  if (!signedAt || !version) return null;
+  const timeZone = typeof data.timeZone === 'string' && isValidTimeZone(data.timeZone) ? data.timeZone : null;
+  // Stored expiresAt wins. No stored length means one year from the local signing date, or one UTC year when no zone is stored.
+  const expiresAt = asDate(data.expiresAt) ?? defaultConsentExpiry(signedAt, timeZone);
   const purposes = Array.isArray(data.purposes) ? data.purposes.filter(isModelPurpose) : [];
-  return { status: data.status, purposes, consentDocumentVersion: version, signedAt, expiresAt, recordType: 'disclosure' };
+  return { status: data.status, purposes, consentDocumentVersion: version, signedAt, expiresAt, timeZone, recordType: 'disclosure' };
 }
 
 export function evaluateDisclosureConsent(
@@ -128,27 +131,30 @@ export interface ModelConsentView {
   consentDocumentVersion: string | null;
   signedAt: string | null;
   expiresAt: string | null;
+  timeZone: string | null;
   recordType: ConsentRecordType | null;
 }
 
-export async function readModelConsentView(uid: string): Promise<ModelConsentView> {
+export async function readModelConsentView(uid: string, now = new Date()): Promise<ModelConsentView> {
   const snapshot = await adminDb.doc(modelConsentPath(uid, 'disclosure')).get();
   const record = snapshot.exists ? readDisclosureConsent(snapshot.data() as Record<string, unknown>) : null;
   if (!record) {
-    return { status: 'declined', purposes: [], consentDocumentVersion: null, signedAt: null, expiresAt: null, recordType: null };
+    return { status: 'declined', purposes: [], consentDocumentVersion: null, signedAt: null, expiresAt: null, timeZone: null, recordType: null };
   }
+  const expired = record.status === 'granted' && now.getTime() >= record.expiresAt.getTime();
   return {
-    status: record.status,
-    purposes: record.purposes,
+    status: expired ? 'declined' : record.status,
+    purposes: expired ? [] : record.purposes,
     consentDocumentVersion: record.consentDocumentVersion,
     signedAt: record.signedAt.toISOString(),
     expiresAt: record.expiresAt.toISOString(),
+    timeZone: record.timeZone,
     recordType: 'disclosure',
   };
 }
 
 function emptyConsentView(): ModelConsentView {
-  return { status: 'declined', purposes: [], consentDocumentVersion: null, signedAt: null, expiresAt: null, recordType: null };
+  return { status: 'declined', purposes: [], consentDocumentVersion: null, signedAt: null, expiresAt: null, timeZone: null, recordType: null };
 }
 
 interface DatedConsent {
@@ -157,6 +163,7 @@ interface DatedConsent {
   consentDocumentVersion: string;
   signedAt: Date;
   expiresAt: Date;
+  timeZone: string | null;
 }
 
 /** Reuse is a different document. A disclosure record, or no record, is not reuse consent. */
@@ -167,8 +174,9 @@ export function readReuseConsent(data: Record<string, unknown> | null | undefine
   const expiresAt = asDate(data.expiresAt);
   const version = typeof data.consentDocumentVersion === 'string' ? data.consentDocumentVersion.trim() : '';
   if (!signedAt || !expiresAt || !version) return null;
+  const timeZone = typeof data.timeZone === 'string' && isValidTimeZone(data.timeZone) ? data.timeZone : null;
   const purposes = Array.isArray(data.purposes) ? data.purposes.filter(isModelPurpose) : [];
-  return { status: data.status, purposes, consentDocumentVersion: version, signedAt, expiresAt };
+  return { status: data.status, purposes, consentDocumentVersion: version, signedAt, expiresAt, timeZone };
 }
 
 function viewFrom(record: DatedConsent | null, recordType: ConsentRecordType): ModelConsentView {
@@ -179,6 +187,7 @@ function viewFrom(record: DatedConsent | null, recordType: ConsentRecordType): M
     consentDocumentVersion: record.consentDocumentVersion,
     signedAt: record.signedAt.toISOString(),
     expiresAt: record.expiresAt.toISOString(),
+    timeZone: record.timeZone,
     recordType,
   };
 }
@@ -194,17 +203,20 @@ export async function readModelConsentBundle(uid: string): Promise<ModelConsentV
   return { ...disclosure, reuse };
 }
 
-/** Stores a signed disclosure. Does not create or update the reuse document. */
-export async function acceptDisclosureConsent(uid: string, signedName: string, requestedAt: Date): Promise<ModelConsentView> {
+/** Stores a signed disclosure for the one purpose that screen names. Does not create or update the reuse document. */
+export async function acceptDisclosureConsent(uid: string, signedName: string, purpose: ModelPurpose, timeZone: string, requestedAt: Date): Promise<ModelConsentView> {
   const name = signedName.trim();
-  if (!uid || !name) throw new ConsentRequiredError('missing');
+  const zone = timeZone.trim();
+  if (!uid || !name || !isModelPurpose(purpose) || !isValidTimeZone(zone)) throw new ConsentRequiredError('missing');
   const signedAt = requestedAt;
   await adminDb.doc(modelConsentPath(uid, 'disclosure')).set({
     status: 'granted',
-    purposes: [...MODEL_PURPOSES],
+    purposes: [purpose],
     consentDocumentVersion: MODEL_CONSENT_DOCUMENT_VERSION,
     signedAt,
-    expiresAt: defaultConsentExpiry(signedAt),
+    timeZone: zone,
+    consentLength: MODEL_DISCLOSURE_LENGTH,
+    expiresAt: defaultConsentExpiry(signedAt, zone),
     recordType: 'disclosure',
     signedName: name,
     acknowledged: true,
@@ -228,21 +240,23 @@ export async function declineModelConsent(uid: string, requestedAt: Date): Promi
 }
 
 /** Opt-in reuse record. Off unless this is called. Never writes the disclosure document. */
-export async function acceptReuseConsent(uid: string, requestedAt: Date): Promise<ModelConsentView> {
-  if (!uid) throw new ConsentRequiredError('missing');
+export async function acceptReuseConsent(uid: string, timeZone: string, requestedAt: Date): Promise<ModelConsentView> {
+  const zone = timeZone.trim();
+  if (!uid || !isValidTimeZone(zone)) throw new ConsentRequiredError('missing');
   await adminDb.doc(modelConsentPath(uid, 'reuse')).set({
     status: 'granted',
     purposes: [],
     consentDocumentVersion: MODEL_CONSENT_DOCUMENT_VERSION,
     signedAt: requestedAt,
-    expiresAt: defaultConsentExpiry(requestedAt),
+    timeZone: zone,
+    expiresAt: defaultConsentExpiry(requestedAt, zone),
     recordType: 'reuse',
     acknowledged: true,
   });
   return readReuseConsentView(uid);
 }
 
-/** Owner withdrawal. A missing disclosure becomes an explicit withdrawn record. */
+/** Owner withdrawal. A missing disclosure becomes an explicit withdrawn record. No duration rule is cited. */
 export async function withdrawModelConsent(uid: string, requestedAt: Date): Promise<ModelConsentView> {
   const ref = adminDb.doc(modelConsentPath(uid, 'disclosure'));
   const snapshot = await ref.get();
@@ -256,6 +270,7 @@ export async function withdrawModelConsent(uid: string, requestedAt: Date): Prom
     consentDocumentVersion: record?.consentDocumentVersion || (typeof existing.consentDocumentVersion === 'string' ? existing.consentDocumentVersion : MODEL_CONSENT_DOCUMENT_VERSION),
     signedAt,
     expiresAt,
+    ...(record?.timeZone ? { timeZone: record.timeZone } : {}),
     recordType: 'disclosure',
     withdrawnAt: requestedAt,
   });

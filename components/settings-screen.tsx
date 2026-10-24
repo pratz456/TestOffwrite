@@ -25,7 +25,7 @@ import { CreditCard, Calendar, Sparkles, ExternalLink, XCircle, AlertTriangle, H
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { TrialCountdown } from '@/components/trial-countdown';
 import { DocumentImageConsentSettings } from '@/components/document-image-consent-settings';
-import { ModelDisclosureConsentScreen, ModelReuseConsentScreen } from '@/components/model-consent-screens';
+import { MODEL_DISCLOSURE_PURPOSE, MODEL_DISCLOSURE_TITLE, MODEL_REUSE_PURPOSE, MODEL_REUSE_TITLE } from '@/lib/openai/consent-contract';
 import { toast } from 'sonner';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -1681,12 +1681,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <PaymentSettingsTab beforeNavigate={beforeNavigate} />
             </SettingsSection>
 
+            <SettingsSection title={MODEL_DISCLOSURE_TITLE} icon={Shield} summary={MODEL_DISCLOSURE_PURPOSE}>
+              <Button type="button" variant="outline" className="h-11 rounded-lg" onClick={() => router.push('/protected/settings/model-disclosure')}>
+                {MODEL_DISCLOSURE_TITLE}
+              </Button>
+            </SettingsSection>
+
+            <SettingsSection title={MODEL_REUSE_TITLE} icon={Shield} summary={MODEL_REUSE_PURPOSE}>
+              <Button type="button" variant="outline" className="h-11 rounded-lg" onClick={() => router.push('/protected/settings/model-reuse')}>
+                {MODEL_REUSE_TITLE}
+              </Button>
+            </SettingsSection>
+
             {/* Data & Privacy */}
             <SettingsSection title="Data & Privacy" icon={Shield} summary={'Export data, revoke access or delete account'}>
               <div className="space-y-3">
                 <DocumentImageConsentSettings userId={user.id} />
-                <ModelDisclosureConsentScreen />
-                <ModelReuseConsentScreen />
                 <Button
                   onClick={async () => {
                     if (exportInFlight.current) return;

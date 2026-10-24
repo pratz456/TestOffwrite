@@ -49,6 +49,10 @@ beforeEach(() => {
   vi.resetAllMocks(); vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-16T12:00:00Z'));
   mocks.docs.clear(); mocks.lock = Promise.resolve(); mocks.configured = true;
   mocks.docs.set(profilePath, { profession: 'Designer', subscriptionStatus: 'none' });
+  mocks.docs.set(`${profilePath}/model_consents/disclosure`, {
+    status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review',
+    purposes: ['transaction_analysis'], signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+  });
   mocks.docs.set(accountPath, { user_id: address.userId, type: 'depository', usageType: 'mixed' });
   mocks.docs.set(path, { userId: address.userId, account_id: address.accountId, amount: 75,
     merchant_name: 'Synthetic office store', category: 'supplies', date: '2026-09-15',

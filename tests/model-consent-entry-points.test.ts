@@ -4,7 +4,7 @@ import { createFakeFirestore, type FakeFirestore } from './fixtures/fake-firesto
 import { signDocumentImportConsent } from '@/lib/onboarding/consents';
 import { CONSENT_TERMS_VERSION } from '@/lib/onboarding/consents';
 import { DOCUMENT_IMPORT_CONSENT_VERSION } from '@/lib/onboarding/document-import-consent';
-import { MODEL_PURPOSES, type ModelPurpose } from '@/lib/openai/consent-contract';
+import { MODEL_DISCLOSURE_LENGTH, MODEL_PURPOSES, defaultConsentExpiry, type ModelPurpose } from '@/lib/openai/consent-contract';
 import { analysisTaskId } from '@/lib/ai/analysis-jobs';
 import { ruleBasedSuggestion } from '@/lib/transactions/rule-suggestion';
 import { bulkConfirmMerchant } from '@/lib/transactions/bulk-confirm';
@@ -112,6 +112,24 @@ function modelOutput() {
 function completion(content: unknown) {
   return { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(content), refusal: null } }], model: 'gpt-test' };
 }
+function routedCompletion(request: { messages?: unknown }) {
+  const text = JSON.stringify(request);
+  if (text.includes('financial document classifier') || text.includes('detectedType')) return completion({ detectedType: 'w2', confidence: 'high' });
+  if (text.includes('tax document parser') || text.includes('DOCUMENT TEXT')) return completion({
+    docType: 'w2', employerName: 'Synthetic Employer', box1Wages: 20000, box2FederalWithheld: 2000, taxYear: 2026, confidence: 0.95,
+  });
+  if (text.includes('Extract ALL transactions')) return completion({
+    currency: 'USD', bankName: 'Synthetic Bank', accountLast4: '4242', confidence: 'high',
+    transactions: [{ date: '2026-03-02', description: 'Adobe', amount: 54.99, category: 'Software', transaction_type: 'debit' }],
+  });
+  if (text.includes('receipt parser')) return completion({
+    currency: 'USD', merchant: 'Adobe', date: '2026-03-02', total: 54.99, category: 'Software', confidence: 'high',
+  });
+  if (text.includes('voice command parser')) return completion({ type: 'add_expense', data: { amount: 12, merchant: 'Synthetic stationery' }, confidence: 0.9 });
+  if (text.includes('Select one read-only account tool')) return completion({ intent: 'prepare_handoff' });
+  if (text.includes('missingFactIds')) return completion({ topic: 'vehicles-records', missingFactIds: ['vehicles-records:1'], photoCategories: ['vehicle'] });
+  return completion(modelOutput());
+}
 const assistantBody = () => json('http://localhost/api/ai/tax-assistant', { message: 'Can this synthetic vehicle be deducted?', taxYear: 2026 });
 const accountBody = () => json('http://localhost/api/ai/account-assistant', { message: 'Prepare a handoff for my preparer', taxYear: 2026 });
 const voiceBody = () => json('http://localhost/api/ai/parse-voice-command', { text: 'Add 12 dollars for synthetic stationery' });
@@ -127,7 +145,7 @@ beforeEach(() => {
   state.ocr = { text: 'Form W-2 Wage and Tax Statement 2026. 1 Wages, tips, other compensation 20,000.00', confidence: 0.95 };
   db().records.clear();
   seedOwner();
-  state.create.mockResolvedValue(completion(modelOutput()));
+  state.create.mockImplementation(routedCompletion);
   vi.stubEnv('OPENAI_API_KEY', 'synthetic-no-network-key');
   vi.stubEnv('AI_ANALYSIS_ENABLED', 'true');
   vi.stubEnv('MODEL_IMAGE_PROCESSING_APPROVED', '');
@@ -140,12 +158,14 @@ afterEach(() => {
 });
 
 async function expectNoModel(response: Response) {
+  const body = await response.json().catch(() => null) as { code?: string } | null;
+  const detail = `status ${response.status} code ${body?.code ?? 'none'} create ${state.create.mock.calls.length}`;
+  expect(state.construct.mock.calls.length, detail).toBe(0);
+  expect(state.create.mock.calls.length, detail).toBe(0);
   expect(response.status).not.toBe(500);
   expect(response.status).not.toBe(503);
   expect(response.status).toBe(403);
-  expect(await response.json()).toMatchObject({ code: 'CONSENT_REQUIRED' });
-  expect(state.construct).not.toHaveBeenCalled();
-  expect(state.create).not.toHaveBeenCalled();
+  expect(body).toMatchObject({ code: 'CONSENT_REQUIRED' });
 }
 
 describe('entry points make zero model calls without a disclosure grant', () => {
@@ -181,13 +201,27 @@ describe('entry points make zero model calls without a disclosure grant', () => 
     expect(state.construct).not.toHaveBeenCalled();
     expect(state.create).not.toHaveBeenCalled();
   });
-  it('zero calls: legacy analysis helpers', async () => {
+  it('zero calls: legacy analyzeTransaction', async () => {
     await expect(legacyAnalysis.analyzeTransaction({ merchant_name: 'Adobe', amount: 10, userId: state.uid }, { user_id: state.uid })).rejects.toMatchObject({ code: 'CONSENT_REQUIRED' });
-    await expect(legacyAnalysis.analyzeTransactionDeductibility({ merchant_name: 'Adobe', amount: 10, userId: state.uid })).rejects.toMatchObject({ code: 'CONSENT_REQUIRED' });
-    await expect(legacyAnalysis.analyzeAllTransactions(state.uid)).resolves.toMatchObject({ success: false });
-    await expect(legacyAnalysis.generateTaxSummary(state.uid)).resolves.toMatchObject({ success: false });
     expect(state.construct).not.toHaveBeenCalled();
     expect(state.create).not.toHaveBeenCalled();
+  });
+  it('zero calls: legacy analyzeTransactionDeductibility', async () => {
+    await expect(legacyAnalysis.analyzeTransactionDeductibility({ merchant_name: 'Adobe', amount: 10, userId: state.uid })).rejects.toMatchObject({ code: 'CONSENT_REQUIRED' });
+    expect(state.construct).not.toHaveBeenCalled();
+    expect(state.create).not.toHaveBeenCalled();
+  });
+  it('zero calls: analyzeAllTransactions', async () => {
+    const result = await legacyAnalysis.analyzeAllTransactions(state.uid);
+    expect(state.construct).not.toHaveBeenCalled();
+    expect(state.create).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ success: false, code: 'CONSENT_REQUIRED' });
+  });
+  it('zero calls: generateTaxSummary', async () => {
+    const result = await legacyAnalysis.generateTaxSummary(state.uid);
+    expect(state.construct).not.toHaveBeenCalled();
+    expect(state.create).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ success: false, code: 'CONSENT_REQUIRED' });
   });
   it('zero calls: analysis worker', async () => {
     const address = { userId: state.uid, accountId: 'acct', transactionId: 'tx1' };
@@ -263,24 +297,6 @@ describe('granted disclosure reaches the model once', () => {
   beforeEach(() => grant());
   it('works for each user-facing entry point', async () => {
     vi.stubEnv('MODEL_IMAGE_PROCESSING_APPROVED', 'true');
-    state.create.mockImplementation(async (request: { messages?: unknown }) => {
-      const text = JSON.stringify(request);
-      if (text.includes('financial document classifier') || text.includes('detectedType')) return completion({ detectedType: 'w2', confidence: 'high' });
-      if (text.includes('tax document parser') || text.includes('DOCUMENT TEXT')) return completion({
-        docType: 'w2', employerName: 'Synthetic Employer', box1Wages: 20000, box2FederalWithheld: 2000, taxYear: 2026, confidence: 0.95,
-      });
-      if (text.includes('Extract ALL transactions')) return completion({
-        currency: 'USD', bankName: 'Synthetic Bank', accountLast4: '4242', confidence: 'high',
-        transactions: [{ date: '2026-03-02', description: 'Adobe', amount: 54.99, category: 'Software', transaction_type: 'debit' }],
-      });
-      if (text.includes('receipt parser')) return completion({
-        currency: 'USD', merchant: 'Adobe', date: '2026-03-02', total: 54.99, category: 'Software', confidence: 'high',
-      });
-      if (text.includes('voice command parser')) return completion({ type: 'add_expense', data: { amount: 12, merchant: 'Synthetic stationery' }, confidence: 0.9 });
-      if (text.includes('Select one read-only account tool')) return completion({ intent: 'prepare_handoff' });
-      if (text.includes('missingFactIds')) return completion({ topic: 'vehicles-records', missingFactIds: ['vehicles-records:1'], photoCategories: ['vehicle'] });
-      return completion(modelOutput());
-    });
     expect((await documentImport(upload('http://localhost/api/tax/import-document', { docType: 'w2', commit: 'false' }))).status).toBe(200);
     expect((await statementImport(upload('http://localhost/api/tax/import-bank-statement', { docType: 'auto', year: '2026' }))).status).toBe(200);
     expect((await statementImport(upload('http://localhost/api/tax/import-bank-statement', { docType: 'bank_statement', year: '2026' }))).status).toBe(200);
@@ -292,6 +308,10 @@ describe('granted disclosure reaches the model once', () => {
     expect(analyzed.status).toBe(200);
     expect(state.create.mock.calls.length).toBeGreaterThanOrEqual(8);
     expect(state.construct).toHaveBeenCalled();
+    db().records.delete(`user_profiles/${state.uid}/model_consents/disclosure`);
+    state.construct.mockClear();
+    state.create.mockClear();
+    await expectNoModel(await accountAssistant(accountBody()));
   });
   it('works for the analysis library and worker', async () => {
     const direct = await analyzeTransaction({ tx_id: 'tx1', merchant: 'Adobe', amount_usd: 54.99, date_iso: '2026-03-02' }, {
@@ -305,6 +325,15 @@ describe('granted disclosure reaches the model once', () => {
     const result = await processAnalysisTask(taskId, generation);
     expect(result).toMatchObject({ status: 'completed', retry: false });
     expect(state.create).toHaveBeenCalled();
+    db().records.delete(`user_profiles/${state.uid}/model_consents/disclosure`);
+    state.construct.mockClear();
+    state.create.mockClear();
+    const blocked = await analyzeTransaction({ tx_id: 'tx1', merchant: 'Adobe', amount_usd: 54.99, date_iso: '2026-03-02' }, {
+      user_id: state.uid, profession: ['Graphic Designer'], filing_state: 'CA',
+    });
+    expect(blocked).toMatchObject({ success: false, code: 'CONSENT_REQUIRED' });
+    expect(state.construct).not.toHaveBeenCalled();
+    expect(state.create).not.toHaveBeenCalled();
   });
 });
 
@@ -331,6 +360,41 @@ describe('consent refusals make zero model calls on the next request', () => {
     db().records.set(`user_profiles/${state.uid}/model_consents/disclosure`, disclosure({ status: 'declined' }));
     state.construct.mockClear();
     state.create.mockClear();
+    await expectNoModel(await voice(voiceBody()));
+  });
+  it('allows one second before expiry and refuses one second after with no model call', async () => {
+    const signedAt = new Date('2026-03-01T00:00:00.000Z');
+    const expiresAt = defaultConsentExpiry(signedAt);
+    grant();
+    db().records.set(`user_profiles/${state.uid}/model_consents/disclosure`, disclosure({
+      signedAt, expiresAt, consentLength: MODEL_DISCLOSURE_LENGTH,
+    }));
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(expiresAt.getTime() - 1000));
+    expect((await voice(voiceBody())).status).toBe(200);
+    expect(state.create).toHaveBeenCalledTimes(1);
+    state.construct.mockClear();
+    state.create.mockClear();
+    vi.setSystemTime(new Date(expiresAt.getTime() + 1000));
+    await expectNoModel(await voice(voiceBody()));
+    const view = await readConsent(new NextRequest('http://localhost/api/settings/model-consent'));
+    expect(await view.json()).toMatchObject({ status: 'declined' });
+  });
+  it('defaults a grant with no stored length to one year from signing', async () => {
+    const signedAt = new Date('2025-06-01T00:00:00.000Z');
+    const expiresAt = defaultConsentExpiry(signedAt);
+    const record = disclosure({ signedAt });
+    delete record.expiresAt;
+    db().records.set(`user_profiles/${state.uid}/model_consents/disclosure`, record);
+    expect(db().records.get(`user_profiles/${state.uid}/model_consents/disclosure`)).not.toHaveProperty('consentLength');
+    expect(db().records.get(`user_profiles/${state.uid}/model_consents/disclosure`)).not.toHaveProperty('expiresAt');
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(expiresAt.getTime() - 1000));
+    expect((await voice(voiceBody())).status).toBe(200);
+    expect(state.create).toHaveBeenCalledTimes(1);
+    state.construct.mockClear();
+    state.create.mockClear();
+    vi.setSystemTime(new Date(expiresAt.getTime() + 1000));
     await expectNoModel(await voice(voiceBody()));
   });
   it('refuses a request time before signedAt and allows the same instant', async () => {

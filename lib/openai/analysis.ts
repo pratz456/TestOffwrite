@@ -1,4 +1,5 @@
 import { getOpenAIClientOrThrow, getOpenAIModel } from './client'
+import { isConsentRequired } from './consent'
 import type { ModelPurpose } from './consent-contract'
 
 function consentIdentity(userContext?: { user_id?: string; userId?: string }, tx?: { userId?: string; user_id?: string }) {
@@ -212,7 +213,8 @@ export async function analyzeAllTransactions(userId: string) {
     }
 
     return { success: true, analyzed: successful, total: transactions.length }
-  } catch {
+  } catch (error) {
+    if (isConsentRequired(error)) return { success: false, code: 'CONSENT_REQUIRED' }
     return { success: false, error: 'Transaction analysis could not be completed.' }
   }
 }
@@ -264,7 +266,8 @@ export async function generateTaxSummary(userId: string) {
       totalDeductible,
       deductibleCount: deductibleTransactions.length,
     }
-  } catch {
+  } catch (error) {
+    if (isConsentRequired(error)) return { success: false, code: 'CONSENT_REQUIRED' }
     return { success: false, error: 'Tax summary could not be generated.' }
   }
 }
