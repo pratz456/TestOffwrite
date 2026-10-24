@@ -17,10 +17,13 @@
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+import { createHash } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import type { DocumentReference } from 'firebase-admin/firestore';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb } from '@/lib/firebase/admin';
 import { getOpenAIClientOrThrow, getOpenAIModel } from '@/lib/openai/client';
+import { overlapKey } from '@/lib/transactions/historical-overlap';
 import { z } from 'zod';
 import { MAX_RECEIPT_BYTES, ReceiptRequestError, receiptFormData, receiptSignatureMatches } from '@/lib/firebase/receipt-security';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
@@ -152,8 +155,53 @@ const receiptData = z.object({
   confidence: z.enum(['high', 'medium', 'low']),
 });
 const IMPORT_ACCOUNT_ID = 'statement-imports';
+const WRITE_CHUNK = 400;
 
 type ImportedTransaction = z.infer<typeof importedTransaction>;
+interface PlannedImport { ref: DocumentReference; data: Record<string, unknown>; legacyMatch: boolean }
+interface ImportSaveCounts { imported: number; alreadyImported: number; flaggedLegacy: number }
+
+function normalizedDescription(value: string): string {
+  return value.toUpperCase().replace(/\s+/g, ' ').trim();
+}
+
+function storedAmount(row: ImportedTransaction): number {
+  return row.transaction_type === 'credit' ? -Math.abs(row.amount) : Math.abs(row.amount);
+}
+
+function amountCents(amount: number): number {
+  return Math.round(amount * 100);
+}
+
+function legacyMatchKey(date: string, cents: number, direction: string, description: string): string {
+  return JSON.stringify([date, cents, direction, normalizedDescription(description)]);
+}
+
+type ImportNamespace = 'statement' | 'receipt';
+
+/** Card last digits plus institution, when the model detected either. Never the shared import account id. */
+function detectedAccountScope(bankName: string | null | undefined, accountLast4: string | null | undefined): string | null {
+  const last4 = typeof accountLast4 === 'string' ? accountLast4.trim() : '';
+  const bank = typeof bankName === 'string' ? bankName.trim() : '';
+  if (!last4 && !bank) return null;
+  return `account:${last4}:${normalizedDescription(bank)}`;
+}
+
+function importDocumentId(uid: string, namespace: ImportNamespace, scope: string, row: ImportedTransaction, occurrence: number): string {
+  return createHash('sha256').update(JSON.stringify([
+    uid, namespace, scope, row.date, amountCents(storedAmount(row)), row.transaction_type,
+    normalizedDescription(row.description), occurrence,
+  ])).digest('hex');
+}
+
+function isAlreadyExists(error: unknown): boolean {
+  const code = error && typeof error === 'object' && 'code' in error ? (error as { code?: unknown }).code : undefined;
+  return code === 6 || code === 'already-exists' || code === 'ALREADY_EXISTS';
+}
+
+function textValue(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
 
 function parseJSON(raw: string): unknown {
   try { return JSON.parse(raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()); }
@@ -168,8 +216,90 @@ function requireReadable<T extends { confidence: string }>(schema: z.ZodType<T>,
   return result.data;
 }
 
+/** Bank purchases share one overlap key (date, signed cents, merchant, currency). See overlapKey. */
+async function bankOverlapKeys(uid: string): Promise<Set<string>> {
+  const accounts = await adminDb.collection('user_profiles').doc(uid).collection('accounts').get();
+  const linked = accounts.docs.filter(accountDoc => {
+    if (accountDoc.id === IMPORT_ACCOUNT_ID) return false;
+    const data = accountDoc.data() ?? {};
+    return data.source === 'plaid' || typeof data.plaid_item_id === 'string';
+  });
+  const snapshots = await Promise.all(linked.map(accountDoc => accountDoc.ref.collection('transactions')
+    .select('date', 'amount', 'merchant_name', 'name', 'description', 'iso_currency_code', 'unofficial_currency_code').get()));
+  const keys = new Set<string>();
+  for (const snapshot of snapshots) {
+    for (const transaction of snapshot.docs) {
+      const key = overlapKey(transaction.data());
+      if (key) keys.add(key);
+    }
+  }
+  return keys;
+}
+
+function recordedMatchKey(data: Record<string, unknown>): string | null {
+  const date = textValue(data.date).slice(0, 10);
+  const direction = data.transaction_type === 'debit' || data.transaction_type === 'credit' ? data.transaction_type : '';
+  const description = textValue(data.merchant_name) || textValue(data.name) || textValue(data.description);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !direction || !description.trim() || typeof data.amount !== 'number' || !Number.isFinite(data.amount)) return null;
+  return legacyMatchKey(date, amountCents(data.amount), direction, description);
+}
+
+function isReceiptRecord(data: Record<string, unknown>): boolean {
+  return data.source === 'receipt' || data.importedFromReceipt === true;
+}
+
+/** Older statement imports used a random document id and have no import_row_id. */
+async function legacyImportKeys(account: DocumentReference): Promise<Set<string>> {
+  const snapshot = await account.collection('transactions')
+    .select('date', 'amount', 'transaction_type', 'merchant_name', 'name', 'description', 'import_row_id').get();
+  const keys = new Set<string>();
+  for (const transaction of snapshot.docs) {
+    const data = transaction.data() ?? {};
+    if (typeof data.import_row_id === 'string' && data.import_row_id.length > 0) continue;
+    const key = recordedMatchKey(data);
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+/** Existing statement rows, stable or legacy, so a receipt can be flagged instead of dropped. */
+async function statementImportKeys(account: DocumentReference): Promise<Set<string>> {
+  const snapshot = await account.collection('transactions')
+    .select('date', 'amount', 'transaction_type', 'merchant_name', 'name', 'description', 'source', 'importedFromReceipt').get();
+  const keys = new Set<string>();
+  for (const transaction of snapshot.docs) {
+    const data = transaction.data() ?? {};
+    if (isReceiptRecord(data)) continue;
+    const key = recordedMatchKey(data);
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+async function createDocuments(items: PlannedImport[]): Promise<PlannedImport[]> {
+  const created: PlannedImport[] = [];
+  for (let offset = 0; offset < items.length; offset += WRITE_CHUNK) {
+    const slice = items.slice(offset, offset + WRITE_CHUNK);
+    const snaps = await adminDb.getAll(...slice.map(item => item.ref));
+    const fresh = slice.filter((_, index) => snaps[index]?.exists !== true);
+    if (!fresh.length) continue;
+    const batch = adminDb.batch();
+    for (const item of fresh) batch.create(item.ref, item.data);
+    try {
+      await batch.commit();
+      created.push(...fresh);
+    } catch (error) {
+      if (!isAlreadyExists(error)) throw error;
+      if (fresh.length === 1) continue;
+      const mid = Math.ceil(fresh.length / 2);
+      created.push(...await createDocuments(fresh.slice(0, mid)), ...await createDocuments(fresh.slice(mid)));
+    }
+  }
+  return created;
+}
+
 /** Validate the entire extraction before creating the account or any transaction. */
-async function saveTransactions(uid: string, rows: ImportedTransaction[], metadata: Record<string, unknown>) {
+async function saveTransactions(uid: string, rows: ImportedTransaction[], metadata: Record<string, unknown>, identity: { namespace: ImportNamespace; scope: string }): Promise<ImportSaveCounts> {
   const account = adminDb.collection('user_profiles').doc(uid).collection('accounts').doc(IMPORT_ACCOUNT_ID);
   await adminDb.runTransaction(async transaction => {
     const existing = await transaction.get(account);
@@ -183,26 +313,51 @@ async function saveTransactions(uid: string, rows: ImportedTransaction[], metada
     }
   });
 
-  for (let offset = 0; offset < rows.length; offset += 400) {
-    const batch = adminDb.batch();
-    for (const row of rows.slice(offset, offset + 400)) {
-      const ref = account.collection('transactions').doc();
-      const now = new Date();
-      batch.set(ref, {
+  const seen = new Map<string, number>();
+  const planned: PlannedImport[] = rows.map(row => {
+    const amount = storedAmount(row);
+    const cents = amountCents(amount);
+    const tuple = legacyMatchKey(row.date, cents, row.transaction_type, row.description);
+    const occurrence = (seen.get(tuple) ?? 0) + 1;
+    seen.set(tuple, occurrence);
+    const id = importDocumentId(uid, identity.namespace, identity.scope, row, occurrence);
+    const ref = account.collection('transactions').doc(id);
+    const now = new Date();
+    return {
+      ref, legacyMatch: false,
+      data: {
         ...metadata,
-        trans_id: ref.id, userId: uid, account_id: IMPORT_ACCOUNT_ID,
+        trans_id: id, import_row_id: id, userId: uid, account_id: IMPORT_ACCOUNT_ID,
         merchant_name: row.description, name: row.description,
         // Direction is not a tax classification: refunds and transfers remain credits.
-        amount: row.transaction_type === 'credit' ? -Math.abs(row.amount) : Math.abs(row.amount),
-        iso_currency_code: 'USD', date: row.date,
+        amount, iso_currency_code: 'USD', date: row.date,
         category: row.category || 'Other', transaction_type: row.transaction_type,
         is_deductible: null, deduction_score: null, analyzed: false,
         analysis_status: 'pending', analysisStatus: 'pending', pending: false,
         created_at: now, updated_at: now, taxYear: Number(row.date.slice(0, 4)),
-      });
+      },
+    };
+  });
+  const [legacyKeys, linkedKeys, statementKeys] = await Promise.all([
+    legacyImportKeys(account),
+    bankOverlapKeys(uid),
+    identity.namespace === 'receipt' ? statementImportKeys(account) : Promise.resolve(new Set<string>()),
+  ]);
+  for (const item of planned) {
+    const key = legacyMatchKey(textValue(item.data.date), amountCents(Number(item.data.amount)), textValue(item.data.transaction_type), textValue(item.data.merchant_name));
+    const statementMatch = statementKeys.has(key);
+    const legacyMatch = identity.namespace === 'statement' && legacyKeys.has(key);
+    const linked = overlapKey(item.data);
+    const bankLinked = linked !== null && linkedKeys.has(linked);
+    item.legacyMatch = legacyMatch;
+    const reason = statementMatch ? 'statement_match' : legacyMatch ? 'legacy_match' : bankLinked ? 'bank_linked' : null;
+    if (reason) {
+      item.data.possibleDuplicate = true;
+      item.data.possibleDuplicateReason = reason;
     }
-    await batch.commit();
   }
+  const created = await createDocuments(planned);
+  return { imported: created.length, alreadyImported: planned.length - created.length, flaggedLegacy: created.filter(item => item.legacyMatch).length };
 }
 
 export async function POST(request: NextRequest) {
@@ -226,6 +381,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Upload a PNG, JPEG, or WebP image of this document.' }, { status: 415 });
     }
     const bytes = Buffer.from(await file.arrayBuffer());
+    const fileHash = createHash('sha256').update(bytes).digest('hex');
     if (!receiptSignatureMatches(bytes, file.type)) return NextResponse.json({ error: 'The file contents do not match its image type.' }, { status: 415 });
     const base64 = bytes.toString('base64');
 
@@ -248,15 +404,16 @@ export async function POST(request: NextRequest) {
       if (parsed.transactions.some(row => Math.abs(Number(row.date.slice(0, 4)) - year) > 1)) {
         throw new ReceiptRequestError('No transactions were saved. The document dates do not match the selected tax year.', 422);
       }
-      await saveTransactions(user.uid, parsed.transactions, {
+      const saved = await saveTransactions(user.uid, parsed.transactions, {
         source: 'manual', import_source: 'manual_statement', importedFromStatement: true,
         statementBank: parsed.bankName || 'Unknown', accountLast4: parsed.accountLast4 || null,
-      });
+      }, { namespace: 'statement', scope: detectedAccountScope(parsed.bankName, parsed.accountLast4) ?? `file:${fileHash}` });
       return NextResponse.json({
         success: true, docType: 'bank_statement', bankName: parsed.bankName, accountLast4: parsed.accountLast4,
-        statementPeriod: parsed.statementPeriod, transactionsImported: parsed.transactions.length,
+        statementPeriod: parsed.statementPeriod, imported: saved.imported, alreadyImported: saved.alreadyImported,
+        flaggedLegacy: saved.flaggedLegacy, transactionsImported: saved.imported,
         totalFound: parsed.transactions.length, confidence: parsed.confidence,
-        message: `Imported ${parsed.transactions.length} transactions for AI analysis. Review and confirm their categories when analysis finishes.`,
+        message: `Imported ${saved.imported} transactions for AI analysis. ${saved.alreadyImported} were already imported. ${saved.flaggedLegacy} match an older import and were saved again for review. Review and confirm their categories when analysis finishes.`,
       });
     }
 
@@ -264,12 +421,13 @@ export async function POST(request: NextRequest) {
     if (Math.abs(Number(parsed.date.slice(0, 4)) - year) > 1) {
       throw new ReceiptRequestError('No transactions were saved. The receipt date does not match the selected tax year.', 422);
     }
-    await saveTransactions(user.uid, [{ date: parsed.date, description: parsed.merchant, amount: parsed.total, category: parsed.category, transaction_type: 'debit' }], {
+    const saved = await saveTransactions(user.uid, [{ date: parsed.date, description: parsed.merchant, amount: parsed.total, category: parsed.category, transaction_type: 'debit' }], {
       source: 'receipt', importedFromReceipt: true, receiptItems: parsed.items || [], business_purpose: parsed.businessPurpose || '',
-    });
+    }, { namespace: 'receipt', scope: `file:${fileHash}` });
     return NextResponse.json({
       success: true, docType: 'receipt', merchant: parsed.merchant, amount: parsed.total, date: parsed.date,
-      category: parsed.category, transactionsImported: 1, confidence: parsed.confidence,
+      category: parsed.category, imported: saved.imported, alreadyImported: saved.alreadyImported,
+      flaggedLegacy: saved.flaggedLegacy, transactionsImported: saved.imported, confidence: parsed.confidence,
     });
   } catch (error) {
     if (error instanceof ReceiptRequestError) return NextResponse.json({ error: error.message }, { status: error.status });

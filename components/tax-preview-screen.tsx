@@ -10,6 +10,7 @@ import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 import type { BusinessTaxNotice, StateTaxComponents, StateTaxLine } from "@/lib/tax-rules/state";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { HeldOutDuplicatesNotice } from "@/components/held-out-duplicates-notice";
 
 interface Props {
   user: { id: string; email?: string };
@@ -356,6 +357,12 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                     ))}
                   </div>
                 </details>
+              )}
+
+              {data?.heldOutDuplicates?.count > 0 && (
+                <div className="px-4 pb-2">
+                  <HeldOutDuplicatesNotice summary={data.heldOutDuplicates} />
+                </div>
               )}
 
               <div>

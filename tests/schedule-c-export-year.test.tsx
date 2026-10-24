@@ -31,6 +31,7 @@ vi.mock('sonner', () => ({ toast: { error: harness.error, warning: vi.fn(), succ
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: harness.api }));
 vi.mock('@/lib/firebase/client', () => ({ auth: { currentUser: { getIdToken: async () => 'synthetic-id-token' } } }));
 import { ScheduleCExportScreen } from '../components/schedule-c-export-screen';
+import { HeldOutDuplicatesNotice } from '../components/held-out-duplicates-notice';
 
 const props = {
   user: { id: 'synthetic-user' }, onBack: () => {},
@@ -93,6 +94,26 @@ describe('Schedule C supported-year selection', () => {
   });
 });
 
+
+describe('Schedule C held out duplicates', () => {
+  it('shows the held out count and amount on the preview', () => {
+    const tree = render({
+      ...props,
+      transactions: [
+        ...props.transactions,
+        { id: 'flagged-credit', merchant_name: 'Flagged deposit', amount: -25000, category: 'income', date: '2026-04-01', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' },
+        { id: 'flagged-debit', merchant_name: 'Flagged supplies', amount: 40, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', date: '2026-04-02', is_deductible: true, review_status: 'confirmed', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked' },
+      ],
+    });
+    const notice = walk(tree).find(node => node.type === HeldOutDuplicatesNotice);
+    expect(notice?.props.summary).toMatchObject({ count: 2, amount: 25040, reviewHref: '/protected?screen=review-transactions' });
+    const shown = HeldOutDuplicatesNotice(notice.props);
+    const rendered = text(shown);
+    expect(rendered).toContain('PLACEHOLDER');
+    expect(rendered).toContain('$25,040.00');
+    expect(walk(shown).some(node => node.type === 'a' && String(node.props?.href).includes('review-transactions'))).toBe(true);
+  });
+});
 
 describe('Schedule C safe export controls', () => {
   it('allows an income-only PDF without loaded deductible expenses', async () => {

@@ -134,6 +134,7 @@ export async function GET(request: NextRequest) {
     homeOffice: { deduction: snapshot.homeOfficeDeduction, worksheet: snapshot.scheduleC.homeOffice.calculation },
     stateTax,
     businessTaxNotices: snapshot.businessTaxNotices,
+    heldOutDuplicates: snapshot.heldOutDuplicates,
     dataSource: 'auto',
   }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {

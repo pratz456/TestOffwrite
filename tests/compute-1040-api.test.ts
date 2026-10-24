@@ -98,6 +98,20 @@ describe('Form1040 API integration', () => {
     expect(state.reads).not.toContain('quarterly_payments');
   });
 
+  it('holds a flagged income credit out of gross receipts and returns the held out line', async () => {
+    state.transactions = [{
+      iso_currency_code: 'USD', amount: -25000, date: '2026-06-20', category: 'income', trans_id: 'flagged-income',
+      possibleDuplicate: true, possibleDuplicateReason: 'legacy_match',
+    }];
+    const response = await GET(request());
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.income.grossReceipts).toBe(0);
+    expect(data.heldOutDuplicates).toMatchObject({ count: 1, amount: 25000, reviewHref: '/protected?screen=review-transactions' });
+    expect(data.heldOutDuplicates.message).toContain('PLACEHOLDER');
+    expect(data.heldOutDuplicates.message).toContain('$25,000.00');
+  });
+
   it('exposes recorded estimated payments and 1099-documented receipts for the filing hub', async () => {
     state.collections = { tax_organizers: [reviewedPersonalDeductionOrganizer()], income_1099: [{ formType: '1099-NEC', amount: 42000 }] };
     const data = await (await GET(request())).json();

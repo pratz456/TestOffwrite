@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
       totalExpenses: result.totalExpenses + result.deMinimisExpense + result.depreciationDeduction + result.homeOfficeDeduction, confirmedExpenses: result.totalExpenses,
       deMinimisExpense: result.deMinimisExpense, depreciationDeduction: result.depreciationDeduction,
       tentativeProfit: result.tentativeProfit, homeOfficeDeduction: result.homeOfficeDeduction,
+      heldOutDuplicates: result.heldOutDuplicates,
       message: 'Provisional business subtotal. Review returns/allowances, COGS and other uncollected adjustments before filing; the home office amount is the simplified-method planning estimate from your saved facts.' } }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';

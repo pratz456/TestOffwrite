@@ -1,12 +1,14 @@
 import { aggregateScheduleC, CATEGORY_MAP, type LineItemSummary } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
+import type { HeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 
 export interface ScheduleCExportData {
   taxYear: number; grossReceipts: number; lineItems: LineItemSummary[];
   /** `ssn` and `ein` are masked display values (last four digits); callers never pass full identifiers. */
   name?: string; ssn?: string; profession?: string; naicsCode?: string; ein?: string;
   includeAppendix: boolean;
+  heldOutDuplicates?: HeldOutDuplicates;
 }
 export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   const pdf = await createPlanningPDF('Schedule C - business records for review', data.taxYear);
@@ -26,6 +28,11 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
     ['1', 'Reconciled gross receipts in WriteOff', money(data.grossReceipts)],
     ...data.lineItems.map(row => [scheduleCExportLine(row.lineCode, data.taxYear), `${row.lineName} - ${row.transactionCount} confirmed records`, money(row.deductible)]),
     ['28 subtotal', 'Confirmed expense subtotal only', money(total)],
+    ...(data.heldOutDuplicates && data.heldOutDuplicates.count > 0 ? [[
+      'PLACEHOLDER',
+      `${data.heldOutDuplicates.message} ${data.heldOutDuplicates.reviewHref}`,
+      money(data.heldOutDuplicates.amount),
+    ]] : []),
     ['Worksheet', 'Receipts minus confirmed expenses, before other adjustments', money(data.grossReceipts - total)],
     ['29-31', 'Final tentative profit, home-office deduction and net profit', 'Not determined'],
   ], [70, 353, 105]);

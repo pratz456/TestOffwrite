@@ -160,9 +160,10 @@ export function isBusinessExpense(tx: ScheduleCTransactionLike): boolean {
   return false;
 }
 
-/** confirmed-only filter: countable (posted, not superseded), server-confirmed, and not a tax-method placeholder category. */
+/** confirmed-only filter: countable (posted, not superseded), server-confirmed, and not a tax-method placeholder category. Flagged possible duplicates stay saved and are omitted until review. */
 export function isConfirmedScheduleCExpense(tx: ScheduleCTransactionLike): boolean {
   return isCountableRecord(tx)
+    && tx.possibleDuplicate !== true
     && !(typeof tx.category === 'string' && tx.category.endsWith('_REVIEW_REQUIRED'))
     && isServerConfirmedDeduction(tx);
 }

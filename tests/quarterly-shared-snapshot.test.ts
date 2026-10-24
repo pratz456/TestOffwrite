@@ -29,6 +29,20 @@ describe('quarterly summary uses the shared saved-record annual engine', () => {
     expect(result).toMatchObject({ onTrack: null, estimatedPenaltyRisk: null, safeHarborTotal: null, perQuarterRecommended: null, paymentReview: { code: 'QUARTERLY_REVIEW_REQUIRED' } });
     expect(result.quarters.every((q: any) => q.recommended === null && q.status === 'review_required')).toBe(true);
   });
+  it('returns the held out duplicate line without counting those rows in the quarterly estimate', async () => {
+    state.tx.push(
+      { iso_currency_code: 'USD', amount: -25000, date: '2026-03-01', category: 'income', trans_id: 'flagged-income', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' },
+      { iso_currency_code: 'USD', amount: 40, date: '2026-03-02', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true, review_status: 'confirmed', trans_id: 'flagged-expense', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked' },
+    );
+    const response = await quarterly(req());
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.grossReceipts).toBe(100000);
+    expect(body.netProfit).toBe(99000);
+    expect(body.heldOutDuplicates).toMatchObject({ count: 2, amount: 25040, reviewHref: '/protected?screen=review-transactions' });
+    expect(body.heldOutDuplicates.message).toContain('PLACEHOLDER');
+    expect(body.heldOutDuplicates.message).toContain('$25,040.00');
+  });
   it('legacyPOST ignores supplied inflated income and tax totals, using owner records', async () => {
     const response = await legacy(post({ taxYear: 2026, userProfile: { business_income: 999999 }, transactions: [{ amount: -999999 }], taxCalculation: { quarterlyAmount: 0 } }));
     expect(response.status).toBe(200); expect((await response.json()).grossReceipts).toBe(100000);

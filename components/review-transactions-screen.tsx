@@ -24,6 +24,7 @@ import { normalizeExplanation } from '@/lib/ai/explanation';
 import { AnalysisStatusNotice } from '@/components/analysis-status-notice';
 import { summarizeAnalysisBacklog } from '@/lib/ai/analysis-state';
 import { prioritizeTransactionReview } from '@/lib/transactions/review-priority';
+import { summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 
 interface ReviewTransactionsScreenProps {
   user: { id: string; email?: string; user_metadata?: { name?: string } };
@@ -32,6 +33,26 @@ interface ReviewTransactionsScreenProps {
   focusedTransactionId?: string | null;
   onTransactionUpdate: (updatedTransaction: Transaction) => void;
   onTransactionClick?: (transaction: Transaction, initialSection?: 'details') => void;
+}
+
+function PossibleDuplicatesReview({ transactions }: { transactions: Transaction[] }) {
+  const flagged = transactions.filter(transaction => transaction.possibleDuplicate === true);
+  if (!flagged.length) return null;
+  const summary = summarizeHeldOutDuplicates(flagged);
+  return (
+    <section aria-label="Possible duplicates held out of tax totals" className="mb-3 rounded-xl border border-border bg-muted p-3 text-sm">
+      <h2 className="font-semibold">PLACEHOLDER: Possible duplicates need review</h2>
+      <p className="mt-1">{summary.message}</p>
+      <p className="mt-1 text-muted-foreground">PLACEHOLDER: Resolving a duplicate is not available yet. These rows stay saved. This screen does not change or delete them.</p>
+      <ul className="mt-2 space-y-1">
+        {flagged.map(transaction => (
+          <li key={transaction.trans_id || transaction.id}>
+            {transaction.date} · {transaction.merchant_name || 'Unnamed'} · {formatRecordedTransactionAmount(transaction)} · {transaction.possibleDuplicateReason || 'possible duplicate'}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 const kindLabels: Record<Exclude<TransactionKind, 'unknown'>, string> = {
@@ -277,6 +298,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
             </div>
             {viewToggle}
           </header>
+          <PossibleDuplicatesReview transactions={resolved} />
           {bulkOfferBanner && <div className="mb-3">{bulkOfferBanner}</div>}
           <MerchantGroupList groups={groups} results={groupResults} disabled={busy} onApplied={applyGroupLocally}
             onDismissResult={merchantKey => setGroupResults(previous => previous.filter(entry => entry.request.merchantKey !== merchantKey))}
@@ -333,6 +355,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
           ? `${remaining.length} transaction${remaining.length === 1 ? ' still needs' : 's still need'} review. Nothing was confirmed when you chose Later.`
           : transactions.length ? 'Your categorization decisions are saved. New transactions will appear here for review.'
           : 'Add a transaction or connect a bank to start building your tax records.'}</p>
+        <PossibleDuplicatesReview transactions={resolved} />
         {taxQuestions.length > 0 && <p className="text-sm text-amber-700 dark:text-amber-400">{taxQuestions.length} categorized transaction{taxQuestions.length === 1 ? ' still needs' : 's still need'} tax details. Deductions remain unresolved.</p>}
         {bulkOfferBanner && <div className="text-left">{bulkOfferBanner}</div>}
         {taxQuestions.length > 0 && onTransactionClick && <Button className="w-full" onClick={() => onTransactionClick({ ...taxQuestions[0], _source: 'review-transactions' }, 'details')}>Resolve missing tax details</Button>}
@@ -365,6 +388,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
           {!editing && viewToggle}
         </header>
 
+        <PossibleDuplicatesReview transactions={resolved} />
         {bulkOfferBanner && <div className="mb-3">{bulkOfferBanner}</div>}
 
         <article className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm" aria-label="Transaction to review"

@@ -12,6 +12,8 @@ import { PremiumFeatureGate, subscriptionGateDestination } from '@/components/pr
 import { useRouter } from 'next/navigation';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
+import { summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
+import { HeldOutDuplicatesNotice } from '@/components/held-out-duplicates-notice';
 
 interface Transaction {
   id: string;
@@ -26,6 +28,9 @@ interface Transaction {
   description?: string;
   notes?: string;
   pending?: boolean | null;
+  possibleDuplicate?: boolean;
+  possibleDuplicateReason?: string;
+  review_status?: string;
 }
 
 interface ScheduleCExportScreenProps {
@@ -77,8 +82,12 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 
   // Memoize transactions array reference to prevent unnecessary re-renders
   const transactionsKey = useMemo(() => {
-    return transactions.map(t => `${t.id}-${t.date}-${t.amount}-${t.is_deductible}-${String(t.pending ?? '')}`).join('|');
+    return transactions.map(t => `${t.id}-${t.date}-${t.amount}-${t.is_deductible}-${String(t.pending ?? '')}-${t.possibleDuplicate === true}`).join('|');
   }, [transactions]);
+  const heldOutDuplicates = useMemo(
+    () => summarizeHeldOutDuplicates(transactions, Number(selectedYear)),
+    [transactions, selectedYear],
+  );
 
   // Memoize calculateDeductions to prevent recreation on every render
   const calculateDeductions = useCallback((overrideYearTx?: Transaction[]) => {
@@ -313,6 +322,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
           <h3 className="text-lg font-semibold text-foreground mb-4">
             Schedule C Preview - Tax Year {selectedYear}
           </h3>
+          <HeldOutDuplicatesNotice summary={heldOutDuplicates} />
 
           {/* Enhanced Form Style Preview */}
           {categorySummaries.length > 0 && (
