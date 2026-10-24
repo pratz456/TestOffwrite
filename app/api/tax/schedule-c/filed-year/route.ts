@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
-import { currentCalendarYear } from '@/lib/schedule-c/filed-year';
-import { readHeldYearExport, readTaxYearConfirmation } from '@/lib/schedule-c/export-record';
+import { currentCalendarYear, shouldHoldYear } from '@/lib/schedule-c/filed-year';
+import { loadFiledYearState, readTaxYearConfirmation, startExportDeadline } from '@/lib/schedule-c/export-record';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,14 +29,22 @@ export async function GET(request: NextRequest) {
     try { getFederalTaxRules(year); } catch {
       return NextResponse.json({ error: 'Choose a supported tax year.' }, { status: 400, headers });
     }
-    const confirmation = await readTaxYearConfirmation(user.uid, year);
-    const recorded = year < currentCalendarYear()
-      ? await readHeldYearExport(user.uid, year)
-      : { prior: null, latestExportUnrecorded: false };
+    if (year >= currentCalendarYear()) {
+      const confirmation = await readTaxYearConfirmation(user.uid, year);
+      return NextResponse.json({
+        prior: null,
+        latestExportUnrecorded: false,
+        confirmedRulesVersion: confirmation?.rulesVersion ?? null,
+      }, { headers });
+    }
+    const filed = await loadFiledYearState(user.uid, year, startExportDeadline());
+    if (filed.readFailed && shouldHoldYear(user.uid, year)) {
+      return NextResponse.json({ error: 'Could not load all export records. Please retry.' }, { status: 503, headers });
+    }
     return NextResponse.json({
-      prior: recorded.prior,
-      latestExportUnrecorded: recorded.latestExportUnrecorded,
-      confirmedRulesVersion: confirmation?.rulesVersion ?? null,
+      prior: filed.latestExportUnrecorded ? null : filed.stored,
+      latestExportUnrecorded: filed.latestExportUnrecorded,
+      confirmedRulesVersion: filed.confirmedRulesVersion,
     }, { headers });
   } catch {
     return NextResponse.json({ error: 'Could not load all export records. Please retry.' }, { status: 503, headers });

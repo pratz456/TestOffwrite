@@ -43,6 +43,7 @@ const harness = vi.hoisted(() => ({
     committedWrites: number;
     holdOpenTransaction: boolean;
     stuckReads: Set<string>;
+    failReads: Set<string>;
     collection: (name: string) => { add: (data: Record<string, unknown>) => Promise<unknown> };
   },
 }));
@@ -270,6 +271,7 @@ beforeEach(async () => {
     await (harness.db as { settled?: Promise<void> }).settled;
     harness.db.records.clear();
     harness.db.stuckReads.clear();
+    harness.db.failReads.clear();
   }
   setScheduleCClockForTests(clock);
   setCurrentScheduleCRulesForTests(null);
@@ -1126,14 +1128,20 @@ describe('filed year guard', () => {
     expect(held.prior?.totalDeductible).toBe(100);
   });
 
-  it('serves the file when the filed year reads never settle', async () => {
+  it('returns 503 and writes nothing when the filed year reads never settle', async () => {
     harness.db!.stuckReads.add('user_tax_year_confirmations');
     harness.db!.stuckReads.add('user_export_records');
     harness.transactions = [confirmed({ id: 'ad1', amount: 80, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+    const beforeWrites = harness.db!.committedWrites;
+    const beforeRecords = JSON.stringify([...harness.db!.records.entries()]);
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const response = await withinFiveSeconds(scheduleCExport(exportBody({ year: 2025, format: 'csv' })));
-    expect(response.status).toBe(200);
-    expect(await response.text()).toContain('SERVICE_ADVERTISING');
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'Could not create the Schedule C preparer summary. Please retry.' });
+    expect(savedExports()).toHaveLength(0);
+    expect(pendingMarkers()).toHaveLength(0);
+    expect(harness.db!.committedWrites).toBe(beforeWrites);
+    expect(JSON.stringify([...harness.db!.records.entries()])).toBe(beforeRecords);
     expect(error.mock.calls.map(call => call[0])).toEqual(expect.arrayContaining([
       'Schedule C filed year state could not be read',
       'Schedule C export record could not be read',
@@ -1255,5 +1263,136 @@ describe('filed year guard', () => {
     expect(wrote).toBe(true);
     expect(queried).toBe(true);
     expect(snap.docs.map(doc => doc.data())).toEqual([{ next: 9 }]);
+  });
+
+  const exportRetry = { error: 'Could not create the Schedule C preparer summary. Please retry.' };
+  const heldCharge = () => [confirmed({ id: 'ad1', amount: 250, date: '2025-06-01', category: 'SERVICE_ADVERTISING' })];
+
+  async function plantHeldHundred() {
+    await saveExportLog('held', 'schedule-c-pdf', 100, 'ad1', CLOCK.toISOString(), 1);
+    seedCounter(1);
+    harness.transactions = heldCharge();
+  }
+
+  function recordsJson(): string {
+    return JSON.stringify([...harness.db!.records.entries()]);
+  }
+
+  it('returns 503 and writes nothing when the stored record read rejects, then a healthy export returns the stored total', async () => {
+    await plantHeldHundred();
+    harness.db!.failReads.add('user_export_records');
+    const beforeWrites = harness.db!.committedWrites;
+    const beforeRecords = recordsJson();
+    const response = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual(exportRetry);
+    expect(pendingMarkers()).toHaveLength(0);
+    expect(counterNext()).toEqual([1]);
+    expect(savedExports()).toEqual([expect.objectContaining({ totalDeductible: 100, exportSequence: 1 })]);
+    expect(harness.db!.committedWrites).toBe(beforeWrites);
+    expect(recordsJson()).toBe(beforeRecords);
+    harness.db!.failReads.clear();
+    const next = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+    expect(next.status).toBe(200);
+    const csv = await next.text();
+    expect(csv).toContain('SERVICE_ADVERTISING,8,100,100');
+    expect(csv).not.toContain('SERVICE_ADVERTISING,8,250,250');
+  });
+
+  it('returns 503 for a malformed-only record, names the year and doc id, and leaves the record unchanged', async () => {
+    const { adminDb } = await import('@/lib/firebase/admin');
+    await adminDb.collection('user_export_records').doc('only-bad').set({
+      uid: 'owner', kind: 'schedule-c-csv', taxYear: 2025, rulesVersion: 'v0', exportedAt: CLOCK.toISOString(), sha256: 'bad', exportSequence: 1,
+      lineTotals: [{ line: '8', amount: 100 }], totalDeductible: 100, charges: [{ id: 'ad1', line: '8' }],
+    });
+    seedCounter(1);
+    harness.transactions = heldCharge();
+    const beforeRecords = recordsJson();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const response = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual(exportRetry);
+    expect(recordsJson()).toBe(beforeRecords);
+    expect(error).toHaveBeenCalledWith('Schedule C export record is malformed', 2025, 'only-bad');
+    const logged = error.mock.calls.flat();
+    expect(logged).not.toContain('owner');
+    expect(logged).not.toContain(100);
+    expect(logged).not.toContain(250);
+  });
+
+  it('returns 503 when the stored record read times out, then a healthy export returns the stored total', async () => {
+    await plantHeldHundred();
+    harness.db!.stuckReads.add('user_export_records');
+    const beforeWrites = harness.db!.committedWrites;
+    const beforeRecords = recordsJson();
+    vi.useFakeTimers();
+    try {
+      const pending = scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+      await vi.advanceTimersByTimeAsync(4000);
+      const response = await pending;
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual(exportRetry);
+      expect(pendingMarkers()).toHaveLength(0);
+      expect(counterNext()).toEqual([1]);
+      expect(savedExports()).toEqual([expect.objectContaining({ totalDeductible: 100, exportSequence: 1 })]);
+      expect(harness.db!.committedWrites).toBe(beforeWrites);
+      expect(recordsJson()).toBe(beforeRecords);
+    } finally {
+      harness.db!.stuckReads.clear();
+      vi.useRealTimers();
+    }
+    const next = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+    expect(next.status).toBe(200);
+    const csv = await next.text();
+    expect(csv).toContain('SERVICE_ADVERTISING,8,100,100');
+    expect(csv).not.toContain('SERVICE_ADVERTISING,8,250,250');
+  });
+
+  it('returns 503 and writes nothing when the confirmation read and the record read both fail before the held state is known', async () => {
+    await plantHeldHundred();
+    harness.db!.failReads.add('user_tax_year_confirmations');
+    harness.db!.failReads.add('user_export_records');
+    const beforeWrites = harness.db!.committedWrites;
+    const beforeRecords = recordsJson();
+    const response = await scheduleCExport(exportBody({ year: 2025, format: 'csv' }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual(exportRetry);
+    expect(pendingMarkers()).toHaveLength(0);
+    expect(counterNext()).toEqual([1]);
+    expect(savedExports()).toHaveLength(1);
+    expect(harness.db!.committedWrites).toBe(beforeWrites);
+    expect(recordsJson()).toBe(beforeRecords);
+  });
+
+  it('returns 503 and writes nothing when a pdf export cannot read the stored record', async () => {
+    await plantHeldHundred();
+    harness.db!.failReads.add('user_export_records');
+    const beforeWrites = harness.db!.committedWrites;
+    const beforeRecords = recordsJson();
+    const response = await scheduleCExport(exportBody({ year: 2025, format: 'pdf' }));
+    expect(response.status).toBe(503);
+    expect(response.headers.get('content-type')).toContain('application/json');
+    expect(await response.json()).toEqual(exportRetry);
+    expect(pendingMarkers()).toHaveLength(0);
+    expect(counterNext()).toEqual([1]);
+    expect(savedExports()).toHaveLength(1);
+    expect(harness.db!.committedWrites).toBe(beforeWrites);
+    expect(recordsJson()).toBe(beforeRecords);
+  });
+
+  it('returns 503 from the filed year route when the only record is malformed and leaves that record unchanged', async () => {
+    const { adminDb } = await import('@/lib/firebase/admin');
+    await adminDb.collection('user_export_records').doc('only-bad').set({
+      uid: 'owner', kind: 'schedule-c-pdf', taxYear: 2025, rulesVersion: 'v0', exportedAt: CLOCK.toISOString(), sha256: 'bad', exportSequence: 1,
+      lineTotals: [{ line: '8', amount: 100 }], totalDeductible: 100, charges: [{ id: 'ad1', line: '8' }],
+    });
+    const beforeRecords = recordsJson();
+    const response = await readFiledYear(new NextRequest('http://localhost/api/tax/schedule-c/filed-year?year=2025'));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'Could not load all export records. Please retry.' });
+    expect(recordsJson()).toBe(beforeRecords);
+    expect(savedExports()).toEqual([expect.objectContaining({
+      uid: 'owner', kind: 'schedule-c-pdf', taxYear: 2025, totalDeductible: 100, exportSequence: 1,
+    })]);
   });
 });

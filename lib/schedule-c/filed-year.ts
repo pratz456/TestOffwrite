@@ -32,6 +32,10 @@ export const FILED_YEAR_COPY_MARKER = 'draft, awaiting copy approval';
  */
 export const DRAFT_LATEST_EXPORT_UNRECORDED_NOTICE =
   'DRAFT: The latest export for this year was not recorded, so this view does not compare it with an older export.';
+
+// Placeholder copy pending approval.
+export const SCHEDULE_C_EXPORT_LOAD_FAILED_NOTICE =
+  "The export couldn't load right now. Try again.";
 export const NEEDS_MORE_INFORMATION = 'Needs more information';
 
 export type MoveReason =

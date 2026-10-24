@@ -1,6 +1,6 @@
 "use client";
 
-import { currentCalendarYear, decideScheduleCExport, DRAFT_LATEST_EXPORT_UNRECORDED_NOTICE, scheduleCExportLine, shouldHoldYear } from '@/lib/schedule-c/export-lines';
+import { currentCalendarYear, decideScheduleCExport, DRAFT_LATEST_EXPORT_UNRECORDED_NOTICE, SCHEDULE_C_EXPORT_LOAD_FAILED_NOTICE, scheduleCExportLine, shouldHoldYear } from '@/lib/schedule-c/export-lines';
 import { readStoredScheduleCPrior, type ScheduleCExportSnapshot } from '@/lib/schedule-c/held-year-client';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
@@ -96,6 +96,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   const [lineDetails, setLineDetails] = useState<Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }>>({});
   const [prior, setPrior] = useState<ScheduleCExportSnapshot | null>(null);
   const [latestExportUnrecorded, setLatestExportUnrecorded] = useState(false);
+  const [priorReadFailed, setPriorReadFailed] = useState(false);
   const confirmedForYear = confirmedVersionForYear(confirmedRulesVersion, Number(selectedYear));
 
 
@@ -106,7 +107,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 
   const heldComparison = useMemo(() => {
     const year = Number(selectedYear);
-    if (latestExportUnrecorded) return null;
+    if (priorReadFailed || latestExportUnrecorded) return null;
     if (!Number.isInteger(year) || year >= currentCalendarYear() || !shouldHoldYear(user.id, year)) return null;
     return decideScheduleCExport({
       uid: user.id,
@@ -125,12 +126,22 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
       prior: latestExportUnrecorded ? null : prior,
       confirmedRulesVersion: confirmedForYear,
     }).comparison;
-  }, [selectedYear, transactions, user.id, confirmedForYear, prior, latestExportUnrecorded]);
+  }, [selectedYear, transactions, user.id, confirmedForYear, prior, latestExportUnrecorded, priorReadFailed]);
 
   // Memoize calculateDeductions to prevent recreation on every render
   const calculateDeductions = useCallback((overrideYearTx?: Transaction[]) => {
     // The preview matches the export decision. A confirmation for the current
     // rules version shows that new total. A held year keeps the old total.
+    // A failed read shows neither the stored total nor a v0 total.
+    if (priorReadFailed) {
+      setLineDetails({});
+      setCategorySummaries([]);
+      setTotalDeductible(0);
+      setDeductibleCount(0);
+      setConfirmedCount(0);
+      setPotentialCount(0);
+      return;
+    }
     const sourceTx = Array.isArray(overrideYearTx) ? overrideYearTx : (Array.isArray(transactions) ? transactions : []);
     const decision = decideScheduleCExport({
       uid: user.id,
@@ -177,13 +188,14 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
     setDeductibleCount(deductible);
     setConfirmedCount(deductible);
     setPotentialCount(0);
-  }, [transactions, selectedYear, user.id, confirmedForYear, prior, latestExportUnrecorded]);
+  }, [transactions, selectedYear, user.id, confirmedForYear, prior, latestExportUnrecorded, priorReadFailed]);
 
   useEffect(() => {
     const year = Number(selectedYear);
     if (!Number.isInteger(year) || year >= currentCalendarYear() || !shouldHoldYear(user.id, year)) {
       setPrior(null);
       setLatestExportUnrecorded(false);
+      setPriorReadFailed(false);
       return;
     }
     let cancel = false;
@@ -191,6 +203,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
       if (cancel) return;
       setPrior(value.prior);
       setLatestExportUnrecorded(value.latestExportUnrecorded);
+      setPriorReadFailed(value.readFailed);
     });
     return () => { cancel = true; };
   }, [selectedYear, user.id]);
@@ -247,6 +260,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
       });
 
       if (!response.ok) {
+        if (response.status === 503) setPriorReadFailed(true);
         // Check if it's a subscription required error
         const contentType = response.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
@@ -393,11 +407,15 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
             Schedule C Preview - Tax Year {selectedYear}
           </h3>
 
-          {latestExportUnrecorded ? (
+          {priorReadFailed ? (
+            <p className="mb-4 text-sm text-foreground">{SCHEDULE_C_EXPORT_LOAD_FAILED_NOTICE}</p>
+          ) : null}
+
+          {!priorReadFailed && latestExportUnrecorded ? (
             <div className="mb-4 space-y-1 text-sm text-foreground">
               <p>{DRAFT_LATEST_EXPORT_UNRECORDED_NOTICE}</p>
             </div>
-          ) : heldComparison ? (
+          ) : !priorReadFailed && heldComparison ? (
             <div className="mb-4 space-y-1 text-sm text-foreground">
               {heldComparison.notice.split('\n').map((line, index) => (
                 <p key={`${index}-${line.slice(0, 24)}`}>{line}</p>
@@ -406,7 +424,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
           ) : null}
 
           {/* Enhanced Form Style Preview */}
-          {categorySummaries.length > 0 && (
+          {!priorReadFailed && categorySummaries.length > 0 && (
             <div className="mb-4">
               <div className="mb-4">
                 <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Form 1040 - Schedule C (Draft Preview)</h4>
@@ -456,6 +474,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
           )}
 
           {/* Summary Cards */}
+          {!priorReadFailed && (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <div className="bg-card rounded-xl p-4 border border-border">
               <div className="text-2xl font-bold text-foreground mb-1 tabular-nums">{confirmedCount}</div>
@@ -477,8 +496,10 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
               <div className="text-sm text-muted-foreground">Total Business Expenses</div>
             </div>
           </div>
+          )}
 
           {/* IRS Schedule C Line Items */}
+          {!priorReadFailed && (
           <div>
             <h4 className="text-lg font-semibold text-foreground mb-4">IRS Schedule C Line Items</h4>
 
@@ -533,6 +554,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
               </div>
             )}
           </div>
+          )}
         </Card>
 
         {/* Instructions */}

@@ -396,15 +396,17 @@ function preferExport(candidate: RankedExport, current: RankedExport): boolean {
   return candidate.id > current.id;
 }
 
-async function rankLatestExport(uid: string, year: number): Promise<RankedExport | null> {
+async function rankLatestExport(uid: string, year: number): Promise<{ latest: RankedExport | null; unreadableIds: string[] }> {
   const snap = await adminDb.collection(EXPORT_RECORDS).where('uid', '==', uid).where('taxYear', '==', year).get();
   let latest: RankedExport | null = null;
+  const unreadableIds: string[] = [];
   for (const doc of snap.docs) {
     const data = doc.data();
     if (typeof data.kind !== 'string' || !SCHEDULE_C_EXPORT_KINDS.has(data.kind as ExportRecordKind)) continue;
     const parsed = parseExportSnapshot(data);
     if (!parsed) {
       console.error('Malformed Schedule C export record', doc.id);
+      unreadableIds.push(typeof doc.id === 'string' ? doc.id : '');
       continue;
     }
     const candidate: RankedExport = {
@@ -415,12 +417,12 @@ async function rankLatestExport(uid: string, year: number): Promise<RankedExport
     };
     if (!latest || preferExport(candidate, latest)) latest = candidate;
   }
-  return latest;
+  return { latest, unreadableIds };
 }
 
 export async function readLatestExportRecord(uid: string, year: number, deadline?: ExportDeadline): Promise<ScheduleCExportSnapshot | null> {
   try {
-    return (await awaitExportStep(rankLatestExport(uid, year), deadline))?.snapshot ?? null;
+    return (await awaitExportStep(rankLatestExport(uid, year), deadline)).latest?.snapshot ?? null;
   } catch {
     console.error('Schedule C export record could not be read');
     return null;
@@ -446,13 +448,13 @@ function markerBlocksLatest(docs: Array<{ data: () => Record<string, unknown> | 
  */
 export async function readHeldYearExport(uid: string, year: number): Promise<{ prior: ScheduleCExportSnapshot | null; latestExportUnrecorded: boolean }> {
   const pending = await adminDb.collection(EXPORT_PENDING).where('uid', '==', uid).where('taxYear', '==', year).get();
-  const latest = await rankLatestExport(uid, year);
-  if (markerBlocksLatest(pending.docs, latest)) return { prior: null, latestExportUnrecorded: true };
-  return { prior: latest?.snapshot ?? null, latestExportUnrecorded: false };
+  const ranked = await rankLatestExport(uid, year);
+  if (markerBlocksLatest(pending.docs, ranked.latest)) return { prior: null, latestExportUnrecorded: true };
+  return { prior: ranked.latest?.snapshot ?? null, latestExportUnrecorded: false };
 }
 
-export async function loadFiledYearState(uid: string, year: number, deadline?: ExportDeadline): Promise<{ prior: ScheduleCExportSnapshot | null; confirmedRulesVersion: string | null; latestExportUnrecorded: boolean; stored: ScheduleCExportSnapshot | null }> {
-  if (year >= currentCalendarYear()) return { prior: null, confirmedRulesVersion: null, latestExportUnrecorded: false, stored: null };
+export async function loadFiledYearState(uid: string, year: number, deadline?: ExportDeadline): Promise<{ prior: ScheduleCExportSnapshot | null; confirmedRulesVersion: string | null; latestExportUnrecorded: boolean; stored: ScheduleCExportSnapshot | null; readFailed: boolean }> {
+  if (year >= currentCalendarYear()) return { prior: null, confirmedRulesVersion: null, latestExportUnrecorded: false, stored: null, readFailed: false };
   let failed = false;
   const markFailed = () => { failed = true; };
   // One ranking for this export. A malformed record is logged inside that ranking.
@@ -461,7 +463,7 @@ export async function loadFiledYearState(uid: string, year: number, deadline?: E
     () => {
       console.error('Schedule C export record could not be read');
       markFailed();
-      return null;
+      return { latest: null, unreadableIds: [] as string[] };
     },
   );
   const confirmationPromise = awaitExportStep(readTaxYearConfirmation(uid, year), deadline).then(
@@ -471,7 +473,8 @@ export async function loadFiledYearState(uid: string, year: number, deadline?: E
       return null;
     },
   );
-  const [confirmation, latest] = await Promise.all([confirmationPromise, latestPromise]);
+  const [confirmation, ranked] = await Promise.all([confirmationPromise, latestPromise]);
+  const latest = ranked.latest;
   let blocking = false;
   if (deadline && deadline.remaining() <= 0) {
     markFailed();
@@ -486,13 +489,19 @@ export async function loadFiledYearState(uid: string, year: number, deadline?: E
       markFailed();
     }
   }
+  // Records exist but none of them parse. That is a failed read, not an empty year.
+  if (!latest && ranked.unreadableIds.length > 0) {
+    markFailed();
+    for (const docId of ranked.unreadableIds) console.error('Schedule C export record is malformed', year, docId);
+  }
   if (failed) console.error('Schedule C filed year state could not be read');
+  const readFailed = failed;
   const confirmedRulesVersion = confirmation?.rulesVersion ?? null;
   const held = shouldHoldYear(uid, year) && confirmedRulesVersion !== currentScheduleCRules().version;
   const stored = latest?.snapshot ?? null;
-  if (!held) return { prior: null, confirmedRulesVersion, latestExportUnrecorded: false, stored };
-  if (blocking) return { prior: null, confirmedRulesVersion, latestExportUnrecorded: true, stored };
-  return { prior: stored, confirmedRulesVersion, latestExportUnrecorded: false, stored };
+  if (!held) return { prior: null, confirmedRulesVersion, latestExportUnrecorded: false, stored, readFailed };
+  if (blocking) return { prior: null, confirmedRulesVersion, latestExportUnrecorded: true, stored, readFailed };
+  return { prior: stored, confirmedRulesVersion, latestExportUnrecorded: false, stored, readFailed };
 }
 
 export async function confirmTaxYear(request: NextRequest): Promise<NextResponse> {

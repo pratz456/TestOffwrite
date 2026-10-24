@@ -9,7 +9,7 @@ import { maskOrganizerIdentifier } from '@/lib/tax-organizer/identifiers';
 import { readOrganizerDocument } from '@/lib/tax-organizer/organizer-server';
 import { reconcileBusinessIncome, IncomeReconciliationRequiredError } from '@/lib/tax-rules/business-income';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
-import { decideScheduleCExport, scheduleCNow } from '@/lib/schedule-c/filed-year';
+import { decideScheduleCExport, scheduleCNow, shouldHoldYear } from '@/lib/schedule-c/filed-year';
 import { awaitExportStep, confirmTaxYear, loadFiledYearState, recordServedExport, sha256Hex, startExportDeadline } from '@/lib/schedule-c/export-record';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
@@ -44,6 +44,10 @@ export async function POST(request: NextRequest) {
     const transactions = tx;
     const receipts = reconcileBusinessIncome(year, transactions.map(row => ({ ...row })), gross.docs.map(doc => ({ ...doc.data(), id: doc.id })), forms.docs.map(doc => ({ ...doc.data(), id: doc.id })), decisions);
     const filed = await loadFiledYearState(user.uid, year, deadline);
+    // A failed read for a year that can be held must not fall through to v0 numbers or a new record.
+    if (filed.readFailed && shouldHoldYear(user.uid, year)) {
+      return NextResponse.json({ error: 'Could not create the Schedule C preparer summary. Please retry.' }, { status: 503 });
+    }
     const decision = decideScheduleCExport({ uid: user.uid, year, transactions, prior: filed.stored, confirmedRulesVersion: filed.confirmedRulesVersion });
     const generatedAt = scheduleCNow();
     const render = { contribution: decision.contribution, comparison: decision.comparison, generatedAt };

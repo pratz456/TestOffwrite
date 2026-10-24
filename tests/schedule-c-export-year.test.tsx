@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DRAFT_LATEST_EXPORT_UNRECORDED_NOTICE, frozenScheduleCRules, setCurrentScheduleCRulesForTests, setScheduleCClockForTests } from '@/lib/schedule-c/filed-year';
+import { DRAFT_LATEST_EXPORT_UNRECORDED_NOTICE, SCHEDULE_C_EXPORT_LOAD_FAILED_NOTICE, frozenScheduleCRules, setCurrentScheduleCRulesForTests, setScheduleCClockForTests } from '@/lib/schedule-c/filed-year';
 
 // Real component handlers with a minimal hook scheduler; network/downloads are
 // mocked. This verifies selected-year propagation, not browser PDF rendering.
@@ -206,6 +206,24 @@ describe('Schedule C supported-year selection', () => {
     expect(body).not.toContain('That total was $100.00.');
     expect(body).not.toContain('last export');
     expect(body).not.toContain('since export');
+  });
+
+  it('shows the placeholder and no v0 total when the held year export cannot be loaded', async () => {
+    const edited = {
+      ...props,
+      transactions: [{ id: 'ad', merchant_name: 'Synthetic ads', amount: 250, category: 'SERVICE_ADVERTISING', date: '2025-06-01', is_deductible: true, review_status: 'confirmed', tax_review_required: false }],
+    };
+    harness.fetch.mockImplementation(async (url: string) => {
+      if (String(url).startsWith('/api/tax/schedule-c/filed-year')) {
+        return new Response(JSON.stringify({ error: 'Could not load all export records. Please retry.' }), { status: 503, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response('synthetic-pdf', { headers: { 'content-type': 'application/pdf' } });
+    });
+    const body = await openYear(edited, '2025');
+    expect(body).toContain(SCHEDULE_C_EXPORT_LOAD_FAILED_NOTICE);
+    expect(body).not.toContain('your 2025 total under the rules at the time, on your current data');
+    expect(body).not.toContain('$250.00');
+    expect(body).not.toContain('Total Business Expenses');
   });
 
   async function confirmationFrom(load: () => Promise<{ default: (props?: unknown) => unknown }>) {

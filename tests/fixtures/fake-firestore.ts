@@ -56,6 +56,8 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
   const control = { holdOpenTransaction: false };
   /** Collection ids whose document and query reads never settle. */
   const stuckReads = new Set<string>();
+  /** Collection ids whose document and query reads reject immediately. */
+  const failReads = new Set<string>();
   /** Document paths read by a transaction that is still open. */
   const lockedPaths = new Set<string>();
   /** Collection paths whose query reads are held by an open transaction. */
@@ -79,6 +81,7 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
   const nextId = () => `generated-${++generated}`;
   const collectionId = (path: string) => path.split('/')[0] ?? '';
   const readStuck = (path: string) => stuckReads.has(collectionId(path));
+  const readFails = (path: string) => failReads.has(collectionId(path));
   const never = () => new Promise(() => {});
   const parentPath = (path: string) => path.split('/').slice(0, -1).join('/');
   const writeLocked = (path: string) => lockedPaths.has(path) || lockedQueries.has(parentPath(path));
@@ -110,7 +113,7 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
   const ref = (path: string): any => ({
     path, id: path.split('/').at(-1),
     parent: query(path.split('/').slice(0, -1).join('/')),
-    get: async () => { fail(); if (readStuck(path)) return never(); await waitForUnlock(() => writeLocked(path), blockedReads); return snapshot(path); },
+    get: async () => { fail(); if (readFails(path)) throw new Error('read failed'); if (readStuck(path)) return never(); await waitForUnlock(() => writeLocked(path), blockedReads); return snapshot(path); },
     set: async (data: Record<string, any>, setOptions?: { merge?: boolean }) => { fail(); await waitForUnlock(() => writeLocked(path), blockedWrites); write(path, data, setOptions); },
     update: async (data: Record<string, any>) => { fail(); await waitForUnlock(() => writeLocked(path), blockedWrites); if (!records.has(path)) throw new Error(`No document at ${path}`); write(path, data, { merge: true }); },
     create: async (data: Record<string, any>) => { fail(); await waitForUnlock(() => writeLocked(path), blockedWrites); if (records.has(path)) throw new Error(`Document exists at ${path}`); write(path, data); },
@@ -152,7 +155,7 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
     startAfter: (...cursor: any[]) => builder(path, entries, { ...state, after: cursor }, extra),
     select: () => builder(path, entries, state, extra),
     count: () => ({ get: async () => { fail(); return { data: () => ({ count: select(entries(), state).size }) }; } }),
-    get: async () => { fail(); if (readStuck(path)) return never(); await waitForUnlock(() => queryLocked(path), blockedReads); return select(entries(), state); },
+    get: async () => { fail(); if (readFails(path)) throw new Error('read failed'); if (readStuck(path)) return never(); await waitForUnlock(() => queryLocked(path), blockedReads); return select(entries(), state); },
   });
   const query = (path: string): any => {
     const depth = path.split('/').length + 1;
@@ -257,6 +260,7 @@ export function createFakeFirestore(options: FakeFirestoreOptions = {}) {
   };
   return { records, doc: ref, collection: query, collectionGroup, runTransaction, batch,
     stuckReads,
+    failReads,
     get committedWrites() { return committedWrites; },
     get holdOpenTransaction() { return control.holdOpenTransaction; },
     /** Resolves after a held transaction has committed and its waiters have been released. */
