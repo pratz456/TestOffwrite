@@ -1,6 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NextResponse } from 'next/server';
-import { DEFAULT_JSON_BODY_MAX_BYTES, readJsonBody } from '../lib/http/json-body';
+import { DEFAULT_JSON_BODY_MAX_BYTES, readJsonBody, readTextBody } from '../lib/http/json-body';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const post = (body: BodyInit, headers?: HeadersInit) =>
   new Request('http://localhost/api/example', { method: 'POST', body, headers });
@@ -23,7 +27,6 @@ describe('readJsonBody', () => {
     expect(result).toBeInstanceOf(NextResponse);
     expect((result as NextResponse).status).toBe(413);
     expect(parsedBodies(parse)).toEqual([]);
-    parse.mockRestore();
     await expect((result as NextResponse).json()).resolves.toEqual({ error: 'Request body is too large' });
   });
 
@@ -35,7 +38,6 @@ describe('readJsonBody', () => {
     expect(result).toBeInstanceOf(NextResponse);
     expect((result as NextResponse).status).toBe(413);
     expect(parsedBodies(parse)).toEqual([]);
-    parse.mockRestore();
   });
 
   it('stops reading a chunked body with no declared size once the limit is passed', async () => {
@@ -64,7 +66,6 @@ describe('readJsonBody', () => {
     expect((result as NextResponse).status).toBe(413);
     expect(pulled).toBe(chunksToPassLimit);
     expect(parsedBodies(parse)).toEqual([]);
-    parse.mockRestore();
   });
 
   it('returns the parsed value for a normal body', async () => {
@@ -73,6 +74,38 @@ describe('readJsonBody', () => {
 
   it('returns 400 when the body is not JSON', async () => {
     const result = await readJsonBody(post('{'));
+    expect(result).toBeInstanceOf(NextResponse);
+    expect((result as NextResponse).status).toBe(400);
+    await expect((result as NextResponse).json()).resolves.toEqual({ error: 'Invalid JSON body' });
+  });
+});
+
+function bodyThatStops(text: string): ReadableStream<Uint8Array> {
+  const encoded = new TextEncoder().encode(text);
+  let sent = false;
+  return new ReadableStream({
+    pull(controller) {
+      if (!sent) {
+        sent = true;
+        controller.enqueue(encoded);
+        return;
+      }
+      controller.error(new Error('stopped'));
+    },
+  });
+}
+
+describe('readTextBody', () => {
+  it('returns an empty string for a missing or completed empty body', async () => {
+    await expect(readTextBody(new Request('http://localhost/api/example', { method: 'POST' }), 64)).resolves.toBe('');
+    await expect(readTextBody(post(''), 64)).resolves.toBe('');
+  });
+
+  it('returns 400 when the body cannot be read', async () => {
+    const request = new Request('http://localhost/api/example', {
+      method: 'POST', body: bodyThatStops('{"year":'), duplex: 'half',
+    } as RequestInit);
+    const result = await readTextBody(request, DEFAULT_JSON_BODY_MAX_BYTES);
     expect(result).toBeInstanceOf(NextResponse);
     expect((result as NextResponse).status).toBe(400);
     await expect((result as NextResponse).json()).resolves.toEqual({ error: 'Invalid JSON body' });

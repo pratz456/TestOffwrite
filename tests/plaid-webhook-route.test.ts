@@ -41,6 +41,25 @@ describe('Plaid webhook authentication boundary', () => {
     expect(mock.sync).not.toHaveBeenCalled();
     expect(mock.markLoginRequired).not.toHaveBeenCalled();
   });
+  it('returns 400 when the delivery cannot be read', async () => {
+    const encoded = new TextEncoder().encode('{"webhook_type":');
+    let sent = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!sent) { sent = true; controller.enqueue(encoded); return; }
+        controller.error(new Error('stopped'));
+      },
+    });
+    const response = await POST(new NextRequest('https://writeoff.test/api/plaid/webhook', { method: 'POST', body, duplex: 'half' } as RequestInit));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'Invalid JSON body' });
+    expect(mock.sync).not.toHaveBeenCalled();
+    expect(mock.findUser).not.toHaveBeenCalled();
+    expect(mock.markLoginRequired).not.toHaveBeenCalled();
+    expect(mock.doc).not.toHaveBeenCalled();
+    expect(mock.receiptSet).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it.each(['ITEM', 'ERROR'])('marks only the exact Item for an authenticated %s/ERROR login-required delivery', async webhook_type => {
     const body = JSON.stringify({ webhook_type, webhook_code: 'ERROR', item_id: 'sandbox-item', error: { error_code: 'ITEM_LOGIN_REQUIRED' } });
     expect((await POST(request(body, body))).status).toBe(200);

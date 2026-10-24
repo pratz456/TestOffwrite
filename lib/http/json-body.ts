@@ -79,10 +79,11 @@ export async function readJsonBody(request: Request, maxBytes = DEFAULT_JSON_BOD
   }
 }
 
-/** Read request text up to maxBytes. The returned string is the exact decoded body. */
+/** Read request text up to maxBytes. A missing or empty body is an empty string. */
 export async function readTextBody(request: Request, maxBytes: number): Promise<string | NextResponse> {
   const collected = await collectBody(request, maxBytes);
   if (collected.kind === 'too-large') return jsonTooLargeResponse();
+  if (collected.kind === 'unreadable') return invalidJsonBodyResponse();
   if (collected.kind !== 'text') return '';
   return collected.text;
 }

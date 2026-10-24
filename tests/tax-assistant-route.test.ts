@@ -38,7 +38,10 @@ beforeEach(() => {
   readProfile.mockResolvedValue({ data: { id: uid, profession: 'graphic designer', filing_status: 'single', state: 'CA', business_entity_type: 'sole_proprietor' }, error: null });
   readTransactions.mockResolvedValue({ data: adobeRows, error: null, nextCursor: null });
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
 
 describe('authenticated photo guidance endpoint', () => {
   it('rejects unauthenticated requests before reading or sending their content', async () => {
@@ -71,7 +74,6 @@ describe('authenticated photo guidance endpoint', () => {
     expect(response.status).toBe(429);
     expect(req.bodyUsed).toBe(false);
     expect(create).not.toHaveBeenCalled();
-    limit.mockRestore();
   });
 
   it('returns 400 for a history of 13 entries', async () => {
@@ -81,7 +83,6 @@ describe('authenticated photo guidance endpoint', () => {
     expect(response.status).toBe(400);
     expect(parsed).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
-    parsed.mockRestore();
   });
 
   it('reports missing configuration without pretending an assessment succeeded', async () => {

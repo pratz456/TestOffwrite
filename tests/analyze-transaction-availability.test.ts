@@ -161,7 +161,6 @@ describe('transaction analysis availability', () => {
       .filter((text) => text.length > 0 && !text.includes('"mappings"'));
     expect(parsed).toEqual([]);
     expectNoAnalysisWork();
-    parse.mockRestore();
   });
 
   it('routes check sign in and request limits before reading input', async () => {
@@ -181,7 +180,6 @@ describe('transaction analysis availability', () => {
     expect(order).toEqual(['auth', 'limit']);
     expect(req.bodyUsed).toBe(false);
     expectNoAnalysisWork();
-    limit.mockRestore();
   });
 
   it('refuses a list longer than the field cap', async () => {
