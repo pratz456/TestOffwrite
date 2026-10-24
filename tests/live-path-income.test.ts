@@ -107,12 +107,14 @@ describe('live path income dates', () => {
     expect(reconcile(2026, [control(), { ...other, date: '' }]).grossReceipts).toBe(DATED);
   });
 
-  it.each(UNREADABLE)('keeps %s in the 2026 annual total, names it, and leaves it out of the quarter split', (_label, make) => {
+  it.each(UNREADABLE)('holds %s for review, leaves it out of the 2026 total, and shows it once as unplaced', (_label, make) => {
     const result = reconcile(2026, [control(), make()]);
-    expect(result.grossReceipts).toBe(DATED + ADDED);
+    expect(result.grossReceipts).toBe(DATED);
     expect(namesRow(result.warnings)).toBe(true);
-    expect(result.undatedIncome).toEqual({ count: 1, total: ADDED });
-    expect(nmiIds(result)).toEqual([]);
+    expect(result.warnings.join(' ')).toMatch(NMI);
+    expect(result.undatedIncome).toEqual({ count: 0, total: 0 });
+    expect(nmiIds(result).some(row => row.id === 'probe-1' || row.name === MERCHANT)).toBe(true);
+    expect(result.unplaced).toEqual({ count: 1, total: ADDED });
     expect(quarterAmounts(result)).toEqual([DATED, 0, 0, 0]);
   });
 
@@ -212,10 +214,12 @@ describe('live path through the federal snapshot and quarterly reminders', () =>
     expect(snapshot([control()]).income.grossReceipts).toBe(DATED);
   });
 
-  it.each([["date ''", () => added({ date: '' })], ['date missing', missingDate]] as const)('names %s in calculation warnings and keeps 120000', (_label, make) => {
+  it.each([["date ''", () => added({ date: '' })], ['date missing', missingDate]] as const)('names %s in calculation warnings and keeps the dated 100000', (_label, make) => {
     const result = snapshot([control(), make()]);
-    expect(result.income.grossReceipts).toBe(DATED + ADDED);
+    expect(result.income.grossReceipts).toBe(DATED);
     expect(namesRow(result.result.calculationWarnings)).toBe(true);
+    expect(result.result.calculationWarnings.join(' ')).toMatch(NMI);
+    expect(result.reconciliation.unplaced).toEqual({ count: 1, total: ADDED });
     expect(quarterAmounts(result.reconciliation).reduce((sum, amount) => sum + amount, 0)).toBe(DATED);
   });
 
@@ -240,10 +244,20 @@ describe('live path through the federal snapshot and quarterly reminders', () =>
     for (const make of [() => added({ date: '' }), missingDate]) {
       const undated = await ask([control(), make()]);
       expect(undated.status).toBe(200);
-      expect(undated.body.grossReceipts).toBe(DATED + ADDED);
+      expect(typeof undated.body.totalEstimatedTax).toBe('number');
+      expect(undated.body.grossReceipts).toBe(DATED);
+      expect(undated.body.unplaced).toEqual({ count: 1, total: ADDED });
       expect(namesRow(undated.body.calculationWarnings)).toBe(true);
       expect(undated.body.planner?.annualizedIncomeMethod?.available).not.toBe(true);
     }
+
+    const blankDeposit = { ...added({ date: '' }), id: 'blank-200', trans_id: 'blank-200', amount: -200, merchant_name: 'Blank Date Client' };
+    const held = await ask([control(), blankDeposit]);
+    expect(held.status).toBe(200);
+    expect(typeof held.body.totalEstimatedTax).toBe('number');
+    expect(Number.isFinite(held.body.totalEstimatedTax)).toBe(true);
+    expect(held.body.grossReceipts).toBe(DATED);
+    expect(held.body.unplaced).toEqual({ count: 1, total: 200 });
 
     const tokyo = await ask([control(), added({ date: Timestamp.fromMillis(JST_NYE_2026), uploadTimeZone: 'Asia/Tokyo' })]);
     expect(tokyo.status).toBe(200);

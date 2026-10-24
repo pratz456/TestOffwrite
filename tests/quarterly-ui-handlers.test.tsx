@@ -60,6 +60,16 @@ describe('authenticated quarterly summary handles review and stale data', () => 
     expect(content).toContain('$12,000.00');
     expect(content).not.toContain('Retry summary');
   });
+  it('shows an unplaced amount beside the estimate without changing the estimate', async () => {
+    h.request.mockResolvedValue(Response.json({ ...(await response().json()), unplaced: { count: 1, total: 200 } }));
+    const component = () => QuarterlyTaxCalculator({ userProfile: { id: 'synthetic' }, transactions: [] });
+    render(component); await flush();
+    const content = text(render(component));
+    expect(content).toContain('Unplaced receipts');
+    expect(content).toContain('$200.00');
+    expect(content).toContain('$12,000.00');
+    expect(content.match(/Unplaced receipts/g)).toEqual(['Unplaced receipts']);
+  });
   it('displays recorded annual figures without inventing per-quarter payment or penalty status', async () => {
     h.request.mockImplementation(response);
     const component = () => QuarterlyTaxCalculator({ userProfile: { id: 'synthetic' }, transactions: [] });

@@ -5,7 +5,8 @@
 //   -> reconcileBusinessIncome (lib/tax-rules/business-income.ts); its warnings join calculationWarnings (federal-tax-snapshot.ts:155).
 // lib/tax-provider/quarterly-estimates.ts is NOT imported here: it has no production importer at 52f5788d.
 // Rule (Product with Tax Watch, IRC 6654(d)(1), amended by Coach and Tax Watch 4:25 PM PT):
-//   * Blank, empty string or unreadable `date`: stays in annual gross receipts, a warning names the row, it is out of the quarter split.
+//   * Blank, empty string or unreadable `date` with no usable datetime: needs more information, in no year total, shown once as unplaced.
+//   * A blank or unreadable date with a valid datetime is placed by that datetime for the year only.
 //   * An impossible calendar date such as '2026-02-30': Needs more information, in no year's total.
 //   * Firestore Timestamp, JS Date or {seconds,nanoseconds}: DATED. Day read in the row's uploadTimeZone; with no zone, read in
 //     Pacific/Pago_Pago and America/St_Thomas: agree -> that day; disagree -> Needs more information (in no year's total). Never the server zone.
@@ -181,11 +182,13 @@ describe('Controls on reconcileBusinessIncome (business-income.ts:33-41)', () =>
   });
 });
 
-describe('Rule 1: blank, empty or unreadable date stays in annual gross receipts with a warning naming it', () => {
+describe('Rule 1: blank, empty or unreadable date with nothing usable is needs more information', () => {
   for (const [label, make] of UNDATED) {
-    it(`R1 ${label}: 2026 grossReceipts is 120000 and undatedIncome is { count: 1, total: 20000 }`, () => {
-      const result = expectGross(2026, [control(), make()], CTRL + PRB, `R1 ${label}`);
-      expectUndated(result, 1, PRB, `R1 ${label}`);
+    it(`R1 ${label}: 2026 grossReceipts is 100000, the row is needs more information, and unplaced is 20000`, () => {
+      const result = expectGross(2026, [control(), make()], CTRL, `R1 ${label}`);
+      expectUndated(result, 0, 0, `R1 ${label}`);
+      expectNmiEntry(result, `R1 ${label}`);
+      expect(result.unplaced).toEqual({ count: 1, total: PRB });
     });
     it(`R1 ${label}: no throw, and a reconciliation warning names the row ("${PROBE_NAME}" or ${PROBE_ID})`, () => {
       const result = run(2026, [control(), make()], `R1 ${label}`);
@@ -200,9 +203,9 @@ describe('Rule 1: blank, empty or unreadable date stays in annual gross receipts
 
 describe('Rule 2: quarterlyGrossReceipts excludes undated rows and puts each dated row in exactly one quarter', () => {
   // Dates are chosen so the quarter index is the same for calendar quarters and the 6654 periods (Jan-Mar, Apr-May, Jun-Aug, Sep-Dec).
-  it('R2 undated rows are excluded: quarterlyGrossReceipts is [100000, 0, 0, 0] for every undated shape', () => {
+  it('R2 rows with nothing usable are excluded: quarterlyGrossReceipts is [100000, 0, 0, 0]', () => {
     for (const [label, make] of UNDATED) {
-      const result = expectGross(2026, [control(), make()], CTRL + PRB, `R2 ${label}`);
+      const result = expectGross(2026, [control(), make()], CTRL, `R2 ${label}`);
       expectQuarters(result, [CTRL, 0, 0, 0], `R2 ${label}`);
     }
   });
@@ -286,10 +289,11 @@ describe('Through buildFederalTaxSnapshot (income.grossReceipts and result.calcu
   it('S1 control: a dated string row only gives grossReceipts 100000', () => {
     expect(build([control()], 'S1').income.grossReceipts).toBe(CTRL);
   });
-  it.each([["date ''", () => probe({ date: '' })], ['date missing', withoutDate]])('S2 %s: grossReceipts 120000 and calculationWarnings names the row', (_l, make) => {
+  it.each([["date ''", () => probe({ date: '' })], ['date missing', withoutDate]])('S2 %s: grossReceipts 100000, calculationWarnings names the row, unplaced is 20000', (_l, make) => {
     const v = build([control(), (make as () => Row)()], `S2 ${_l}`);
-    expect(v.income.grossReceipts).toBe(CTRL + PRB);
-    expect(warningNaming(v.result.calculationWarnings), `calculationWarnings: ${safeJson(v.result.calculationWarnings)}`).toBeDefined();
+    expect(v.income.grossReceipts).toBe(CTRL);
+    expect(nmiWarningNaming(v.result.calculationWarnings), `calculationWarnings: ${safeJson(v.result.calculationWarnings)}`).toBeDefined();
+    expect(v.reconciliation.unplaced).toEqual({ count: 1, total: PRB });
   });
   it('S3 uploadTimeZone Asia/Tokyo: 2026-12-31 23:30 JST counts and 2027-01-01 00:30 JST does not: grossReceipts 120000', () => {
     const v = build([control(), probe({ date: Timestamp.fromMillis(JST_NYE_2026), uploadTimeZone: 'Asia/Tokyo' }), dated2({ date: Timestamp.fromMillis(JST_NY_2027), uploadTimeZone: 'Asia/Tokyo' })], 'S3');
@@ -318,11 +322,12 @@ describe('Through GET /api/tax/quarterly-reminders (what the quarterly calculato
     expectEstimate(status, body, 'Q1');
     expect(body.grossReceipts).toBe(CTRL);
   });
-  it.each([["date ''", () => probe({ date: '' })], ['date missing', withoutDate]])('Q2 %s: 200, a numeric estimate, grossReceipts 120000, a calculationWarnings string names the row', async (_l, make) => {
+  it.each([["date ''", () => probe({ date: '' })], ['date missing', withoutDate]])('Q2 %s: 200, a numeric estimate, grossReceipts 100000, unplaced 20000, a calculationWarnings string names the row', async (_l, make) => {
     const { status, body } = await routeGet([control(), (make as () => Row)()]);
     expectEstimate(status, body, `Q2 ${_l}`);
-    expect(body.grossReceipts).toBe(CTRL + PRB);
-    expect(warningNaming(body.calculationWarnings), `calculationWarnings: ${safeJson(body.calculationWarnings)}`).toBeDefined();
+    expect(body.grossReceipts).toBe(CTRL);
+    expect(body.unplaced).toEqual({ count: 1, total: PRB });
+    expect(nmiWarningNaming(body.calculationWarnings), `calculationWarnings: ${safeJson(body.calculationWarnings)}`).toBeDefined();
   });
   it('Q3 uploadTimeZone Asia/Tokyo: 2026-12-31 23:30 JST counts, 2027-01-01 00:30 JST does not: 200, estimate, grossReceipts 120000', async () => {
     const { status, body } = await routeGet([control(), probe({ date: Timestamp.fromMillis(JST_NYE_2026), uploadTimeZone: 'Asia/Tokyo' }), dated2({ date: Timestamp.fromMillis(JST_NY_2027), uploadTimeZone: 'Asia/Tokyo' })]);

@@ -1,12 +1,14 @@
 import { aggregateScheduleC, CATEGORY_MAP, type LineItemSummary } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
+import type { UnplacedReceipts } from './schedule-c-csv';
 
 export interface ScheduleCExportData {
   taxYear: number; grossReceipts: number; lineItems: LineItemSummary[];
   /** `ssn` and `ein` are masked display values (last four digits); callers never pass full identifiers. */
   name?: string; ssn?: string; profession?: string; naicsCode?: string; ein?: string;
   includeAppendix: boolean;
+  unplaced?: UnplacedReceipts;
 }
 export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   const pdf = await createPlanningPDF('Schedule C - business records for review', data.taxYear);
@@ -26,6 +28,11 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
     ['1', 'Reconciled gross receipts in WriteOff', money(data.grossReceipts)],
     ...data.lineItems.map(row => [scheduleCExportLine(row.lineCode, data.taxYear), `${row.lineName} - ${row.transactionCount} confirmed records`, money(row.deductible)]),
     ['28 subtotal', 'Confirmed expense subtotal only', money(total)],
+    ...(data.unplaced && data.unplaced.count > 0 ? [[
+      'Needs more information',
+      `${data.unplaced.count} unplaced receipt${data.unplaced.count === 1 ? '' : 's'} held out of this total. /protected?screen=review-transactions`,
+      money(data.unplaced.total),
+    ]] : []),
     ['Worksheet', 'Receipts minus confirmed expenses, before other adjustments', money(data.grossReceipts - total)],
     ['29-31', 'Final tentative profit, home-office deduction and net profit', 'Not determined'],
   ], [70, 353, 105]);
