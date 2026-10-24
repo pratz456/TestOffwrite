@@ -270,7 +270,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
                 <span className="text-sm font-medium text-foreground">Include Detailed Appendix</span>
                 <p className="text-xs text-muted-foreground">
                   {includeAppendix
-                    ? 'PDF will include each confirmed transaction by Schedule C line.'
+                    ? 'PDF will include each confirmed expense by Schedule C line.'
                     : 'PDF will include summary and breakdown only (no transaction detail).'}
                 </p>
               </div>
