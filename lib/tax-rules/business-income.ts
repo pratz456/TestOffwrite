@@ -106,6 +106,19 @@ function placedInstant(millis: number, zone: unknown, taxYear: number, inQuarter
   return inQuarter ? { action: 'dated', day } : { action: 'undated' };
 }
 
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+const WRITTEN_DAY_SHAPE = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|Z$|T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?$| \d{2}:\d{2}(?::\d{2})?(?:\s*[AaPp][Mm])?$)/;
+
+/** A string that has a year, month, and day, but that day is not on the calendar. Junk text is not this case. */
+function impossibleCalendarDate(value: string): boolean {
+  const trimmed = value.trim();
+  const iso = WRITTEN_DAY_SHAPE.exec(trimmed);
+  const parts = iso ?? /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(trimmed);
+  if (!parts) return false;
+  const day = `${parts[1]}-${pad2(Number(parts[2]))}-${pad2(Number(parts[3]))}`;
+  return calendarChargeDay(day) !== day;
+}
+
 /**
  * Dated when `date` is a Timestamp, Date, or {seconds, nanoseconds}. A written
  * calendar day uses that day, including a full validity check. Blank and
@@ -120,6 +133,7 @@ function placeIncomeDate(tx: IncomeRecord, taxYear: number): IncomePlacement {
     return placedInstant(millis, zone, taxYear, true);
   }
   if (typeof tx.date === 'string') {
+    if (impossibleCalendarDate(tx.date)) return { action: 'nmi' };
     const written = calendarChargeDay(tx.date);
     if (written) return Number(written.slice(0, 4)) === taxYear ? { action: 'dated', day: written } : { action: 'skip' };
   }
@@ -140,6 +154,9 @@ export function listIncomeSourceCandidates(taxYear: number, transactions: Readon
   const txById = new Set<string>();
   const quarterCents = [0, 0, 0, 0];
   const dateWarnings: string[] = [];
+  const needsMoreInformationRows: NeedsMoreInformationRow[] = [];
+  let undatedCount = 0;
+  let undatedCents = 0;
   let unclassifiedCreditCount = 0;
   for (const tx of transactions) {
     // Pending, bank-removed and superseded duplicate records are never income candidates.
@@ -164,19 +181,23 @@ export function listIncomeSourceCandidates(taxYear: number, transactions: Readon
     const placement = placeIncomeDate(tx, taxYear);
     const label = rowLabel(tx);
     if (placement.action === 'skip') continue;
+    const name = text(tx.merchant_name) || text(tx.name);
     if (placement.action === 'nmi') {
-      dateWarnings.push(`${label} needs more information. The saved time does not fall on one calendar day, so this receipt is left out of the annual total and the quarter split.`);
+      dateWarnings.push(`${label} needs more information. This receipt cannot be placed on one calendar day, so it is left out of every year total and the quarter split.`);
+      needsMoreInformationRows.push({ ...(id ? { id } : {}), ...(name ? { name } : {}), reason: 'The saved date cannot be placed on one calendar day.' });
       continue;
     }
-    const name = text(tx.merchant_name) || text(tx.name) || 'Bank deposit';
+    const payer = name || 'Bank deposit';
     const cents = money(-tx.amount);
     if (placement.action === 'dated') {
       quarterCents[quarterIndex(placement.day)] += cents;
-      candidates.push({ kind: 'transaction', id, amount: cents / 100, label: `Bank income · ${name}`, date: placement.day });
+      candidates.push({ kind: 'transaction', id, amount: cents / 100, label: `Bank income · ${payer}`, date: placement.day });
       continue;
     }
-    dateWarnings.push(`${label} needs more information. The date is blank or unreadable, so this receipt stays in the ${taxYear} annual total and is left out of the quarter split.`);
-    candidates.push({ kind: 'transaction', id, amount: cents / 100, label: `Bank income · ${name}` });
+    undatedCount += 1;
+    undatedCents += cents;
+    dateWarnings.push(`${label} has a blank or unreadable date, so this receipt stays in the ${taxYear} annual total and is left out of the quarter split.`);
+    candidates.push({ kind: 'transaction', id, amount: cents / 100, label: `Bank income · ${payer}` });
   }
 
   const receiptsById = new Map<string, number>();
@@ -211,7 +232,13 @@ export function listIncomeSourceCandidates(taxYear: number, transactions: Readon
     }
     candidates.push(candidate);
   }
-  return { candidates, unclassifiedCreditCount, linkedForms, form1099Cents, quarterCents, dateWarnings };
+  return { candidates, unclassifiedCreditCount, linkedForms, form1099Cents, quarterCents, dateWarnings, needsMoreInformationRows, undatedCount, undatedCents };
+}
+
+export interface NeedsMoreInformationRow {
+  id?: string;
+  name?: string;
+  reason: string;
 }
 
 export interface BusinessIncomeReconciliation {
@@ -225,8 +252,12 @@ export interface BusinessIncomeReconciliation {
   /** Platform fees recorded with a 1099-K decision: review candidates, not recorded expenses. */
   feeExpenseCandidates: FeeExpenseCandidate[];
   warnings: string[];
-  /** Dated bank income by calendar quarter. Blank, unreadable, and unresolved rows are not included. */
-  quarterlyGrossReceipts: Array<{ quarter: 1 | 2 | 3 | 4; grossReceipts: number }>;
+  /** Dated bank income by calendar quarter. Blank rows and rows that cannot be placed are not included. */
+  quarterlyGrossReceipts: [number, number, number, number];
+  /** Blank or unreadable income kept in grossReceipts and left out of the quarter split. */
+  undatedIncome: { count: number; total: number };
+  /** Rows that cannot be placed in any year. They are in no year total. */
+  needsMoreInformationRows: NeedsMoreInformationRow[];
 }
 
 /**
@@ -237,7 +268,7 @@ export interface BusinessIncomeReconciliation {
  * decision can establish that two records describe the same payments.
  */
 export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyArray<IncomeRecord>, receipts: ReadonlyArray<IncomeRecord>, forms: ReadonlyArray<IncomeRecord>, decisions: ReadonlyArray<IncomeRecord> = []): BusinessIncomeReconciliation {
-  const { candidates, unclassifiedCreditCount, linkedForms, form1099Cents, quarterCents, dateWarnings } = listIncomeSourceCandidates(taxYear, transactions, receipts, forms);
+  const { candidates, unclassifiedCreditCount, linkedForms, form1099Cents, quarterCents, dateWarnings, needsMoreInformationRows, undatedCount, undatedCents } = listIncomeSourceCandidates(taxYear, transactions, receipts, forms);
   const resolution = resolveIncomeSources(taxYear, candidates, decisions);
   if (resolution.conflicts.length) {
     throw new IncomeReconciliationRequiredError(resolution.conflicts[0].message, resolution.conflicts);
@@ -261,6 +292,8 @@ export function reconcileBusinessIncome(taxYear: number, transactions: ReadonlyA
     reconciledDecisionCount: resolution.appliedDecisionIds.length,
     feeExpenseCandidates: resolution.feeExpenseCandidates,
     warnings,
-    quarterlyGrossReceipts: ([1, 2, 3, 4] as const).map(quarter => ({ quarter, grossReceipts: quarterCents[quarter - 1] / 100 })),
+    quarterlyGrossReceipts: [quarterCents[0] / 100, quarterCents[1] / 100, quarterCents[2] / 100, quarterCents[3] / 100],
+    undatedIncome: { count: undatedCount, total: undatedCents / 100 },
+    needsMoreInformationRows,
   };
 }

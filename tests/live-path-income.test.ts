@@ -31,6 +31,7 @@ const NMI = /needs[\s_-]*more[\s_-]*info/i;
 const JUNE_2025 = Date.UTC(2025, 5, 15, 12, 0);
 const JST_NYE_2026 = Date.UTC(2026, 11, 31, 14, 30);
 const JST_NY_2027 = Date.UTC(2026, 11, 31, 15, 30);
+const JAN1_2026_02Z = Date.UTC(2026, 0, 1, 2, 0);
 const JAN1_2026_05Z = Date.UTC(2026, 0, 1, 5, 0);
 const BOUNDARY_A = 1735716600;
 const BOUNDARY_B = 1735727400;
@@ -64,19 +65,17 @@ const UNREADABLE: Array<[string, () => Record<string, unknown>]> = [
   ["date ''", () => added({ date: '' })],
   ["date '   '", () => added({ date: '   ' })],
   ["date 'not-a-date'", () => added({ date: 'not-a-date' })],
-  ["date '2026-02-30'", () => added({ date: '2026-02-30' })],
 ];
 
 const reconcile = (year: number, rows: Record<string, unknown>[]) => reconcileBusinessIncome(year, rows, [], []);
 const namesRow = (warnings: string[]) => warnings.some(warning => warning.includes(MERCHANT) || warning.includes('probe-1'));
-const quarterAmounts = (result: { quarterlyGrossReceipts: Array<{ quarter: number; grossReceipts: number }> }) => {
-  expect(result.quarterlyGrossReceipts).toEqual([
-    expect.objectContaining({ quarter: 1, grossReceipts: expect.any(Number) }),
-    expect.objectContaining({ quarter: 2, grossReceipts: expect.any(Number) }),
-    expect.objectContaining({ quarter: 3, grossReceipts: expect.any(Number) }),
-    expect.objectContaining({ quarter: 4, grossReceipts: expect.any(Number) }),
-  ]);
-  return result.quarterlyGrossReceipts.map(quarter => quarter.grossReceipts);
+const quarterAmounts = (result: { quarterlyGrossReceipts: number[] }) => {
+  expect(result.quarterlyGrossReceipts).toEqual([expect.any(Number), expect.any(Number), expect.any(Number), expect.any(Number)]);
+  return result.quarterlyGrossReceipts;
+};
+const nmiIds = (result: { needsMoreInformationRows: Array<{ id?: string; name?: string; reason: string }> }) => {
+  expect(Array.isArray(result.needsMoreInformationRows)).toBe(true);
+  return result.needsMoreInformationRows;
 };
 
 function snapshot(rows: Record<string, unknown>[]) {
@@ -112,7 +111,18 @@ describe('live path income dates', () => {
     const result = reconcile(2026, [control(), make()]);
     expect(result.grossReceipts).toBe(DATED + ADDED);
     expect(namesRow(result.warnings)).toBe(true);
+    expect(result.undatedIncome).toEqual({ count: 1, total: ADDED });
+    expect(nmiIds(result)).toEqual([]);
+    expect(quarterAmounts(result)).toEqual([DATED, 0, 0, 0]);
+  });
+
+  it("leaves 2026-02-30 out of every total and records needsMoreInformationRows", () => {
+    const result = reconcile(2026, [control(), added({ date: '2026-02-30' })]);
+    expect(result.grossReceipts).toBe(DATED);
+    expect(result.undatedIncome).toEqual({ count: 0, total: 0 });
+    expect(nmiIds(result)).toEqual([expect.objectContaining({ id: 'probe-1', reason: expect.any(String) })]);
     expect(result.warnings.join(' ')).toMatch(NMI);
+    expect(namesRow(result.warnings)).toBe(true);
     expect(quarterAmounts(result)).toEqual([DATED, 0, 0, 0]);
   });
 
@@ -140,12 +150,22 @@ describe('live path income dates', () => {
       for (const year of [2025, 2026]) {
         const result = reconcile(year, [control(`${year}-03-10`), added({ date: make(JAN1_2026_05Z) })]);
         expect(result.grossReceipts).toBe(DATED);
-        expect(JSON.stringify(result)).toMatch(NMI);
+        expect(namesRow(result.warnings)).toBe(true);
+        expect(result.warnings.join(' ')).toMatch(NMI);
+        expect(nmiIds(result).some(row => row.id === 'probe-1' && row.reason.trim().length > 0)).toBe(true);
         expect(quarterAmounts(result).reduce((sum, amount) => sum + amount, 0)).toBe(DATED);
       }
       const alone = reconcile(2026, [added({ date: make(JAN1_2026_05Z) })]);
       expect(alone.grossReceipts).toBe(0);
       expect(namesRow(alone.warnings)).toBe(true);
+    });
+
+    it('counts 1 January 2026 02:00Z in 2025 when both zones agree, and not in 2026', () => {
+      const row = [added({ date: make(JAN1_2026_02Z) })];
+      const placed = reconcile(2025, row);
+      expect(placed.grossReceipts).toBe(ADDED);
+      expect(nmiIds(placed)).toEqual([]);
+      expect(reconcile(2026, [control(), ...row]).grossReceipts).toBe(DATED);
     });
 
     it('does not count 1 January 2027 00:30 Asia/Tokyo toward 2026', () => {
@@ -161,7 +181,9 @@ describe('live path income dates', () => {
     for (const year of [2024, 2025]) {
       const result = reconcile(year, rows);
       expect(result.grossReceipts).toBe(0);
-      expect(JSON.stringify(result)).toMatch(NMI);
+      expect(namesRow(result.warnings)).toBe(true);
+      expect(result.warnings.join(' ')).toMatch(NMI);
+      expect(nmiIds(result).some(row => row.id === 'probe-1')).toBe(true);
     }
   });
 
@@ -172,14 +194,14 @@ describe('live path income dates', () => {
     const later = [added({ date: Timestamp.fromMillis(BOUNDARY_B * 1000), uploadTimeZone: 'America/Los_Angeles' })];
     expect(reconcile(2025, later).grossReceipts).toBe(ADDED);
     expect(reconcile(2024, later).grossReceipts).toBe(0);
-    expect(JSON.stringify(reconcile(2025, later))).not.toMatch(NMI);
+    expect(nmiIds(reconcile(2025, later))).toEqual([]);
   });
 
   it.each([['12:00Z', NOON], ['15:00Z', THREE], ['18:00Z', SIX]] as const)('counts %s on 15 June 2025 once, with no needs more information signal', (_label, seconds) => {
     const rows = [added({ date: Timestamp.fromMillis(seconds * 1000) })];
     const result = reconcile(2025, rows);
     expect(result.grossReceipts).toBe(ADDED);
-    expect(JSON.stringify(result)).not.toMatch(NMI);
+    expect(nmiIds(result)).toEqual([]);
     expect(reconcile(2026, rows).grossReceipts).toBe(0);
     expect(quarterAmounts(result).reduce((sum, amount) => sum + amount, 0)).toBe(ADDED);
   });
