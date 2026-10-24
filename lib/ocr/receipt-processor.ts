@@ -494,10 +494,38 @@ function ambiguousNumericDate(value: string): boolean {
   return first >= 1 && first <= 12 && second >= 1 && second <= 12 && first !== second;
 }
 
-/** CA, AU, NZ, and MX. A space before the $ still counts. These blank the date on their own. A bare $ is not a US signal. */
-const STRONG_DOLLAR_PREFIX = /(?<![A-Za-z])(?:CA|AU|NZ|MX) ?\$/;
+/** AU, NZ, and MX. A space before the $ still counts. These blank the date on their own. A bare $ is not a US signal. */
+const STRONG_DOLLAR_PREFIX = /(?<![A-Za-z])(?:AU|NZ|MX) ?\$/;
+/** CA$ blanks the date on its own. The letters must touch the dollar. */
+const CA_TOUCHING_DOLLAR = /(?<![A-Za-z])CA\$/;
 /** A, C, and R count only when the letter touches the $. A space is a US tax or item flag, not a prefix. */
 const SHORT_DOLLAR_PREFIX = /(?<![A-Za-z])[ACR]\$/;
+/** Province and territory codes. CA is a US state here, not a code. Longer forms stay ahead of the two letter forms. */
+const CANADIAN_REGION_CODES = 'NWT|PEI|AB|BC|MB|NB|NL|NS|NT|NU|ON|PE|QC|SK|YT';
+/** Spaced or hyphenated A1A 1A1. The first letter omits D F I O Q U W Z. Every letter omits D F I O Q U. */
+const POSTAL_LETTER = '[ABCEGHJ-NPRSTV-Z]';
+const POSTAL_FIRST = '[ABCEGHJ-NPRSTVXY]';
+const POSTAL_SPACED = `${POSTAL_FIRST}\\d${POSTAL_LETTER}[ -]\\d${POSTAL_LETTER}\\d`;
+const POSTAL_COMPACT = `${POSTAL_FIRST}\\d${POSTAL_LETTER}\\d${POSTAL_LETTER}\\d`;
+/** Province and territory names. Letter case does not matter. CA is not a name here. */
+const CANADIAN_REGION_NAME = /\b(?:alberta|british columbia|manitoba|new brunswick|newfoundland(?: (?:and|&) labrador)?|nova scotia|ontario|prince edward island|qu[eé]bec|saskatchewan|northwest territories|nunavut|yukon|labrador)\b/iu;
+/** Street suffixes that keep a province name from counting, as in 1234 ALBERTA ST. */
+const STREET_SUFFIX = /^(?:ST|AVE|RD|BLVD|DR|WAY)\b/i;
+/** A 5 digit US ZIP, or ZIP plus 4. A Canadian postal code is not this shape. */
+const US_ZIP = /\b\d{5}(?:-\d{4})?\b/;
+const CANADIAN_CAD = /\bCAD\b/;
+/** City names that can sit directly before an unspaced postal code. */
+const CANADIAN_CITIES = [
+  'sault ste. marie', 'sault ste marie', 'st. catharines', 'saint catharines', 'trois-rivieres', 'trois rivieres',
+  'quebec city', 'niagara falls', 'prince george', 'thunder bay', 'north vancouver', 'new westminster', 'richmond hill',
+  'red deer', 'saint john', "st. john's", 'st johns', 'toronto', 'montreal', 'montréal', 'vancouver', 'calgary',
+  'edmonton', 'ottawa', 'winnipeg', 'quebec', 'québec', 'hamilton', 'kitchener', 'london', 'victoria', 'halifax',
+  'oshawa', 'windsor', 'saskatoon', 'regina', 'barrie', 'kelowna', 'abbotsford', 'kingston', 'sudbury', 'saguenay',
+  'guelph', 'moncton', 'brantford', 'lethbridge', 'nanaimo', 'kamloops', 'belleville', 'fredericton', 'chilliwack',
+  'whitehorse', 'yellowknife', 'iqaluit', 'charlottetown', 'mississauga', 'brampton', 'surrey', 'laval', 'gatineau',
+  'longueuil', 'burnaby', 'richmond', 'markham', 'vaughan', 'oakville', 'burlington', 'sherbrooke', 'lévis', 'levis',
+  'terrebonne', 'waterloo', 'cambridge', 'whitby', 'ajax', 'milton', 'coquitlam', 'langley', 'delta', 'saanich', 'airdrie',
+];
 /** Capitals-only ISO codes beside an amount. TRY, ALL, and TOP are not in this list. */
 const CURRENCY_CODE = 'EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|AED|SAR|ILS|BAM|BOB|COP|CUP|GEL|MAD|MOP|PEN|RUB|SOS';
 /** TRY still blanks on its own when it sits on a total, tax, due, or currency line. */
@@ -595,6 +623,126 @@ function shortDollarPrefix(text: string): boolean {
   return SHORT_DOLLAR_PREFIX.test(text);
 }
 
+/** A priced item line ends in an amount such as 2.99 or $4.50. Address marks on that line do not count. */
+function lineEndsWithPrice(line: string): boolean {
+  return /(?:^|\s)\$?\s*\d{1,3}(?:,\d{3})*\.\d{2}\s*$/.test(line);
+}
+
+/** A province code or name with a US ZIP later on the same line is a US address. */
+function usAddressLine(line: string): boolean {
+  const finders = [
+    new RegExp(`\\b(?:${CANADIAN_REGION_CODES})\\b`, 'g'),
+    new RegExp(CANADIAN_REGION_NAME.source, 'giu'),
+  ];
+  for (const finder of finders) {
+    for (const match of line.matchAll(finder)) {
+      if (US_ZIP.test(line.slice((match.index ?? 0) + match[0].length))) return true;
+    }
+  }
+  return false;
+}
+
+/** A province code that ends a line, with or without a comma, and is not the first token. */
+function provinceCodeEndsLine(line: string): boolean {
+  const trimmed = line.trim();
+  const match = new RegExp(`(?:${CANADIAN_REGION_CODES})$`).exec(trimmed);
+  if (!match || match.index === undefined || match.index === 0) return false;
+  const previous = trimmed[match.index - 1];
+  return previous === ' ' || previous === '\t' || previous === ',';
+}
+
+/** A province code with words on both sides. That position is neither an address end nor a leading token. */
+function provinceCodeMidLine(line: string): boolean {
+  const finder = new RegExp(`\\b(?:${CANADIAN_REGION_CODES})\\b`, 'g');
+  for (const match of line.matchAll(finder)) {
+    const at = match.index ?? 0;
+    if (line.slice(0, at).trim() !== '' && line.slice(at + match[0].length).trim() !== '') return true;
+  }
+  return false;
+}
+
+/** A spelled out province name at line end, or directly before a postal code. Not before a street suffix. */
+function provinceNameCounts(line: string): boolean {
+  const names = new RegExp(CANADIAN_REGION_NAME.source, 'giu');
+  const postal = new RegExp(`^(?:${POSTAL_SPACED}|${POSTAL_COMPACT})\\b`, 'i');
+  for (const match of line.matchAll(names)) {
+    const after = line.slice((match.index ?? 0) + match[0].length);
+    if (STREET_SUFFIX.test(after.replace(/^[\s,]+/, ''))) continue;
+    const rest = after.replace(/^[\s,]+/, '');
+    if (rest === '' || postal.test(rest)) return true;
+  }
+  return false;
+}
+
+function blockedPostalPrefix(before: string): boolean {
+  return /(?:\b(?:SKU|ITEM|REF)\b|#)[ \t]*$/i.test(before);
+}
+
+function directlyAfterProvinceOrCity(before: string): boolean {
+  const tail = before.replace(/[\s,]+$/, '');
+  if (new RegExp(`(?:^|\\s)(?:${CANADIAN_REGION_CODES})$`).test(tail)) return true;
+  const lower = tail.toLowerCase();
+  return CANADIAN_CITIES.some(city => {
+    if (lower.length === city.length) return lower === city;
+    if (!lower.endsWith(city)) return false;
+    const previous = lower[lower.length - city.length - 1];
+    return previous === ' ' || previous === '\t';
+  });
+}
+
+/**
+ * A spaced or hyphenated postal code counts unless it sits directly after SKU, ITEM, REF, or #.
+ * The unspaced form counts only directly after a province code or a Canadian city name.
+ */
+function postalCounts(line: string): boolean {
+  const spaced = new RegExp(`\\b(?:${POSTAL_SPACED})\\b`, 'gi');
+  for (const match of line.matchAll(spaced)) {
+    if (!blockedPostalPrefix(line.slice(0, match.index ?? 0))) return true;
+  }
+  const compact = new RegExp(`\\b(?:${POSTAL_COMPACT})\\b`, 'gi');
+  for (const match of line.matchAll(compact)) {
+    const before = line.slice(0, match.index ?? 0);
+    if (blockedPostalPrefix(before)) continue;
+    if (directlyAfterProvinceOrCity(before)) return true;
+  }
+  return false;
+}
+
+/** GST, HST, PST, and QST count beside a percent or an amount, except right after a clock time. */
+function canadianTaxLine(text: string): boolean {
+  const codes = /\b(?:GST|HST|PST|QST)\b/gi;
+  const percent = String.raw`\d+(?:\.\d+)?[ \t]*%`;
+  const money = String.raw`\$[ \t]*\d+(?:\.\d{2})?|\d+\.\d{2}`;
+  const afterAmount = new RegExp(`^[ \\t]*:?[ \\t]*(?:${percent}|${money}(?!\\d))`, 'i');
+  const beforeAmount = new RegExp(`(?:${percent}|${money})[ \\t]*$`, 'i');
+  const clock = /(?:\bAM\b|\bPM\b|\d{1,2}:\d{2}(?::\d{2})?(?:[ \t]*(?:AM|PM))?)[ \t]*$/i;
+  for (const match of text.matchAll(codes)) {
+    const before = text.slice(0, match.index ?? 0);
+    const after = text.slice((match.index ?? 0) + match[0].length);
+    if (clock.test(before)) continue;
+    if (afterAmount.test(after) || beforeAmount.test(before)) return true;
+  }
+  return false;
+}
+
+/**
+ * Canadian, unclear, or neither.
+ * A priced item line drops address marks. A US ZIP after a province code or name drops that line.
+ * A province code in the middle of a non item line is unclear.
+ */
+function canadianVerdict(text: string): 'canadian' | 'unclear' | 'no' {
+  if (canadianTaxLine(text) || CANADIAN_CAD.test(text)) return 'canadian';
+  let unclear = false;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || lineEndsWithPrice(line)) continue;
+    if (usAddressLine(line)) continue;
+    if (provinceCodeEndsLine(line) || provinceNameCounts(line) || postalCounts(line)) return 'canadian';
+    if (provinceCodeMidLine(line)) unclear = true;
+  }
+  return unclear ? 'unclear' : 'no';
+}
+
 /** Two signals blank only when the kinds differ. Repeating one kind does not. */
 function differentKindSignals(text: string): boolean {
   const kinds = [codeBesideAmount(text), symbolKind(text), NON_US_TOTAL_WORD.test(text), commaDecimal(text), shortDollarPrefix(text)].filter(Boolean).length;
@@ -603,13 +751,17 @@ function differentKindSignals(text: string): boolean {
 
 function bareDollar(text: string): boolean {
   const withoutPrefixes = text
-    .replace(/(?<![A-Za-z])(?:CA|AU|NZ|MX) ?\$/g, '')
+    .replace(/(?<![A-Za-z])(?:AU|NZ|MX) ?\$/g, '')
+    .replace(/(?<![A-Za-z])CA\$/g, '')
     .replace(/(?<![A-Za-z])[ACR]\$/g, '');
   return /\$/.test(withoutPrefixes);
 }
 
 function nonUsReceiptSignals(text: string): boolean {
-  if (STRONG_DOLLAR_PREFIX.test(text)) return true;
+  if (STRONG_DOLLAR_PREFIX.test(text) || CA_TOUCHING_DOLLAR.test(text)) return true;
+  // A positioned Canadian signal blanks an ambiguous date. An unresolved one does too.
+  // Spaced CA $ by itself does not, and a clock time before GST, HST, PST, or QST does not.
+  if (canadianVerdict(text) !== 'no') return true;
   // A symbol or kr on a total, tax, due, or currency line blanks on its own.
   if (symbolOnQualifyingLine(text)) return true;
   // A bare $ disagrees with a code, so a code alone does not blank the date.

@@ -47,6 +47,22 @@ function recognize(text: string) {
 function usd(date: string) {
   return `SYNTHETIC OFFICE STORE\n${date}\nTotal 25.00 USD`;
 }
+async function savedReceipt(text: string) {
+  recognize(text);
+  const response = await POST(request());
+  expect(response.status).toBe(200);
+  expect(mocks.storageSave).toHaveBeenCalled();
+  return mocks.createTransaction.mock.calls.at(-1)?.[2] as {
+    date: string;
+    amount: number;
+    dateOrderAssumed?: string;
+    deductionStatus?: string;
+    tax_review_required?: boolean;
+  };
+}
+function spacedCaReceipt(line: string) {
+  return `GROCERY\n05/01/2026\n${line}\nAPPLES $4.00\nTOTAL CA $12.50`;
+}
 
 beforeEach(() => {
   resetRateLimitStore();
@@ -645,5 +661,219 @@ describe('ambiguous numeric receipt dates', () => {
     expect(saved.date).toBe('2026-05-01');
     expect(saved.dateOrderAssumed).toBe('month_day');
     expect(saved.deductionStatus).toBeUndefined();
+  });
+
+  it('keeps 05/01/2026 and the saved month/day flag when TAX CA $0.33 sits on a bare dollar receipt', async () => {
+    recognize('GROCERY\n05/01/2026\nAPPLES $4.00\nTAX CA $0.33\nTOTAL $4.33');
+    const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(scanned.data?.date).toBe('2026-05-01');
+    expect(scanned.data?.dateOrderAssumed).toBe('month_day');
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; dateOrderAssumed?: string; deductionStatus?: string };
+    expect(saved.date).toBe('2026-05-01');
+    expect(saved.amount).toBe(4.33);
+    expect(saved.dateOrderAssumed).toBe('month_day');
+    expect(saved.deductionStatus).toBeUndefined();
+  });
+
+  it('leaves the date blank when TOTAL CA $12.50 has an HST line', async () => {
+    recognize('MAPLE STORE\n05/01/2026\nHST 1.63\nTOTAL CA $12.50');
+    const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(scanned.data?.date).toBe('');
+    expect(scanned.data?.dateOrderAssumed).toBeUndefined();
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; deductionStatus?: string; dateOrderAssumed?: string; tax_review_required?: boolean };
+    expect(saved.date).toBe('');
+    expect(saved.amount).toBe(12.5);
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
+    expect(saved.dateOrderAssumed).toBeUndefined();
+
+    recognize('MAPLE STORE\n05/01/2026\nTOTAL CA $12.50');
+    const plain = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(plain.data?.date).toBe('2026-05-01');
+    expect(plain.data?.dateOrderAssumed).toBe('month_day');
+    const plainResponse = await POST(request());
+    expect(plainResponse.status).toBe(200);
+    const kept = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; dateOrderAssumed?: string; deductionStatus?: string };
+    expect(kept.date).toBe('2026-05-01');
+    expect(kept.amount).toBe(12.5);
+    expect(kept.dateOrderAssumed).toBe('month_day');
+    expect(kept.deductionStatus).toBeUndefined();
+  });
+
+  it('leaves the date blank when CA$12.50 is alone', async () => {
+    recognize('MAPLE STORE\n05/01/2026\nCA$12.50');
+    const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(scanned.data?.date).toBe('');
+    expect(scanned.data?.dateOrderAssumed).toBeUndefined();
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; deductionStatus?: string; dateOrderAssumed?: string; tax_review_required?: boolean };
+    expect(saved.date).toBe('');
+    expect(saved.amount).toBe(12.5);
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
+    expect(saved.dateOrderAssumed).toBeUndefined();
+
+    recognize('MAPLE STORE\n05/01/2026\nCA $12.50');
+    const spaced = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(spaced.data?.date).toBe('2026-05-01');
+    expect(spaced.data?.dateOrderAssumed).toBe('month_day');
+    const spacedResponse = await POST(request());
+    expect(spacedResponse.status).toBe(200);
+    const kept = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; dateOrderAssumed?: string; deductionStatus?: string };
+    expect(kept.date).toBe('2026-05-01');
+    expect(kept.amount).toBe(12.5);
+    expect(kept.dateOrderAssumed).toBe('month_day');
+    expect(kept.deductionStatus).toBeUndefined();
+  });
+
+  it('leaves the date blank when CA $12.50 has bare dollar items and postal code M5V 2T6', async () => {
+    recognize('MAPLE STORE\n05/01/2026\nM5V 2T6\nAPPLES $4.00\nMILK $8.50\nTOTAL CA $12.50');
+    const scanned = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(scanned.data?.date).toBe('');
+    expect(scanned.data?.dateOrderAssumed).toBeUndefined();
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; deductionStatus?: string; dateOrderAssumed?: string; tax_review_required?: boolean };
+    expect(saved.date).toBe('');
+    expect(saved.amount).toBe(12.5);
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
+    expect(saved.dateOrderAssumed).toBeUndefined();
+
+    recognize('MAPLE STORE\n05/01/2026\nAPPLES $4.00\nMILK $8.50\nTOTAL CA $12.50');
+    const plain = await receiptProcessor.processReceipt(Buffer.from('synthetic input'));
+    expect(plain.data?.date).toBe('2026-05-01');
+    expect(plain.data?.dateOrderAssumed).toBe('month_day');
+    const plainResponse = await POST(request());
+    expect(plainResponse.status).toBe(200);
+    const kept = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; dateOrderAssumed?: string; deductionStatus?: string };
+    expect(kept.date).toBe('2026-05-01');
+    expect(kept.amount).toBe(12.5);
+    expect(kept.dateOrderAssumed).toBe('month_day');
+    expect(kept.deductionStatus).toBeUndefined();
+  });
+
+  it('saves the TAX CA $0.33 date and blanks the HST total through the receipt route', async () => {
+    recognize('GROCERY\n05/01/2026\nAPPLES $4.00\nTAX CA $0.33\nTOTAL $4.33');
+    const california = await POST(request());
+    expect(california.status).toBe(200);
+    const kept = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; dateOrderAssumed?: string; deductionStatus?: string };
+    expect(kept.date).toBe('2026-05-01');
+    expect(kept.amount).toBe(4.33);
+    expect(kept.dateOrderAssumed).toBe('month_day');
+    expect(kept.deductionStatus).toBeUndefined();
+    expect(mocks.storageSave).toHaveBeenCalled();
+
+    recognize('MAPLE STORE\n05/01/2026\nHST 1.63\nTOTAL CA $12.50');
+    const canada = await POST(request());
+    expect(canada.status).toBe(200);
+    const blank = mocks.createTransaction.mock.calls.at(-1)?.[2] as { date: string; amount: number; deductionStatus?: string; dateOrderAssumed?: string; tax_review_required?: boolean };
+    expect(blank.date).toBe('');
+    expect(blank.amount).toBe(12.5);
+    expect(blank.deductionStatus).toBe('Needs more information');
+    expect(blank.tax_review_required).toBe(true);
+    expect(blank.dateOrderAssumed).toBeUndefined();
+    expect(mocks.storageSave).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    '10:32 PM PST',
+    '10:32 PM PST 7%',
+    'SAN JOSE CA 95110',
+    'BREAD, ON SALE 2.99',
+    'SHELF BC 4.50',
+    'ONTARIO CA 91761',
+    'SKU A1B2C3',
+    '10:32 PM GST 5%',
+    '1234 ALBERTA ST',
+    'BC HYDRO',
+  ])('keeps 05/01/2026 and the saved month/day flag when spaced CA $ is paired with %s', async line => {
+    const saved = await savedReceipt(spacedCaReceipt(line));
+    expect(saved.date).toBe('2026-05-01');
+    expect(saved.amount).toBe(12.5);
+    expect(saved.dateOrderAssumed).toBe('month_day');
+    expect(saved.deductionStatus).toBeUndefined();
+  });
+
+  it('leaves the date blank when spaced CA $12.50 is paired with TORONTO ON M5V 2T6', async () => {
+    const saved = await savedReceipt('MAPLE STORE\n05/01/2026\nTORONTO ON M5V 2T6\nAPPLES $4.00\nTOTAL CA $12.50');
+    expect(saved.date).toBe('');
+    expect(saved.amount).toBe(12.5);
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
+    expect(saved.dateOrderAssumed).toBeUndefined();
+  });
+
+  it('leaves the date blank when spaced CA $12.50 is paired with PST 7% $0.70', async () => {
+    const saved = await savedReceipt('MAPLE STORE\n05/01/2026\nPST 7% $0.70\nTOTAL CA $12.50');
+    expect(saved.date).toBe('');
+    expect(saved.amount).toBe(12.5);
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
+    expect(saved.dateOrderAssumed).toBeUndefined();
+  });
+
+  it('leaves the date blank when spaced CA $12.50 is paired with Toronto, ON', async () => {
+    const saved = await savedReceipt(spacedCaReceipt('Toronto, ON'));
+    expect(saved.date).toBe('');
+    expect(saved.amount).toBe(12.5);
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
+    expect(saved.dateOrderAssumed).toBeUndefined();
+  });
+
+  it('leaves the date blank when spaced CA $12.50 is paired with Ontario', async () => {
+    const saved = await savedReceipt(spacedCaReceipt('Ontario'));
+    expect(saved.date).toBe('');
+    expect(saved.amount).toBe(12.5);
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
+    expect(saved.dateOrderAssumed).toBeUndefined();
+  });
+
+  it('keeps 05/01/2026 and the saved month/day flag when TAX CA $0.33 is paired with SAN FRANCISCO CA 94103', async () => {
+    const saved = await savedReceipt('GROCERY\n05/01/2026\nSAN FRANCISCO CA 94103\nAPPLES $4.00\nTAX CA $0.33\nTOTAL $4.33');
+    expect(saved.date).toBe('2026-05-01');
+    expect(saved.amount).toBe(4.33);
+    expect(saved.dateOrderAssumed).toBe('month_day');
+    expect(saved.deductionStatus).toBeUndefined();
+  });
+
+  it.each([
+    'Vancouver BC',
+    'VANCOUVER BC',
+    'TURN ON',
+    'SHELF BC',
+    'SHELF AB',
+    'SHELF NS',
+    'SHELF NB',
+    'SHELF PE',
+    'QC H2X 1Y4',
+    'ON M5V3L9',
+    'TORONTO ON M5V3L9',
+    'GST $0.65',
+    'HST: 13%',
+    'GST 5% 1.25',
+  ])('leaves the date blank when spaced CA $12.50 is paired with %s', async line => {
+    const saved = await savedReceipt(spacedCaReceipt(line));
+    expect(saved.date).toBe('');
+    expect(saved.amount).toBe(12.5);
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
+    expect(saved.dateOrderAssumed).toBeUndefined();
+  });
+
+  it('leaves 09/02/2026 blank when a province code is mid line and saves Needs more information', async () => {
+    const saved = await savedReceipt('GROCERY\n09/02/2026\nSEE ON AISLE\nAPPLES $4.00\nTOTAL $12.50');
+    expect(saved.date).toBe('');
+    expect(saved.amount).toBe(12.5);
+    expect(saved.deductionStatus).toBe('Needs more information');
+    expect(saved.tax_review_required).toBe(true);
+    expect(saved.dateOrderAssumed).toBeUndefined();
   });
 });
