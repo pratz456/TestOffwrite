@@ -16,9 +16,8 @@ export async function POST(req: Request) {
     console.log('✅ [Plaid Sync] User authenticated:', uid);
 
     const parsed = await readJsonBody(req);
-    if (parsed instanceof NextResponse && parsed.status === 413) return parsed;
-    const value = parsed instanceof NextResponse ? {} : parsed;
-    const body: Record<string, unknown> = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+    if (parsed instanceof NextResponse) return parsed;
+    const body: Record<string, unknown> = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
     // import_timeframe is display-only; the server plan determines the history window.
     const { userId = uid, import_timeframe = '2years', incremental = false, itemId } = body;
 

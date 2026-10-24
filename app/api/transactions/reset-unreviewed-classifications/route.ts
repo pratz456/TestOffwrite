@@ -31,8 +31,8 @@ export async function POST(request: NextRequest) {
   }
 
   const raw = await readJsonBody(request);
-  if (raw instanceof NextResponse && raw.status === 413) return raw;
-  const body: { scope?: Scope; confirm?: boolean } = raw instanceof NextResponse || !raw || typeof raw !== 'object' || Array.isArray(raw) ? {} : raw as { scope?: Scope; confirm?: boolean };
+  if (raw instanceof NextResponse) return raw;
+  const body: { scope?: Scope; confirm?: boolean } = !raw || typeof raw !== 'object' || Array.isArray(raw) ? {} : raw as { scope?: Scope; confirm?: boolean };
 
   const scope: Scope = body.scope === 'unreviewed_tax_labels' ? 'unreviewed_tax_labels' : 'learning_only';
 
