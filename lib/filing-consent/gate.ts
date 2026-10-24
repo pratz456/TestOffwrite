@@ -3,6 +3,7 @@ import {
   CURRENT_CONSENT_TEXT_VERSION,
   FILING_CONSENT_TEXT_COLLECTION,
   FILING_DISCLOSURE_CONSENT_COLLECTION,
+  currentDisclosurePurpose,
   partnerRecipientLegalNames,
 } from './config';
 import { expiresAtFor, isDurationStated, isPastExpiry } from './duration';
@@ -44,14 +45,10 @@ export interface HandOffRequest {
   returns: HandOffReturn[];
   consentRecordId?: string;
   browserConsentChecked?: boolean;
-  /**
-   * Home state.
-   * The caller must set it from server-side profile data, never from the request body.
-   */
   residentState: string;
 }
 
-/** Missing home state. The caller asks the state question and sets residentState from the profile. */
+/** Missing home state. The caller asks the state question before the hand off. */
 export interface AskResidentStateDecision {
   ok: false;
   code: 'ask_resident_state';
@@ -73,6 +70,32 @@ export interface PartnerDelivery {
 export interface PartnerSendStub {
   deliveries: PartnerDelivery[];
   deliver(delivery: PartnerDelivery): void;
+}
+
+const RESIDENT_STATE_CODES = new Set([
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL',
+  'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME',
+  'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH',
+  'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI',
+  'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI',
+  'WY',
+]);
+
+function residentStateForHandOff(value: unknown): string | AskResidentStateDecision | ConsentRefusal {
+  // The caller must set residentState from server-side profile data, never from the request body.
+  const state = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  if (!state) {
+    return {
+      ok: false,
+      code: 'ask_resident_state',
+      ask: 'resident_state',
+      message: 'Ask the resident state question before this hand off.',
+    };
+  }
+  if (!RESIDENT_STATE_CODES.has(state)) {
+    return refusal('invalid_resident_state', 'The resident state is not one of the fifty states or the District of Columbia.');
+  }
+  return state;
 }
 
 export function createPartnerSendStub(): PartnerSendStub {
@@ -126,6 +149,12 @@ export async function evaluateFilingHandOff(request: HandOffRequest): Promise<Ha
 
   const missing = missingRequiredField(data);
   if (missing) return refusal('missing_field', `Required field ${missing} is missing or empty.`, missing);
+  if (data.purpose !== currentDisclosurePurpose()) {
+    return refusal(
+      'consent_purpose_mismatch',
+      'The consent purpose does not match the current stated purpose. A new consent is required.',
+    );
+  }
 
   const signatureMethod = data.signatureMethod;
   if (!isSignatureMethod(signatureMethod)) {
@@ -210,16 +239,8 @@ export async function evaluateFilingHandOff(request: HandOffRequest): Promise<Ha
     }
   }
 
-  // The caller must set it from server-side profile data, never from the request body.
-  const residentState = typeof request.residentState === 'string' ? request.residentState.trim() : '';
-  if (!residentState) {
-    return {
-      ok: false,
-      code: 'ask_resident_state',
-      ask: 'resident_state',
-      message: 'Ask the resident state question before this hand off.',
-    };
-  }
+  const residentState = residentStateForHandOff(request.residentState);
+  if (typeof residentState !== 'string') return residentState;
 
   const vtRefusal = await vtHandOffRefusal({
     residentState,

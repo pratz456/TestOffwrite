@@ -49,11 +49,13 @@ import { beforeWorkDisclosureDocId, beforeWorkScreenHash } from '@/lib/filing-co
 import { resetFilingConsentClock, setFilingConsentClock } from '@/lib/filing-consent/clock';
 import {
   addDraftTestPartnerName,
+  replaceDraftDisclosurePurpose,
   replaceDraftPartnerDisclosureCopy,
+  resetDraftDisclosurePurpose,
   resetDraftPartnerDisclosureCopy,
   resetDraftTestPartnerNames,
 } from '@/lib/filing-consent/config';
-import { replaceDraftDisclosureConsentText, resetDraftDisclosureConsentText } from '@/lib/filing-consent/text';
+import { resetDraftDisclosureConsentText } from '@/lib/filing-consent/text';
 
 const db = adminDb as unknown as FakeFirestore;
 const PARTNER = PARTNER_RECIPIENT_LEGAL_NAMES[0];
@@ -174,6 +176,7 @@ async function plantScreen(state: 'CT' | 'CA', overrides: Record<string, unknown
 
 beforeEach(async () => {
   resetDraftDisclosureConsentText();
+  resetDraftDisclosurePurpose();
   resetDraftPartnerDisclosureCopy();
   resetDraftTestPartnerNames();
   resetFilingConsentClock();
@@ -188,6 +191,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   resetDraftDisclosureConsentText();
+  resetDraftDisclosurePurpose();
   resetDraftPartnerDisclosureCopy();
   resetDraftTestPartnerNames();
   resetFilingConsentClock();
@@ -527,43 +531,95 @@ describe('before work disclosure screen', () => {
     expect(JSON.stringify(db.records.get(oldPath))).toBe(oldBytes);
   });
 
-  it('requires a new consent when the stated purpose changes, and the fee screen still stands', async () => {
+  it('refuses a hand off when only the stored purpose changes, and when the current purpose changes', async () => {
     const saved = await saveValid();
-    at(SHOWN_AT);
-    const recorded = await recordBeforeWorkDisclosureShown({
-      uid: 'user-1',
-      taxYear: 2026,
-      residentState: 'CT',
-      partnerId: PARTNER,
-    });
-    expect(recorded.ok).toBe(true);
-    const purposeChanged = DRAFT_DISCLOSURE_CONSENT_TEXT.replace(
-      'purposes other than those related to the preparation and filing of your tax return',
-      'purposes other than the revised stated purpose pending approval',
-    );
-    expect(purposeChanged).not.toBe(DRAFT_DISCLOSURE_CONSENT_TEXT);
-    replaceDraftDisclosureConsentText(CURRENT_CONSENT_TEXT_VERSION, purposeChanged);
-    const oldConsent = JSON.stringify(db.records.get(`${FILING_DISCLOSURE_CONSENT_COLLECTION}/${saved.id}`));
+    const consentPath = `${FILING_DISCLOSURE_CONSENT_COLLECTION}/${saved.id}`;
+    const original = db.records.get(consentPath);
+    if (!original) throw new Error('expected a stored consent');
+    const editedPurpose = 'DRAFT: a purpose the person did not consent to';
+    await db.collection(FILING_DISCLOSURE_CONSENT_COLLECTION).doc(saved.id).set({ ...original, purpose: editedPurpose });
+    const stored = db.records.get(consentPath);
+    expect(stored?.purpose).toBe(editedPurpose);
+    const withoutPurpose = (record: Record<string, unknown>) => {
+      const copy = { ...record };
+      delete copy.purpose;
+      return copy;
+    };
+    expect(withoutPurpose(stored ?? {})).toEqual(withoutPurpose(original));
+
+    const keysBefore = [...db.records.keys()].sort();
     const refused = createPartnerSendStub();
-    expect(await sendFilingHandOff(handOff(saved.id, { residentState: 'CT' }), refused)).toMatchObject({
+    expect(await sendFilingHandOff(handOff(saved.id, { residentState: 'NY' }), refused)).toMatchObject({
       sent: false,
-      code: 'consent_text_mismatch',
+      code: 'consent_purpose_mismatch',
+      message: 'The consent purpose does not match the current stated purpose. A new consent is required.',
     });
     expect(refused.deliveries).toEqual([]);
-    expect(JSON.stringify(db.records.get(`${FILING_DISCLOSURE_CONSENT_COLLECTION}/${saved.id}`))).toBe(oldConsent);
+    expect([...db.records.keys()].sort()).toEqual(keysBefore);
+    expect(db.records.get(consentPath)?.purpose).toBe(editedPurpose);
 
-    await db.collection(FILING_CONSENT_TEXT_COLLECTION).doc(CURRENT_CONSENT_TEXT_VERSION).set({
-      version: CURRENT_CONSENT_TEXT_VERSION,
-      text: purposeChanged,
+    await db.collection(FILING_DISCLOSURE_CONSENT_COLLECTION).doc(saved.id).set(original);
+    const restored = createPartnerSendStub();
+    expect(await sendFilingHandOff(handOff(saved.id, { residentState: 'NY' }), restored)).toEqual({ sent: true });
+
+    const revisedPurpose = 'DRAFT: a revised stated purpose pending approval';
+    replaceDraftDisclosurePurpose(revisedPurpose);
+    const configStub = createPartnerSendStub();
+    expect(await sendFilingHandOff(handOff(saved.id, { residentState: 'NY' }), configStub)).toMatchObject({
+      sent: false,
+      code: 'consent_purpose_mismatch',
     });
-    const renewed = await saveDisclosureConsent(saveInput());
+    expect(configStub.deliveries).toEqual([]);
+    expect(JSON.stringify(db.records.get(consentPath))).toBe(JSON.stringify(original));
+
+    const renewed = await saveDisclosureConsent(saveInput({ purpose: revisedPurpose }));
     expect(renewed.ok).toBe(true);
     if (!renewed.ok) throw new Error('expected a new consent for the revised purpose');
     expect(renewed.id).not.toBe(saved.id);
-    expect(JSON.stringify(db.records.get(`${FILING_DISCLOSURE_CONSENT_COLLECTION}/${saved.id}`))).toBe(oldConsent);
     const allowed = createPartnerSendStub();
-    expect(await sendFilingHandOff(handOff(renewed.id, { residentState: 'CT' }), allowed)).toEqual({ sent: true });
-    expect(allowed.deliveries).toHaveLength(1);
+    expect(await sendFilingHandOff(handOff(renewed.id, { residentState: 'NY' }), allowed)).toEqual({ sent: true });
+    expect(JSON.stringify(db.records.get(consentPath))).toBe(JSON.stringify(original));
+  });
+
+  it('normalizes a resident state and refuses an unknown state without writing', async () => {
+    const saved = await saveValid();
+    for (const residentState of ['ct', 'Ct']) {
+      const stub = createPartnerSendStub();
+      const result = await sendFilingHandOff(handOff(saved.id, { residentState }), stub);
+      expect(result).toMatchObject({ sent: false, code: 'before_work_disclosure_missing' });
+      expect(stub.deliveries).toEqual([]);
+    }
+    const california = createPartnerSendStub();
+    expect(await sendFilingHandOff(handOff(saved.id, { residentState: ' ca ' }), california)).toMatchObject({
+      sent: false,
+      code: 'before_work_disclosure_missing',
+    });
+    expect(california.deliveries).toEqual([]);
+
+    const vtSaved = await saveValid({
+      returnsCovered: [{ code: 'VT', taxYear: 2026 }, { code: 'federal', taxYear: 2026 }],
+    });
+    const vermont = createPartnerSendStub();
+    expect(await sendFilingHandOff(handOff(vtSaved.id, {
+      residentState: 'vt',
+      returns: [vtReturn()],
+    }), vermont)).toMatchObject({ sent: false, code: 'vt_declaration_missing' });
+    expect(vermont.deliveries).toEqual([]);
+    expect(paths(FILING_VT_DECLARATION_COLLECTION)).toEqual([]);
+    expect(paths(FILING_BEFORE_WORK_DISCLOSURE_COLLECTION)).toEqual([]);
+
+    for (const residentState of ['XX', 'C', 'CAL', '12']) {
+      const keysBefore = [...db.records.keys()].sort();
+      const stub = createPartnerSendStub();
+      const result = await sendFilingHandOff(handOff(saved.id, { residentState }), stub);
+      expect(result).toMatchObject({
+        sent: false,
+        code: 'invalid_resident_state',
+        message: 'The resident state is not one of the fifty states or the District of Columbia.',
+      });
+      expect(stub.deliveries).toEqual([]);
+      expect([...db.records.keys()].sort()).toEqual(keysBefore);
+    }
   });
 
   it('refuses a hand off to partner B when the consent and the screen name partner A', async () => {
@@ -645,7 +701,6 @@ describe('before work disclosure screen', () => {
 describe('Vermont preparer declaration', () => {
   async function saveVt() {
     return saveValid({
-      purpose: 'DRAFT: to prepare and e-file your 2026 Vermont return',
       returnsCovered: [{ code: 'VT', taxYear: 2026 }, { code: 'federal', taxYear: 2026 }],
     });
   }

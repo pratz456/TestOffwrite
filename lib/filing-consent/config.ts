@@ -32,6 +32,23 @@ export const PARTNER_RECIPIENT_LEGAL_NAMES: readonly string[] = [
 export const CURRENT_CONSENT_TEXT_VERSION = 'draft-2026-10-23';
 export const CURRENT_USE_CONSENT_TEXT_VERSION = 'draft-use-2026-10-23';
 
+/** DRAFT stated purpose. A hand off must still name this purpose. A different purpose is a new consent. */
+export const DRAFT_DISCLOSURE_PURPOSE = 'DRAFT: to prepare and e-file your 2026 federal return and your home state return';
+
+let disclosurePurpose = DRAFT_DISCLOSURE_PURPOSE;
+
+export function currentDisclosurePurpose(): string {
+  return disclosurePurpose;
+}
+
+export function replaceDraftDisclosurePurpose(purpose: string): void {
+  disclosurePurpose = purpose;
+}
+
+export function resetDraftDisclosurePurpose(): void {
+  disclosurePurpose = DRAFT_DISCLOSURE_PURPOSE;
+}
+
 /**
  * DRAFT placeholders for the partner firm. These are not a real company, address,
  * phone, fee, or warranty. The warranty string stands in for words the partner
