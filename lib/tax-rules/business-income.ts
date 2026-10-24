@@ -28,18 +28,30 @@ const PAGO_PAGO = 'Pacific/Pago_Pago';
 const ST_THOMAS = 'America/St_Thomas';
 
 /**
- * Names for the UTC clock. Z is included because a receipt instant can record it.
- * IANA also links these spellings to that same clock. Abbreviations are not aliases.
+ * The 18 UTC names copied exactly from PR #84 `lib/ocr/region-time-zone.ts`.
+ * Comparison is lowercase. Z is not one of them. Etc/GMT with an hour other
+ * than 0 is not one of them, because those signs are reversed.
  */
 const UTC_ZONE_ALIASES = new Set([
-  'UTC', 'Etc/UTC', 'GMT', 'Etc/GMT', 'Z',
-  'Etc/Universal', 'Universal', 'Etc/Zulu', 'Zulu',
-  'Etc/GMT0', 'Etc/GMT+0', 'Etc/GMT-0', 'GMT0', 'GMT+0', 'GMT-0',
-  'Greenwich', 'Etc/Greenwich', 'UCT', 'Etc/UCT',
+  'utc',
+  'etc/utc',
+  'etc/gmt',
+  'gmt',
+  'etc/universal',
+  'universal',
+  'etc/zulu',
+  'zulu',
+  'gmt0',
+  'etc/gmt0',
+  'etc/gmt+0',
+  'gmt+0',
+  'gmt-0',
+  'etc/gmt-0',
+  'uct',
+  'etc/uct',
+  'greenwich',
+  'etc/greenwich',
 ]);
-
-/** Area/Location, including a second location segment. Canonical zones in Intl all match. */
-const IANA_REGION = /^[A-Za-z]+(?:\/[A-Za-z0-9_+-]+)+$/;
 
 type IncomePlacement =
   | { action: 'dated'; day: string }
@@ -104,27 +116,24 @@ function civilDay(millis: number, timeZone: string): string | null {
   }
 }
 
-function intlAcceptsZone(timeZone: string): boolean {
-  try {
-    Intl.DateTimeFormat(undefined, { timeZone });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
- * A saved zone counts when it is an IANA region Intl accepts, or a UTC alias.
- * est, PST, Eastern, GMT-5, and a blank are unsaved. An unsaved zone uses the
- * Pago Pago and St Thomas agreement below.
+ * Same acceptance rule as PR #84 `regionUploadTimeZone`. Padding is not trimmed.
+ * A canonical UTC name counts only when the raw spelling is one of the 18 aliases.
+ * A canonical Etc/ name, including Etc/GMT+N and Etc/GMT-N, is not a saved zone.
+ * An unsaved zone uses the Pago Pago and St Thomas agreement below.
  */
 function acceptedSavedZone(zone: unknown): string | null {
-  if (typeof zone !== 'string') return null;
-  const text = zone.trim();
-  if (!text) return null;
-  if (UTC_ZONE_ALIASES.has(text)) return 'UTC';
-  if (!IANA_REGION.test(text) || !intlAcceptsZone(text)) return null;
-  return text;
+  if (typeof zone !== 'string' || zone.length === 0) return null;
+  let canonical: string;
+  try {
+    canonical = new Intl.DateTimeFormat('en-US', { timeZone: zone }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+  if (canonical === 'UTC') return UTC_ZONE_ALIASES.has(zone.toLowerCase()) ? 'UTC' : null;
+  if (!canonical.includes('/') || canonical.startsWith('Etc/')) return null;
+  if (!zone.includes('/') && zone.toLowerCase() !== canonical.toLowerCase()) return null;
+  return canonical;
 }
 
 /** Day in an accepted uploadTimeZone, or the agreed Pago Pago and St Thomas day. Disagreement is unresolved. */

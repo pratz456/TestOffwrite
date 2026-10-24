@@ -371,12 +371,43 @@ describe('saved time zone names', () => {
     expect(nextYear.needsMoreInformationRows).toEqual([]);
   });
 
-  it.each(['UTC', 'Etc/UTC', 'GMT', 'Etc/GMT', 'Z'])('honors the UTC alias %s', zone => {
-    const row = deposit(`utc-${zone}`, 'Utc Alias Client', '2026-07-15T04:30:00Z', zone);
+  /**
+   * The 18 names copied from PR #84, each in lowercase and in uppercase.
+   * Z, reversed Etc/GMT offsets, and padded values are the fallback.
+   */
+  const UTC_ALIAS_NAMES = [
+    'utc', 'etc/utc', 'etc/gmt', 'gmt', 'etc/universal', 'universal', 'etc/zulu', 'zulu',
+    'gmt0', 'etc/gmt0', 'etc/gmt+0', 'gmt+0', 'gmt-0', 'etc/gmt-0', 'uct', 'etc/uct',
+    'greenwich', 'etc/greenwich',
+  ];
+  const otherCasing = (alias: string) => alias.replace(/[a-z]/g, char => char.toUpperCase());
+  const zoneCases: Array<[string, 'utc' | 'fallback']> = [
+    ...UTC_ALIAS_NAMES.map(zone => [zone, 'utc'] as [string, 'utc']),
+    ...UTC_ALIAS_NAMES.map(zone => [otherCasing(zone), 'utc'] as [string, 'utc']),
+    ['Utc', 'utc'],
+    ['Z', 'fallback'],
+    ['Etc/GMT+5', 'fallback'],
+    ['Etc/GMT-5', 'fallback'],
+    ['Etc/GMT+1', 'fallback'],
+    ['Etc/GMT-3', 'fallback'],
+    [' UTC ', 'fallback'],
+    [' America/New_York ', 'fallback'],
+  ];
+
+  it.each(zoneCases)('saved zone %j is %s', (zone, outcome) => {
+    const row = deposit('zone-row', 'Zone Alias Client', '2026-07-15T04:30:00Z', zone);
     const result = reconcile(2026, [row]);
-    expect(placedDay(2026, row)).toBe('2026-07-15');
-    expect(result.grossReceipts).toBe(ADDED);
-    expect(result.needsMoreInformationRows).toEqual([]);
-    expect(result.quarterlyGrossReceipts).toEqual([0, 0, ADDED, 0]);
+    if (outcome === 'utc') {
+      expect(placedDay(2026, row)).toBe('2026-07-15');
+      expect(result.grossReceipts).toBe(ADDED);
+      expect(result.needsMoreInformationRows).toEqual([]);
+      expect(result.quarterlyGrossReceipts).toEqual([0, 0, ADDED, 0]);
+      return;
+    }
+    expect(placedDay(2026, row)).toBeUndefined();
+    expect(result.grossReceipts).toBe(0);
+    expect(result.needsMoreInformationRows.some(item => item.id === 'zone-row' || item.name === 'Zone Alias Client')).toBe(true);
+    expect(result.warnings.join(' ')).toMatch(NMI);
+    expect(result.warnings.some(warning => warning.includes('Zone Alias Client') || warning.includes('zone-row'))).toBe(true);
   });
 });
