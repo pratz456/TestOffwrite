@@ -2,15 +2,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
-const mocks = vi.hoisted(() => ({ auth: vi.fn(), create: vi.fn(), accountGet: vi.fn(), accountCreate: vi.fn(), runTransaction: vi.fn(), batch: vi.fn(), writes: [] as Array<{ path: string; data: Record<string, unknown> }>, batches: [] as Array<{ set: ReturnType<typeof vi.fn>; commit: ReturnType<typeof vi.fn> }>, id: 0 }));
+const mocks = vi.hoisted(() => ({ auth: vi.fn(), create: vi.fn(), accountGet: vi.fn(), accountCreate: vi.fn(), runTransaction: vi.fn(), batch: vi.fn(), writes: [] as Array<{ path: string; data: Record<string, unknown> }>, batches: [] as Array<{ set: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>; commit: ReturnType<typeof vi.fn> }>, id: 0 }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: mocks.auth }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/lib/openai/client', () => ({ getOpenAIModel: () => 'gpt-4o', getOpenAIClientOrThrow: () => ({ chat: { completions: { create: mocks.create } } }) }));
 vi.mock('@/lib/firebase/admin', () => {
   function ref(path: string): any {
-    return { path, id: path.split('/').at(-1), collection: (name: string) => ref(`${path}/${name}`), doc: (name?: string) => ref(`${path}/${name || `synthetic-${++mocks.id}`}`) };
+    const node = {
+      path, id: path.split('/').at(-1),
+      collection: (name: string) => ref(`${path}/${name}`),
+      doc: (name?: string) => ref(`${path}/${name || `synthetic-${++mocks.id}`}`),
+      select() { return node; },
+      get: async () => ({ exists: false, empty: true, docs: [], id: node.id, ref: node, data: () => undefined }),
+    };
+    return node;
   }
-  return { adminDb: { collection: (path: string) => ref(path), runTransaction: mocks.runTransaction, batch: mocks.batch } };
+  return { adminDb: { collection: (path: string) => ref(path), runTransaction: mocks.runTransaction, batch: mocks.batch, getAll: async (...refs: any[]) => refs.filter(item => item?.path).map(() => ({ exists: false, data: () => undefined })) } };
 });
 import { POST } from '../app/api/tax/import-bank-statement/route';
 
@@ -30,8 +37,8 @@ beforeEach(() => {
   mocks.accountGet.mockResolvedValue({ exists: false });
   mocks.runTransaction.mockImplementation(async callback => callback({ get: mocks.accountGet, create: mocks.accountCreate }));
   mocks.batch.mockImplementation(() => {
-    const batch = { set: vi.fn(), commit: vi.fn() };
-    batch.commit.mockImplementation(async () => { for (const [ref, data] of batch.set.mock.calls) mocks.writes.push({ path: ref.path, data }); });
+    const batch = { set: vi.fn(), create: vi.fn(), commit: vi.fn() };
+    batch.commit.mockImplementation(async () => { for (const [ref, data] of batch.create.mock.calls) mocks.writes.push({ path: ref.path, data }); });
     mocks.batches.push(batch); return batch;
   });
 });
@@ -46,12 +53,13 @@ describe('document extraction joins the canonical automatic analysis pipeline', 
     ] }));
     const response = await POST(request());
     expect(response.status).toBe(200);
-    expect((await response.json()).transactionsImported).toBe(4);
+    expect(await response.json()).toMatchObject({ transactionsImported: 4, imported: 4, alreadyImported: 0, flaggedLegacy: 0 });
     expect(mocks.accountCreate).toHaveBeenCalledWith(expect.objectContaining({ path: 'user_profiles/synthetic-import-owner/accounts/statement-imports' }), expect.objectContaining({ userId: 'synthetic-import-owner', usageType: 'unknown' }));
     expect(mocks.writes.map(write => write.data.amount)).toEqual([32.5, -15, -125, 8]);
     for (const write of mocks.writes) {
-      expect(write.path).toMatch(/^user_profiles\/synthetic-import-owner\/accounts\/statement-imports\/transactions\/synthetic-/);
-      expect(write.data).toMatchObject({ trans_id: write.path.split('/').at(-1), userId: 'synthetic-import-owner', account_id: 'statement-imports', iso_currency_code: 'USD', source: 'manual', import_source: 'manual_statement', pending: false, analyzed: false, analysis_status: 'pending', is_deductible: null });
+      expect(write.path).toMatch(/^user_profiles\/synthetic-import-owner\/accounts\/statement-imports\/transactions\/[a-f0-9]{64}$/);
+      expect(write.data).toMatchObject({ trans_id: write.path.split('/').at(-1), import_row_id: write.path.split('/').at(-1), userId: 'synthetic-import-owner', account_id: 'statement-imports', iso_currency_code: 'USD', source: 'manual', import_source: 'manual_statement', pending: false, analyzed: false, analysis_status: 'pending', is_deductible: null });
+      expect(write.data).not.toHaveProperty('possibleDuplicate');
       expect(write.data).not.toHaveProperty('type');
       expect(write.data).not.toHaveProperty('transaction_kind');
     }
@@ -60,7 +68,7 @@ describe('document extraction joins the canonical automatic analysis pipeline', 
     mocks.create.mockResolvedValue(completion({ ...statement, transactions: Array.from({ length: 401 }, (_, i) => ({ ...row, description: `Synthetic row ${i}` })) }));
     expect((await POST(request())).status).toBe(200);
     expect(mocks.batches).toHaveLength(2);
-    expect(mocks.batches.map(batch => batch.set.mock.calls.length)).toEqual([400, 1]);
+    expect(mocks.batches.map(batch => batch.create.mock.calls.length)).toEqual([400, 1]);
     expect(mocks.batches.map(batch => batch.commit.mock.calls.length)).toEqual([1, 1]);
     expect(new Set(mocks.writes.map(write => write.path)).size).toBe(401);
   });
