@@ -9,7 +9,8 @@ const state = vi.hoisted(() => ({
   denied: false,
   records: {} as Record<string, Record<string, unknown>>,
   reads: [] as string[], writes: [] as Array<{ path: string; data: Record<string, unknown>; options: unknown }>,
-  query: [] as unknown[][], legacyExists: true, databaseError: false,
+  query: [] as unknown[][], legacyExists: true, databaseError: false, transactionReadError: false,
+  transactions: [] as Array<{ id: string; ref: { path: string }; data: () => Record<string, unknown> }>,
   initialize: vi.fn(), returns: vi.fn(), feature: vi.fn(),
 }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: state.user, error: state.authError }) }));
@@ -22,19 +23,37 @@ vi.mock('@/lib/tax-filing/column-client', async importOriginal => ({
   initializeColumnFiling: (...args: unknown[]) => state.initialize(...args),
   getColumnTaxReturn: (...args: unknown[]) => state.returns(...args),
 }));
-vi.mock('@/lib/firebase/admin', () => ({ adminDb: {
-  doc: (path: string) => ({
-    get: async () => { state.reads.push(path); if (state.databaseError) throw new Error('private database failure'); return { exists: path in state.records, data: () => state.records[path] }; },
-    set: async (data: Record<string, unknown>, options: unknown) => { state.writes.push({ path, data, options }); },
-  }),
-  collection: (name: string) => {
+vi.mock('@/lib/firebase/admin', () => {
+  const chain = (name: string) => {
     state.query.push(['collection', name]);
-    return {
-      doc: (id: string) => ({ get: async () => { const path = `${name}/${id}`; state.reads.push(path); if (state.databaseError) throw new Error('private database failure'); return { exists: path in state.records, data: () => state.records[path] }; } }),
-      where(...args: unknown[]) { state.query.push(['where', ...args]); return this; }, limit(count: number) { state.query.push(['limit', count]); return this; }, get: async () => { if (state.databaseError) throw new Error('private database failure'); return { empty: !state.legacyExists, docs: [{ data: () => ({ pin: '12345', consent: true, status: 'signed', totalTax: 999 }) }] }; },
+    const api = {
+      doc: (id: string) => ({
+        get: async () => { const path = `${name}/${id}`; state.reads.push(path); if (state.databaseError) throw new Error('private database failure'); return { exists: path in state.records, data: () => state.records[path] }; },
+        set: async (data: Record<string, unknown>, options: unknown) => { state.writes.push({ path: `${name}/${id}`, data, options }); },
+        collection: (sub: string) => chain(`${name}/${id}/${sub}`),
+      }),
+      where(...args: unknown[]) { state.query.push(['where', ...args]); return api; },
+      limit(count: number) { state.query.push(['limit', count]); return api; },
+      count: () => ({ get: async () => ({ data: () => ({ count: 0 }) }) }),
+      get: async () => {
+        if (state.databaseError || state.transactionReadError) throw new Error('private database failure');
+        if (name === 'transactions' || name.endsWith('/transactions')) return { empty: state.transactions.length === 0, docs: state.transactions };
+        if (name === 'form_8879') return { empty: !state.legacyExists, docs: [{ data: () => ({ pin: '12345', consent: true, status: 'signed', totalTax: 999 }) }] };
+        return { empty: true, docs: [] };
+      },
     };
-  },
-} }));
+    return api;
+  };
+  return { adminDb: {
+    doc: (path: string) => ({
+      get: async () => { state.reads.push(path); if (state.databaseError) throw new Error('private database failure'); return { exists: path in state.records, data: () => state.records[path] }; },
+      set: async (data: Record<string, unknown>, options: unknown) => { state.writes.push({ path, data, options }); },
+    }),
+    collection: (name: string) => chain(name),
+    collectionGroup: (name: string) => chain(name),
+  } };
+});
+import { summarizeHeldOutDuplicates } from '../lib/transactions/held-out-duplicates';
 import { GET, POST } from '../app/api/tax/filing/route';
 import { GET as legacyGet, POST as legacyPost } from '../app/api/tax/form-8879/route';
 import { GET as yearLockGet, POST as yearLockPost } from '../app/api/tax/year-lock/route';
@@ -56,7 +75,7 @@ beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-16T18:00:00Z'));
   for (const [key, value] of Object.entries(approvedEnv)) vi.stubEnv(key, value);
   state.user = { uid, email: `${uid}@example.com`, authTime: 1789578000, secondFactorVerified: false };
-  state.authError = null; state.denied = false; state.databaseError = false; state.legacyExists = true;
+  state.authError = null; state.denied = false; state.databaseError = false; state.transactionReadError = false; state.legacyExists = true; state.transactions = [];
   state.records = { [securityPath]: { source: 'controlled-sandbox-fixture', authTime: state.user.authTime, checkedAt: new Date().toISOString(), metadata: { ...metadata } } };
   state.reads = []; state.writes = []; state.query = []; state.feature.mockReset();
   state.initialize.mockReset().mockResolvedValue({ userUrl: 'https://app-sandbox.columnapi.com/start?token=private-session' });
@@ -138,7 +157,7 @@ describe('filing route gates and provider handoff', () => {
   it('initializes only server-owned synthetic identity/facts and persists consent linkage without authenticated URL or PII payload', async () => {
     const result = await POST(postRequest());
     expect(result.status).toBe(200); expect(result.headers.get('cache-control')).toBe('private, no-store');
-    expect(await result.json()).toEqual({ environment: 'sandbox', taxYear: 2025, status: 'submitted', userUrl: 'https://app-sandbox.columnapi.com/start?token=private-session' });
+    expect(await result.json()).toEqual({ environment: 'sandbox', taxYear: 2025, status: 'submitted', userUrl: 'https://app-sandbox.columnapi.com/start?token=private-session', heldOutDuplicates: summarizeHeldOutDuplicates([], 2025) });
     expect(state.initialize).toHaveBeenCalledWith(expect.objectContaining({ environment: 'sandbox', taxYear: 2025 }), { userIdentifier: expectedIdentifier, email: `${uid}@example.com`, metadata });
     expect(state.returns).toHaveBeenCalledWith(expect.any(Object), expectedIdentifier, 2025);
     expect(state.writes).toEqual([{ path: connectionPath, data: { provider: 'column', environment: 'sandbox', userIdentifier: expectedIdentifier, taxYear: 2025, consentVersion: 'sandbox-identity-v1', consentedAt: '2026-09-16T18:00:00.000Z' }, options: { merge: true } }]);
@@ -155,6 +174,41 @@ describe('filing route gates and provider handoff', () => {
     const result = await POST(postRequest());
     expect(result.status).toBe(503); expect(JSON.stringify(await result.json())).not.toMatch(/private-token|client-secret/);
     expect(state.returns).not.toHaveBeenCalled(); expect(state.writes).toEqual([]);
+  });
+  it('reports the filing-year held-out line and does not send flagged rows to the provider', async () => {
+    const row = (id: string, date: string, amount: number, possibleDuplicate: boolean) => ({
+      id, ref: { path: `user_profiles/${uid}/accounts/acct/transactions/${id}` },
+      data: () => ({ userId: uid, date, amount, possibleDuplicate, possibleDuplicateReason: possibleDuplicate ? 'legacy_match' : undefined, iso_currency_code: 'USD', merchant_name: id }),
+    });
+    state.transactions = [
+      row('year-credit', '2025-03-01', -500, true), row('year-debit', '2025-03-02', 40, true),
+      row('other-year', '2024-03-01', -900, true), row('kept', '2025-03-03', -100, false),
+    ];
+    const posted = await POST(postRequest());
+    expect(posted.status).toBe(200);
+    const body = await posted.json();
+    expect(body.heldOutDuplicates).toMatchObject({ count: 2, credits: 500, debits: 40, amount: 540, reviewHref: '/protected?screen=review-transactions' });
+    expect(body.heldOutDuplicates.message).toContain('PLACEHOLDER');
+    expect(body.heldOutDuplicates.message).toContain('$500.00');
+    expect(body.heldOutDuplicates.message).toContain('$40.00');
+    expect(body.heldOutDuplicates.message).not.toContain('$900.00');
+    expect(body.heldOutDuplicates.message).not.toContain('legacy_match');
+    expect(state.initialize).toHaveBeenCalledWith(expect.objectContaining({ environment: 'sandbox', taxYear: 2025 }), { userIdentifier: expectedIdentifier, email: `${uid}@example.com`, metadata });
+    linked();
+    const listed = await (await GET(getRequest())).json();
+    expect(listed.heldOutDuplicates).toMatchObject({ count: 2, credits: 500, debits: 40 });
+    expect(listed.heldOutDuplicates.message).not.toContain('$900.00');
+  });
+  it('does not open a filing session when held-out records cannot be loaded', async () => {
+    state.transactionReadError = true;
+    const posted = await POST(postRequest());
+    const postedBody = await posted.json();
+    expect(posted.status).toBe(503); expect(postedBody).not.toHaveProperty('heldOutDuplicates');
+    expect(JSON.stringify(postedBody)).not.toContain('private');
+    expect(state.initialize).not.toHaveBeenCalled(); expect(state.writes).toEqual([]);
+    const listed = await GET(getRequest());
+    expect(listed.status).toBe(503); expect(await listed.json()).not.toHaveProperty('heldOutDuplicates');
+    expect(state.returns).not.toHaveBeenCalled();
   });
   it('reports linked status per jurisdiction and does not initialize or synthesize accepted/payment status on GET', async () => {
     linked();

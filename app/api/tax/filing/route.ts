@@ -8,6 +8,7 @@ import { getAuthenticatedUser, type AuthenticatedUser } from '@/lib/firebase/api
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { filingSandboxConfig, isFilingSandboxIdentity } from '@/lib/tax-filing/config';
 import { initializeColumnFiling, getColumnTaxReturn, validateColumnMetadata } from '@/lib/tax-filing/column-client';
+import { filingHeldOutDuplicates } from '@/lib/tax-filing/held-out-line';
 const headers = { 'Cache-Control': 'private, no-store' };
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers });
 const identifier = (uid: string) => createHash('sha256').update(`writeoff-production-testing:column:sandbox:${uid}`).digest('hex');
@@ -44,9 +45,10 @@ export async function GET(request: NextRequest) {
     const connection = link.data();
     const linked = connection?.provider === 'column' && connection.environment === 'sandbox' && connection.userIdentifier === identifier(user.uid)
       && connection.consentVersion === 'sandbox-identity-v1' && connection.taxYear === year;
+    const heldOutDuplicates = await filingHeldOutDuplicates(user.uid, year);
     const taxReturn = linked ? await getColumnTaxReturn(config, identifier(user.uid), year) : null;
     return json({ available: true, environment: 'sandbox', taxYear: year, status: taxReturn?.status ?? (linked ? 'unknown' : 'not_started'),
-      jurisdictions: taxReturn?.jurisdictions ?? [], message: 'Sandbox only. No IRS or state return is filed.' });
+      jurisdictions: taxReturn?.jurisdictions ?? [], heldOutDuplicates, message: 'Sandbox only. No IRS or state return is filed.' });
   } catch { return json({ error: 'Filing status could not be verified. Please retry.', code: 'FILING_STATUS_UNAVAILABLE' }, 503); }
 }
 export async function POST(request: NextRequest) {
@@ -63,6 +65,7 @@ export async function POST(request: NextRequest) {
   try {
     const metadata = await metadataFor(user);
     if (!metadata) return json({ error: 'Fresh verified sandbox security information is required.', code: 'FILING_SECURITY_REVIEW_REQUIRED' }, 409);
+    const heldOutDuplicates = await filingHeldOutDuplicates(user.uid, config.taxYear);
     const userIdentifier = identifier(user.uid);
     const session = await initializeColumnFiling(config, { userIdentifier, email: user.email!, metadata });
     // initialize has no tax_year parameter. Verify the actual return year before opening.
@@ -71,6 +74,6 @@ export async function POST(request: NextRequest) {
     await adminDb.doc(`tax_filing_connections/${user.uid}`).set({ provider: 'column', environment: 'sandbox', userIdentifier,
       taxYear: config.taxYear, consentVersion: 'sandbox-identity-v1', consentedAt: new Date().toISOString() }, { merge: true });
     // Never persist or log the short-lived authenticated URL.
-    return json({ environment: 'sandbox', taxYear: config.taxYear, userUrl: session.userUrl, status: taxReturn.status });
+    return json({ environment: 'sandbox', taxYear: config.taxYear, userUrl: session.userUrl, status: taxReturn.status, heldOutDuplicates });
   } catch { return json({ error: 'The filing provider could not start a verified session. Please retry.', code: 'FILING_PROVIDER_UNAVAILABLE' }, 503); }
 }

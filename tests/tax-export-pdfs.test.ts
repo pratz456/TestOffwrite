@@ -44,6 +44,7 @@ import { loadScheduleSEData } from '../lib/reports/load-schedule-se';
 import { generateScheduleSEPDF } from '../lib/reports/scheduleSE';
 import { generateForm4562PDF } from '../lib/reports/form4562';
 import { generateForm8829PDF } from '../lib/reports/form8829';
+import { calcSimplifiedHomeOffice } from '../lib/reports/calc8829';
 import { scheduleCExportLine } from '../lib/schedule-c/export-lines';
 import { POST as form1040 } from '../app/api/tax/form-1040/route';
 const profile = { name: 'Synthetic Taxpayer', filing_status: 'single' } as UserProfile;
@@ -114,7 +115,26 @@ describe('selected-year SE source and worksheet', () => {
     expect(body.calculation).toMatchObject({ socialSecurityTax: 558, medicareTax: 2678.15, totalSETax: 3236.15, halfSEDeduction: 1618.08 });
     const data = await loadScheduleSEData('export-owner', 2026); const view = inspectText(); const bytes = await generateScheduleSEPDF(data);
     expect(view.text()).toContain('$184,500.00'); expect(view.text()).toContain('$3,236.15'); expect(view.text()).toContain('$1,618.08');
-    expect(view.text()).not.toContain('2024 Tax Rates'); expect(state.queries).not.toContain('tax_summary'); view.checkBounds(); saveArtifact('schedule-se-2026', bytes);
+    expect(view.text()).not.toContain('2024 Tax Rates'); expect(view.text()).not.toContain('Held out'); expect(state.queries).not.toContain('tax_summary'); view.checkBounds(); saveArtifact('schedule-se-2026', bytes);
+  });
+  it('prints the selected-year held-out line on the Schedule SE worksheet', async () => {
+    state.transactions = [
+      { id: 'flagged-credit', amount: -500, date: '2026-03-02', iso_currency_code: 'USD', category: 'income', possibleDuplicate: true, possibleDuplicateReason: 'cross_document' },
+      { id: 'flagged-debit', amount: 40, date: '2026-03-03', iso_currency_code: 'USD', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true, review_status: 'confirmed', possibleDuplicate: true, possibleDuplicateReason: 'ambiguous_account' },
+      { id: 'other-year', amount: -900, date: '2025-03-01', iso_currency_code: 'USD', category: 'income', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' },
+    ];
+    const data = await loadScheduleSEData('export-owner', 2026);
+    expect(data.heldOutDuplicates).toMatchObject({ count: 2, credits: 500, debits: 40 });
+    const view = inspectText();
+    await generateScheduleSEPDF(data);
+    const text = view.text();
+    expect(text).toContain('PLACEHOLDER');
+    expect(text).toContain('Held out credits');
+    expect(text).toContain('$500.00');
+    expect(text).toContain('$40.00');
+    expect(text).not.toContain('$900.00');
+    expect(text).not.toMatch(/cross_document|ambiguous_account|legacy_match/);
+    view.checkBounds();
   });
   it('includes supported depreciation before SE, matching the shared annual input ordering', async () => {
     state.assets = [{ id: 'computer', description: 'Synthetic computer', datePlacedInService: new Date('2026-03-01'), cost: 1000, businessUsePercent: 100, category: 'computer', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false }];
@@ -147,14 +167,55 @@ describe('complete bounded asset/home-office PDFs', () => {
     expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThan(2);
     for (let i = 0; i < 12; i++) expect(view.text()).toContain(`SYNTHETIC-ASSET-${i} `);
     expect(view.text()).toContain('$1,200.00'); expect(view.text()).not.toContain('1:1'); expect(view.text()).not.toContain('$1,160,000');
+    expect(view.text()).not.toContain('Held out');
     view.checkBounds(); saveArtifact('form-4562-2026', bytes);
+  });
+  it('prints the selected-year held-out line on Form 4562', async () => {
+    const view = inspectText();
+    await generateForm4562PDF({ userProfile: profile, assetsSettings: [], transactions: [
+      { amount: -500, date: '2026-03-02', possibleDuplicate: true, possibleDuplicateReason: 'statement_match' },
+      { amount: 40, date: '2026-03-03', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked' },
+      { amount: -900, date: '2025-03-01', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' },
+    ], taxYear: 2026 });
+    const text = view.text();
+    expect(text).toContain('PLACEHOLDER');
+    expect(text).toContain('$500.00');
+    expect(text).toContain('$40.00');
+    expect(text).not.toContain('$900.00');
+    expect(text).not.toMatch(/statement_match|bank_linked|legacy_match/);
+    view.checkBounds();
   });
   it('preserves missing-home-office-context review and correctly labels the supported synthetic rental subset', async () => {
     const base = { userProfile: profile, transactions: [], taxYear: 2026, homeOfficeSettings: { totalHomeSqFt: 1000, officeSqFt: 200, rentOrMortgageInterest: 24000, utilities: 2400, insurance: 600, repairsMaintenance: 1000, propertyTax: 0, other: 0 } };
     await expect(generateForm8829PDF(base)).rejects.toMatchObject({ code: 'HOME_OFFICE_DETAILS_REQUIRED' });
     const view = inspectText(); const bytes = await generateForm8829PDF({ ...base, calculationContext: { method: 'actual', housingType: 'rented', qualifiedScheduleCBusinessUse: true, expensesLimitedToBusinessUsePeriod: true, form8829Line8Income: 1000, directOperatingExpenses: 400, priorOperatingExpenseCarryover: 800, casualtyLosses: 0, depreciationAndCasualtyCarryover: 0 } });
     expect(view.text()).toContain('$1,000.00'); expect(view.text()).toContain('$5,800.00'); expect(view.text()).not.toContain('Maximum home office deduction'); expect(view.text()).not.toContain('1:1');
+    expect(view.text()).not.toContain('Held out');
     view.checkBounds(); saveArtifact('form-8829-synthetic-supported', bytes);
+  });
+  it('prints the selected-year held-out line on both Form 8829 methods', async () => {
+    const base = { userProfile: profile, taxYear: 2026, homeOfficeSettings: { totalHomeSqFt: 1000, officeSqFt: 200, rentOrMortgageInterest: 24000, utilities: 2400, insurance: 600, repairsMaintenance: 1000, propertyTax: 0, other: 0 } };
+    const transactions = [
+      { amount: -500, date: '2026-03-02', possibleDuplicate: true, possibleDuplicateReason: 'cross_document' },
+      { amount: 40, date: '2026-03-03', possibleDuplicate: true, possibleDuplicateReason: 'ambiguous_account' },
+      { amount: -900, date: '2025-03-01', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' },
+    ];
+    const actual = inspectText();
+    await generateForm8829PDF({ ...base, transactions, calculationContext: { method: 'actual', housingType: 'rented', qualifiedScheduleCBusinessUse: true, expensesLimitedToBusinessUsePeriod: true, form8829Line8Income: 1000, directOperatingExpenses: 400, priorOperatingExpenseCarryover: 800, casualtyLosses: 0, depreciationAndCasualtyCarryover: 0 } });
+    expect(actual.text()).toContain('Held out credits');
+    expect(actual.text()).toContain('$500.00');
+    expect(actual.text()).toContain('$40.00');
+    expect(actual.text()).not.toContain('$900.00');
+    expect(actual.text()).not.toMatch(/cross_document|ambiguous_account|legacy_match/);
+    actual.checkBounds();
+    const settings = { ...base.homeOfficeSettings, method: 'simplified' as const, regularUse: 'yes' as const, exclusiveUse: 'yes' as const, qualifyingUse: 'principal_place_of_business' as const, housingType: 'rented' as const, monthsUsed: 12 };
+    const simplifiedView = inspectText();
+    await generateForm8829PDF({ ...base, homeOfficeSettings: settings, transactions, simplified: calcSimplifiedHomeOffice(settings, { taxYear: 2026, grossIncomeLimit: 1000 }) });
+    expect(simplifiedView.text()).toContain('PLACEHOLDER');
+    expect(simplifiedView.text()).toContain('$500.00');
+    expect(simplifiedView.text()).toContain('$40.00');
+    expect(simplifiedView.text()).not.toContain('$900.00');
+    simplifiedView.checkBounds();
   });
 });
 
@@ -179,6 +240,7 @@ describe('Form 1040 planning PDF prints its review notes', () => {
     const text = view.text();
     // compute1040 planning note + unreviewed Schedule 1-A note + reconciliation inflow warning + SSN + address completeness notes.
     expect(text).toContain('Review notes (5)');
+    expect(text).not.toContain('Held out');
     expect(text).toContain('1 posted inflow(s) are excluded from business receipts until classified as income/revenue.');
     expect(text.match(/SSN not filled in - enter SSN in Tax Organizer/g)).toHaveLength(2); // page 2 block + appendix
     expect(text.match(/Mailing address incomplete - update in Tax Organizer/g)).toHaveLength(2);
@@ -224,6 +286,27 @@ describe('Form 1040 planning PDF prints its review notes', () => {
     const text = view.text();
     expect(text).toContain('Estimated overpayment - refund election not collected');
     expect(text).toMatch(/Review notes \(\d+\)/);
+    checkFormBounds(view.spy);
+  });
+
+  it('prints the selected-year held-out line on the Form 1040 notes', async () => {
+    state.transactions = [
+      { id: 'flagged-credit', amount: -25000, date: '2026-04-01', iso_currency_code: 'USD', category: 'income', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' },
+      { id: 'flagged-debit', amount: 40, date: '2026-04-02', iso_currency_code: 'USD', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true, review_status: 'confirmed', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked' },
+      { id: 'other-year', amount: -900, date: '2025-04-01', iso_currency_code: 'USD', category: 'income', possibleDuplicate: true, possibleDuplicateReason: 'cross_document' },
+    ];
+    const view = inspectText();
+    const response = await form1040(request1040());
+    expect(response.status).toBe(200);
+    const text = view.text();
+    expect(text).toContain('PLACEHOLDER');
+    expect(text).toContain('Held out credits');
+    expect(text).toContain('$25,000.00');
+    expect(text).toContain('$40.00');
+    expect(text).not.toContain('$25,040.00');
+    expect(text).not.toContain('$900.00');
+    expect(text).not.toMatch(/legacy_match|bank_linked|cross_document/);
+    expect(text).toContain('/protected?screen=review-transactions');
     checkFormBounds(view.spy);
   });
 });

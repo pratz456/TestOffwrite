@@ -73,3 +73,15 @@ export function heldOutCsvCells(summary: HeldOutDuplicates): string[] {
     summary.credits.toFixed(2), summary.debits.toFixed(2), summary.reviewHref, summary.message,
   ];
 }
+
+/** One paragraph for a planning PDF. Empty when this year held nothing out. */
+export function heldOutReviewParagraph(summary?: HeldOutDuplicates | null): string | null {
+  if (!summary || summary.count <= 0) return null;
+  return `${summary.message} ${summary.reviewHref}`;
+}
+
+/** Year-scoped line for worksheet payloads that carry raw transaction rows. */
+export function summarizeTransactionHeldOut(transactions: readonly unknown[], taxYear: number): HeldOutDuplicates {
+  const records = transactions.filter((row): row is { possibleDuplicate?: unknown; date?: unknown; amount?: unknown } => !!row && typeof row === 'object');
+  return summarizeHeldOutDuplicates(records, taxYear);
+}

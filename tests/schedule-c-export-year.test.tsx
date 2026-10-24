@@ -119,6 +119,40 @@ describe('Schedule C held out duplicates', () => {
     expect(text(link)).toContain('PLACEHOLDER: Review possible duplicates');
     expect(String(link.props['aria-label'])).toContain('PLACEHOLDER');
   });
+
+  it('points at held-out review when every row in the selected year is flagged', () => {
+    const tree = render({
+      ...props,
+      transactions: [
+        { id: 'flagged-2026', merchant_name: 'Flagged supplies', amount: 40, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', date: '2026-04-02', is_deductible: true, review_status: 'confirmed', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked' },
+        { id: 'flagged-2025', merchant_name: 'Other year supplies', amount: 80, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', date: '2025-04-02', is_deductible: true, review_status: 'confirmed', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' },
+        { id: 'kept-2025', merchant_name: 'Kept other year', amount: 100, category: 'GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE', date: '2025-03-01', is_deductible: true },
+      ],
+    });
+    const rendered = text(tree);
+    expect(rendered).not.toContain('No deductible business expenses found');
+    expect(rendered).not.toContain('Make sure to categorize your transactions as business expenses first.');
+    expect(rendered).not.toContain('categorize');
+    expect(rendered).toContain('PLACEHOLDER');
+    expect(rendered).toContain('$40.00');
+    expect(rendered).not.toContain('$80.00');
+    expect(rendered).not.toMatch(/bank_linked|legacy_match/);
+    const link = walk(tree).find(node => node.type === 'a' && String(node.props?.href).includes('review-transactions'));
+    expect(text(link)).toContain('PLACEHOLDER: Review possible duplicates');
+    expect(String(link.props['aria-label'])).toContain('PLACEHOLDER');
+  });
+
+  it('keeps the empty expense message when the year still has an unflagged row', () => {
+    const rendered = text(render({
+      ...props,
+      transactions: [
+        { id: 'personal', merchant_name: 'Personal', amount: 20, category: 'GENERAL_MERCHANDISE', date: '2026-01-01', is_deductible: false },
+        { id: 'flagged', merchant_name: 'Flagged supplies', amount: 40, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', date: '2026-04-02', is_deductible: true, possibleDuplicate: true },
+      ],
+    }));
+    expect(rendered).toContain('No deductible business expenses found for 2026');
+    expect(rendered).toContain('Make sure to categorize your transactions as business expenses first.');
+  });
 });
 
 describe('Schedule C safe export controls', () => {

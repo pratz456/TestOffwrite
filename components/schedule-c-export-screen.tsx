@@ -12,7 +12,7 @@ import { PremiumFeatureGate, subscriptionGateDestination } from '@/components/pr
 import { useRouter } from 'next/navigation';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
-import { summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
+import { HELD_OUT_REVIEW_ARIA_LABEL, HELD_OUT_REVIEW_HREF, HELD_OUT_REVIEW_LINK_TEXT, summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { HeldOutDuplicatesNotice } from '@/components/held-out-duplicates-notice';
 
 interface Transaction {
@@ -88,6 +88,10 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
     () => summarizeHeldOutDuplicates(transactions, Number(selectedYear)),
     [transactions, selectedYear],
   );
+  const everyRowFlagged = useMemo(() => {
+    const yearRows = transactions.filter(transaction => transaction.date?.startsWith(`${selectedYear}-`));
+    return yearRows.length > 0 && yearRows.every(transaction => transaction.possibleDuplicate === true);
+  }, [transactions, selectedYear]);
 
   // Memoize calculateDeductions to prevent recreation on every render
   const calculateDeductions = useCallback((overrideYearTx?: Transaction[]) => {
@@ -435,6 +439,14 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
                     </div>
                   </div>
                 </div>
+              </div>
+            ) : everyRowFlagged ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <FileText className="w-12 h-12 mx-auto mb-3 text-muted-foreground/70" />
+                <p>{heldOutDuplicates.message}</p>
+                <p className="text-sm mt-3">
+                  <a className="underline" href={HELD_OUT_REVIEW_HREF} aria-label={HELD_OUT_REVIEW_ARIA_LABEL}>{HELD_OUT_REVIEW_LINK_TEXT}</a>
+                </p>
               </div>
             ) : (
               <div className="text-center py-8 text-muted-foreground">
