@@ -497,7 +497,10 @@ function ambiguousNumericDate(value: string): boolean {
 /** Capital dollar prefixes, including one space before the $. A bare $ is not a US signal. */
 const PREFIXED_DOLLAR = /(?<![A-Za-z])(?:CA|AU|NZ|MX|C|A|R) ?\$/;
 const PREFIXED_DOLLAR_ALL = /(?<![A-Za-z])(?:CA|AU|NZ|MX|C|A|R) ?\$/g;
-const CURRENCY_CODE = /(?:EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|TRY|RUB|AED|SAR|ILS)/;
+/** ISO codes that are also ordinary English words. They count only on a total or currency line. */
+const WORD_LIKE_CODE = 'ALL|BAM|BOB|COP|CUP|GEL|MAD|MOP|PEN|RUB|SOS|TOP|TRY';
+const AMOUNT_CODE = 'EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|AED|SAR|ILS';
+const CURRENCY_CODE = new RegExp(`(?:${WORD_LIKE_CODE}|${AMOUNT_CODE})`);
 
 function usReceiptSignals(text: string): boolean {
   return /\bUSD\b/i.test(text) || /\bUS\$/.test(text) || /\bUSA\b/.test(text) || /United States/i.test(text);
@@ -506,13 +509,14 @@ function usReceiptSignals(text: string): boolean {
 /** A capital code on a total, tax, due, or currency-label line. Item lines do not count. */
 function qualifyingCurrencyCode(text: string): boolean {
   const code = new RegExp(`\\b${CURRENCY_CODE.source}\\b`);
-  return text.split(/\r?\n/).some(line => {
-    if (!code.test(line)) return false;
-    return /\b(?:subtotal|total|tax)\b/i.test(line)
-      || /\b(?:amount|balance)\s+due\b/i.test(line)
-      || /\bcurrency\s*:/i.test(line)
-      || /\ball amounts in\b/i.test(line);
-  });
+  const totalLine = /\b(?:subtotal|total|tax)\b|\b(?:amount|balance)\s+due\b|\bcurrency\s*:|\ball amounts in\b|ИТОГО|ВСЕГО|К ОПЛАТЕ|итого|всего|к оплате/i;
+  return text.split(/\r?\n/).some(line => code.test(line) && totalLine.test(line));
+}
+
+/** With no bare $, a capital code that is not an ordinary word counts beside an amount on any line. */
+function codeNextToAmount(text: string): boolean {
+  const code = `(?:${AMOUNT_CODE})`;
+  return new RegExp(`\\b${code} ?\\d`).test(text) || new RegExp(`\\d+(?:\\.\\d+)? ?\\b${code}\\b`).test(text);
 }
 
 function bareDollar(text: string): boolean {
@@ -523,9 +527,9 @@ function bareDollar(text: string): boolean {
 function nonUsReceiptSignals(text: string): boolean {
   if (PREFIXED_DOLLAR.test(text)) return true;
   if (/[€£¥₹₩₱₺₽]/.test(text) || /\bkr\b/i.test(text)) return true;
-  // A bare $ disagrees with a code, so the date stays. Symbols and prefixed dollars still blank it.
-  if (qualifyingCurrencyCode(text) && !bareDollar(text)) return true;
-  return false;
+  // A bare $ disagrees with a code. The code then counts only on a total, tax, due, or currency line, and the date stays.
+  if (bareDollar(text)) return false;
+  return codeNextToAmount(text) || qualifyingCurrencyCode(text);
 }
 
 /** Clearly non US: a foreign signal is present, and USD, US$, USA, or United States text is not. A bare $ does not decide. */
