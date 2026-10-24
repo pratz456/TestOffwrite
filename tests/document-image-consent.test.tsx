@@ -33,6 +33,34 @@ describe('§7216 document-image consent screen', () => {
     expect(html).toContain('Federal law (IRC §7216) requires your signed consent first.');
     expect(html).not.toMatch(/maximi[sz]e|guarantee|file your taxes/i);
   });
+  it('pins the consent calendar day for a fixed instant, including midnight on both sides of the date line', () => {
+    const htmlFor = (iso: string, signedAt?: string) => {
+      const row = signedAt
+        ? { ...record, document_import: true, document_import_signature: { version: DOCUMENT_IMPORT_CONSENT_VERSION, signed_name: 'Synthetic Signer', signed_at: signedAt } }
+        : record;
+      return renderToStaticMarkup(<DocumentImageConsent record={row} reason="ocr_low_confidence" onAuthorized={() => {}} onCancel={() => {}} today={new Date(iso)} />);
+    };
+
+    const sameDay = htmlFor('2026-09-19T15:00:00.000Z');
+    expect(labelText(sameDay)).toBe(DOCUMENT_IMPORT_CONSENT_TEXT.replace(DOCUMENT_IMPORT_CONSENT_DATE_BLANK, 'September 19, 2026'));
+    expect(sameDay).toContain('Date: September 19, 2026');
+    expect(sameDay).not.toContain('September 20, 2026');
+
+    expect(htmlFor('2026-09-18T23:59:00.000Z')).toContain('Date: September 18, 2026');
+    expect(htmlFor('2026-09-19T00:01:00.000Z')).toContain('Date: September 19, 2026');
+
+    // Midnight in Pacific/Kiritimati (UTC+14), just east of the date line, is 10:00Z.
+    expect(htmlFor('2026-09-19T09:59:00.000Z')).toContain('Date: September 19, 2026');
+    expect(htmlFor('2026-09-19T10:01:00.000Z')).toContain('Date: September 19, 2026');
+    // Midnight in Etc/GMT+12, just west of the date line, is 12:00Z.
+    expect(htmlFor('2026-09-19T11:59:00.000Z')).toContain('Date: September 19, 2026');
+    expect(htmlFor('2026-09-19T12:01:00.000Z')).toContain('Date: September 19, 2026');
+
+    const signedHtml = htmlFor('2026-09-19T15:00:00.000Z', '2026-09-19T15:00:00.000Z');
+    expect(signedHtml).toContain('Signed by Synthetic Signer on September 19, 2026');
+    expect(labelText(signedHtml)).toContain('Date: September 19, 2026');
+    expect(signedHtml).not.toContain('September 20, 2026');
+  });
   it('shows the signature on file instead of a new signature field when the consent is already signed', () => {
     const html = renderToStaticMarkup(<DocumentImageConsent record={signed} reason="ocr_unavailable" onAuthorized={() => {}} onCancel={() => {}} today={today} />);
     expect(html).toContain('Signed by Synthetic Signer on September 18, 2026');

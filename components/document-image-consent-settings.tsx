@@ -5,6 +5,7 @@ import { FileText, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { parseConsentRecord, withdrawDocumentImportConsent } from '@/lib/onboarding/consents';
+import { formatConsentCalendarDate } from '@/lib/onboarding/document-import-consent';
 import { CONSENT_SAVE_ERROR, persistConsentRecord } from '@/lib/onboarding/consents-client';
 
 interface DocumentImageConsentSettingsProps {
@@ -59,7 +60,7 @@ export function DocumentImageConsentSettings({ userId, persist = persistConsentR
       ) : signature ? (
         <>
           <p className="text-xs text-muted-foreground">
-            Signed by {signature.signed_name} on {new Date(signature.signed_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}. It lets WriteOff send the full image of a tax document you upload to OpenAI when the text cannot be read on WriteOff&apos;s own server.
+            Signed by {signature.signed_name} on {formatConsentCalendarDate(new Date(signature.signed_at))}. It lets WriteOff send the full image of a tax document you upload to OpenAI when the text cannot be read on WriteOff&apos;s own server.
           </p>
           <Button type="button" variant="outline" size="sm" disabled={withdrawing} onClick={withdraw} className="gap-2">
             {withdrawing && <Loader2 className="h-4 w-4 animate-spin" />}Withdraw consent

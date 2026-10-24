@@ -66,3 +66,17 @@ telephone at 1-800-366-4484, or by email at complaints@tigta.treas.gov.`;
 
 /** Error code returned by the import route when the image fallback is needed but not authorized. */
 export const DOCUMENT_IMAGE_CONSENT_REQUIRED = 'DOCUMENT_IMAGE_CONSENT_REQUIRED';
+
+/**
+ * Calendar day of a consent instant. The stored signature is an absolute time
+ * (`signed_at` ISO). The day printed on the form is the UTC calendar day of
+ * that instant, so a server process zone cannot move it.
+ */
+export function formatConsentCalendarDate(instant: Date): string {
+  return instant.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}

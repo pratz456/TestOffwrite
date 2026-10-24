@@ -8,6 +8,7 @@ import { hasDocumentImportConsent, parseConsentRecord, signDocumentImportConsent
 import { CONSENT_SAVE_ERROR, persistConsentRecord } from '@/lib/onboarding/consents-client';
 import {
   DOCUMENT_IMPORT_CONSENT_DATE_BLANK, DOCUMENT_IMPORT_CONSENT_NAME_BLANK, DOCUMENT_IMPORT_CONSENT_TEXT,
+  formatConsentCalendarDate,
 } from '@/lib/onboarding/document-import-consent';
 
 export type DocumentImageFallbackReason = 'ocr_unavailable' | 'ocr_low_confidence' | 'model_requested_image';
@@ -28,8 +29,6 @@ const REASONS: Record<DocumentImageFallbackReason, string> = {
   model_requested_image: 'WriteOff read this document on its own server and removed identification numbers from the text, but the amounts could not be extracted from that text.',
 };
 
-const formatDate = (date: Date) => date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-
 /**
  * Own screen for the IRC §7216 consent (Rev. Proc. 2013-14 format): the checkbox
  * label is the consent text verbatim, the typed full name is the signature and is
@@ -42,7 +41,7 @@ export function DocumentImageConsent({ record, reason, onAuthorized, onCancel, p
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const date = formatDate(today);
+  const date = formatConsentCalendarDate(today);
   const typedName = name.trim();
   // The label stays the drafted wording; the two blanks are completed by the person, not pre-filled.
   const signerName = onFile?.signed_name || typedName || DOCUMENT_IMPORT_CONSENT_NAME_BLANK;
@@ -89,7 +88,7 @@ export function DocumentImageConsent({ record, reason, onAuthorized, onCancel, p
 
       {onFile ? (
         <p className="text-sm text-muted-foreground">
-          Signed by {onFile.signed_name} on {formatDate(new Date(onFile.signed_at))}. You can withdraw this consent at any time in Settings &gt; Data &amp; Privacy.
+          Signed by {onFile.signed_name} on {formatConsentCalendarDate(new Date(onFile.signed_at))}. You can withdraw this consent at any time in Settings &gt; Data &amp; Privacy.
         </p>
       ) : (
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end print:hidden">
