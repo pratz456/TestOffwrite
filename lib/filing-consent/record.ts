@@ -1,4 +1,4 @@
-import { DISCLOSING_PREPARER_LEGAL_NAME, PARTNER_RECIPIENT_LEGAL_NAMES } from './config';
+import { DISCLOSING_PREPARER_LEGAL_NAME, partnerRecipientLegalNames } from './config';
 import { isDurationStated, type DurationStated } from './duration';
 import { isSignatureMethod, type SignatureMethod } from './signature';
 
@@ -24,6 +24,11 @@ export interface DisclosureConsentRecord {
   purpose: string;
   returnsCovered: CoveredReturn[];
   recipients: string[];
+  /**
+   * The partner this consent names. A record without it does not match a hand off.
+   * Saving writes it once. An existing consent is never rewritten to add or change it.
+   */
+  recipientPartnerId: string;
   scope: DisclosureScope;
   signatureMethod: SignatureMethod;
   signatureValue: string;
@@ -123,13 +128,54 @@ export function coversUseAsWell(data: { coversUse?: unknown; useConsent?: unknow
 
 export function recipientNotOnLegalNameList(recipients: string[]): string | null {
   for (const name of recipients) {
-    if (!PARTNER_RECIPIENT_LEGAL_NAMES.includes(name)) return name;
+    if (!partnerRecipientLegalNames().includes(name)) return name;
   }
   return null;
 }
 
 export function disclosingPreparerMatchesConfig(name: string): boolean {
   return name === DISCLOSING_PREPARER_LEGAL_NAME;
+}
+
+/** A consent record is one of these two kinds. One stored document never holds both. */
+export type ConsentKind = 'use' | 'disclosure';
+
+/**
+ * Stored use consent. `kind` is only `use`. Recipients belong on the disclosure
+ * document, so this record does not carry them.
+ */
+export interface UseConsentRecord {
+  uid: string;
+  taxYear: number;
+  disclosingPreparerLegalName: string;
+  taxpayerName: string;
+  purpose: string;
+  returnsCovered: CoveredReturn[];
+  scope: DisclosureScope;
+  signatureMethod: SignatureMethod;
+  signatureValue: string;
+  userTypedNotPrefilled: boolean;
+  signedAt: string;
+  expiresAt: string;
+  durationStated: DurationStated;
+  consentTextVersion: string;
+  consentTextSha256: string;
+  kind: 'use';
+  withdrawnAt: string | null;
+}
+
+/** A use record that also authorizes a disclosure. Separate documents are required. */
+export function coversDisclosureAsWell(data: {
+  coversDisclosure?: unknown;
+  disclosureConsent?: unknown;
+  kind?: unknown;
+  recipients?: unknown;
+}): boolean {
+  if (data.coversDisclosure === true) return true;
+  if (data.disclosureConsent != null) return true;
+  if (Array.isArray(data.recipients) && data.recipients.length > 0) return true;
+  if (typeof data.kind !== 'string' || data.kind === 'use') return false;
+  return data.kind.includes('disclosure');
 }
 
 export function signatureMethodValue(value: unknown): SignatureMethod | null {

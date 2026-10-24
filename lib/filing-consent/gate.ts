@@ -3,7 +3,9 @@ import {
   CURRENT_CONSENT_TEXT_VERSION,
   FILING_CONSENT_TEXT_COLLECTION,
   FILING_DISCLOSURE_CONSENT_COLLECTION,
-  PARTNER_RECIPIENT_LEGAL_NAMES,
+  RESIDENT_STATE_CODES,
+  currentDisclosurePurpose,
+  partnerRecipientLegalNames,
 } from './config';
 import { expiresAtFor, isDurationStated, isPastExpiry } from './duration';
 import {
@@ -19,7 +21,9 @@ import {
 } from './record';
 import { isAcceptedSignatureMethod, isSignatureMethod } from './signature';
 import { filingConsentNow } from './clock';
+import { beforeWorkHandOffRefusal } from './before-work';
 import { consentTextSha256, draftDisclosureConsentText } from './text';
+import { vtHandOffRefusal } from './vt-declaration';
 
 export interface HandOffReturn {
   code: string;
@@ -42,10 +46,20 @@ export interface HandOffRequest {
   returns: HandOffReturn[];
   consentRecordId?: string;
   browserConsentChecked?: boolean;
+  residentState: string;
+}
+
+/** Missing home state. The caller asks the state question before the hand off. */
+export interface AskResidentStateDecision {
+  ok: false;
+  code: 'ask_resident_state';
+  ask: 'resident_state';
+  message: string;
 }
 
 export type HandOffDecision =
   | { ok: true; payload: HandOffPayload }
+  | AskResidentStateDecision
   | ConsentRefusal;
 
 export interface PartnerDelivery {
@@ -57,6 +71,26 @@ export interface PartnerDelivery {
 export interface PartnerSendStub {
   deliveries: PartnerDelivery[];
   deliver(delivery: PartnerDelivery): void;
+}
+
+const residentStateCodeSet = new Set(RESIDENT_STATE_CODES);
+
+/** Trim, uppercase, and accept only the shared 51-entry resident-state list. */
+export function residentStateForHandOff(value: unknown): string | AskResidentStateDecision | ConsentRefusal {
+  // The caller must set residentState from server-side profile data, never from the request body.
+  const state = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  if (!state) {
+    return {
+      ok: false,
+      code: 'ask_resident_state',
+      ask: 'resident_state',
+      message: 'Ask the resident state question before this hand off.',
+    };
+  }
+  if (!residentStateCodeSet.has(state)) {
+    return refusal('invalid_resident_state', 'The resident state is not one of the fifty states or the District of Columbia.');
+  }
+  return state;
 }
 
 export function createPartnerSendStub(): PartnerSendStub {
@@ -80,6 +114,7 @@ export function createPartnerSendStub(): PartnerSendStub {
 
 export type SendResult =
   | { sent: true }
+  | { sent: false; code: 'ask_resident_state'; ask: 'resident_state'; message: string }
   | { sent: false; code: string; message: string; field?: string };
 
 /**
@@ -109,6 +144,12 @@ export async function evaluateFilingHandOff(request: HandOffRequest): Promise<Ha
 
   const missing = missingRequiredField(data);
   if (missing) return refusal('missing_field', `Required field ${missing} is missing or empty.`, missing);
+  if (data.purpose !== currentDisclosurePurpose()) {
+    return refusal(
+      'consent_purpose_mismatch',
+      'The consent purpose does not match the current stated purpose. A new consent is required.',
+    );
+  }
 
   const signatureMethod = data.signatureMethod;
   if (!isSignatureMethod(signatureMethod)) {
@@ -152,8 +193,15 @@ export async function evaluateFilingHandOff(request: HandOffRequest): Promise<Ha
   if (!recipients.includes(request.recipientLegalName)) {
     return refusal('recipient_not_on_list', 'The hand off recipient is not on the signed recipient list.');
   }
-  if (recipientNotOnLegalNameList(recipients) || !PARTNER_RECIPIENT_LEGAL_NAMES.includes(request.recipientLegalName)) {
+  if (recipientNotOnLegalNameList(recipients) || !partnerRecipientLegalNames().includes(request.recipientLegalName)) {
     return refusal('recipient_not_legal_name', 'Each recipient must be a legal name from the partner list. A description is refused.');
+  }
+  const consentPartner = typeof data.recipientPartnerId === 'string' ? data.recipientPartnerId.trim() : '';
+  if (consentPartner !== request.recipientLegalName) {
+    return refusal(
+      'recipient_partner_mismatch',
+      'The disclosure consent, the before work screen, and the hand off recipient must name the same partner.',
+    );
   }
 
   if (data.withdrawnAt != null) {
@@ -186,6 +234,25 @@ export async function evaluateFilingHandOff(request: HandOffRequest): Promise<Ha
     }
   }
 
+  const residentState = residentStateForHandOff(request.residentState);
+  if (typeof residentState !== 'string') return residentState;
+
+  const vtRefusal = await vtHandOffRefusal({
+    residentState,
+    uid: request.signedInUid,
+    partnerLegalName: request.recipientLegalName,
+    returns: request.returns.map(item => ({ code: item.code, taxYear: item.taxYear })),
+  });
+  if (vtRefusal) return vtRefusal;
+
+  const screenRefusal = await beforeWorkHandOffRefusal({
+    residentState,
+    uid: request.signedInUid,
+    taxYear: request.taxYear,
+    partnerId: request.recipientLegalName,
+  });
+  if (screenRefusal) return screenRefusal;
+
   return {
     ok: true,
     payload: { returns: request.returns.map(item => ({ code: item.code, taxYear: item.taxYear, fields: { ...item.fields } })) },
@@ -200,9 +267,18 @@ export async function evaluateFilingHandOff(request: HandOffRequest): Promise<Ha
 export async function sendFilingHandOff(request: HandOffRequest, stub: PartnerSendStub): Promise<SendResult> {
   const decision = await evaluateFilingHandOff(request);
   if (!decision.ok) {
-    return decision.field === undefined
-      ? { sent: false, code: decision.code, message: decision.message }
-      : { sent: false, code: decision.code, message: decision.message, field: decision.field };
+    if (decision.code === 'ask_resident_state') {
+      return {
+        sent: false,
+        code: 'ask_resident_state',
+        ask: 'resident_state',
+        message: decision.message,
+      };
+    }
+    const refusalDecision = decision as ConsentRefusal;
+    return refusalDecision.field === undefined
+      ? { sent: false, code: refusalDecision.code, message: refusalDecision.message }
+      : { sent: false, code: refusalDecision.code, message: refusalDecision.message, field: refusalDecision.field };
   }
   stub.deliver({ recipientLegalName: request.recipientLegalName, payload: decision.payload });
   return { sent: true };

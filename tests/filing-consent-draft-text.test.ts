@@ -51,6 +51,7 @@ function handOff(recordId: string): HandOffRequest {
     recipientLegalName: PARTNER,
     returns: [{ code: 'federal', taxYear: 2026, fields: { wages: 100 } }],
     consentRecordId: recordId,
+    residentState: 'NY',
   };
 }
 
