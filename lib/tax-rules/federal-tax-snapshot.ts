@@ -1,5 +1,4 @@
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
-import { incomeRowForEstimate, type QuarterlyTransactionLike } from '@/lib/tax-provider/quarterly-estimates';
 import type { Asset, DepreciationElections } from '@/lib/reports/calc4562';
 import type { HomeOfficeSettings } from '@/lib/reports/calc8829';
 import { calcScheduleSE } from '@/lib/reports/calcSE';
@@ -46,8 +45,7 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     return parsed;
   };
   const filingStatus = normalizeFilingStatus(profile.filing_status);
-  const incomeTransactions = transactions.map(tx => incomeRowForEstimate(tx as QuarterlyTransactionLike, 'UTC', taxYear));
-  const reconciliation = reconcileBusinessIncome(taxYear, incomeTransactions, input.grossReceipts, input.forms1099, input.reconciliationDecisions ?? []);
+  const reconciliation = reconcileBusinessIncome(taxYear, transactions, input.grossReceipts, input.forms1099, input.reconciliationDecisions ?? []);
   const w2 = summarizeW2Income(input.w2Entries);
   const w2FederalWithheld = input.w2Entries.length ? w2.federalWithheld : amount(profile.w2_federal_withheld);
   const { totalDeductible } = aggregateScheduleC([...transactions] as Parameters<typeof aggregateScheduleC>[0], String(taxYear), CATEGORY_MAP, { mode: 'confirmed-only' });
