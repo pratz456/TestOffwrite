@@ -66,7 +66,27 @@ function rowLabel(tx: IncomeRecord): string {
   return name || id || 'Bank deposit';
 }
 
-/** Epoch millis for a Date, Firestore Timestamp, {seconds, nanoseconds}, or finite number. Strings stay written days. */
+type EpochFields = {
+  seconds?: unknown;
+  nanoseconds?: unknown;
+  _seconds?: unknown;
+  _nanoseconds?: unknown;
+};
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/** seconds, or the Firestore JSON spelling _seconds. */
+function epochSeconds(value: EpochFields): number | null {
+  return finiteNumber(value.seconds) ?? finiteNumber(value._seconds);
+}
+
+function epochNanos(value: EpochFields): number {
+  return finiteNumber(value.nanoseconds) ?? finiteNumber(value._nanoseconds) ?? 0;
+}
+
+/** Epoch millis for a Date, Firestore Timestamp, {seconds, nanoseconds}, {_seconds, _nanoseconds}, or finite number. Strings stay written days. */
 function instantMillis(value: unknown): number | null {
   if (value instanceof Date) {
     const ms = value.getTime();
@@ -82,12 +102,8 @@ function instantMillis(value: unknown): number | null {
     return null;
   }
   if (value && typeof value === 'object') {
-    const seconds = (value as { seconds?: unknown }).seconds;
-    if (typeof seconds === 'number' && Number.isFinite(seconds)) {
-      const nanos = (value as { nanoseconds?: unknown }).nanoseconds;
-      const extra = typeof nanos === 'number' && Number.isFinite(nanos) ? Math.trunc(nanos / 1e6) : 0;
-      return seconds * 1000 + extra;
-    }
+    const seconds = epochSeconds(value as EpochFields);
+    if (seconds !== null) return seconds * 1000 + Math.trunc(epochNanos(value as EpochFields) / 1e6);
   }
   if (typeof value === 'number' && Number.isFinite(value)) return Math.abs(value) < 1e11 ? value * 1000 : value;
   return null;
@@ -97,7 +113,7 @@ function holdsInstant(value: unknown): boolean {
   if (value instanceof Date || typeof value === 'number') return true;
   if (!value || typeof value !== 'object') return false;
   if (typeof (value as { toDate?: unknown }).toDate === 'function') return true;
-  return typeof (value as { seconds?: unknown }).seconds === 'number';
+  return epochSeconds(value as EpochFields) !== null;
 }
 
 function civilDay(millis: number, timeZone: string): string | null {
@@ -167,7 +183,7 @@ function impossibleCalendarDate(value: string): boolean {
 }
 
 /**
- * Dated when `date` is a Timestamp, Date, or {seconds, nanoseconds}. A written
+ * Dated when `date` is a Timestamp, Date, {seconds, nanoseconds}, or {_seconds, _nanoseconds}. A written
  * calendar day uses that day, including a full validity check. Blank and
  * unreadable dates stay with this tax year. A following datetime is used only
  * then, and only to decide the year. It does not invent a quarter.
