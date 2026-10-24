@@ -4,6 +4,8 @@ import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { BUSINESS_STANDARD_MILEAGE_RATES, businessMileageRateForDate, summarizeBusinessMileage } from '@/lib/tax-rules/mileage-rates';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
+import { isExcludedFromTaxTotals } from '@/lib/transactions/duplicate-hold-out';
+import { DuplicateReviewRequiredError, summarizeHeldOutDuplicates, type HeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { ExportDataUnavailableError, exportReference, ownedExportRecord, readOwnedTransactions } from './export-records';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
@@ -88,6 +90,7 @@ export interface AuditSupportPacket {
     missingItems: Array<{ item: string; count: number }>;
     /** superseded: deductible records a relinked bank re-imported that duplicate an earlier reviewed record. */
     excluded: { notConfirmed: number; reviewRequired: number; pending: number; bankRemoved: number; superseded: number };
+    heldOutDuplicates: HeldOutDuplicates;
     mileage: { tripCount: number; ratedMiles: number; unratedMiles: number; unratedTrips: number; standardMileageAmount: number; ratesApplied: number[]; tripsNeedingRecords: number };
   };
   retention: RetentionNote;
@@ -278,9 +281,11 @@ function mileageEntries(uid: string, year: number, trips: ExportRecord[]) {
 /** Pure assembly over owner-verified records. Throws ExportReviewRequiredError when records need reconciliation first. */
 export function assembleAuditSupportPacket(uid: string, year: number, inputs: AuditSupportInputs, generatedAt = new Date()): AuditSupportPacket {
   const inYear = selectExportYear(inputs.transactions, year);
+  const heldOutDuplicates = summarizeHeldOutDuplicates(inYear, year);
   const excluded = { notConfirmed: 0, reviewRequired: 0, pending: 0, bankRemoved: 0, superseded: 0 };
   const confirmed: ExportRecord[] = [];
   for (const record of inYear) {
+    if (isExcludedFromTaxTotals(record)) continue;
     if (record.is_deductible !== true) continue;
     if (isSupersededRecord(record)) excluded.superseded += 1;
     else if (record.pending === true) excluded.pending += 1;
@@ -330,6 +335,7 @@ export function assembleAuditSupportPacket(uid: string, year: number, inputs: Au
   ];
   if (undated) mileageNotes.push(`${undated} saved trip(s) have an unreadable date and are not included. Correct them in the mileage tracker.`);
   const usedRateSources = BUSINESS_STANDARD_MILEAGE_RATES.filter(period => mileage.ratesApplied.includes(period.ratePerMile)).map(period => period.source);
+  if (heldOutDuplicates.count > 0) throw new DuplicateReviewRequiredError(heldOutDuplicates);
   return {
     packetInfo: { title: `${AUDIT_SUPPORT_TITLE} - Tax year ${year}`, taxYear: year, generatedAt: generatedAt.toISOString(), version: '1.0',
       purpose: 'Owner records packet organizing confirmed deductions with the records on file and the substantiation elements still missing. Not audit representation, tax advice or a guarantee that any deduction will be allowed.',
@@ -347,6 +353,7 @@ export function assembleAuditSupportPacket(uid: string, year: number, inputs: Au
       byStatus, byCategory: [...categories.values()].sort((a, b) => b.amount - a.amount || a.label.localeCompare(b.label)),
       missingItems: [...missingItems].map(([item, count]) => ({ item, count })).sort((a, b) => b.count - a.count || a.item.localeCompare(b.item)),
       excluded,
+      heldOutDuplicates,
       mileage: { tripCount: trips.length, ratedMiles: round2(mileage.ratedMiles), unratedMiles: round2(mileage.unratedMiles), unratedTrips: mileage.unratedTrips, standardMileageAmount: mileage.deduction, ratesApplied: mileage.ratesApplied, tripsNeedingRecords: trips.filter(trip => trip.substantiation.status === 'needs_records').length },
     },
     retention: retentionNote(year),
@@ -382,6 +389,7 @@ export const AUDIT_SUPPORT_CSV_HEADERS = [
 ];
 /** Deductions and mileage trips in one owner CSV; the hashed reference is the only identifier. */
 export function auditSupportPacketCSV(packet: AuditSupportPacket): string {
+  if (packet.summary.heldOutDuplicates.count > 0) throw new DuplicateReviewRequiredError(packet.summary.heldOutDuplicates);
   const rows = packet.deductions.map(record => ['Confirmed deduction', record.reference, record.date, record.merchant, record.amount, record.category, record.scheduleCLine ?? '',
     record.substantiation.label, record.substantiation.status === 'complete' ? 'Complete' : 'Needs records', record.substantiation.missing.join('; '), record.substantiation.advisories.join(' '),
     record.businessPurpose.text ?? '', record.businessPurpose.source ?? '', record.attendees.length ? record.attendees.join('; ') : record.clientProject ?? '',
@@ -395,11 +403,13 @@ export function auditSupportPacketCSV(packet: AuditSupportPacket): string {
       trip.ratePerMile === null ? 'No IRS rate published for this trip date; amount not calculated.' : '', trip.businessPurpose ?? '', trip.businessPurpose ? 'mileage_log' : '', '', '', '',
       `${trip.miles} miles${trip.ratePerMile !== null ? ` @ $${trip.ratePerMile}/mile` : ''}`, '', '', '', '', 'Mileage tracker', '']);
   }
-  return [AUDIT_SUPPORT_CSV_HEADERS.map(csvCell).join(','), ...rows.map(row => row.map(csvCell).join(','))].join('\r\n');
+  const lines = [AUDIT_SUPPORT_CSV_HEADERS.map(csvCell).join(','), ...rows.map(row => row.map(csvCell).join(','))];
+  return lines.join('\r\n');
 }
 
 /** Premium PDF in the shared preparer-records style. Every claim stays a records statement. */
 export async function generateAuditSupportPDF(packet: AuditSupportPacket): Promise<Uint8Array> {
+  if (packet.summary.heldOutDuplicates.count > 0) throw new DuplicateReviewRequiredError(packet.summary.heldOutDuplicates);
   const year = packet.packetInfo.taxYear;
   const pdf = await createPlanningPDF(`${AUDIT_SUPPORT_TITLE} - Tax year ${year}`, year);
   pdf.paragraph(packet.coverNote[0], true);

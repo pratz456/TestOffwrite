@@ -3,10 +3,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { loadColumnSandbox, validateSandboxSession } from '@/lib/tax-filing/column-browser';
+import { HELD_OUT_REVIEW_ARIA_LABEL, HELD_OUT_REVIEW_LINK_TEXT } from '@/lib/transactions/held-out-duplicates';
 interface FilingStatus { available: boolean; environment: 'sandbox' | null; taxYear: number; status: string; message: string; jurisdictions?: { jurisdiction: string; submissionStatus: string }[] }
 export function EmbeddedFilingCard({ userId, taxYear }: { userId: string; taxYear: number }) {
   const [status, setStatus] = useState<FilingStatus | null>(null);
   const [error, setError] = useState('');
+  const [reviewBlock, setReviewBlock] = useState<{ message: string; href: string } | null>(null);
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const context = `${userId}:${taxYear}`;
@@ -16,10 +18,17 @@ export function EmbeddedFilingCard({ userId, taxYear }: { userId: string; taxYea
   const refresh = useCallback(async () => {
     const request = ++requestId.current;
     setError('');
+    setReviewBlock(null);
     try {
       const response = await makeAuthenticatedRequest(`/api/tax/filing?year=${taxYear}`);
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Filing status could not be loaded.');
+      if (!response.ok) {
+        if (data.code === 'DUPLICATE_REVIEW_REQUIRED' && typeof data.reviewHref === 'string') {
+          if (request === requestId.current && active.current === context) setReviewBlock({ message: String(data.error || ''), href: data.reviewHref });
+          return;
+        }
+        throw new Error(data.error || 'Filing status could not be loaded.');
+      }
       if (data.taxYear !== taxYear || typeof data.available !== 'boolean'
         || (data.available && data.environment !== 'sandbox')) throw new Error('Filing status could not be verified.');
       if (request === requestId.current && active.current === context) setStatus(data);
@@ -39,7 +48,13 @@ export function EmbeddedFilingCard({ userId, taxYear }: { userId: string; taxYea
     try {
       const response = await makeAuthenticatedRequest('/api/tax/filing', { method: 'POST', body: JSON.stringify({ taxYear, consent: true }) });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'The filing sandbox could not open.');
+      if (!response.ok) {
+        if (data.code === 'DUPLICATE_REVIEW_REQUIRED' && typeof data.reviewHref === 'string') {
+          if (isCurrent()) setReviewBlock({ message: String(data.error || ''), href: data.reviewHref });
+          return;
+        }
+        throw new Error(data.error || 'The filing sandbox could not open.');
+      }
       const userUrl = validateSandboxSession(data, taxYear);
       if (!isCurrent()) return;
       const sdk = await loadColumnSandbox();
@@ -59,6 +74,7 @@ export function EmbeddedFilingCard({ userId, taxYear }: { userId: string; taxYea
       <Button onClick={launch} disabled={!consent || busy}>{busy ? 'Opening…' : 'Open filing sandbox'}</Button>
       <Button variant="outline" onClick={refresh} disabled={busy}>Refresh filing status</Button>
     </> : <p className="text-sm text-muted-foreground">{status?.message || (error ? 'In-app filing status is unavailable.' : 'Checking filing availability…')}</p>}
+    {reviewBlock && <div role="status" className="text-sm"><p>{reviewBlock.message}</p><a className="underline" href={reviewBlock.href} aria-label={HELD_OUT_REVIEW_ARIA_LABEL}>{HELD_OUT_REVIEW_LINK_TEXT}</a></div>}
     {error && <div role="alert" className="text-sm text-destructive"><p>{error}</p><Button variant="outline" onClick={refresh} disabled={busy}>Retry filing status</Button></div>}
     <p className="text-xs text-muted-foreground">Your tax preparer or filing provider must review the complete return and obtain the required signatures before submission. Exporting records does not file a return.</p>
   </section>;

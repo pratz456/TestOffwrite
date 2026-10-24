@@ -1,9 +1,10 @@
 import { aggregateScheduleC, CATEGORY_MAP, type LineItemSummary } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
-import { heldOutCsvCells, type HeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
+import { DuplicateReviewRequiredError, type HeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { csvCell } from './transaction-export';
 
 export function generateScheduleCCSV(lines: LineItemSummary[], taxYear: number, heldOut?: HeldOutDuplicates): string {
+  if (heldOut && heldOut.count > 0) throw new DuplicateReviewRequiredError(heldOut);
   const headers = ['Tax date', 'Merchant', 'Recorded category', 'Schedule C planning reference', 'Signed amount', 'Confirmed contribution', 'Scope', 'Description'];
   const rows = lines.flatMap(line => line.transactions.map(tx => [tx.date, tx.merchant_name, tx.category,
     scheduleCExportLine(line.lineCode, taxYear), tx.amount,
@@ -11,6 +12,5 @@ export function generateScheduleCCSV(lines: LineItemSummary[], taxYear: number, 
     'Confirmed in app - preparer review required; not a complete Schedule C', tx.description ?? tx.deductible_reason ?? tx.notes ?? '',
   ]));
   const table = [headers, ...rows];
-  if (heldOut && heldOut.count > 0) table.push(heldOutCsvCells(heldOut));
   return table.map(row => row.map(csvCell).join(',')).join('\r\n');
 }

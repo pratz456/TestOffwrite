@@ -39,9 +39,20 @@ describe('quarterly summary uses the shared saved-record annual engine', () => {
     const body = await response.json();
     expect(body.grossReceipts).toBe(100000);
     expect(body.netProfit).toBe(99000);
-    expect(body.heldOutDuplicates).toMatchObject({ count: 2, amount: 25040, reviewHref: '/protected?screen=review-transactions' });
+    expect(body.heldOutDuplicates).toMatchObject({
+      count: 2,
+      income: { count: 1, amount: 25000 },
+      expenses: { count: 1, amount: 40 },
+      reviewHref: '/protected?screen=review-transactions',
+    });
+    expect(body.heldOutDuplicates.incomeMessage).toContain('beside gross receipts (line 1)');
+    expect(body.heldOutDuplicates.expenseMessage).toContain('beside line 28');
     expect(body.heldOutDuplicates.message).toContain('PLACEHOLDER');
-    expect(body.heldOutDuplicates.message).toContain('$25,040.00');
+    expect(body.heldOutDuplicates.message).toContain('$25,000.00');
+    expect(body.heldOutDuplicates.message).toContain('$40.00');
+    expect(body.heldOutDuplicates.message).not.toContain('$25,040.00');
+    expect(body.heldOutDuplicates.message).not.toMatch(/legacy_match|bank_linked/);
+    expect(body).not.toHaveProperty('code');
   });
   it('legacyPOST ignores supplied inflated income and tax totals, using owner records', async () => {
     const response = await legacy(post({ taxYear: 2026, userProfile: { business_income: 999999 }, transactions: [{ amount: -999999 }], taxCalculation: { quarterlyAmount: 0 } }));

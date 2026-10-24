@@ -5,6 +5,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { readOwnedTransactions } from '@/lib/reports/export-records';
 import { exportYear, ExportReviewRequiredError } from '@/lib/reports/transaction-export';
+import { DuplicateReviewRequiredError, duplicateReviewResponseBody } from '@/lib/transactions/held-out-duplicates';
 import { generatePreparerReport } from '@/lib/reports/preparer-report';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
@@ -28,6 +29,7 @@ export async function POST(request: NextRequest) {
     return new NextResponse(Buffer.from(bytes), { headers: { 'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="writeoff-preparer-summary-${year}.pdf"`, 'Cache-Control': 'private, no-store' } });
   } catch (error) {
+    if (error instanceof DuplicateReviewRequiredError) return NextResponse.json(duplicateReviewResponseBody(error), { status: 422 });
     if (error instanceof ExportReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     return NextResponse.json({ error: 'Could not load a complete report. Please retry.' }, { status: 503 });
   }

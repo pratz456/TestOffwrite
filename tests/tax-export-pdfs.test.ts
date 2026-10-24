@@ -44,6 +44,7 @@ import { loadScheduleSEData } from '../lib/reports/load-schedule-se';
 import { generateScheduleSEPDF } from '../lib/reports/scheduleSE';
 import { generateForm4562PDF } from '../lib/reports/form4562';
 import { generateForm8829PDF } from '../lib/reports/form8829';
+import { calcSimplifiedHomeOffice } from '../lib/reports/calc8829';
 import { scheduleCExportLine } from '../lib/schedule-c/export-lines';
 import { POST as form1040 } from '../app/api/tax/form-1040/route';
 const profile = { name: 'Synthetic Taxpayer', filing_status: 'single' } as UserProfile;
@@ -114,7 +115,31 @@ describe('selected-year SE source and worksheet', () => {
     expect(body.calculation).toMatchObject({ socialSecurityTax: 558, medicareTax: 2678.15, totalSETax: 3236.15, halfSEDeduction: 1618.08 });
     const data = await loadScheduleSEData('export-owner', 2026); const view = inspectText(); const bytes = await generateScheduleSEPDF(data);
     expect(view.text()).toContain('$184,500.00'); expect(view.text()).toContain('$3,236.15'); expect(view.text()).toContain('$1,618.08');
-    expect(view.text()).not.toContain('2024 Tax Rates'); expect(state.queries).not.toContain('tax_summary'); view.checkBounds(); saveArtifact('schedule-se-2026', bytes);
+    expect(view.text()).not.toContain('2024 Tax Rates'); expect(view.text()).not.toContain('Held out'); expect(state.queries).not.toContain('tax_summary'); view.checkBounds(); saveArtifact('schedule-se-2026', bytes);
+  });
+  it('prints the selected-year held-out line on the Schedule SE worksheet', async () => {
+    state.transactions = [
+      { id: 'flagged-credit', amount: -500, date: '2026-03-02', iso_currency_code: 'USD', category: 'income', possibleDuplicate: true, possibleDuplicateReason: 'cross_document' },
+      { id: 'flagged-debit', amount: 40, date: '2026-03-03', iso_currency_code: 'USD', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true, review_status: 'confirmed', possibleDuplicate: true, possibleDuplicateReason: 'ambiguous_account' },
+      { id: 'other-year', amount: -900, date: '2025-03-01', iso_currency_code: 'USD', category: 'income', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' },
+    ];
+    const data = await loadScheduleSEData('export-owner', 2026);
+    expect(data.heldOutDuplicates).toMatchObject({ count: 2, income: { count: 1, amount: 500 }, expenses: { count: 1, amount: 40 } });
+    const view = inspectText();
+    await generateScheduleSEPDF(data);
+    const text = view.text().replace(/\s+/g, ' ');
+    expect(text).toContain('PLACEHOLDER');
+    expect(text).toContain('Held out income');
+    expect(text).toContain('beside gross receipts (line 1)');
+    expect(text).toContain('Held out expenses');
+    expect(text).toContain('beside line 28');
+    expect(text).toContain('$500.00');
+    expect(text).toContain('$40.00');
+    expect(text).not.toContain('Held out credits');
+    expect(text).not.toContain('$540.00');
+    expect(text).not.toContain('$900.00');
+    expect(text).not.toMatch(/cross_document|ambiguous_account|legacy_match/);
+    view.checkBounds();
   });
   it('includes supported depreciation before SE, matching the shared annual input ordering', async () => {
     state.assets = [{ id: 'computer', description: 'Synthetic computer', datePlacedInService: new Date('2026-03-01'), cost: 1000, businessUsePercent: 100, category: 'computer', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false }];
@@ -147,14 +172,68 @@ describe('complete bounded asset/home-office PDFs', () => {
     expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThan(2);
     for (let i = 0; i < 12; i++) expect(view.text()).toContain(`SYNTHETIC-ASSET-${i} `);
     expect(view.text()).toContain('$1,200.00'); expect(view.text()).not.toContain('1:1'); expect(view.text()).not.toContain('$1,160,000');
+    expect(view.text()).not.toContain('Held out');
     view.checkBounds(); saveArtifact('form-4562-2026', bytes);
+  });
+  it('prints the selected-year held-out line on Form 4562', async () => {
+    const view = inspectText();
+    await generateForm4562PDF({ userProfile: profile, assetsSettings: [], transactions: [
+      { amount: -500, date: '2026-03-02', possibleDuplicate: true, possibleDuplicateReason: 'statement_match' },
+      { amount: 40, date: '2026-03-03', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked' },
+      { amount: -900, date: '2025-03-01', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' },
+    ], taxYear: 2026 });
+    const text = view.text().replace(/\s+/g, ' ');
+    expect(text).toContain('PLACEHOLDER');
+    expect(text).toContain('Held out expenses');
+    expect(text).toContain('Held out expense refunds');
+    expect(text).toContain('not as income');
+    expect(text).toContain('$500.00');
+    expect(text).toContain('$40.00');
+    expect(text).not.toContain('Held out income');
+    expect(text).not.toContain('Held out credits');
+    expect(text).not.toContain('$900.00');
+    expect(text).not.toMatch(/statement_match|bank_linked|legacy_match/);
+    view.checkBounds();
   });
   it('preserves missing-home-office-context review and correctly labels the supported synthetic rental subset', async () => {
     const base = { userProfile: profile, transactions: [], taxYear: 2026, homeOfficeSettings: { totalHomeSqFt: 1000, officeSqFt: 200, rentOrMortgageInterest: 24000, utilities: 2400, insurance: 600, repairsMaintenance: 1000, propertyTax: 0, other: 0 } };
     await expect(generateForm8829PDF(base)).rejects.toMatchObject({ code: 'HOME_OFFICE_DETAILS_REQUIRED' });
     const view = inspectText(); const bytes = await generateForm8829PDF({ ...base, calculationContext: { method: 'actual', housingType: 'rented', qualifiedScheduleCBusinessUse: true, expensesLimitedToBusinessUsePeriod: true, form8829Line8Income: 1000, directOperatingExpenses: 400, priorOperatingExpenseCarryover: 800, casualtyLosses: 0, depreciationAndCasualtyCarryover: 0 } });
     expect(view.text()).toContain('$1,000.00'); expect(view.text()).toContain('$5,800.00'); expect(view.text()).not.toContain('Maximum home office deduction'); expect(view.text()).not.toContain('1:1');
+    expect(view.text()).not.toContain('Held out');
     view.checkBounds(); saveArtifact('form-8829-synthetic-supported', bytes);
+  });
+  it('prints the selected-year held-out line on both Form 8829 methods', async () => {
+    const base = { userProfile: profile, taxYear: 2026, homeOfficeSettings: { totalHomeSqFt: 1000, officeSqFt: 200, rentOrMortgageInterest: 24000, utilities: 2400, insurance: 600, repairsMaintenance: 1000, propertyTax: 0, other: 0 } };
+    const transactions = [
+      { amount: -500, date: '2026-03-02', possibleDuplicate: true, possibleDuplicateReason: 'cross_document' },
+      { amount: 40, date: '2026-03-03', possibleDuplicate: true, possibleDuplicateReason: 'ambiguous_account' },
+      { amount: -900, date: '2025-03-01', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' },
+    ];
+    const actual = inspectText();
+    await generateForm8829PDF({ ...base, transactions, calculationContext: { method: 'actual', housingType: 'rented', qualifiedScheduleCBusinessUse: true, expensesLimitedToBusinessUsePeriod: true, form8829Line8Income: 1000, directOperatingExpenses: 400, priorOperatingExpenseCarryover: 800, casualtyLosses: 0, depreciationAndCasualtyCarryover: 0 } });
+    const actualText = actual.text().replace(/\s+/g, ' ');
+    expect(actualText).toContain('Held out expenses');
+    expect(actualText).toContain('Held out expense refunds');
+    expect(actualText).toContain('not as income');
+    expect(actualText).toContain('$500.00');
+    expect(actualText).toContain('$40.00');
+    expect(actualText).not.toContain('Held out income');
+    expect(actualText).not.toContain('Held out credits');
+    expect(actualText).not.toContain('$900.00');
+    expect(actual.text()).not.toMatch(/cross_document|ambiguous_account|legacy_match/);
+    actual.checkBounds();
+    const settings = { ...base.homeOfficeSettings, method: 'simplified' as const, regularUse: 'yes' as const, exclusiveUse: 'yes' as const, qualifyingUse: 'principal_place_of_business' as const, housingType: 'rented' as const, monthsUsed: 12 };
+    const simplifiedView = inspectText();
+    await generateForm8829PDF({ ...base, homeOfficeSettings: settings, transactions, simplified: calcSimplifiedHomeOffice(settings, { taxYear: 2026, grossIncomeLimit: 1000 }) });
+    const simplifiedText = simplifiedView.text().replace(/\s+/g, ' ');
+    expect(simplifiedText).toContain('PLACEHOLDER');
+    expect(simplifiedText).toContain('Held out expenses');
+    expect(simplifiedText).toContain('not as income');
+    expect(simplifiedText).toContain('$500.00');
+    expect(simplifiedText).toContain('$40.00');
+    expect(simplifiedText).not.toContain('$900.00');
+    simplifiedView.checkBounds();
   });
 });
 
@@ -179,6 +258,7 @@ describe('Form 1040 planning PDF prints its review notes', () => {
     const text = view.text();
     // compute1040 planning note + unreviewed Schedule 1-A note + reconciliation inflow warning + SSN + address completeness notes.
     expect(text).toContain('Review notes (5)');
+    expect(text).not.toContain('Held out');
     expect(text).toContain('1 posted inflow(s) are excluded from business receipts until classified as income/revenue.');
     expect(text.match(/SSN not filled in - enter SSN in Tax Organizer/g)).toHaveLength(2); // page 2 block + appendix
     expect(text.match(/Mailing address incomplete - update in Tax Organizer/g)).toHaveLength(2);
@@ -226,6 +306,31 @@ describe('Form 1040 planning PDF prints its review notes', () => {
     expect(text).toMatch(/Review notes \(\d+\)/);
     checkFormBounds(view.spy);
   });
+
+  it('prints the selected-year held-out line on the Form 1040 notes', async () => {
+    state.transactions = [
+      { id: 'flagged-credit', amount: -25000, date: '2026-04-01', iso_currency_code: 'USD', category: 'income', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' },
+      { id: 'flagged-debit', amount: 40, date: '2026-04-02', iso_currency_code: 'USD', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true, review_status: 'confirmed', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked' },
+      { id: 'other-year', amount: -900, date: '2025-04-01', iso_currency_code: 'USD', category: 'income', possibleDuplicate: true, possibleDuplicateReason: 'cross_document' },
+    ];
+    const view = inspectText();
+    const response = await form1040(request1040());
+    expect(response.status).toBe(200);
+    const text = view.text().replace(/\s+/g, ' ');
+    expect(text).toContain('PLACEHOLDER');
+    expect(text).toContain('Held out income');
+    expect(text).toContain('beside gross receipts (line 1)');
+    expect(text).toContain('Held out expenses');
+    expect(text).toContain('beside line 28');
+    expect(text).toContain('$25,000.00');
+    expect(text).toContain('$40.00');
+    expect(text).not.toContain('Held out credits');
+    expect(text).not.toContain('$25,040.00');
+    expect(text).not.toContain('$900.00');
+    expect(text).not.toMatch(/legacy_match|bank_linked|cross_document/);
+    expect(text).toContain('/protected?screen=review-transactions');
+    checkFormBounds(view.spy);
+  });
 });
 
 describe('complete tax-export input validation', () => {
@@ -250,7 +355,7 @@ it('blocks duplicate logical records across storage paths instead of counting bo
 });
 
 
-it('returns held out duplicates on the Schedule C preview and prints them in the CSV and PDF', async () => {
+it('returns two held out lines on the Schedule C preview and blocks CSV and PDF downloads', async () => {
   state.transactions = [
     { id: 'kept', date: '2026-03-01', iso_currency_code: 'USD', amount: 40, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true, review_status: 'confirmed', merchant_name: 'Kept supplies' },
     { id: 'flagged-debit', date: '2026-03-02', iso_currency_code: 'USD', amount: 40, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true, review_status: 'confirmed', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked', merchant_name: 'Flagged supplies' },
@@ -260,23 +365,34 @@ it('returns held out duplicates on the Schedule C preview and prints them in the
   expect(preview.status).toBe(200);
   const previewBody = await preview.json();
   expect(previewBody.data.confirmedExpenses).toBe(40);
-  expect(previewBody.data.heldOutDuplicates).toMatchObject({ count: 2, amount: 25040, reviewHref: '/protected?screen=review-transactions' });
+  expect(previewBody.data.heldOutDuplicates).toMatchObject({
+    count: 2,
+    income: { count: 1, amount: 25000 },
+    expenses: { count: 1, amount: 40 },
+    reviewHref: '/protected?screen=review-transactions',
+  });
+  expect(previewBody.data.heldOutDuplicates.incomeMessage).toContain('beside gross receipts (line 1)');
+  expect(previewBody.data.heldOutDuplicates.expenseMessage).toContain('beside line 28');
   expect(previewBody.data.heldOutDuplicates.message).toContain('PLACEHOLDER');
-  const csv = await (await scheduleC(request({ year: 2026, format: 'csv' }))).text();
-  expect(csv).toContain('PLACEHOLDER');
-  expect(csv).toContain('25040.00');
-  expect(csv).toContain('/protected?screen=review-transactions');
-  expect(csv).toContain('Kept supplies');
-  expect(csv).not.toContain('Flagged supplies');
-  const view = inspectText();
-  const pdf = await scheduleC(request({ year: 2026, format: 'pdf', includeAppendix: false }));
-  expect(pdf.status).toBe(200);
-  const text = view.text();
-  expect(text).toContain('PLACEHOLDER');
-  expect(text).toContain('$25,040.00');
-  expect(text).toContain('/protected?screen=review-transactions');
-  expect(text).not.toContain('Flagged supplies');
-  view.checkBounds();
+  expect(previewBody.data.heldOutDuplicates.message).toContain('$25,000.00');
+  expect(previewBody.data.heldOutDuplicates.message).toContain('$40.00');
+  expect(previewBody.data.heldOutDuplicates.message).not.toContain('$25,040.00');
+  expect(previewBody.data.heldOutDuplicates.message).not.toMatch(/legacy_match|bank_linked/);
+  for (const format of ['csv', 'pdf'] as const) {
+    const download = await scheduleC(request({ year: 2026, format, includeAppendix: false }));
+    expect(download.status).toBe(422);
+    expect(download.headers.get('cache-control')).toBe('private, no-store');
+    expect(download.headers.get('content-type')).toContain('application/json');
+    const body = await download.json();
+    expect(body).toMatchObject({ code: 'DUPLICATE_REVIEW_REQUIRED', reviewHref: '/protected?screen=review-transactions' });
+    expect(body.error).toContain('PLACEHOLDER');
+    expect(body.error).toContain('$25,000.00');
+    expect(body.error).toContain('$40.00');
+    expect(body.error).not.toContain('$25,040.00');
+    expect(body.error).not.toMatch(/legacy_match|bank_linked/);
+    expect(JSON.stringify(body)).not.toContain('Kept supplies');
+    expect(JSON.stringify(body)).not.toContain('%PDF');
+  }
 });
 
 it('serves complete signed Schedule C CSV with formula-safe merchant text', async () => {

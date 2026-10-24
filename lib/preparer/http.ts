@@ -5,6 +5,7 @@ import { isTrustedApplicationRequest } from '@/lib/security/request-origin';
 import { enforceRateLimit, rateLimitResponse } from '@/lib/security/rate-limit';
 import { PreparerPackageError } from '@/lib/reports/preparer-package';
 import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
+import { DuplicateReviewRequiredError, duplicateReviewResponseBody } from '@/lib/transactions/held-out-duplicates';
 
 export const PREPARER_HEADERS = { 'Cache-Control': 'private, no-store, max-age=0', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff', 'X-Robots-Tag': 'noindex, nofollow, noarchive', Vary: 'Cookie, Authorization' };
 export const preparerJson = (value: unknown, status = 200) => NextResponse.json(value, { status, headers: PREPARER_HEADERS });
@@ -31,6 +32,7 @@ export async function boundedPreparerBody(request: NextRequest) {
 export function preparerFailure(error: unknown) {
   if (error instanceof PreparerPackageError) return preparerJson({ error: error.message, code: error.code }, error.status);
   if (error instanceof ExportReviewRequiredError) return preparerJson({ error: error.message, code: error.code }, 422);
+  if (error instanceof DuplicateReviewRequiredError) return preparerJson(duplicateReviewResponseBody(error), 422);
   if (error instanceof RangeError) return preparerJson({ error: 'Provide a four-digit tax year from 2000 through 2100.', code: 'HANDOFF_INVALID' }, 400);
   return preparerJson({ error: 'The complete package could not be prepared. Please retry.', code: 'PREPARER_PACKAGE_UNAVAILABLE' }, 503);
 }

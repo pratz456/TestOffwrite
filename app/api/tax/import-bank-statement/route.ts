@@ -24,6 +24,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb } from '@/lib/firebase/admin';
 import { getOpenAIClientOrThrow, getOpenAIModel } from '@/lib/openai/client';
 import { overlapKey } from '@/lib/transactions/historical-overlap';
+import { duplicateHoldOutMember } from '@/lib/transactions/duplicate-hold-out';
 import { z } from 'zod';
 import { MAX_RECEIPT_BYTES, ReceiptRequestError, receiptFormData, receiptSignatureMatches } from '@/lib/firebase/receipt-security';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
@@ -158,7 +159,13 @@ const IMPORT_ACCOUNT_ID = 'statement-imports';
 const WRITE_CHUNK = 400;
 
 type ImportedTransaction = z.infer<typeof importedTransaction>;
-interface PlannedImport { ref: DocumentReference; data: Record<string, unknown>; legacyMatch: boolean }
+interface PlannedImport {
+  ref: DocumentReference;
+  data: Record<string, unknown>;
+  legacyMatch: boolean;
+  /** Existing rows in an uncertain pair. Updated with the flag fields only, and only when this row is newly saved. */
+  flagExisting: Array<{ ref: DocumentReference; reason: string }>;
+}
 interface ImportSaveCounts { imported: number; alreadyImported: number; flaggedLegacy: number }
 
 function normalizedDescription(value: string): string {
@@ -248,6 +255,74 @@ function isReceiptRecord(data: Record<string, unknown>): boolean {
   return data.source === 'receipt' || data.importedFromReceipt === true;
 }
 
+/** Missing, blank, and the metadata fallback "Unknown" are not an institution. */
+function institutionName(value: unknown): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text || normalizedDescription(text) === 'UNKNOWN') return '';
+  return normalizedDescription(text);
+}
+
+function cardLast4(value: unknown): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return /^\d{4}$/.test(text) ? text : '';
+}
+
+type StatementKind = '' | 'credit_card' | 'bank_statement';
+type AccountIdentity = { last4: string; bank: string; kind: StatementKind };
+type AccountRelation = 'different' | 'uncertain' | 'same';
+
+function statementKind(value: unknown): StatementKind {
+  return value === 'credit_card' || value === 'bank_statement' ? value : '';
+}
+
+/** A card and a checking account are different even when one statement has no digits. */
+function accountRelation(a: AccountIdentity, b: AccountIdentity): AccountRelation {
+  const cardAndChecking = (a.kind === 'credit_card' && b.kind === 'bank_statement') || (a.kind === 'bank_statement' && b.kind === 'credit_card');
+  if (cardAndChecking) return 'different';
+  if (a.last4 && b.last4 && a.last4 !== b.last4) return 'different';
+  if (a.bank && b.bank && a.bank !== b.bank && !(a.last4 && a.last4 === b.last4)) return 'different';
+  if (a.bank && b.bank && a.bank !== b.bank) return 'uncertain';
+  const sameLast4 = Boolean(a.last4 && b.last4 && a.last4 === b.last4);
+  const sameBank = Boolean(a.bank && b.bank && a.bank === b.bank);
+  if (sameLast4 && (sameBank || (!a.bank && !b.bank))) return 'same';
+  if (!a.last4 && !b.last4 && sameBank) return 'same';
+  return 'uncertain';
+}
+
+interface StoredImportRow {
+  ref: DocumentReference;
+  date: string;
+  cents: number;
+  direction: string;
+  description: string;
+  receipt: boolean;
+  last4: string;
+  bank: string;
+  kind: StatementKind;
+  /** Random-id imports have no import_row_id. They stay unchanged. */
+  legacy: boolean;
+}
+
+/** Saved import rows used to decide whether a new row might repeat one already on file. */
+async function existingImportRows(account: DocumentReference): Promise<StoredImportRow[]> {
+  const snapshot = await account.collection('transactions')
+    .select('date', 'amount', 'transaction_type', 'merchant_name', 'name', 'description', 'source', 'importedFromReceipt', 'accountLast4', 'statementBank', 'statementKind', 'import_row_id').get();
+  const rows: StoredImportRow[] = [];
+  for (const transaction of snapshot.docs) {
+    const data = transaction.data() ?? {};
+    const date = textValue(data.date).slice(0, 10);
+    const direction = data.transaction_type === 'debit' || data.transaction_type === 'credit' ? data.transaction_type : '';
+    const description = textValue(data.merchant_name) || textValue(data.name) || textValue(data.description);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !direction || !description.trim() || typeof data.amount !== 'number' || !Number.isFinite(data.amount)) continue;
+    rows.push({
+      ref: transaction.ref, date, cents: amountCents(data.amount), direction, description: normalizedDescription(description),
+      receipt: isReceiptRecord(data), last4: cardLast4(data.accountLast4), bank: institutionName(data.statementBank),
+      kind: statementKind(data.statementKind), legacy: typeof data.import_row_id !== 'string' || data.import_row_id.length === 0,
+    });
+  }
+  return rows;
+}
+
 /** Older statement imports used a random document id and have no import_row_id. */
 async function legacyImportKeys(account: DocumentReference): Promise<Set<string>> {
   const snapshot = await account.collection('transactions')
@@ -256,20 +331,6 @@ async function legacyImportKeys(account: DocumentReference): Promise<Set<string>
   for (const transaction of snapshot.docs) {
     const data = transaction.data() ?? {};
     if (typeof data.import_row_id === 'string' && data.import_row_id.length > 0) continue;
-    const key = recordedMatchKey(data);
-    if (key) keys.add(key);
-  }
-  return keys;
-}
-
-/** Existing statement rows, stable or legacy, so a receipt can be flagged instead of dropped. */
-async function statementImportKeys(account: DocumentReference): Promise<Set<string>> {
-  const snapshot = await account.collection('transactions')
-    .select('date', 'amount', 'transaction_type', 'merchant_name', 'name', 'description', 'source', 'importedFromReceipt').get();
-  const keys = new Set<string>();
-  for (const transaction of snapshot.docs) {
-    const data = transaction.data() ?? {};
-    if (isReceiptRecord(data)) continue;
     const key = recordedMatchKey(data);
     if (key) keys.add(key);
   }
@@ -324,7 +385,7 @@ async function saveTransactions(uid: string, rows: ImportedTransaction[], metada
     const ref = account.collection('transactions').doc(id);
     const now = new Date();
     return {
-      ref, legacyMatch: false,
+      ref, legacyMatch: false, flagExisting: [],
       data: {
         ...metadata,
         trans_id: id, import_row_id: id, userId: uid, account_id: IMPORT_ACCOUNT_ID,
@@ -338,26 +399,82 @@ async function saveTransactions(uid: string, rows: ImportedTransaction[], metada
       },
     };
   });
-  const [legacyKeys, linkedKeys, statementKeys] = await Promise.all([
+  const [legacyKeys, linkedKeys, existingRows] = await Promise.all([
     legacyImportKeys(account),
     bankOverlapKeys(uid),
-    identity.namespace === 'receipt' ? statementImportKeys(account) : Promise.resolve(new Set<string>()),
+    existingImportRows(account),
   ]);
+  const incomingReceipt = identity.namespace === 'receipt';
+  const incomingIdentity: AccountIdentity = {
+    last4: cardLast4(metadata.accountLast4), bank: institutionName(metadata.statementBank), kind: statementKind(metadata.statementKind),
+  };
   for (const item of planned) {
-    const key = legacyMatchKey(textValue(item.data.date), amountCents(Number(item.data.amount)), textValue(item.data.transaction_type), textValue(item.data.merchant_name));
-    const statementMatch = statementKeys.has(key);
+    const date = textValue(item.data.date).slice(0, 10);
+    const direction = textValue(item.data.transaction_type);
+    const cents = amountCents(Number(item.data.amount));
+    const description = normalizedDescription(textValue(item.data.merchant_name));
+    const key = legacyMatchKey(date, cents, direction, textValue(item.data.merchant_name));
     const legacyMatch = identity.namespace === 'statement' && legacyKeys.has(key);
+    let statementMatch = false;
+    let crossDocument = false;
+    let ambiguousAccount = false;
+    let holdOutIncoming = false;
+    for (const existing of existingRows) {
+      if (existing.date !== date || existing.cents !== cents || existing.direction !== direction) continue;
+      const crossType = incomingReceipt !== existing.receipt;
+      if (crossType) {
+        const exactReceiptOnStatement = incomingReceipt && !existing.receipt && existing.description === description;
+        if (exactReceiptOnStatement) statementMatch = true;
+        else crossDocument = true;
+        const choice = duplicateHoldOutMember({ incomingIsReceipt: incomingReceipt, existingIsReceipt: existing.receipt });
+        const pairReason = exactReceiptOnStatement ? 'statement_match' : 'cross_document';
+        if (choice === 'incoming' || choice === 'both') holdOutIncoming = true;
+        if ((choice === 'existing' || choice === 'both') && !existing.legacy) item.flagExisting.push({ ref: existing.ref, reason: pairReason });
+        continue;
+      }
+      if (existing.description !== description) continue;
+      if (accountRelation(incomingIdentity, existing) === 'uncertain') {
+        ambiguousAccount = true;
+        const choice = duplicateHoldOutMember({ incomingIsReceipt: incomingReceipt, existingIsReceipt: existing.receipt });
+        if (choice === 'incoming' || choice === 'both') holdOutIncoming = true;
+        if ((choice === 'existing' || choice === 'both') && !existing.legacy) item.flagExisting.push({ ref: existing.ref, reason: 'ambiguous_account' });
+      }
+    }
+    item.legacyMatch = legacyMatch;
     const linked = overlapKey(item.data);
     const bankLinked = linked !== null && linkedKeys.has(linked);
-    item.legacyMatch = legacyMatch;
-    const reason = statementMatch ? 'statement_match' : legacyMatch ? 'legacy_match' : bankLinked ? 'bank_linked' : null;
-    if (reason) {
+    const reason = statementMatch ? 'statement_match'
+      : legacyMatch ? 'legacy_match'
+      : crossDocument ? 'cross_document'
+      : ambiguousAccount ? 'ambiguous_account'
+      : bankLinked ? 'bank_linked'
+      : null;
+    const holdIncoming = reason === 'legacy_match' || reason === 'bank_linked'
+      || ((reason === 'statement_match' || reason === 'cross_document' || reason === 'ambiguous_account') && holdOutIncoming);
+    if (reason && holdIncoming) {
       item.data.possibleDuplicate = true;
       item.data.possibleDuplicateReason = reason;
     }
   }
   const created = await createDocuments(planned);
+  await flagMatchedRows(created);
   return { imported: created.length, alreadyImported: planned.length - created.length, flaggedLegacy: created.filter(item => item.legacyMatch).length };
+}
+
+/** Flag the saved partner of an uncertain pair. Amount, merchant, and id stay as they were. */
+async function flagMatchedRows(created: PlannedImport[]): Promise<void> {
+  const updates = new Map<string, { ref: DocumentReference; reason: string }>();
+  for (const item of created) {
+    for (const flag of item.flagExisting) updates.set(flag.ref.path, flag);
+  }
+  const rows = [...updates.values()];
+  for (let offset = 0; offset < rows.length; offset += WRITE_CHUNK) {
+    const batch = adminDb.batch();
+    for (const flag of rows.slice(offset, offset + WRITE_CHUNK)) {
+      batch.update(flag.ref, { possibleDuplicate: true, possibleDuplicateReason: flag.reason });
+    }
+    await batch.commit();
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -406,7 +523,7 @@ export async function POST(request: NextRequest) {
       }
       const saved = await saveTransactions(user.uid, parsed.transactions, {
         source: 'manual', import_source: 'manual_statement', importedFromStatement: true,
-        statementBank: parsed.bankName || 'Unknown', accountLast4: parsed.accountLast4 || null,
+        statementBank: parsed.bankName || 'Unknown', accountLast4: parsed.accountLast4 || null, statementKind: docType,
       }, { namespace: 'statement', scope: detectedAccountScope(parsed.bankName, parsed.accountLast4) ?? `file:${fileHash}` });
       return NextResponse.json({
         success: true, docType: 'bank_statement', bankName: parsed.bankName, accountLast4: parsed.accountLast4,

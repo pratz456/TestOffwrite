@@ -106,6 +106,8 @@ export interface Transaction {
   /** Saved import flagged as a possible duplicate. Totals omit it until review. The stored row is not changed here. */
   possibleDuplicate?: boolean;
   possibleDuplicateReason?: string;
+  /** Set when a possible duplicate is resolved. duplicate keeps the row saved and out of tax totals. */
+  duplicateResolution?: 'both_real' | 'duplicate';
 
   // AI Analysis Fields from initial analysis
   ai?: {

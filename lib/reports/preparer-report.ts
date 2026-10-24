@@ -1,10 +1,15 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { isExcludedFromTaxTotals } from '@/lib/transactions/duplicate-hold-out';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
+import { DuplicateReviewRequiredError, summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { exportDate, transactionAmount, selectExportYear, recordedDeductibility, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
 
 export function preparerMonthlySummary(records: ExportRecord[], year: number) {
   // Superseded duplicates of an earlier bank record are not part of the handoff totals.
-  const selected = selectExportYear(records.filter(record => !isSupersededRecord(record)), year);
+  // Flagged possible duplicates stay saved and are omitted from monthly amounts, the same way Schedule C omits them.
+  const inYear = selectExportYear(records.filter(record => !isSupersededRecord(record)), year);
+  const heldOutDuplicates = summarizeHeldOutDuplicates(inYear, year);
+  const selected = inYear.filter(record => !isExcludedFromTaxTotals(record));
   if (selected.some(record => transactionAmount(record) === null)) throw new ExportReviewRequiredError('Some saved amounts are invalid. Correct them or download all records for review.');
   const seen = new Set<string>();
   for (const record of selected) {
@@ -27,11 +32,12 @@ export function preparerMonthlySummary(records: ExportRecord[], year: number) {
   }
   if (!groups.size) groups.set('Currency not recorded', Array.from({ length: 12 }, () => ({ outflow: 0, inflow: 0, markedOutflow: 0, count: 0 })));
   return { year, count: selected.length, pending: selected.filter(tx => tx.pending === true).length,
-    unreviewed: selected.filter(tx => recordedDeductibility(tx) === null).length, groups };
+    unreviewed: selected.filter(tx => recordedDeductibility(tx) === null).length, groups, heldOutDuplicates };
 }
 
 export async function generatePreparerReport(records: ExportRecord[], year: number): Promise<Uint8Array> {
   const summary = preparerMonthlySummary(records, year);
+  if (summary.heldOutDuplicates.count > 0) throw new DuplicateReviewRequiredError(summary.heldOutDuplicates);
   const pdf = await PDFDocument.create();
   pdf.setTitle(`WriteOff ${year} - preparer transaction summary`);
   const font = await pdf.embedFont(StandardFonts.Helvetica), bold = await pdf.embedFont(StandardFonts.HelveticaBold);

@@ -24,6 +24,7 @@ import { CapitalGainReviewRequiredError } from '@/lib/tax-rules/capital-gains';
 import { BusinessLossReviewRequiredError } from '@/lib/tax-rules/business-losses';
 import { OBBBADeductionReviewRequiredError } from '@/lib/tax-rules/obbba-deductions';
 import { createPlanningPDF } from '@/lib/reports/planning-pdf';
+import { heldOutReviewLines } from '@/lib/transactions/held-out-duplicates';
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
@@ -457,6 +458,7 @@ export async function POST(request: NextRequest) {
       ['Optional refund routing / account (last 4)', enrichedProfile.bankRouting || enrichedProfile.bankAccount ? `${enrichedProfile.bankRouting || 'Not provided'} / ${enrichedProfile.bankAccount || 'Not provided'} (${enrichedProfile.bankAccountType})` : 'Not provided'],
     ], [195, 333]);
     notes.section('Review notes');
+    for (const line of heldOutReviewLines(snapshot.heldOutDuplicates)) notes.paragraph(line);
     notes.paragraph(warnings.length ? `${warnings.length} calculation or completeness note(s) qualify the figures on pages 1-2:` : 'No calculation limits were reported for the saved inputs.');
     warnings.forEach((warning, index) => notes.paragraph(`${index + 1}. ${warning}`));
     notes.paragraph('Verify all income sources; IRA versus pension classification and basis; qualified dividends and capital gains; depreciation and home-office adjustments; credits; AMT and other taxes; all non-W-2/non-SSA withholding; prior-year payments applied; Form8959 withholding; refund elections; and penalties. Supporting Schedules1,1-A,2,3,A,D and other required forms are not produced by this summary.');

@@ -24,18 +24,26 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   ], [195, 333]);
   pdf.section('Recorded income and confirmed expenses');
   const total = data.lineItems.reduce((sum, row) => sum + row.deductible, 0);
-  pdf.table(['Reference', 'Recorded amount / scope', 'Amount'], [
+  const held = data.heldOutDuplicates;
+  const rows: unknown[][] = [
     ['1', 'Reconciled gross receipts in WriteOff', money(data.grossReceipts)],
-    ...data.lineItems.map(row => [scheduleCExportLine(row.lineCode, data.taxYear), `${row.lineName} - ${row.transactionCount} confirmed records`, money(row.deductible)]),
-    ['28 subtotal', 'Confirmed expense subtotal only', money(total)],
-    ...(data.heldOutDuplicates && data.heldOutDuplicates.count > 0 ? [[
-      'PLACEHOLDER',
-      `${data.heldOutDuplicates.message} ${data.heldOutDuplicates.reviewHref}`,
-      money(data.heldOutDuplicates.amount),
-    ]] : []),
+  ];
+  if (held && held.income.count > 0) {
+    rows.push(['1 held out', `PLACEHOLDER: Held out income beside line 1, not included in line 1. ${held.income.count} ${held.income.count === 1 ? 'row' : 'rows'}.`, money(held.income.amount)]);
+  }
+  for (const row of data.lineItems) rows.push([scheduleCExportLine(row.lineCode, data.taxYear), `${row.lineName} - ${row.transactionCount} confirmed records`, money(row.deductible)]);
+  rows.push(['28 subtotal', 'Confirmed expense subtotal only', money(total)]);
+  if (held && held.expenseCharges.count > 0) {
+    rows.push(['28 held out', `PLACEHOLDER: Held out expenses beside line 28, outside this subtotal. ${held.expenseCharges.count} ${held.expenseCharges.count === 1 ? 'row' : 'rows'}.`, money(held.expenseCharges.amount)]);
+  }
+  if (held && held.expenseRefunds.count > 0) {
+    rows.push(['28 held out', `PLACEHOLDER: Held out expense refund on the expense line, not income. ${held.expenseRefunds.count} ${held.expenseRefunds.count === 1 ? 'row' : 'rows'}.`, money(-held.expenseRefunds.amount)]);
+  }
+  rows.push(
     ['Worksheet', 'Receipts minus confirmed expenses, before other adjustments', money(data.grossReceipts - total)],
     ['29-31', 'Final tentative profit, home-office deduction and net profit', 'Not determined'],
-  ], [70, 353, 105]);
+  );
+  pdf.table(['Reference', 'Recorded amount / scope', 'Amount'], rows, [70, 353, 105]);
   pdf.paragraph('Credits/refunds are signed and meals use the shared 50% calculation. A confirmed category is not proof of legal deductibility. Review mixed business/personal use, asset purchases, vehicle method, entertainment and contribution classification.');
   pdf.section('Required review before preparing the return');
   pdf.paragraph('Complete returns/allowances, inventory and cost of goods sold, other income, depreciation and elections, home-office eligibility and limits, business details, vehicle records, material participation, at-risk/passive-loss limits and required 1099 filings. This export does not establish these facts or prepare those schedules. Review missing identity details directly with your preparer.');

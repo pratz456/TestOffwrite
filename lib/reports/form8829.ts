@@ -4,6 +4,7 @@ import {
   HOME_OFFICE_QUALIFYING_USES, SIMPLIFIED_MAX_SQFT,
 } from './calc8829';
 import { getFederalTaxRules } from '@/lib/tax-rules/federal-year-rules';
+import { heldOutReviewLines, summarizeTransactionHeldOut } from '@/lib/transactions/held-out-duplicates';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 export interface Form8829Data {
   userProfile: UserProfile; homeOfficeSettings: HomeOfficeSettings;
@@ -54,6 +55,7 @@ async function simplifiedWorksheet(data: Form8829Data, c: SimplifiedHomeOfficeCa
   ], [40, 358, 130]);
   for (const note of c.notes) pdf.paragraph(note);
   pdf.paragraph('Schedule C line 30 also reports the total square footage of the home and of the business-use area. Depreciation of the home for this year is deemed zero (§4.06) and actual home expenses are not deducted on Schedule C; deductible mortgage interest and real estate taxes belong on Schedule A. Switching methods between years is allowed but a year cannot use both.');
+  for (const line of heldOutReviewLines(summarizeTransactionHeldOut(data.transactions, data.taxYear))) pdf.paragraph(line);
   pdf.paragraph('Reference: irs.gov/pub/irs-drop/rp-13-13.pdf, irs.gov/publications/p587 and irs.gov/instructions/i1040sc (Simplified Method Worksheet). This worksheet does not establish eligibility, and any daycare, storage, multiple-home or actual-expense (Form 8829) case requires a separate reviewed calculation.');
   return pdf.save();
 }
@@ -75,6 +77,7 @@ export async function generateForm8829PDF(data: Form8829Data): Promise<Uint8Arra
     ['Allowed operating deduction for this subset', money(c.totalAllowableDeduction)], ['Operating-expense carryover', money(c.carryoverToNextYear)],
   ], [398, 130]);
   pdf.paragraph('The simplified square-foot method is separate; it is not a $1,500 cap on actual expenses. Owned homes, mortgage/tax ordering, casualty losses, depreciation, daycare, and other unsupported facts require a separate reviewed calculation.');
+  for (const line of heldOutReviewLines(summarizeTransactionHeldOut(data.transactions, data.taxYear))) pdf.paragraph(line);
   pdf.paragraph('Reference: irs.gov/instructions/i8829 and irs.gov/publications/p587. This summary does not complete every Form 8829 field or establish eligibility.');
   return pdf.save();
 }

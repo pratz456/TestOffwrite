@@ -5,6 +5,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { auditSupportPacketCSV, generateAuditSupportPDF, readAuditSupportPacket } from '@/lib/reports/audit-support-packet';
 import { exportYear, ExportReviewRequiredError } from '@/lib/reports/transaction-export';
+import { DuplicateReviewRequiredError, duplicateReviewResponseBody } from '@/lib/transactions/held-out-duplicates';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 // Audit support records: JSON and CSV stay available to the owner on every plan as part of
@@ -39,6 +40,7 @@ export async function GET(request: NextRequest) {
     }
     return new NextResponse(Buffer.from(await generateAuditSupportPDF(packet)), { headers: { ...headers, 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${filename}"` } });
   } catch (error) {
+    if (error instanceof DuplicateReviewRequiredError) return json(duplicateReviewResponseBody(error), 422);
     if (error instanceof ExportReviewRequiredError) return json({ error: error.message, code: error.code }, 422);
     return json({ error: 'Could not load complete records. Please retry.', code: 'EXPORT_DATA_UNAVAILABLE' }, 503);
   }

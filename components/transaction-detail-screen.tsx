@@ -22,6 +22,7 @@ import { AnalysisStatusNotice } from '@/components/analysis-status-notice';
 import { analysisRecordState } from '@/lib/ai/analysis-state';
 import type { AiReviewSuggestion } from '@/lib/transactions/ai-review-contract';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
+import { DUPLICATE_MARK_TEXT, HELD_OUT_REASON_TEXT } from '@/lib/transactions/held-out-duplicates';
 import type { Transaction as StoredTransaction } from '@/lib/firebase/transactions';
 import { bulkOfferFor, canOfferPurposeConfirmation, confirmPurposeUpdates, firstOpenQuestion, proposedBusinessPurpose, rejectProposalUpdates,
   type AiExplanation, type BulkConfirmRequest } from '@/lib/transactions/review-proposals';
@@ -72,6 +73,7 @@ interface TransactionDetailScreenProps {
     superseded_by?: string | null; // Server-only: this bank record duplicates an earlier reviewed one
     possibleDuplicate?: boolean;
     possibleDuplicateReason?: string;
+    duplicateResolution?: 'both_real' | 'duplicate';
     pending?: boolean | null;
     review_status?: string;
     // Durable analysis pipeline stamps (lib/ai/analysis-jobs.ts).
@@ -836,7 +838,8 @@ export const TransactionDetailScreen: React.FC<TransactionDetailScreenProps> = (
 
       <div className="mx-auto max-w-4xl space-y-3 px-3 py-3 sm:px-5">
         {isSupersededRecord(transaction) && <p role="note" className="rounded-xl border border-border bg-muted p-3 text-sm text-muted-foreground">This bank record duplicates an earlier one you already reviewed; it is excluded from totals.</p>}
-        {transaction.possibleDuplicate === true && <p role="note" className="rounded-xl border border-border bg-muted p-3 text-sm text-muted-foreground">PLACEHOLDER: This row is flagged as a possible duplicate{transaction.possibleDuplicateReason ? ` (${transaction.possibleDuplicateReason})` : ''} and is held out of tax totals until you review it. Resolving it is not available yet. The saved row is not changed or deleted.</p>}
+        {transaction.possibleDuplicate === true && <p role="note" className="rounded-xl border border-border bg-muted p-3 text-sm text-muted-foreground">{HELD_OUT_REASON_TEXT}</p>}
+        {transaction.duplicateResolution === 'duplicate' && transaction.possibleDuplicate !== true && <p role="note" className="rounded-xl border border-border bg-muted p-3 text-sm text-muted-foreground">{DUPLICATE_MARK_TEXT}</p>}
         <DetailTabs.Root value={detailSection} onValueChange={changeDetailSection} className="space-y-3">
           <DetailTabs.List aria-label="Transaction sections" className="grid grid-cols-3 gap-1 rounded-xl bg-muted/70 p-1">
             {[{ value: 'summary', label: 'Summary' }, { value: 'details', label: 'Details' }, { value: 'receipt', label: 'Receipt' }].map(tab =>

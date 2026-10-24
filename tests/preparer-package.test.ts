@@ -37,6 +37,18 @@ beforeEach(() => {
 });
 
 describe('receipt-inclusive preparer ZIP', () => {
+  it('blocks the preparer package when the audit summary has an unresolved duplicate', async () => {
+    const message = 'PLACEHOLDER: 1 possible duplicate row is held out of tax totals until you review it.';
+    mock.audit.mockResolvedValue({
+      packetInfo: { taxYear: 2026 }, deductions: [],
+      summary: { heldOutDuplicates: { count: 1, message, reviewHref: '/protected?screen=review-transactions' } },
+    });
+    await expect(buildPreparerPackage('owner', 2026)).rejects.toMatchObject({
+      code: 'DUPLICATE_REVIEW_REQUIRED',
+      reviewHref: '/protected?screen=review-transactions',
+    });
+    await expect(buildPreparerPackage('owner', 2026)).rejects.toThrow(/PLACEHOLDER/);
+  });
   it('includes exact original bytes, structured/CSV records, audit support and a checkable manifest', async () => {
     const result = await buildPreparerPackage('owner', 2026), entries = unzip(result.bytes);
     expect(result.manifest).toMatchObject({ taxYear: 2026, records: 1, receiptFiles: 1, receiptIssues: 0, completeReceiptCoverage: true });

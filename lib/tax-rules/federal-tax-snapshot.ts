@@ -157,6 +157,7 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
   if (dividends || iraDist || rental) {
     result.calculationWarnings.push('Organizer income amounts require tax review: qualified-dividend character, retirement basis and rental treatment are not fully modeled.');
   }
+  const heldOutDuplicates = summarizeHeldOutDuplicates(transactions, taxYear);
   return {
     filingStatus, result, seCalc, depreciationDeduction, deMinimisExpense, homeOfficeDeduction, scheduleC, reconciliation, socialSecurityWorksheet, personalDeductions: result.personalDeductions,
     capitalGains, businessLoss: result.businessLoss, obbbaDeductions: result.obbbaDeductions,
@@ -173,6 +174,10 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     w2: { wages: w2.wages, withheld: w2FederalWithheld, count: input.w2Entries.length, stateWithheld: w2.stateWithheld },
     deductions: { healthInsurancePremiums, sepIraContribution, solo401kContribution, simpleIraContribution, hsaContribution, studentLoanInterest },
     payments: { estimatedPayments: input.estimatedPayments, w2FederalWithheld, socialSecurityFederalWithheld, totalFederalWithheld: w2FederalWithheld + socialSecurityFederalWithheld },
-    heldOutDuplicates: summarizeHeldOutDuplicates(transactions, taxYear),
+    heldOutDuplicates,
+    heldOutPlacement: {
+      besideGrossReceiptsLine1: heldOutDuplicates.income,
+      besideLine28OutsideSubtotal: heldOutDuplicates.expenses,
+    },
   };
 }

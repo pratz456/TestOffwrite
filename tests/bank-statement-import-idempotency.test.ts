@@ -1,7 +1,17 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { aggregateScheduleC } from '@/lib/schedule-c/aggregate';
+import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
+import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
+import { assembleAuditSupportPacket } from '@/lib/reports/audit-support-packet';
+import { generatePreparerReport, preparerMonthlySummary } from '@/lib/reports/preparer-report';
+import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
 import { overlapKey } from '@/lib/transactions/historical-overlap';
+import { summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
+import { sumExpensesForQuarter } from '@/lib/tax-provider/quarterly-estimates';
+import { buildFederalTaxSnapshot } from '@/lib/tax-rules/federal-tax-snapshot';
+import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
 
 const docs = new Map<string, Record<string, unknown>>();
@@ -34,17 +44,21 @@ function ref(path: string): any {
   return node;
 }
 function batch() {
-  const ops: Array<{ type: 'set' | 'create'; path: string; data: Record<string, unknown> }> = [];
+  const ops: Array<{ type: 'set' | 'create' | 'update'; path: string; data: Record<string, unknown> }> = [];
   return {
     set: (target: { path: string }, data: Record<string, unknown>) => { ops.push({ type: 'set', path: target.path, data: cloned(data) }); },
     create: (target: { path: string }, data: Record<string, unknown>) => { ops.push({ type: 'create', path: target.path, data: cloned(data) }); },
+    update: (target: { path: string }, data: Record<string, unknown>) => { ops.push({ type: 'update', path: target.path, data: cloned(data) }); },
     commit: async () => {
       if (ops.some(op => op.type === 'create' && docs.has(op.path))) {
         const error = new Error('already exists') as Error & { code: number };
         error.code = 6;
         throw error;
       }
-      for (const op of ops) docs.set(op.path, op.data);
+      for (const op of ops) {
+        if (op.type === 'update') docs.set(op.path, { ...docs.get(op.path), ...op.data });
+        else docs.set(op.path, op.data);
+      }
     },
   };
 }
@@ -59,6 +73,21 @@ vi.mock('@/lib/firebase/admin', () => ({
       exists: docs.has(item.path!), id: item.path!.split('/').at(-1),
       data: () => docs.has(item.path!) ? cloned(docs.get(item.path!)!) : undefined,
     })),
+    collectionGroup(name: string) {
+      const filters: Array<[string, unknown]> = [];
+      const query = {
+        where(field: string, _op: string, value: unknown) { filters.push([field, value]); return query; },
+        limit() { return query; },
+        async get() {
+          const matches = [...docs.entries()].filter(([key, data]) => key.split('/').at(-2) === name && filters.every(([field, value]) => data[field] === value));
+          return {
+            empty: matches.length === 0,
+            docs: matches.map(([key, data]) => ({ id: key.split('/').at(-1), ref: ref(key), data: () => cloned(data) })),
+          };
+        },
+      };
+      return query;
+    },
     runTransaction: async (work: (tx: { get: (target: { path: string }) => Promise<{ exists: boolean; data: () => Record<string, unknown> | undefined }>; create: (target: { path: string }, data: Record<string, unknown>) => void }) => Promise<unknown>) => {
       const staged: Array<{ path: string; data: Record<string, unknown> }> = [];
       const result = await work({
@@ -105,9 +134,9 @@ function importDocs() {
 function frozenImportDocs() {
   return new Map(importDocs().map(doc => [doc.path, freeze(doc.data)]));
 }
-async function upload(transactions: Row[], identity: Identity = {}, bytes: Buffer = PNG) {
+async function upload(transactions: Row[], identity: Identity = {}, bytes: Buffer = PNG, docType: 'bank_statement' | 'credit_card' = 'bank_statement') {
   mocks.create.mockResolvedValueOnce(completion(transactions, identity));
-  const response = await POST(request('bank_statement', bytes));
+  const response = await POST(request(docType, bytes));
   const body = await response.json() as { imported: number; alreadyImported: number; flaggedLegacy: number; transactionsImported: number };
   return { status: response.status, body };
 }
@@ -270,6 +299,7 @@ describe('statement import document ids', () => {
       expectedId(charge, 1, accountScope({ accountLast4: '1111' })),
       expectedId(charge, 1, accountScope({ accountLast4: '2222' })),
     ].sort());
+    expect(importDocs().every(doc => doc.data.possibleDuplicate !== true)).toBe(true);
   });
 
   it('dedupes a statement with no account identity only when the file bytes match', async () => {
@@ -311,6 +341,209 @@ describe('statement import document ids', () => {
       1, fileScope(PNG), 'receipt',
     ));
     for (const [path, frozen] of before) expect(freeze(docs.get(path))).toBe(frozen);
+  });
+
+  function confirmedRows() {
+    return importDocs().map(doc => ({
+      ...doc.data,
+      is_deductible: true,
+      review_status: 'confirmed',
+      category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES',
+    }));
+  }
+  function confirmedExpenseTotal() {
+    return aggregateScheduleC(confirmedRows() as never, '2026', undefined, { mode: 'confirmed-only' }).totalDeductible;
+  }
+  function expenseTotals() {
+    const rows = confirmedRows();
+    const snapshot = buildFederalTaxSnapshot({
+      taxYear: 2026, profile: { filing_status: 'single' }, organizer: reviewedPersonalDeductionOrganizer(),
+      transactions: rows, grossReceipts: [{ amount: 100000 }], forms1099: [], w2Entries: [], deductions: {}, assets: [], estimatedPayments: 0,
+    });
+    const preparer = [...preparerMonthlySummary(rows, 2026).groups.values()].reduce((sum, months) => sum + months.reduce((inner, row) => inner + row.outflow, 0), 0) / 100;
+    return {
+      scheduleC: confirmedExpenseTotal(),
+      snapshot: snapshot.income.totalDeductible,
+      quarter: sumExpensesForQuarter(rows as never, 2026, 2, 'UTC').confirmed_deductible_expenses,
+      dashboard: summarizeConfirmedDeductions(rows, 2026).totalDeductible,
+      preparer,
+    };
+  }
+  function listedTotals(amount: number) {
+    const rows = confirmedRows();
+    const schedule = aggregateScheduleC(rows as never, '2026', undefined, { mode: 'confirmed-only' });
+    const snapshot = buildFederalTaxSnapshot({
+      taxYear: 2026, profile: { filing_status: 'single' }, organizer: reviewedPersonalDeductionOrganizer(),
+      transactions: rows, grossReceipts: [{ amount: 100000 }], forms1099: [], w2Entries: [], deductions: {}, assets: [], estimatedPayments: 0,
+    });
+    const totals = {
+      quarter: sumExpensesForQuarter(rows as never, 2026, 2, 'UTC').confirmed_deductible_expenses,
+      annual: snapshot.income.totalDeductible,
+      scheduleC: schedule.totalDeductible,
+      dashboard: summarizeConfirmedDeductions(rows, 2026).totalDeductible,
+    };
+    expect(totals).toEqual({ quarter: amount, annual: amount, scheduleC: amount, dashboard: amount });
+    return { rows, schedule };
+  }
+  async function expectUnresolvedCharge() {
+    const { rows, schedule } = listedTotals(500);
+    const heldOut = summarizeHeldOutDuplicates(rows, 2026);
+    expect(heldOut.expenses).toEqual({ count: 1, amount: 500 });
+    expect(heldOut.expenseMessage).toContain('beside line 28');
+    expect(heldOut.expenseMessage).toContain('1 held out expense row');
+    expect(heldOut.expenseMessage).toContain('$500.00');
+    expect(heldOut.message).not.toMatch(/legacy_match|bank_linked|statement_match|cross_document|ambiguous_account/);
+    const { PDFPage } = await import('pdf-lib');
+    const spy = vi.spyOn(PDFPage.prototype, 'drawText');
+    await generateScheduleCPlanningPDF({ taxYear: 2026, grossReceipts: 100000, lineItems: schedule.lineItemsArray, includeAppendix: false, heldOutDuplicates: heldOut });
+    const text = spy.mock.calls.map(call => String(call[0])).join('\n').replace(/\s+/g, ' ');
+    const subtotalAt = text.indexOf('28 subtotal');
+    const heldAt = text.indexOf('beside line 28');
+    expect(subtotalAt).toBeGreaterThan(-1);
+    expect(heldAt).toBeGreaterThan(subtotalAt);
+    expect(text).toContain('1 row');
+    expect(text).toContain('$500.00');
+    expect(text).toContain('Held out expenses');
+    expect(text).not.toContain('$1,000.00');
+    expect(text).not.toContain('$0.00');
+    spy.mockRestore();
+    expect(() => assembleAuditSupportPacket(OWNER, 2026, { transactions: rows as never, trips: [], receipts: [] })).toThrow(expect.objectContaining({ code: 'DUPLICATE_REVIEW_REQUIRED' }));
+    await expect(generatePreparerReport(rows as never, 2026)).rejects.toMatchObject({ code: 'DUPLICATE_REVIEW_REQUIRED' });
+    expect(() => generateScheduleCCSV(schedule.lineItemsArray, 2026, heldOut)).toThrow(expect.objectContaining({ code: 'DUPLICATE_REVIEW_REQUIRED' }));
+  }
+  function savedDocs() {
+    return new Map([...docs.entries()].map(([path, data]) => [path, cloned(data)]));
+  }
+  function restoreDocs(saved: Map<string, Record<string, unknown>>) {
+    docs.clear();
+    for (const [path, data] of saved) docs.set(path, cloned(data));
+  }
+  async function resolvePair(outcome: 'both_real' | 'duplicate') {
+    const flagged = importDocs().filter(doc => doc.data.possibleDuplicate === true);
+    expect(flagged).toHaveLength(1);
+    const ids = importDocs().map(doc => doc.id).sort();
+    const earliest = importDocs().find(doc => doc.path !== flagged[0].path)!;
+    const earliestFrozen = freeze(earliest.data);
+    const merchant = flagged[0].data.merchant_name;
+    const route = await import('../app/api/tax/duplicate-review/route');
+    expect(typeof route.POST).toBe('function');
+    const response = await route.POST(new NextRequest('http://localhost/api/tax/duplicate-review', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transactionId: flagged[0].data.trans_id, outcome }),
+    }));
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.transaction.duplicateResolution).toBe(outcome);
+    expect(body.transaction.possibleDuplicate).not.toBe(true);
+    expect(JSON.stringify(body)).not.toMatch(/legacy_match|bank_linked|statement_match|cross_document|ambiguous_account/);
+    expect(importDocs().map(doc => doc.id).sort()).toEqual(ids);
+    expect(freeze(docs.get(earliest.path))).toBe(earliestFrozen);
+    const later = docs.get(flagged[0].path)!;
+    expect(later.amount).toBe(500);
+    expect(later.possibleDuplicate).not.toBe(true);
+    expect(later.duplicateResolution).toBe(outcome);
+    expect(later.merchant_name).toBe(merchant);
+    expect(summarizeHeldOutDuplicates(confirmedRows(), 2026).count).toBe(0);
+  }
+  async function expectResolvedPair() {
+    const saved = savedDocs();
+    await resolvePair('both_real');
+    listedTotals(1000);
+    expect(() => assembleAuditSupportPacket(OWNER, 2026, { transactions: confirmedRows() as never, trips: [], receipts: [] })).not.toThrow();
+    await expect(generatePreparerReport(confirmedRows() as never, 2026)).resolves.toBeInstanceOf(Uint8Array);
+    restoreDocs(saved);
+    await resolvePair('duplicate');
+    listedTotals(500);
+    expect(importDocs().filter(doc => doc.data.duplicateResolution === 'duplicate')).toHaveLength(1);
+    expect(() => assembleAuditSupportPacket(OWNER, 2026, { transactions: confirmedRows() as never, trips: [], receipts: [] })).not.toThrow();
+    await expect(generatePreparerReport(confirmedRows() as never, 2026)).resolves.toBeInstanceOf(Uint8Array);
+  }
+  async function uploadReceipt(merchant: string, date: string, amount: number) {
+    mocks.create.mockResolvedValueOnce({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({
+      currency: 'USD', merchant, date, total: amount, category: 'Office Supplies', confidence: 'high',
+    }), refusal: null } }] });
+    const response = await POST(request('receipt'));
+    return { status: response.status, body: await response.json() as { imported: number; alreadyImported: number } };
+  }
+  const officeCharge: Row = { date: '2026-06-15', description: 'Office Depot', amount: 500, transaction_type: 'debit', category: 'Office Supplies' };
+
+  it('holds out the later read of the same card and counts the first 500 charge', async () => {
+    const first = await upload([officeCharge], { bankName: 'Chase', accountLast4: '4242' }, PNG, 'credit_card');
+    const before = frozenImportDocs();
+    const second = await upload([officeCharge], { bankName: 'Chase', accountLast4: null }, PNG, 'credit_card');
+    expect(first.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    expect(second.body).toMatchObject({ imported: 1, alreadyImported: 0, flaggedLegacy: 0 });
+    expect(importDocs()).toHaveLength(2);
+    const flagged = importDocs().filter(doc => doc.data.possibleDuplicate === true);
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].data).toMatchObject({ possibleDuplicateReason: 'ambiguous_account', amount: 500, accountLast4: null, statementKind: 'credit_card' });
+    for (const [path, frozen] of before) expect(freeze(docs.get(path))).toBe(frozen);
+    await expectUnresolvedCharge();
+    await expectResolvedPair();
+  });
+
+  it('counts the receipt imported first and holds out the later statement', async () => {
+    const receipt = await uploadReceipt('Office Depot', officeCharge.date, 500);
+    expect(receipt.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    const before = frozenImportDocs();
+    const statement = await upload([officeCharge], { bankName: 'Chase', accountLast4: '4242' }, PNG, 'credit_card');
+    expect(statement.body).toMatchObject({ imported: 1, alreadyImported: 0, flaggedLegacy: 0 });
+    expect(importDocs()).toHaveLength(2);
+    const flagged = importDocs().filter(doc => doc.data.possibleDuplicate === true);
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].data).toMatchObject({ possibleDuplicateReason: 'cross_document', amount: 500, importedFromStatement: true });
+    expect(importDocs().find(doc => doc.data.source === 'receipt')?.data.possibleDuplicate).not.toBe(true);
+    for (const [path, frozen] of before) expect(freeze(docs.get(path))).toBe(frozen);
+    await expectUnresolvedCharge();
+    await expectResolvedPair();
+  });
+
+  it('counts the statement imported first and holds out the later receipt', async () => {
+    const statement = await upload([officeCharge], { bankName: 'Chase', accountLast4: '4242' }, PNG, 'credit_card');
+    expect(statement.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    const before = frozenImportDocs();
+    const receipt = await uploadReceipt('Office Depot', officeCharge.date, 500);
+    expect(receipt.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    expect(importDocs()).toHaveLength(2);
+    const flagged = importDocs().filter(doc => doc.data.possibleDuplicate === true);
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].data).toMatchObject({ possibleDuplicateReason: 'statement_match', amount: 500, source: 'receipt' });
+    expect(importDocs().find(doc => doc.data.importedFromStatement === true)?.data.possibleDuplicate).not.toBe(true);
+    for (const [path, frozen] of before) expect(freeze(docs.get(path))).toBe(frozen);
+    await expectUnresolvedCharge();
+    await expectResolvedPair();
+    docs.clear();
+    const described = await upload([{ ...officeCharge, description: 'SQ *OFFICE DEPOT 4421' }], { bankName: 'Chase', accountLast4: '4242' }, PNG, 'credit_card');
+    expect(described.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    const describedBefore = frozenImportDocs();
+    const laterReceipt = await uploadReceipt('Office Depot', officeCharge.date, 500);
+    expect(laterReceipt.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    expect(importDocs()).toHaveLength(2);
+    const describedFlagged = importDocs().filter(doc => doc.data.possibleDuplicate === true);
+    expect(describedFlagged).toHaveLength(1);
+    expect(describedFlagged[0].data).toMatchObject({ possibleDuplicateReason: 'cross_document', amount: 500, source: 'receipt' });
+    expect(importDocs().find(doc => doc.data.importedFromStatement === true)?.data.possibleDuplicate).not.toBe(true);
+    for (const [path, frozen] of describedBefore) expect(freeze(docs.get(path))).toBe(frozen);
+    await expectUnresolvedCharge();
+    await expectResolvedPair();
+  });
+
+  it('counts a card charge and a same day checking charge at the same merchant as two expenses', async () => {
+    const card = await upload([officeCharge], { bankName: 'Chase', accountLast4: '4242' }, PNG, 'credit_card');
+    const checking = await upload([officeCharge], { bankName: 'Chase', accountLast4: null }, PNG, 'bank_statement');
+    expect(card.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    expect(checking.body).toMatchObject({ imported: 1, alreadyImported: 0, flaggedLegacy: 0 });
+    expect(importDocs()).toHaveLength(2);
+    expect(importDocs().every(doc => doc.data.possibleDuplicate !== true)).toBe(true);
+    expect(expenseTotals()).toEqual({ scheduleC: 1000, snapshot: 1000, quarter: 1000, dashboard: 1000, preparer: 1000 });
+  });
+
+  it('counts two same day statement lines for the same card and merchant as two expenses', async () => {
+    const saved = await upload([officeCharge, { ...officeCharge }], { bankName: 'Chase', accountLast4: '4242' }, PNG, 'credit_card');
+    expect(saved.body).toMatchObject({ imported: 2, alreadyImported: 0, flaggedLegacy: 0 });
+    expect(importDocs()).toHaveLength(2);
+    expect(importDocs().every(doc => doc.data.possibleDuplicate !== true && doc.data.amount === 500)).toBe(true);
+    expect(expenseTotals()).toEqual({ scheduleC: 1000, snapshot: 1000, quarter: 1000, dashboard: 1000, preparer: 1000 });
   });
 
   it('keeps document ids opaque', async () => {

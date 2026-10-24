@@ -97,21 +97,85 @@ describe('Schedule C supported-year selection', () => {
 
 describe('Schedule C held out duplicates', () => {
   it('shows the held out count and amount on the preview', () => {
-    const tree = render({
+    const input = {
       ...props,
       transactions: [
         ...props.transactions,
+        { id: 'kept-2026', merchant_name: 'Kept supplies', amount: 100, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', date: '2026-03-01', is_deductible: true, review_status: 'confirmed' },
         { id: 'flagged-credit', merchant_name: 'Flagged deposit', amount: -25000, category: 'income', date: '2026-04-01', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' },
         { id: 'flagged-debit', merchant_name: 'Flagged supplies', amount: 40, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', date: '2026-04-02', is_deductible: true, review_status: 'confirmed', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked' },
       ],
-    });
+    };
+    render(input);
+    const tree = render(input);
     const notice = walk(tree).find(node => node.type === HeldOutDuplicatesNotice);
-    expect(notice?.props.summary).toMatchObject({ count: 2, amount: 25040, reviewHref: '/protected?screen=review-transactions' });
+    expect(notice?.props.summary).toMatchObject({
+      count: 2,
+      income: { count: 1, amount: 25000 },
+      expenses: { count: 1, amount: 40 },
+      reviewHref: '/protected?screen=review-transactions',
+    });
     const shown = HeldOutDuplicatesNotice(notice.props);
     const rendered = text(shown);
     expect(rendered).toContain('PLACEHOLDER');
-    expect(rendered).toContain('$25,040.00');
-    expect(walk(shown).some(node => node.type === 'a' && String(node.props?.href).includes('review-transactions'))).toBe(true);
+    expect(rendered).toContain('beside gross receipts (line 1)');
+    expect(rendered).toContain('beside line 28');
+    expect(rendered).toContain('$25,000.00');
+    expect(rendered).toContain('$40.00');
+    expect(rendered).not.toContain('$25,040.00');
+    expect(rendered).not.toMatch(/legacy_match|bank_linked/);
+    const link = walk(shown).find(node => node.type === 'a' && String(node.props?.href).includes('review-transactions'));
+    expect(link).toBeTruthy();
+    expect(text(link)).toContain('PLACEHOLDER: Review possible duplicates');
+    expect(String(link.props['aria-label'])).toContain('PLACEHOLDER');
+    const nodes = walk(tree);
+    const block = nodes.find(node => node.props?.['data-testid'] === 'duplicate-review-block');
+    expect(text(block)).toContain('PLACEHOLDER');
+    expect(text(block)).toContain('Review possible duplicates');
+    expect(nodes.find(node => typeof node.props?.onClick === 'function' && text(node).includes('Export 2026 Schedule C Data'))).toBeUndefined();
+    const line28 = nodes.find(node => text(node).includes('Total Business Expenses (Line 28)') && !text(node).includes('Held out'));
+    const expenseLine = nodes.find(node => node.props?.['data-testid'] === 'held-out-expense-line');
+    const incomeLine = nodes.find(node => node.props?.['data-testid'] === 'held-out-income-line');
+    expect(text(incomeLine)).toContain('Line 1 gross receipts');
+    expect(text(line28)).toContain('$200.00');
+    expect(text(line28)).not.toContain('$40.00');
+    expect(text(line28)).not.toContain('$240.00');
+    expect(nodes.indexOf(expenseLine)).toBeGreaterThan(nodes.indexOf(line28));
+    expect(text(expenseLine)).toContain('$40.00');
+  });
+
+  it('points at held-out review when every row in the selected year is flagged', () => {
+    const tree = render({
+      ...props,
+      transactions: [
+        { id: 'flagged-2026', merchant_name: 'Flagged supplies', amount: 40, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', date: '2026-04-02', is_deductible: true, review_status: 'confirmed', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked' },
+        { id: 'flagged-2025', merchant_name: 'Other year supplies', amount: 80, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', date: '2025-04-02', is_deductible: true, review_status: 'confirmed', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' },
+        { id: 'kept-2025', merchant_name: 'Kept other year', amount: 100, category: 'GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE', date: '2025-03-01', is_deductible: true },
+      ],
+    });
+    const rendered = text(tree);
+    expect(rendered).not.toContain('No deductible business expenses found');
+    expect(rendered).not.toContain('Make sure to categorize your transactions as business expenses first.');
+    expect(rendered).not.toContain('categorize');
+    expect(rendered).toContain('PLACEHOLDER');
+    expect(rendered).toContain('$40.00');
+    expect(rendered).not.toContain('$80.00');
+    expect(rendered).not.toMatch(/bank_linked|legacy_match/);
+    const link = walk(tree).find(node => node.type === 'a' && String(node.props?.href).includes('review-transactions'));
+    expect(text(link)).toContain('PLACEHOLDER: Review possible duplicates');
+    expect(String(link.props['aria-label'])).toContain('PLACEHOLDER');
+  });
+
+  it('keeps the empty expense message when the year still has an unflagged row', () => {
+    const rendered = text(render({
+      ...props,
+      transactions: [
+        { id: 'personal', merchant_name: 'Personal', amount: 20, category: 'GENERAL_MERCHANDISE', date: '2026-01-01', is_deductible: false },
+        { id: 'flagged', merchant_name: 'Flagged supplies', amount: 40, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', date: '2026-04-02', is_deductible: true, possibleDuplicate: true },
+      ],
+    }));
+    expect(rendered).toContain('No deductible business expenses found for 2026');
+    expect(rendered).toContain('Make sure to categorize your transactions as business expenses first.');
   });
 });
 
