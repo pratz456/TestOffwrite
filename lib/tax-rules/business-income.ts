@@ -32,7 +32,7 @@ const ST_THOMAS = 'America/St_Thomas';
  * Comparison is lowercase. Z is not one of them. Etc/GMT with an hour other
  * than 0 is not one of them, because those signs are reversed.
  */
-const UTC_ZONE_ALIASES = new Set([
+export const UTC_ZONE_ALIASES = new Set([
   'utc',
   'etc/utc',
   'etc/gmt',
