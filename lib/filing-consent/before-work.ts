@@ -7,6 +7,7 @@ import {
   partnerRecipientLegalNames,
 } from './config';
 import { filingConsentNow } from './clock';
+import { residentStateForHandOff, type AskResidentStateDecision } from './gate';
 import { refusal, type ConsentRefusal } from './record';
 
 export type BeforeWorkResidentState = 'CT' | 'CA';
@@ -64,7 +65,8 @@ function blank(value: unknown): boolean {
 }
 
 export function isBeforeWorkResidentState(state: string): state is BeforeWorkResidentState {
-  return state === 'CT' || state === 'CA';
+  const normalized = residentStateForHandOff(state);
+  return normalized === 'CT' || normalized === 'CA';
 }
 
 /**
@@ -76,7 +78,8 @@ export function assembleBeforeWorkDisclosureScreen(
   residentState: string,
   copy: PartnerBeforeWorkCopy,
 ): BeforeWorkDisclosureScreen | null {
-  if (!isBeforeWorkResidentState(residentState)) return null;
+  const state = residentStateForHandOff(residentState);
+  if (state !== 'CT' && state !== 'CA') return null;
   if (blank(copy.partnerFirmLegalName)) return null;
   if (blank(copy.signingEaName)) return null;
   if (blank(copy.signingEaPtin)) return null;
@@ -85,7 +88,7 @@ export function assembleBeforeWorkDisclosureScreen(
   if (blank(copy.feeEstimateOfTotalCharge) || !copy.feeEstimateOfTotalCharge.includes(FEE_ESTIMATE_PHRASE)) return null;
   if (blank(copy.securityWarranty)) return null;
   return {
-    residentState,
+    residentState: state,
     partnerFirmLegalName: copy.partnerFirmLegalName,
     signingEaName: copy.signingEaName,
     signingEaPtin: copy.signingEaPtin,
@@ -173,11 +176,13 @@ export function beforeWorkDisclosureGap(data: Record<string, unknown> | undefine
 
 export async function recordBeforeWorkDisclosureShown(
   input: RecordBeforeWorkDisclosureInput,
-): Promise<{ ok: true; id: string; screen: BeforeWorkDisclosureScreen; shownAt: string } | ConsentRefusal> {
+): Promise<{ ok: true; id: string; screen: BeforeWorkDisclosureScreen; shownAt: string } | ConsentRefusal | AskResidentStateDecision> {
   if (blank(input.partnerId) || !partnerRecipientLegalNames().includes(input.partnerId)) {
     return refusal('recipient_not_legal_name', 'The before work disclosure partner must be a legal name from the partner list.');
   }
-  const screen = buildBeforeWorkDisclosureScreen(input.residentState, input.partnerId);
+  const residentState = residentStateForHandOff(input.residentState);
+  if (typeof residentState !== 'string') return residentState;
+  const screen = buildBeforeWorkDisclosureScreen(residentState, input.partnerId);
   if (!screen) {
     return refusal('before_work_disclosure_missing', 'The before work disclosure screen is missing a required item.');
   }
@@ -234,17 +239,19 @@ export async function beforeWorkHandOffRefusal(input: {
   taxYear: number;
   partnerId: string;
 }): Promise<ConsentRefusal | null> {
-  if (input.residentState !== 'CT' && input.residentState !== 'CA') return null;
-  const screen = buildBeforeWorkDisclosureScreen(input.residentState, input.partnerId);
+  const residentState = residentStateForHandOff(input.residentState);
+  if (typeof residentState !== 'string') return residentState.code === 'invalid_resident_state' ? residentState : null;
+  if (residentState !== 'CT' && residentState !== 'CA') return null;
+  const screen = buildBeforeWorkDisclosureScreen(residentState, input.partnerId);
   if (!screen) {
     return refusal('before_work_disclosure_missing', 'The partner before work disclosure is missing a required item.');
   }
   const ref = adminDb.collection(FILING_BEFORE_WORK_DISCLOSURE_COLLECTION).doc(
-    beforeWorkDisclosureDocId(input.uid, input.taxYear, input.residentState, input.partnerId, beforeWorkScreenHash(screen)),
+    beforeWorkDisclosureDocId(input.uid, input.taxYear, residentState, input.partnerId, beforeWorkScreenHash(screen)),
   );
   const snap = await ref.get();
   const data = snap.exists ? snap.data() as Record<string, unknown> | undefined : undefined;
-  if (!data || data.uid !== input.uid || data.taxYear !== input.taxYear || data.residentState !== input.residentState || data.partnerId !== input.partnerId) {
+  if (!data || data.uid !== input.uid || data.taxYear !== input.taxYear || data.residentState !== residentState || data.partnerId !== input.partnerId) {
     return refusal('before_work_disclosure_missing', 'The before work disclosure screen has not been recorded.');
   }
   const gap = beforeWorkDisclosureGap(data, input.partnerId);

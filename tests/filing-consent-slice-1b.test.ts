@@ -48,6 +48,7 @@ import {
 import { beforeWorkDisclosureDocId, beforeWorkScreenHash } from '@/lib/filing-consent/before-work';
 import { resetFilingConsentClock, setFilingConsentClock } from '@/lib/filing-consent/clock';
 import {
+  RESIDENT_STATE_CODES,
   addDraftTestPartnerName,
   replaceDraftDisclosurePurpose,
   replaceDraftPartnerDisclosureCopy,
@@ -359,6 +360,59 @@ describe('before work disclosure screen', () => {
     const params = Function.prototype.toString.call(recordBeforeWorkDisclosureShown).match(/^(?:async\s+)?function[^(]*\(([^)]*)\)/)?.[1] ?? '';
     expect(params).not.toMatch(/\bnow\b/);
     expect(params).not.toMatch(/\bsignedAt\b/);
+  });
+
+  it('records the before work screen for ct, Ct, and spaced ca, and refuses XX with no record', async () => {
+    expect(RESIDENT_STATE_CODES).toHaveLength(51);
+    expect(new Set(RESIDENT_STATE_CODES).size).toBe(51);
+    const saved = await saveValid();
+    at(SHOWN_AT);
+    const recordedLower = await recordBeforeWorkDisclosureShown({
+      uid: 'user-1',
+      taxYear: 2026,
+      residentState: 'ct',
+      partnerId: PARTNER,
+    });
+    expect(recordedLower.ok).toBe(true);
+    if (!recordedLower.ok) throw new Error('expected a Connecticut screen from ct');
+    expect(recordedLower.screen.residentState).toBe('CT');
+    expect(buildBeforeWorkDisclosureScreen('ct')?.residentState).toBe('CT');
+    const sent = createPartnerSendStub();
+    expect(await sendFilingHandOff(handOff(saved.id, { residentState: 'ct' }), sent)).toEqual({ sent: true });
+    expect(sent.deliveries).toHaveLength(1);
+
+    const recordedMixed = await recordBeforeWorkDisclosureShown({
+      uid: 'user-mixed',
+      taxYear: 2026,
+      residentState: 'Ct',
+      partnerId: PARTNER,
+    });
+    expect(recordedMixed.ok).toBe(true);
+    if (!recordedMixed.ok) throw new Error('expected a Connecticut screen from Ct');
+    expect(recordedMixed.screen.residentState).toBe('CT');
+    expect(buildBeforeWorkDisclosureScreen('Ct')?.residentState).toBe('CT');
+
+    const recordedCalifornia = await recordBeforeWorkDisclosureShown({
+      uid: 'user-ca',
+      taxYear: 2026,
+      residentState: ' ca ',
+      partnerId: PARTNER,
+    });
+    expect(recordedCalifornia.ok).toBe(true);
+    if (!recordedCalifornia.ok) throw new Error('expected a California screen from spaced ca');
+    expect(recordedCalifornia.screen.residentState).toBe('CA');
+    expect(buildBeforeWorkDisclosureScreen(' ca ')?.residentState).toBe('CA');
+
+    const before = paths(FILING_BEFORE_WORK_DISCLOSURE_COLLECTION);
+    const refused = await recordBeforeWorkDisclosureShown({
+      uid: 'user-xx',
+      taxYear: 2026,
+      residentState: 'XX',
+      partnerId: PARTNER,
+    });
+    expect(refused).toMatchObject({ ok: false, code: 'invalid_resident_state' });
+    expect(paths(FILING_BEFORE_WORK_DISCLOSURE_COLLECTION)).toEqual(before);
+    expect(paths(FILING_BEFORE_WORK_DISCLOSURE_COLLECTION).some(path => path.includes('user-xx'))).toBe(false);
   });
 
   it.each(['CT', 'CA'] as const)('refuses a %s hand off until the screen is recorded, then sends', async (state) => {

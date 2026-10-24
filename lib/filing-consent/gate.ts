@@ -3,6 +3,7 @@ import {
   CURRENT_CONSENT_TEXT_VERSION,
   FILING_CONSENT_TEXT_COLLECTION,
   FILING_DISCLOSURE_CONSENT_COLLECTION,
+  RESIDENT_STATE_CODES,
   currentDisclosurePurpose,
   partnerRecipientLegalNames,
 } from './config';
@@ -72,16 +73,10 @@ export interface PartnerSendStub {
   deliver(delivery: PartnerDelivery): void;
 }
 
-const RESIDENT_STATE_CODES = new Set([
-  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL',
-  'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME',
-  'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH',
-  'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI',
-  'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI',
-  'WY',
-]);
+const residentStateCodeSet = new Set(RESIDENT_STATE_CODES);
 
-function residentStateForHandOff(value: unknown): string | AskResidentStateDecision | ConsentRefusal {
+/** Trim, uppercase, and accept only the shared 51-entry resident-state list. */
+export function residentStateForHandOff(value: unknown): string | AskResidentStateDecision | ConsentRefusal {
   // The caller must set residentState from server-side profile data, never from the request body.
   const state = typeof value === 'string' ? value.trim().toUpperCase() : '';
   if (!state) {
@@ -92,7 +87,7 @@ function residentStateForHandOff(value: unknown): string | AskResidentStateDecis
       message: 'Ask the resident state question before this hand off.',
     };
   }
-  if (!RESIDENT_STATE_CODES.has(state)) {
+  if (!residentStateCodeSet.has(state)) {
     return refusal('invalid_resident_state', 'The resident state is not one of the fifty states or the District of Columbia.');
   }
   return state;

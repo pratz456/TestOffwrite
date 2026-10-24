@@ -32,6 +32,16 @@ export const PARTNER_RECIPIENT_LEGAL_NAMES: readonly string[] = [
 export const CURRENT_CONSENT_TEXT_VERSION = 'draft-2026-10-23';
 export const CURRENT_USE_CONSENT_TEXT_VERSION = 'draft-use-2026-10-23';
 
+/** The fifty states and the District of Columbia. The hand off and the before-work screen share this list. */
+export const RESIDENT_STATE_CODES: readonly string[] = [
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL',
+  'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME',
+  'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH',
+  'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI',
+  'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI',
+  'WY',
+];
+
 /** DRAFT stated purpose. A hand off must still name this purpose. A different purpose is a new consent. */
 export const DRAFT_DISCLOSURE_PURPOSE = 'DRAFT: to prepare and e-file your 2026 federal return and your home state return';
 
