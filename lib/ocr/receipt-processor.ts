@@ -498,10 +498,12 @@ function ambiguousNumericDate(value: string): boolean {
 const STRONG_DOLLAR_PREFIX = /(?<![A-Za-z])(?:CA|AU|NZ|MX) ?\$/;
 /** A, C, and R count only when the letter touches the $. A space is a US tax or item flag, not a prefix. */
 const SHORT_DOLLAR_PREFIX = /(?<![A-Za-z])[ACR]\$/;
-/** Capitals-only ISO codes. Repeated codes are still one kind of signal. ALL and TOP are handled apart from this list. */
-const CURRENCY_CODE = 'EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|AED|SAR|ILS|BAM|BOB|COP|CUP|GEL|MAD|MOP|PEN|RUB|SOS|TRY';
+/** Capitals-only ISO codes beside an amount. TRY, ALL, and TOP are not in this list. */
+const CURRENCY_CODE = 'EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|AED|SAR|ILS|BAM|BOB|COP|CUP|GEL|MAD|MOP|PEN|RUB|SOS';
+/** TRY still blanks on its own when it sits on a total, tax, due, or currency line. */
+const QUALIFYING_CODE = `${CURRENCY_CODE}|TRY`;
 /** A line that is only ALL or TOP and an amount, such as ALL 1.200 or 12.50 TOP. */
-const LONE_ALL_TOP = /^(?:(?:ALL|TOP)[ \t]+\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?[ \t]+(?:ALL|TOP))$/;
+const LONE_ALL_TOP = /^(?:(ALL|TOP)[ \t]+(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)[ \t]+(ALL|TOP))$/;
 /** Non US total words. English total, tax, and subtotal are not in this list. */
 const NON_US_TOTAL_WORD = /ИТОГО|ВСЕГО|К ОПЛАТЕ|итого|всего|к оплате/;
 /** Euro, pound, yen, rupee, lira, and ruble. A lone symbol is one kind and does not blank by itself. */
@@ -516,8 +518,54 @@ function usReceiptSignals(text: string): boolean {
 
 /** A capital code on a total, tax, due, or currency-label line. Item lines do not count. */
 function qualifyingCurrencyCode(text: string): boolean {
-  const code = new RegExp(`\\b(?:${CURRENCY_CODE})\\b`);
+  const code = new RegExp(`\\b(?:${QUALIFYING_CODE})\\b`);
   return text.split(/\r?\n/).some(line => code.test(line) && QUALIFYING_LINE.test(line));
+}
+
+/**
+ * Same patterns as the receipt total reader.
+ * Words between TOTAL and the amount, as in TOTAL DUE, hide that amount, so the reader returns 0.
+ * TOTAL 12,50 is read as 12. A zero result means no positive total was read.
+ */
+function receiptTotal(text: string): number {
+  const currencyPatterns = [
+    /\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/g,
+    /(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*USD/g,
+    /TOTAL[:\s]*\$?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/gi,
+    /AMOUNT[:\s]*\$?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/gi,
+    /SUBTOTAL[:\s]*\$?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/gi,
+  ];
+  let maxAmount = 0;
+  for (const pattern of currencyPatterns) {
+    for (const match of text.matchAll(pattern)) {
+      const amount = parseFloat(match[1].replace(/,/g, ''));
+      if (amount > maxAmount) maxAmount = amount;
+    }
+  }
+  return maxAmount;
+}
+
+function sameMoney(left: number, right: number): boolean {
+  return Number.isFinite(left) && Number.isFinite(right) && Math.round(left * 100) === Math.round(right * 100);
+}
+
+function moneyToken(token: string): number {
+  return parseFloat(token.replace(/,/g, ''));
+}
+
+/** TRY, ALL, and TOP count for the two kind check only when their amount equals a positive total. */
+function englishWordCodeCounts(text: string): boolean {
+  const total = receiptTotal(text);
+  if (!(total > 0)) return false;
+  const amounts: number[] = [];
+  for (const pattern of [/\bTRY[ \t]+(\d+(?:[.,]\d+)?)/g, /(\d+(?:[.,]\d+)?)[ \t]+\bTRY\b/g]) {
+    for (const match of text.matchAll(pattern)) amounts.push(moneyToken(match[1]));
+  }
+  for (const line of text.split(/\r?\n/)) {
+    const match = LONE_ALL_TOP.exec(line.trim());
+    if (match) amounts.push(moneyToken(match[2] || match[3]));
+  }
+  return amounts.some(amount => sameMoney(amount, total));
 }
 
 /** A symbol, or kr beside an amount, on a total, tax, due, or currency-label line. */
@@ -529,7 +577,7 @@ function symbolOnQualifyingLine(text: string): boolean {
 function codeBesideAmount(text: string): boolean {
   const before = new RegExp(`\\b(?:${CURRENCY_CODE}) ?\\d`);
   const after = new RegExp(`\\d+(?:[.,]\\d+)? ?\\b(?:${CURRENCY_CODE})\\b`);
-  return before.test(text) || after.test(text) || text.split(/\r?\n/).some(line => LONE_ALL_TOP.test(line.trim()));
+  return before.test(text) || after.test(text) || englishWordCodeCounts(text);
 }
 
 /** Kind: one of the six symbols, or kr beside an amount. Repeated symbols stay this one kind. */
@@ -711,28 +759,7 @@ export class ReceiptProcessor {
   }
 
   private extractAmount(text: string): number {
-    // Look for currency patterns: $X.XX, X.XX, $X,XX (European format)
-    const currencyPatterns = [
-      /\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/g, // $1,234.56
-      /(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*USD/g, // 1234.56 USD
-      /TOTAL[:\s]*\$?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/gi, // TOTAL: $1234.56
-      /AMOUNT[:\s]*\$?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/gi, // AMOUNT: $1234.56
-      /SUBTOTAL[:\s]*\$?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/gi, // SUBTOTAL: $1234.56
-    ];
-    
-    let maxAmount = 0;
-    
-    for (const pattern of currencyPatterns) {
-      const matches = text.matchAll(pattern);
-      for (const match of matches) {
-        const amount = parseFloat(match[1].replace(/,/g, ''));
-        if (amount > maxAmount) {
-          maxAmount = amount;
-        }
-      }
-    }
-    
-    return maxAmount;
+    return receiptTotal(text);
   }
 
   private extractDate(text: string): string {
