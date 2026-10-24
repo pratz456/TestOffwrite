@@ -459,7 +459,7 @@ export const ReviewTransactionsScreen: React.FC<ReviewTransactionsScreenProps> =
           </div>
           {!editing && <div className="grid grid-cols-2 gap-2 border-t border-border bg-card p-3">
             <Button variant="outline" disabled={busy || current.pending === true} onClick={() => swipe('left')} className="min-h-11 px-3"><Edit3 className="h-4 w-4" /><span>Change</span></Button>
-            <Button aria-describedby="review-confirmation-hint" disabled={busy || current.pending === true || analysisRunning || analysisQueued} onClick={() => { if (mayConfirm) void saveReview('confirm'); else openCorrection('manual'); }} className="min-h-11 gap-1.5 whitespace-normal px-2 leading-4">{operation === 'saving' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}<span>{operation === 'saving' ? 'Saving…' : confirmationLabel}</span></Button>
+            <Button aria-describedby="review-confirmation-hint" disabled={busy || current.pending === true || analysisRunning || analysisQueued} onClick={() => (mayConfirm ? saveReview('confirm') : openCorrection('manual'))} className="min-h-11 gap-1.5 whitespace-normal px-2 leading-4">{operation === 'saving' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}<span>{operation === 'saving' ? 'Saving…' : confirmationLabel}</span></Button>
           </div>}
         </article>
         {!editing && <p className="mt-2 text-center text-xs text-muted-foreground">Swipe left to change · right to confirm</p>}

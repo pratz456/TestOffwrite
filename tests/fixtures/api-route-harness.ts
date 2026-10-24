@@ -148,7 +148,10 @@ export function installApiRouteMocks(): ApiRouteHarness {
   vi.doMock('@/lib/openai/client', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/lib/openai/client')>();
     const disabled = () => ({
-      chat: { completions: { create: async () => { throw networkDisabled('OpenAI'); } } },
+      chat: { completions: { create: async (body: unknown) => {
+        await fetchDouble('https://model-provider.example/v1/chat/completions', { method: 'POST', body: JSON.stringify(body ?? {}) });
+        throw networkDisabled('OpenAI');
+      } } },
       logLevel: 'off',
     });
     return { ...actual, getOpenAIClientOrThrow: async () => disabled() };

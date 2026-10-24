@@ -11,7 +11,13 @@ vi.mock('openai', () => ({ default: function MockOpenAI(options: unknown) { cons
 // The assistant reads saved facts through the existing owner-scoped readers; Firestore itself is never touched here.
 vi.mock('@/lib/ai/profile-context', () => ({ getAnalysisProfile: readProfile }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: readTransactions }));
-vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
+vi.mock('@/lib/firebase/admin', () => ({
+  adminDb: { doc: () => ({ get: async () => ({ exists: true, data: () => ({
+    status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review',
+    purposes: ['tax_assistant', 'account_assistant'],
+    signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+  }) }) }) },
+}));
 import { POST } from '../app/api/ai/tax-assistant/route';
 
 const uid = 'synthetic-test-user';

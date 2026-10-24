@@ -12,7 +12,10 @@ vi.mock('@/lib/firebase/api-auth', () => ({
 vi.mock('@/lib/openai/client', () => ({
   hasOpenAIAPIKey: () => mocks.configured,
   getOpenAIModel: () => 'synthetic-voice-model',
-  getOpenAIClientOrThrow: () => ({ chat: { completions: { create: mocks.create } } }),
+  getOpenAIClientOrThrow: () => {
+    if (!mocks.configured) throw new Error('OpenAI is not configured (missing OPENAI_API_KEY)');
+    return { chat: { completions: { create: mocks.create } } };
+  },
 }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 
