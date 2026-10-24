@@ -482,7 +482,7 @@ describe('statement import document ids', () => {
     await expectResolvedPair();
   });
 
-  it('holds out the statement imported after the receipt and counts the receipt', async () => {
+  it('counts the receipt imported first and holds out the later statement', async () => {
     const receipt = await uploadReceipt('Office Depot', officeCharge.date, 500);
     expect(receipt.body).toMatchObject({ imported: 1, alreadyImported: 0 });
     const before = frozenImportDocs();
@@ -498,8 +498,8 @@ describe('statement import document ids', () => {
     await expectResolvedPair();
   });
 
-  it('holds out the later receipt when its merchant differs and counts the earlier statement', async () => {
-    const statement = await upload([{ ...officeCharge, description: 'SQ *OFFICE DEPOT 4421' }], { bankName: 'Chase', accountLast4: '4242' }, PNG, 'credit_card');
+  it('counts the statement imported first and holds out the later receipt', async () => {
+    const statement = await upload([officeCharge], { bankName: 'Chase', accountLast4: '4242' }, PNG, 'credit_card');
     expect(statement.body).toMatchObject({ imported: 1, alreadyImported: 0 });
     const before = frozenImportDocs();
     const receipt = await uploadReceipt('Office Depot', officeCharge.date, 500);
@@ -507,9 +507,23 @@ describe('statement import document ids', () => {
     expect(importDocs()).toHaveLength(2);
     const flagged = importDocs().filter(doc => doc.data.possibleDuplicate === true);
     expect(flagged).toHaveLength(1);
-    expect(flagged[0].data).toMatchObject({ possibleDuplicateReason: 'cross_document', amount: 500, source: 'receipt' });
+    expect(flagged[0].data).toMatchObject({ possibleDuplicateReason: 'statement_match', amount: 500, source: 'receipt' });
     expect(importDocs().find(doc => doc.data.importedFromStatement === true)?.data.possibleDuplicate).not.toBe(true);
     for (const [path, frozen] of before) expect(freeze(docs.get(path))).toBe(frozen);
+    await expectUnresolvedCharge();
+    await expectResolvedPair();
+    docs.clear();
+    const described = await upload([{ ...officeCharge, description: 'SQ *OFFICE DEPOT 4421' }], { bankName: 'Chase', accountLast4: '4242' }, PNG, 'credit_card');
+    expect(described.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    const describedBefore = frozenImportDocs();
+    const laterReceipt = await uploadReceipt('Office Depot', officeCharge.date, 500);
+    expect(laterReceipt.body).toMatchObject({ imported: 1, alreadyImported: 0 });
+    expect(importDocs()).toHaveLength(2);
+    const describedFlagged = importDocs().filter(doc => doc.data.possibleDuplicate === true);
+    expect(describedFlagged).toHaveLength(1);
+    expect(describedFlagged[0].data).toMatchObject({ possibleDuplicateReason: 'cross_document', amount: 500, source: 'receipt' });
+    expect(importDocs().find(doc => doc.data.importedFromStatement === true)?.data.possibleDuplicate).not.toBe(true);
+    for (const [path, frozen] of describedBefore) expect(freeze(docs.get(path))).toBe(frozen);
     await expectUnresolvedCharge();
     await expectResolvedPair();
   });

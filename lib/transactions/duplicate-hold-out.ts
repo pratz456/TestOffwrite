@@ -1,6 +1,7 @@
 /**
  * Which row of an unresolved duplicate pair stays out of tax totals.
- * The earliest imported row counts. The later row is held out, including when the receipt came first.
+ * The earliest imported row counts. The later row is held out.
+ * A statement row has no separate rule: a receipt imported first still counts, and a statement imported first still counts.
  * Return 'existing' or 'both' from duplicateHoldOutMember to change that choice in one place.
  */
 export type DuplicateHoldOut = 'incoming' | 'existing' | 'both';

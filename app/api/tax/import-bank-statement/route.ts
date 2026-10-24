@@ -423,13 +423,13 @@ async function saveTransactions(uid: string, rows: ImportedTransaction[], metada
       if (existing.date !== date || existing.cents !== cents || existing.direction !== direction) continue;
       const crossType = incomingReceipt !== existing.receipt;
       if (crossType) {
-        if (incomingReceipt && !existing.receipt && existing.description === description) statementMatch = true;
-        else {
-          crossDocument = true;
-          const choice = duplicateHoldOutMember({ incomingIsReceipt: incomingReceipt, existingIsReceipt: existing.receipt });
-          if (choice === 'incoming' || choice === 'both') holdOutIncoming = true;
-          if ((choice === 'existing' || choice === 'both') && !existing.legacy) item.flagExisting.push({ ref: existing.ref, reason: 'cross_document' });
-        }
+        const exactReceiptOnStatement = incomingReceipt && !existing.receipt && existing.description === description;
+        if (exactReceiptOnStatement) statementMatch = true;
+        else crossDocument = true;
+        const choice = duplicateHoldOutMember({ incomingIsReceipt: incomingReceipt, existingIsReceipt: existing.receipt });
+        const pairReason = exactReceiptOnStatement ? 'statement_match' : 'cross_document';
+        if (choice === 'incoming' || choice === 'both') holdOutIncoming = true;
+        if ((choice === 'existing' || choice === 'both') && !existing.legacy) item.flagExisting.push({ ref: existing.ref, reason: pairReason });
         continue;
       }
       if (existing.description !== description) continue;
@@ -449,8 +449,8 @@ async function saveTransactions(uid: string, rows: ImportedTransaction[], metada
       : ambiguousAccount ? 'ambiguous_account'
       : bankLinked ? 'bank_linked'
       : null;
-    const holdIncoming = reason === 'statement_match' || reason === 'legacy_match' || reason === 'bank_linked'
-      || ((reason === 'cross_document' || reason === 'ambiguous_account') && holdOutIncoming);
+    const holdIncoming = reason === 'legacy_match' || reason === 'bank_linked'
+      || ((reason === 'statement_match' || reason === 'cross_document' || reason === 'ambiguous_account') && holdOutIncoming);
     if (reason && holdIncoming) {
       item.data.possibleDuplicate = true;
       item.data.possibleDuplicateReason = reason;
