@@ -14,7 +14,7 @@
  */
 
 /** Names stored as UTC. Comparison is lowercase. Intl resolves each of these to UTC. */
-const UTC_ZONE_ALIASES = new Set([
+export const UTC_ZONE_ALIASES = new Set([
   'utc',
   'etc/utc',
   'etc/gmt',

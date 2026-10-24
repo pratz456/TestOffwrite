@@ -1,0 +1,21 @@
+/** The upload names stored as UTC. The new receipt test and the attached receipt test both use this list. */
+export const UTC_UPLOAD_ALIASES = [
+  'Etc/UTC',
+  'Etc/GMT',
+  'GMT',
+  'utc',
+  'Etc/Universal',
+  'Universal',
+  'Etc/Zulu',
+  'Zulu',
+  'GMT0',
+  'Etc/GMT0',
+  'Etc/GMT+0',
+  'GMT+0',
+  'GMT-0',
+  'Etc/GMT-0',
+  'UCT',
+  'Etc/UCT',
+  'Greenwich',
+  'Etc/Greenwich',
+] as const;

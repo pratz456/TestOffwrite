@@ -23,7 +23,9 @@ vi.mock('@/lib/firebase/admin', () => ({ adminApp: { name: 'firebase-frameworks'
 vi.mock('firebase-admin/storage', () => ({ getStorage: () => ({ bucket: mocks.bucket, app: { options: {} } }) }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 import { POST } from '../app/api/receipts/process/route';
+import { regionUploadTimeZone } from '@/lib/ocr/region-time-zone';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
+import { UTC_UPLOAD_ALIASES } from './fixtures/utc-upload-aliases';
 
 const owner = 'receipt-date-owner';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64');
@@ -128,7 +130,15 @@ describe('OCR receipt save requires a real calendar day', () => {
     }));
   });
 
-  it.each(['Etc/UTC', 'Etc/GMT', 'GMT', 'utc', 'Etc/Universal', 'Universal', 'Etc/Zulu', 'Zulu', 'GMT0', 'Etc/GMT0', 'Etc/GMT+0', 'GMT+0', 'GMT-0', 'Etc/GMT-0', 'UCT', 'Etc/UCT', 'Greenwich', 'Etc/Greenwich'])('stores %s as UTC', async zone => {
+  it('the shared alias list equals the set the source accepts', async () => {
+    const source = await import('@/lib/ocr/region-time-zone');
+    if (!(source.UTC_ZONE_ALIASES instanceof Set)) throw new Error('UTC_ZONE_ALIASES is not exported');
+    expect(new Set(UTC_UPLOAD_ALIASES.map(name => name.toLowerCase()))).toEqual(source.UTC_ZONE_ALIASES);
+    for (const name of UTC_UPLOAD_ALIASES) expect(regionUploadTimeZone(name)).toBe('UTC');
+    for (const name of source.UTC_ZONE_ALIASES) expect(regionUploadTimeZone(name)).toBe('UTC');
+  });
+
+  it.each(UTC_UPLOAD_ALIASES)('stores %s as UTC', async zone => {
     ocrDate('2026-09-15');
     const response = await POST(request(zone));
     expect(response.status).toBe(200);
@@ -138,7 +148,7 @@ describe('OCR receipt save requires a real calendar day', () => {
     }));
   });
 
-  it.each(['Etc/UTC', 'Etc/GMT', 'GMT', 'utc', 'GMT+0', 'GMT-0', 'Etc/GMT-0', 'UCT', 'Etc/UCT', 'Greenwich', 'Etc/Greenwich'])('stores %s as UTC on an attached receipt', async zone => {
+  it.each(UTC_UPLOAD_ALIASES)('stores %s as UTC on an attached receipt', async zone => {
     mocks.getTransaction.mockResolvedValue({ data: {
       trans_id: 'owned-bank-transaction', notes: 'Existing note', merchant_name: 'Bank merchant', amount: 10, date: '2026-01-01',
     }, error: null });
