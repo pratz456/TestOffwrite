@@ -11,6 +11,7 @@ import { getPlaidConnection } from '@/lib/plaid/connections';
 import { assertBankHistoryReadyForNewConnection, BANK_HISTORY_REVIEW_REQUIRED, BANK_HISTORY_REVIEW_MESSAGE } from '@/lib/plaid/history-review';
 import { getPlaidOAuthRedirectUri } from '@/lib/plaid/oauth-config';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { BANK_CONSENT_REQUIRED_BODY, isBankConsentRequired, requireBankDataConsent } from '@/lib/onboarding/bank-consent';
 
 function webhookUrl(): string | undefined {
   const source = process.env.PLAID_WEBHOOK_URL || process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL;
@@ -26,6 +27,11 @@ export async function POST(request: NextRequest) {
   let uid: string;
   try { ({ uid } = await getUserFromReqOrThrow(request)); }
   catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
+  try { await requireBankDataConsent(uid); }
+  catch (error) {
+    if (isBankConsentRequired(error)) return NextResponse.json(BANK_CONSENT_REQUIRED_BODY, { status: 403, headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json({ error: 'Bank connection is unavailable. Please retry later.' }, { status: 503 });
+  }
   // Link tokens start provider sessions and can start a trial; bound them per owner.
   const limit = await enforceRateLimit({ ...RATE_LIMITS.plaidLinkToken, key: uid });
   if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many bank connection attempts. Please wait a few minutes and try again.' });

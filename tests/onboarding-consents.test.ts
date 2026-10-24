@@ -103,7 +103,6 @@ describe('consent record allowlist', () => {
     ['an array', [validRecord]],
     ['an unknown key', { ...validRecord, marketing_partner: true }],
     ['a missing required acknowledgment', { ...validRecord, ai_review: undefined }],
-    ['a declined required acknowledgment', { ...validRecord, bank_data: false }],
     ['a declined Terms of Service acknowledgment', { ...validRecord, terms: false }],
     ['a record from before the Terms of Service acknowledgment', { ...validRecord, terms: undefined, version: '2026-09-17' }],
     ['a stale terms version', { ...validRecord, version: '2025-01-01' }],
@@ -119,7 +118,7 @@ describe('consent record allowlist', () => {
     expect(buildConsentRecord({ terms: true, bank_data: true, ai_review: false, communications: true, document_import: false }, 'sign-up', now)).toBeNull();
     expect(buildConsentRecord({ terms: false, bank_data: true, ai_review: true, communications: true, document_import: false }, 'sign-up', now)).toBeNull();
     expect(buildConsentRecord({ terms: true, bank_data: true, ai_review: true, communications: false, document_import: false }, 'profile-setup', now))
-      .toEqual({ version: CONSENT_TERMS_VERSION, source: 'profile-setup', accepted_at: now.toISOString(), terms: true, bank_data: true, ai_review: true, communications: false, document_import: false });
+      .toEqual({ version: CONSENT_TERMS_VERSION, source: 'profile-setup', accepted_at: now.toISOString(), terms: true, bank_data: false, ai_review: true, communications: false, document_import: false });
   });
   it('never records the §7216 document consent from sign-up choices alone', () => {
     const record = buildConsentRecord({ terms: true, bank_data: true, ai_review: true, communications: false, document_import: true }, 'sign-up');
@@ -202,16 +201,16 @@ describe('consent checkboxes are labeled controls', () => {
     const tree = ConsentCheckboxes({ values: { terms: false, bank_data: true, ai_review: false, communications: false, document_import: false }, onChange: vi.fn(), idPrefix: 'setup' });
     const inputs = walk(tree).filter(node => node.type === 'input');
     const labels = walk(tree).filter(node => node.type === 'label');
-    expect(inputs.map(node => node.props.id)).toEqual(['setup-termsConsent', 'setup-bankConsent', 'setup-aiConsent', 'setup-commConsent']);
+    expect(inputs.map(node => node.props.id)).toEqual(['setup-termsConsent', 'setup-aiConsent', 'setup-commConsent']);
     expect(labels.map(node => node.props.htmlFor)).toEqual(inputs.map(node => node.props.id));
-    expect(inputs.map(node => node.props['aria-required'])).toEqual([true, true, true, false]);
-    expect(inputs.map(node => node.props.checked)).toEqual([false, true, false, false]);
+    expect(inputs.map(node => node.props['aria-required'])).toEqual([true, true, false]);
+    expect(inputs.map(node => node.props.checked)).toEqual([false, false, false]);
     // The Terms acknowledgment links to both governing documents and states the no-filing scope.
     const termsLabel = labels.find(node => node.props.htmlFor === 'setup-termsConsent')!;
     expect(walk(termsLabel).filter(node => node.type === 'a').map(node => node.props.href)).toEqual(['/terms', '/privacy']);
     expect(text(termsLabel)).toContain('does not prepare or file tax returns');
     expect(ConsentCheckboxes({ values: NO_CONSENTS, onChange: vi.fn() }).props.children.map((child: Element) => child.props.children[0].props.id))
-      .toEqual(['termsConsent', 'bankConsent', 'aiConsent', 'commConsent']);
+      .toEqual(['termsConsent', 'aiConsent', 'commConsent']);
   });
 });
 
@@ -263,7 +262,7 @@ describe('profile setup collects acknowledgments before any answer is saved', ()
     await continueButton(renderSetup()).props.onClick();
     const next = renderSetup();
     expect(harness.request).toHaveBeenCalledExactlyOnceWith('/api/database/profiles', expect.objectContaining({ method: 'POST' }));
-    expect(postedConsents()).toEqual([expect.objectContaining({ version: CONSENT_TERMS_VERSION, source: 'profile-setup', terms: true, bank_data: true, ai_review: true, communications: false })]);
+    expect(postedConsents()).toEqual([expect.objectContaining({ version: CONSENT_TERMS_VERSION, source: 'profile-setup', terms: true, bank_data: false, ai_review: true, communications: false })]);
     expect(Date.parse(postedConsents()[0].accepted_at)).not.toBeNaN();
     expect(text(next)).toContain('About you');
     expect(text(next)).not.toContain('A few acknowledgments first');
@@ -351,7 +350,7 @@ describe('sign-up form carries acknowledgments into profile setup', () => {
     checkboxes(tree).props.onChange('communications', true);
     await googleButton(renderSignUp()).props.onClick();
     expect(harness.navigate).toHaveBeenCalledWith('/protected/profile-setup');
-    expect(stashed()).toMatchObject({ email: 'person@example.test', record: { version: CONSENT_TERMS_VERSION, source: 'sign-up', terms: true, bank_data: true, ai_review: true, communications: true } });
+    expect(stashed()).toMatchObject({ email: 'person@example.test', record: { version: CONSENT_TERMS_VERSION, source: 'sign-up', terms: true, bank_data: false, ai_review: true, communications: true } });
     expect(readPendingConsents('person@example.test', storage)).toMatchObject({ source: 'sign-up', communications: true });
   });
 

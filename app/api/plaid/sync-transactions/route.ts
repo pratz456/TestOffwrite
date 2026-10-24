@@ -3,6 +3,7 @@ import { syncUserTransactions, syncUserTransactionsIncremental } from '../../../
 import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { adminDb } from '@/lib/firebase/admin';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { BANK_CONSENT_REQUIRED_BODY, isBankConsentRequired, requireBankDataConsent } from '@/lib/onboarding/bank-consent';
 
 export async function POST(req: Request) {
   try {
@@ -35,6 +36,12 @@ export async function POST(req: Request) {
 
     const limit = await enforceRateLimit({ ...RATE_LIMITS.plaidSync, key: uid });
     if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many bank syncs. Please wait a few minutes and try again.' });
+
+    try { await requireBankDataConsent(uid); }
+    catch (error) {
+      if (isBankConsentRequired(error)) return NextResponse.json({ success: false, ...BANK_CONSENT_REQUIRED_BODY }, { status: 403 });
+      return NextResponse.json({ error: 'Failed to sync transactions. Please try again.' }, { status: 503 });
+    }
 
     // Full sync: check/set import lock; incremental does not set lock
     if (!incremental) {
@@ -99,8 +106,9 @@ export async function POST(req: Request) {
       // The helper returns owner-facing messages; a missing connection is 404, a provider failure 503.
       return NextResponse.json({
         success: false,
-        error: syncResult.error || 'Failed to sync transactions'
-      }, { status: syncResult.error === 'No bank connection found' ? 404 : 503 });
+        error: syncResult.code === 'CONSENT_REQUIRED' ? BANK_CONSENT_REQUIRED_BODY.error : (syncResult.error || 'Failed to sync transactions'),
+        ...(syncResult.code === 'CONSENT_REQUIRED' ? { code: 'CONSENT_REQUIRED' } : {}),
+      }, { status: syncResult.code === 'CONSENT_REQUIRED' ? 403 : syncResult.error === 'No bank connection found' ? 404 : 503 });
     }
 
   } catch (error) {

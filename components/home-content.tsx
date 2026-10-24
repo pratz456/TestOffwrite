@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { PLACEHOLDER_BANK_COLLECTION } from '@/lib/onboarding/bank-consent-copy';
 import writeOffLogo from '@/public/writeofflogo.png';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -31,7 +32,7 @@ export function HomeContent() {
           <li className="flex items-center gap-3"><CheckCheck className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />Review categories and business use.</li>
           <li className="flex items-center gap-3"><Files className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />Keep organized records for tax time.</li>
         </ul>
-        <p className="mt-4 text-xs leading-5 text-muted-foreground">You can start without linking a bank. In-app filing is not available.</p>
+        <p className="mt-4 text-xs leading-5 text-muted-foreground">{PLACEHOLDER_BANK_COLLECTION}</p>
       </div>
 
       <footer className="mx-auto w-full max-w-md">

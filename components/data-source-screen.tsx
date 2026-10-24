@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { MODEL_CONSENT_UNAVAILABLE, useModelConsent } from '@/lib/model-consent/use-model-consent';
+import { PLACEHOLDER_BANK_COLLECTION } from '@/lib/onboarding/bank-consent-copy';
 
 interface DataSourceScreenProps {
   user: any;
@@ -61,7 +62,7 @@ const SUPPORTED_IMAGE_TYPES = [
 ];
 
 const MANUAL_TIPS = [
-  { icon: '📅', text: 'Add income and expenses manually without connecting a bank' },
+  { icon: '📅', text: PLACEHOLDER_BANK_COLLECTION },
   { icon: '📸', text: 'Attach receipt photos and review or enter the details yourself' },
   { icon: '✅', text: 'Review each expense and record its business purpose' },
   { icon: '📤', text: 'You can connect your bank anytime later in Settings' },
@@ -193,7 +194,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                     <span className="text-sm font-semibold text-foreground">Connect Bank Account</span>
                     <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full font-medium">Optional</span>
                   </div>
-                  <p className="text-xs text-muted-foreground">Optional: request transaction sync from a supported bank, then review the imported records.</p>
+                  <p className="text-xs text-muted-foreground">{PLACEHOLDER_BANK_COLLECTION}</p>
                   <div className="flex flex-wrap gap-1 mt-2">
                     {['Chase', 'Bank of America', 'Wells Fargo', 'Citi', '12,000+ banks'].map(bank => (
                       <span key={bank} className="text-xs bg-background/80 border border-border px-1.5 py-0.5 rounded text-muted-foreground">{bank}</span>

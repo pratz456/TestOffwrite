@@ -55,7 +55,10 @@ const generation = async () => (await h.db!.doc(task).get()).data()!.generation;
   beforeEach(async () => {
     vi.clearAllMocks();
     await Promise.all([h.db!.doc(task).delete(), h.db!.doc(job).delete()]);
-    await h.db!.doc(profile).set({ profession: 'Designer', state: 'CA' });
+    await h.db!.doc(profile).set({ profession: 'Designer', state: 'CA', consents: {
+      version: '2026-09-18', source: 'sign-up', accepted_at: '2026-09-18T00:00:00.000Z',
+      terms: true, ai_review: true, bank_data: true, communications: false, document_import: false,
+    } });
     await h.db!.doc(`${profile}/model_consents/disclosure`).set({
       status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review',
       purposes: ['transaction_analysis'], signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2099-01-01T00:00:00.000Z'),

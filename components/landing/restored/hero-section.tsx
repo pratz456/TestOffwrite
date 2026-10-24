@@ -1,5 +1,6 @@
 import { AuthButtons } from "./cta-button";
 import { Sparkles } from "lucide-react";
+import { PLACEHOLDER_BANK_COLLECTION } from "@/lib/onboarding/bank-consent-copy";
 
 export function HeroSection() {
   return (
@@ -20,7 +21,7 @@ export function HeroSection() {
         </h1>
 
         <p className="animate-hero-enter-delay-2 mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground sm:text-xl">
-          Save expenses and receipts, review their business purpose, and prepare records for your accountant. Start with manual entry—no bank connection required.
+          {PLACEHOLDER_BANK_COLLECTION}
         </p>
 
         <div className="animate-hero-enter-delay-3 mt-8 flex flex-col items-center gap-4">

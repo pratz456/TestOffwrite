@@ -4,11 +4,13 @@
  * stored on the profile document and written only through
  * POST /api/database/profiles, which validates it with parseConsentRecord.
  */
+import { isValidTimeZone } from '@/lib/openai/consent-contract';
 import { DOCUMENT_IMPORT_CONSENT_VERSION } from './document-import-consent';
 
 export const CONSENT_TERMS_VERSION = '2026-09-18';
 
-export const REQUIRED_CONSENTS = ['terms', 'bank_data', 'ai_review'] as const;
+/** Bank transactions are not required to create an account. That grant is recorded later, on its own screen. */
+export const REQUIRED_CONSENTS = ['terms', 'ai_review'] as const;
 /**
  * `communications` is a marketing preference. `document_import` is the §7216
  * consent to disclose a whole tax-document image to OpenAI; it is never offered
@@ -18,7 +20,7 @@ export const REQUIRED_CONSENTS = ['terms', 'bank_data', 'ai_review'] as const;
 export const OPTIONAL_CONSENTS = ['communications', 'document_import'] as const;
 export type RequiredConsent = (typeof REQUIRED_CONSENTS)[number];
 export type OptionalConsent = (typeof OPTIONAL_CONSENTS)[number];
-export type ConsentKey = RequiredConsent | OptionalConsent;
+export type ConsentKey = RequiredConsent | OptionalConsent | 'bank_data';
 
 /** `reacknowledgment` covers accounts created before the current terms version, gated in the protected layout. */
 export const CONSENT_SOURCES = ['sign-up', 'profile-setup', 'reacknowledgment'] as const;
@@ -40,6 +42,10 @@ export interface ConsentRecord extends ConsentChoices {
   accepted_at: string;
   /** Present exactly when document_import is true. */
   document_import_signature?: DocumentImportConsentSignature;
+  /** Set only by the later bank grant. A profile save cannot invent these. */
+  bank_data_signed_at?: string;
+  bank_data_withdrawn_at?: string;
+  timeZone?: string;
 }
 
 export const NO_CONSENTS: ConsentChoices = { terms: false, bank_data: false, ai_review: false, communications: false, document_import: false };
@@ -56,14 +62,15 @@ export function buildConsentRecord(choices: ConsentChoices, source: ConsentSourc
     source,
     accepted_at: now.toISOString(),
     terms: true,
-    bank_data: true,
+    bank_data: false,
     ai_review: true,
     communications: choices.communications === true,
     document_import: false,
   };
 }
 
-const RECORD_KEYS = new Set<string>(['version', 'source', 'accepted_at', 'document_import_signature', ...REQUIRED_CONSENTS, ...OPTIONAL_CONSENTS]);
+const BANK_RECORD_KEYS = ['bank_data', 'bank_data_signed_at', 'bank_data_withdrawn_at', 'timeZone'] as const;
+const RECORD_KEYS = new Set<string>(['version', 'source', 'accepted_at', 'document_import_signature', ...REQUIRED_CONSENTS, ...OPTIONAL_CONSENTS, ...BANK_RECORD_KEYS]);
 const MAX_SIGNED_NAME_LENGTH = 200;
 
 /** Well-formed signature or null; `stale` marks a signature of an earlier consent text, which no longer authorizes anything. */
@@ -78,11 +85,19 @@ function parseDocumentImportSignature(input: unknown): { signature: DocumentImpo
   return { signature: { version: value.version, signed_name: name, signed_at: new Date(value.signed_at).toISOString() }, stale: false };
 }
 
+/** `undefined` when absent, `null` when present but not a usable instant. */
+function optionalTimestamp(value: unknown): string | undefined | null {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || value.length > 40 || Number.isNaN(Date.parse(value))) return null;
+  return new Date(value).toISOString();
+}
+
 /**
  * Strict allowlist shared by the API route and the client: only the known keys,
  * only the current terms, and the required acknowledgments must be true.
- * `document_import: true` needs a well-formed signature; a signature of an
- * earlier consent version is read as no consent rather than as a bad record.
+ * Bank data may be absent or false. `document_import: true` needs a well-formed
+ * signature; a signature of an earlier consent version is read as no consent
+ * rather than as a bad record.
  */
 export function parseConsentRecord(input: unknown): ConsentRecord | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
@@ -92,7 +107,16 @@ export function parseConsentRecord(input: unknown): ConsentRecord | null {
   if (!CONSENT_SOURCES.includes(record.source as ConsentSource)) return null;
   if (typeof record.accepted_at !== 'string' || record.accepted_at.length > 40 || Number.isNaN(Date.parse(record.accepted_at))) return null;
   if (!REQUIRED_CONSENTS.every(key => record[key] === true)) return null;
+  if ('bank_data' in record && typeof record.bank_data !== 'boolean') return null;
   if (OPTIONAL_CONSENTS.some(key => key in record && typeof record[key] !== 'boolean')) return null;
+  const bankDataSignedAt = optionalTimestamp(record.bank_data_signed_at);
+  const bankDataWithdrawnAt = optionalTimestamp(record.bank_data_withdrawn_at);
+  if (bankDataSignedAt === null || bankDataWithdrawnAt === null) return null;
+  let timeZone: string | undefined;
+  if ('timeZone' in record) {
+    if (typeof record.timeZone !== 'string' || !isValidTimeZone(record.timeZone.trim())) return null;
+    timeZone = record.timeZone.trim();
+  }
   let signature: DocumentImportConsentSignature | null = null;
   if (record.document_import === true) {
     const parsed = parseDocumentImportSignature(record.document_import_signature);
@@ -104,12 +128,47 @@ export function parseConsentRecord(input: unknown): ConsentRecord | null {
     source: record.source as ConsentSource,
     accepted_at: new Date(record.accepted_at).toISOString(),
     terms: true,
-    bank_data: true,
+    bank_data: record.bank_data === true,
     ai_review: true,
     communications: record.communications === true,
     document_import: signature !== null,
     ...(signature ? { document_import_signature: signature } : {}),
+    ...(bankDataSignedAt ? { bank_data_signed_at: bankDataSignedAt } : {}),
+    ...(bankDataWithdrawnAt ? { bank_data_withdrawn_at: bankDataWithdrawnAt } : {}),
+    ...(timeZone ? { timeZone } : {}),
   };
+}
+
+/**
+ * Bank fields already stored for this account. Reads the raw map so a grant
+ * survives a terms re-acknowledgment even when the stored terms version is older.
+ * Invalid timestamps and zones are dropped rather than copied forward.
+ */
+export function readStoredBankConsent(stored: unknown): Pick<ConsentRecord, 'bank_data' | 'bank_data_signed_at' | 'bank_data_withdrawn_at' | 'timeZone'> {
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return { bank_data: false };
+  const raw = stored as Record<string, unknown>;
+  const signedAt = optionalTimestamp(raw.bank_data_signed_at);
+  const withdrawnAt = optionalTimestamp(raw.bank_data_withdrawn_at);
+  const zone = typeof raw.timeZone === 'string' && isValidTimeZone(raw.timeZone.trim()) ? raw.timeZone.trim() : undefined;
+  return {
+    bank_data: raw.bank_data === true,
+    ...(signedAt ? { bank_data_signed_at: signedAt } : {}),
+    ...(withdrawnAt ? { bank_data_withdrawn_at: withdrawnAt } : {}),
+    ...(zone ? { timeZone: zone } : {}),
+  };
+}
+
+/** Profile saves carry the stored bank grant. They cannot grant it or rewrite its timestamp. */
+export function withStoredBankConsent(incoming: ConsentRecord, stored: unknown): ConsentRecord {
+  const carried = readStoredBankConsent(stored);
+  const next: ConsentRecord = { ...incoming, bank_data: carried.bank_data };
+  delete next.bank_data_signed_at;
+  delete next.bank_data_withdrawn_at;
+  delete next.timeZone;
+  if (carried.bank_data_signed_at) next.bank_data_signed_at = carried.bank_data_signed_at;
+  if (carried.bank_data_withdrawn_at) next.bank_data_withdrawn_at = carried.bank_data_withdrawn_at;
+  if (carried.timeZone) next.timeZone = carried.timeZone;
+  return next;
 }
 
 export function hasAcknowledgedRequiredConsents(record: unknown): record is ConsentRecord {

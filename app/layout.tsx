@@ -7,6 +7,7 @@ import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
 import { PwaRegisterSw } from "@/components/pwa-register-sw";
 import { Toaster } from "@/ui/sonner";
 import { gaMeasurementId } from "@/lib/analytics/ga-measurement-id";
+import { PLACEHOLDER_BANK_COLLECTION } from "@/lib/onboarding/bank-consent-copy";
 import { GoogleTag } from "@/components/analytics/google-tag";
 import "./globals.css";
 
@@ -27,7 +28,7 @@ export const metadata: Metadata = {
     template: "%s | WriteOff",
   },
   description:
-    "Organize business expenses, review receipts, and export records for your tax preparer. Start with manual entry, with no bank connection required.",
+    PLACEHOLDER_BANK_COLLECTION,
   icons: {
     icon: [{ url: "/writeofflogo.png", type: "image/png" }],
     shortcut: "/writeofflogo.png",

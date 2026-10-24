@@ -27,7 +27,10 @@ beforeEach(() => {
   vi.clearAllMocks(); vi.useFakeTimers(); vi.setSystemTime(now); resetRateLimitStore();
   vi.spyOn(console, 'log').mockImplementation(() => {}); vi.spyOn(console, 'warn').mockImplementation(() => {}); vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.stubEnv('PLAID_CLIENT_ID', 'mock-client'); vi.stubEnv('PLAID_SECRET', 'mock-secret'); vi.stubEnv('PLAID_ENV', 'sandbox');
-  mock.auth.mockResolvedValue({ uid: 'u1' }); mock.trial.mockResolvedValue({ success: true }); mock.profile = { subscriptionStatus: 'expired', plaid_token: 'owned-token' };
+  mock.auth.mockResolvedValue({ uid: 'u1' }); mock.trial.mockResolvedValue({ success: true }); mock.profile = { subscriptionStatus: 'expired', plaid_token: 'owned-token', consents: {
+    version: '2026-09-18', source: 'profile-setup', accepted_at: '2026-09-18T00:00:00.000Z',
+    terms: true, ai_review: true, bank_data: true, communications: false, document_import: false,
+  } };
   mock.link.mockResolvedValue({ data: { link_token: 'mock-link' } });
   mock.accounts.mockResolvedValue({ data: { accounts: [{ account_id: 'acc_1', name: 'Synthetic', type: 'depository', subtype: 'checking' }] } });
   mock.fetchTransactions.mockResolvedValue({ transactions: [], totalPages: 0, totalTransactions: 0 });

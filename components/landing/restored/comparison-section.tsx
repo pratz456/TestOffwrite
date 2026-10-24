@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Info } from "lucide-react";
+import { PLACEHOLDER_BANK_COLLECTION } from "@/lib/onboarding/bank-consent-copy";
 import { useScrollReveal } from "../use-scroll-reveal";
 
 const AVAILABLE = [
@@ -36,7 +37,7 @@ export function ComparisonSection() {
           <div className="animate-on-scroll rounded-2xl border border-border bg-muted/30 p-6 sm:p-8">
             <h3 className="flex items-center gap-2 text-xl font-semibold text-foreground"><Info className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />Before you choose a plan</h3>
             <div className="mt-5 space-y-4 text-sm leading-relaxed text-muted-foreground">
-              <p>AI suggests categories and explains what to review. Bank connections are optional. In-app tax filing is not available.</p>
+              <p>{PLACEHOLDER_BANK_COLLECTION}</p>
               <p>Federal estimates cover supported situations and may require further review. WriteOff does not prepare a complete federal or state return, certify deductions, or guarantee tax savings.</p>
               <p>Use exported records with a tax preparer. Receipt files remain private in your account and are not bundled in the records archive.</p>
             </div>

@@ -110,6 +110,14 @@ describe('Plaid webhook authentication boundary', () => {
     expect(mock.sync).toHaveBeenCalledTimes(2);
     expect(mock.receiptSet).toHaveBeenCalledTimes(1);
   });
+  it('records a skipped receipt when bank consent is missing and leaves saved rows untouched', async () => {
+    const body = JSON.stringify(payload);
+    mock.sync.mockResolvedValueOnce({ success: false, transactionsSaved: 0, error: 'CONSENT_REQUIRED', code: 'CONSENT_REQUIRED' });
+    const response = await POST(request(body, body));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ success: true, skipped: true, code: 'CONSENT_REQUIRED', transactionsSaved: 0 });
+    expect(mock.receiptSet).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ transactions_saved: 0, skipped: 'CONSENT_REQUIRED' }));
+  });
   it('allows later independently signed updates with the same body to sync', async () => {
     const body = JSON.stringify(payload);
     expect((await POST(request(body, body))).status).toBe(200);

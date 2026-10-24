@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { PLACEHOLDER_BANK_COLLECTION } from "@/lib/onboarding/bank-consent-copy";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -235,8 +236,7 @@ export default async function Image() {
                 maxWidth: 860,
               }}
             >
-              Save expenses, review receipt details, and export records for your accountant.
-              Start manually, with no bank connection required.
+              {PLACEHOLDER_BANK_COLLECTION}
             </div>
 
             {/* Feature chips */}

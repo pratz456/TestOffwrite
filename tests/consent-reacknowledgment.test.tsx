@@ -42,12 +42,13 @@ describe('consent re-acknowledgment for existing accounts', () => {
     expect(html).toMatch(/href="\/protected\/subscriptions"[^>]*>manage or cancel your plan/);
     expect(html).toMatch(/href="\/protected\/settings"[^>]*>export or delete your data/);
   });
-  it('renders the notice, all three required checkboxes unchecked, a disabled continue button and a sign-out path', () => {
+  it('renders the notice, the required checkboxes unchecked, a disabled continue button and a sign out path', () => {
     const html = renderToStaticMarkup(<ConsentReacknowledgment onRecorded={() => {}} />);
     expect(html).toContain('Please review our updated acknowledgments');
     expect(html).toContain(`updated on ${CONSENT_TERMS_VERSION}`);
     expect(html).toContain('Notice at Collection');
-    for (const id of ['reack-termsConsent', 'reack-bankConsent', 'reack-aiConsent']) expect(html).toMatch(new RegExp(`<input[^>]*id="${id}"[^>]*aria-required="true"`));
+    for (const id of ['reack-termsConsent', 'reack-aiConsent']) expect(html).toMatch(new RegExp(`<input[^>]*id="${id}"[^>]*aria-required="true"`));
+    expect(html).not.toContain('reack-bankConsent');
     expect(html).toMatch(/href="\/terms"/);
     expect(html).not.toMatch(/checked=""/);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Agree and continue/);

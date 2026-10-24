@@ -8,6 +8,10 @@ vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: m.auth }));
 vi.mock('@/lib/plaid/client', () => ({ plaidClient: { itemPublicTokenExchange: m.exchange, accountsGet: m.accounts, itemRemove: m.remove } }));
 vi.mock('@/lib/plaid/connections', () => ({ assertPlaidTokenEncryptionConfigured() {}, savePlaidConnection: m.save }));
 vi.mock('@/lib/plaid/sync-helper', () => ({ syncUserTransactionsIncremental: m.sync }));
+vi.mock('@/lib/firebase/admin', () => ({ adminDb: { doc: () => ({ get: async () => ({ exists: true, data: () => ({ consents: {
+  version: '2026-09-18', source: 'profile-setup', accepted_at: '2026-09-18T00:00:00.000Z',
+  terms: true, ai_review: true, bank_data: true, communications: false, document_import: false,
+} }) }) }) } }));
 vi.mock('@/lib/plaid/link-operations', () => ({ ACCOUNT_DELETION_IN_PROGRESS: 'ACCOUNT_DELETION_IN_PROGRESS', beginPlaidLinkOperation: m.begin,
   retainPlaidLinkRecovery: m.retain, finishPlaidLinkOperation: m.finish, markPlaidLinkOperationUnresolved: m.unresolved,
   existingPlaidLinkOwner: m.owner, quarantinePlaidLinkRecovery: m.quarantine }));

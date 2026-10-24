@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { BANK_CONSENT_NOTICE_REST, PLACEHOLDER_BANK_COLLECTION } from '@/lib/onboarding/bank-consent-copy';
 import type { ConsentChoices, ConsentKey } from '@/lib/onboarding/consents';
 
 const policyLink = 'underline text-primary no-tap-highlight';
@@ -8,7 +9,7 @@ const policyLink = 'underline text-primary no-tap-highlight';
 export function NoticeAtCollection({ className = '' }: { className?: string }) {
   return (
     <div className={`p-3 sm:p-4 bg-primary/10 dark:bg-primary/15 border border-primary/20 rounded-lg text-xs text-foreground ${className}`.trim()}>
-      <strong>Notice at Collection:</strong> We collect your name, email, password, and, after signup, your bank transactions, employer/workstyle answers, and state. This information is used to provide tax deduction analysis, generate reports, and personalize your experience. See our <a href="/privacy" className={policyLink} target="_blank" rel="noopener noreferrer">Privacy Policy</a> for details.
+      <strong>Notice at Collection:</strong> {PLACEHOLDER_BANK_COLLECTION} {BANK_CONSENT_NOTICE_REST} See our <a href="/privacy" className={policyLink} target="_blank" rel="noopener noreferrer">Privacy Policy</a> for details.
     </div>
   );
 }
@@ -26,10 +27,6 @@ const CONSENT_ITEMS: ConsentItem[] = [
   {
     key: 'terms', id: 'termsConsent', required: true,
     label: <>I have read and agree to the <a href="/terms" className={policyLink} target="_blank" rel="noopener noreferrer">Terms of Service</a> and the <a href="/privacy" className={policyLink} target="_blank" rel="noopener noreferrer">Privacy Policy</a>. WriteOff organizes records and produces planning estimates; it does not prepare or file tax returns or give tax advice.</>,
-  },
-  {
-    key: 'bank_data', id: 'bankConsent', required: true,
-    label: <>I authorize WriteOff to access and use my account and transaction data via Plaid to analyze potential tax deductions and generate reports. (<a href="/privacy" className={policyLink} target="_blank" rel="noopener noreferrer">Privacy</a> | <a href="https://plaid.com/legal/#end-user-privacy-policy" className={policyLink} target="_blank" rel="noopener noreferrer">Plaid</a>)</>,
   },
   {
     key: 'ai_review', id: 'aiConsent', required: true,

@@ -5,6 +5,7 @@ import { getUserFromReqOrThrow } from '@/app/api/_lib/auth';
 import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 import { listPlaidConnections } from '@/lib/plaid/connections';
 import { syncUserTransactions } from '@/lib/plaid/sync-helper';
+import { BANK_CONSENT_REQUIRED_BODY } from '@/lib/onboarding/bank-consent';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 export async function POST(req: Request) {
   let uid: string;
@@ -22,6 +23,7 @@ export async function POST(req: Request) {
     const connection = (await listPlaidConnections(uid)).find(item => item.accountIds.includes(accountId));
     if (!connection) return NextResponse.json({ error: 'Bank account not found' }, { status: 403 });
     const result = await syncUserTransactions(uid, 'current-plan', connection.itemId, accountId);
+    if (result.code === 'CONSENT_REQUIRED') return NextResponse.json({ ok: false, ...BANK_CONSENT_REQUIRED_BODY, imported: 0 }, { status: 403 });
     return NextResponse.json({ ok: result.success, imported: result.transactionsSaved, error: result.error }, { status: result.success ? 200 : 503 });
   } catch { return NextResponse.json({ error: 'Unable to import bank transactions' }, { status: 503 }); }
 }

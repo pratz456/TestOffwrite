@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { LandingPage } from "@/components/landing/landing-page";
+import { PLACEHOLDER_BANK_COLLECTION } from "@/lib/onboarding/bank-consent-copy";
 
 export const metadata: Metadata = {
   title: "WriteOff - Expense and Receipt Tracking for Freelancers",
   description:
-    "Organize business expenses, review receipts, and export records for your tax preparer. Start with manual entry, with no bank connection required.",
+  PLACEHOLDER_BANK_COLLECTION,
 };
 
 export default function Home() {
