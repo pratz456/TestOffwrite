@@ -502,14 +502,20 @@ const CA_TOUCHING_DOLLAR = /(?<![A-Za-z])CA\$/;
 const CA_SPACED_DOLLAR = /(?<![A-Za-z])CA \$/;
 /** A, C, and R count only when the letter touches the $. A space is a US tax or item flag, not a prefix. */
 const SHORT_DOLLAR_PREFIX = /(?<![A-Za-z])[ACR]\$/;
-/** GST, HST, PST, QST, and CAD. The letters CA are not in this list. */
-const CANADIAN_TAX_OR_CAD = /\b(?:GST|HST|PST|QST|CAD)\b/;
-/** Province and territory codes, including the longer forms PEI and NWT. CA is not a code here. */
-const CANADIAN_REGION_CODE = /\b(?:NWT|PEI|AB|BC|MB|NB|NL|NS|NT|NU|ON|PE|QC|SK|YT)\b/;
-/** Province and territory names. Letter case does not matter. CA is not a name here. */
+/** Province and territory codes. CA is not a code here. Longer forms stay ahead of the two letter forms. */
+const CANADIAN_REGION_CODES = 'NWT|PEI|AB|BC|MB|NB|NL|NS|NT|NU|ON|PE|QC|SK|YT';
+const CANADIAN_REGION_CODE = new RegExp(`\\b(?:${CANADIAN_REGION_CODES})\\b`);
+/** A city, then a comma, then a province code, such as Toronto, ON. */
+const CANADIAN_CITY_COMMA_CODE = new RegExp(`\\b[A-Za-z][A-Za-z.' -]*,[ \\t]*(?:${CANADIAN_REGION_CODES})\\b`);
+/** Province and territory names. Letter case does not matter. CA is not a name here. A full name counts on its own. */
 const CANADIAN_REGION_NAME = /\b(?:alberta|british columbia|manitoba|new brunswick|newfoundland(?: (?:and|&) labrador)?|nova scotia|ontario|prince edward island|qu[eé]bec|saskatchewan|northwest territories|nunavut|yukon|labrador)\b/iu;
-/** A Canadian postal code such as K1A 0B1 or M5V 2T6. One space separates the two halves. */
-const CANADIAN_POSTAL_CODE = /\b[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z] \d[ABCEGHJ-NPRSTV-Z]\d\b/;
+/** A Canadian postal code such as K1A 0B1 or M5V 2T6. The space between the halves is optional. */
+const CANADIAN_POSTAL_CODE = /\b[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z] ?\d[ABCEGHJ-NPRSTV-Z]\d\b/;
+/** GST, HST, or QST, then optional spaces or a colon, then a percent or an amount. */
+const CANADIAN_TAX_LINE = /\b(?:GST|HST|QST)\b[ \t]*:?[ \t]*(?:\$?\d+(?:\.\d+)?|\d+(?:\.\d+)?[ \t]*%)/;
+/** Same shape as a tax line. PST after AM, PM, or a clock time is rejected by the caller. */
+const CANADIAN_PST_LINE = /\bPST[ \t]*:?[ \t]*(?:\$?\d+(?:\.\d+)?|\d+(?:\.\d+)?[ \t]*%)/g;
+const CANADIAN_CAD = /\bCAD\b/;
 /** Capitals-only ISO codes beside an amount. TRY, ALL, and TOP are not in this list. */
 const CURRENCY_CODE = 'EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|AED|SAR|ILS|BAM|BOB|COP|CUP|GEL|MAD|MOP|PEN|RUB|SOS';
 /** TRY still blanks on its own when it sits on a total, tax, due, or currency line. */
@@ -608,12 +614,44 @@ function shortDollarPrefix(text: string): boolean {
 }
 
 /**
- * A signal other than the CA prefix: GST, HST, PST, QST, CAD, a province or territory
- * name or code, or a postal code. The letters CA are not this signal.
+ * A province code counts only in an address. That is the same line as a postal code,
+ * the line right before a postal code, a city then a comma then the code, or a city
+ * then the code then a postal code. TURN ON and SHELF BC do not count. A full province
+ * name still counts on its own.
+ */
+function provinceCodeInAddress(text: string): boolean {
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (CANADIAN_CITY_COMMA_CODE.test(line)) return true;
+    if (!CANADIAN_REGION_CODE.test(line)) continue;
+    if (CANADIAN_POSTAL_CODE.test(line)) return true;
+    const next = lines[i + 1];
+    if (next && CANADIAN_POSTAL_CODE.test(next)) return true;
+  }
+  return false;
+}
+
+/** GST, HST, QST, and PST count only when a percent or an amount follows. PST after AM, PM, or a clock time does not. */
+function canadianTaxLine(text: string): boolean {
+  if (CANADIAN_TAX_LINE.test(text)) return true;
+  CANADIAN_PST_LINE.lastIndex = 0;
+  for (const match of text.matchAll(CANADIAN_PST_LINE)) {
+    const before = text.slice(0, match.index);
+    if (/(?:\bAM\b|\bPM\b|\d{1,2}:\d{2}(?::\d{2})?(?:[ \t]*(?:AM|PM))?)\s*$/.test(before)) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * A signal other than the CA prefix: a tax line, CAD, a province or territory name,
+ * a province code in an address, or a postal code. The letters CA are not this signal.
  */
 function canadianSignalBesidesCa(text: string): boolean {
-  return CANADIAN_TAX_OR_CAD.test(text)
-    || CANADIAN_REGION_CODE.test(text)
+  return canadianTaxLine(text)
+    || CANADIAN_CAD.test(text)
+    || provinceCodeInAddress(text)
     || CANADIAN_REGION_NAME.test(text)
     || CANADIAN_POSTAL_CODE.test(text);
 }
@@ -634,8 +672,8 @@ function bareDollar(text: string): boolean {
 
 function nonUsReceiptSignals(text: string): boolean {
   if (STRONG_DOLLAR_PREFIX.test(text) || CA_TOUCHING_DOLLAR.test(text)) return true;
-  // Spaced CA $ follows the short prefix idea: it counts only with a second, different signal.
-  // That signal has to be Canadian. A California tax line such as TAX CA $0.33 does not.
+  // Spaced CA $ counts only with a second, different Canadian signal.
+  // A California tax line, TURN ON, SHELF BC, or a clock time PST does not qualify.
   if (CA_SPACED_DOLLAR.test(text) && canadianSignalBesidesCa(text)) return true;
   // A symbol or kr on a total, tax, due, or currency line blanks on its own.
   if (symbolOnQualifyingLine(text)) return true;
