@@ -497,8 +497,10 @@ function ambiguousNumericDate(value: string): boolean {
 /** Capital dollar prefixes, including one space before the $. A bare $ is not a US signal. */
 const PREFIXED_DOLLAR = /(?<![A-Za-z])(?:CA|AU|NZ|MX|C|A|R) ?\$/;
 const PREFIXED_DOLLAR_ALL = /(?<![A-Za-z])(?:CA|AU|NZ|MX|C|A|R) ?\$/g;
-/** Capitals-only ISO codes. Repeated codes are still one kind of signal. */
-const CURRENCY_CODE = 'EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|AED|SAR|ILS|ALL|BAM|BOB|COP|CUP|GEL|MAD|MOP|PEN|RUB|SOS|TOP|TRY';
+/** Capitals-only ISO codes. Repeated codes are still one kind of signal. ALL and TOP are handled apart from this list. */
+const CURRENCY_CODE = 'EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|AED|SAR|ILS|BAM|BOB|COP|CUP|GEL|MAD|MOP|PEN|RUB|SOS|TRY';
+/** A line that is only ALL or TOP and an amount, such as ALL 1.200 or 12.50 TOP. */
+const LONE_ALL_TOP = /^(?:(?:ALL|TOP)[ \t]+\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?[ \t]+(?:ALL|TOP))$/;
 /** Non US total words. English total, tax, and subtotal are not in this list. */
 const NON_US_TOTAL_WORD = /ИТОГО|ВСЕГО|К ОПЛАТЕ|итого|всего|к оплате/;
 /** Euro, pound, yen, rupee, lira, and ruble. A lone symbol is one kind and does not blank by itself. */
@@ -526,7 +528,7 @@ function symbolOnQualifyingLine(text: string): boolean {
 function codeBesideAmount(text: string): boolean {
   const before = new RegExp(`\\b(?:${CURRENCY_CODE}) ?\\d`);
   const after = new RegExp(`\\d+(?:[.,]\\d+)? ?\\b(?:${CURRENCY_CODE})\\b`);
-  return before.test(text) || after.test(text);
+  return before.test(text) || after.test(text) || text.split(/\r?\n/).some(line => LONE_ALL_TOP.test(line.trim()));
 }
 
 /** Kind: one of the six symbols, or kr beside an amount. Repeated symbols stay this one kind. */
