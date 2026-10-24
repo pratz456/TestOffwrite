@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { receiptCommitForm, reviewedReceiptData } from '../lib/receipts/receipt-review';
+import { browserUploadTimeZone, receiptCommitForm, reviewedReceiptData } from '../lib/receipts/receipt-review';
 
 const draft = { merchant: ' Corrected merchant ', amount: '123.45', date: '2026-09-15', category: ' office supplies ' };
 
@@ -12,6 +12,7 @@ describe('receipt review and manual recovery', () => {
     expect(decoded.get('receiptType')).toBe('expense');
     expect(JSON.parse(String(decoded.get('receiptData')))).toEqual({ merchant: 'Corrected merchant', amount: 123.45, date: '2026-09-15', category: 'office supplies', iso_currency_code: 'USD' });
     expect(decoded.has('attachTransactionId')).toBe(false);
+    expect(decoded.get('uploadTimeZone')).toBe(browserUploadTimeZone());
     expect(await (decoded.get('file') as File).text()).toBe('receipt image bytes');
   });
   it('supports manual entry without any OCR result or confidence value', () => {
@@ -22,6 +23,7 @@ describe('receipt review and manual recovery', () => {
   it('attaches a receipt without sending replacements for bank-transaction fields', () => {
     const form = receiptCommitForm(new File(['image'], 'receipt.png'), { merchant: '', amount: '', date: '', category: '' }, 'expense', 'owned-transaction');
     expect(form.get('attachTransactionId')).toBe('owned-transaction');
+    expect(form.get('uploadTimeZone')).toBe(browserUploadTimeZone());
     expect(form.has('receiptData')).toBe(false);
   });
   it.each(['', '0', '-1', 'NaN', 'Infinity'])('does not submit invalid amount %s', amount => {

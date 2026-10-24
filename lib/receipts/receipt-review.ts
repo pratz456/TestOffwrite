@@ -1,4 +1,5 @@
-export type ReceiptDraft = { merchant: string; amount: string; date: string; category: string };
+export type DateOrderAssumed = 'month_day';
+export type ReceiptDraft = { merchant: string; amount: string; date: string; category: string; dateOrderAssumed?: DateOrderAssumed };
 
 export function reviewedReceiptData(draft: ReceiptDraft) {
   const merchant = draft.merchant.trim();
@@ -10,7 +11,18 @@ export function reviewedReceiptData(draft: ReceiptDraft) {
     throw new Error('Enter a valid receipt date.');
   }
   if (category.length > 200) throw new Error('Keep the category under 200 characters.');
-  return { merchant, amount, date: draft.date, category, iso_currency_code: 'USD' as const };
+  return {
+    merchant,
+    amount,
+    date: draft.date,
+    category,
+    iso_currency_code: 'USD' as const,
+    ...(draft.dateOrderAssumed === 'month_day' ? { dateOrderAssumed: 'month_day' as const } : {}),
+  };
+}
+
+export function browserUploadTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
 export function receiptCommitForm(file: File, draft: ReceiptDraft, receiptType: 'expense' | 'income', attachTransactionId?: string | null) {
@@ -18,6 +30,7 @@ export function receiptCommitForm(file: File, draft: ReceiptDraft, receiptType: 
   form.append('file', file);
   form.append('mode', 'commit');
   form.append('receiptType', receiptType);
+  form.append('uploadTimeZone', browserUploadTimeZone());
   if (attachTransactionId) form.append('attachTransactionId', attachTransactionId);
   else form.append('receiptData', JSON.stringify(reviewedReceiptData(draft)));
   return form;

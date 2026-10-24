@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
+    "test:receipt-tz": "TZ=Asia/Tokyo vitest run tests/receipt-calendar-date.test.ts tests/receipt-ocr-save-date.test.ts tests/receipt-parsed-date.test.ts && TZ=America/Los_Angeles vitest run tests/receipt-calendar-date.test.ts tests/receipt-ocr-save-date.test.ts tests/receipt-parsed-date.test.ts && TZ=UTC vitest run tests/receipt-calendar-date.test.ts tests/receipt-ocr-save-date.test.ts tests/receipt-parsed-date.test.ts",
     "test:watch": "vitest",
     "ci": "npm run lint && npm test && npm run build",
     "production:prepare": "node scripts/prepare-production-release.mjs",
