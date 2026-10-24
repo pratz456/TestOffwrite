@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { CONTRACT_OWNER, OWNER_ID_TOKEN, SITE_URL, installApiRouteMocks } from './fixtures/api-route-harness';
-import { fakeRateLimitFirestore, recordedRateLimitCount } from './fixtures/rate-limit-store';
+import { failRateLimitStore, fakeRateLimitFirestore, recordedRateLimitCount } from './fixtures/rate-limit-store';
 import { DEFAULT_JSON_BODY_MAX_BYTES } from '../lib/http/json-body';
 import { MAX_REQUEST_BYTES } from '../lib/tax-assistant/contract';
 
@@ -31,8 +31,40 @@ function abortedBody(): ReadableStream<Uint8Array> {
   });
 }
 
+function countedStream(maxBytes: number) {
+  const chunkSize = 16 * 1024;
+  const chunksToPass = Math.floor(maxBytes / chunkSize) + 1;
+  const available = chunksToPass + 8;
+  const state = { pulled: 0 };
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      state.pulled += 1;
+      if (state.pulled > available) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(new Uint8Array(chunkSize));
+    },
+  });
+  return { stream, state, chunksToPass };
+}
+
 function request(path: string, body: BodyInit, headers: Record<string, string> = {}) {
   return new NextRequest(`${SITE_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${OWNER_ID_TOKEN}`,
+      'content-type': 'application/json',
+      'x-forwarded-for': '203.0.113.9',
+      ...headers,
+    },
+    body,
+    duplex: 'half',
+  } as RequestInit);
+}
+
+function streamedRequest(path: string, body: BodyInit, headers: Record<string, string> = {}) {
+  return new Request(`${SITE_URL}${path}`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${OWNER_ID_TOKEN}`,
@@ -54,6 +86,8 @@ function unsigned(path: string) {
 }
 
 type LimitSpy = { mock: { calls: unknown[][] } };
+type LimitPolicy = { scope: string; limit: number; windowMs: number; onUnavailable?: string };
+type RouteHandler = { POST: (request: NextRequest) => Promise<Response> };
 
 function usageCalls(limitSpy: LimitSpy, scope: string, key: string) {
   return limitSpy.mock.calls.filter(call => {
@@ -77,6 +111,10 @@ function expectUsageUntouched(limitSpy: LimitSpy, scope: string, key: string) {
   expect(harness.plaidCalls).toEqual([]);
   expect(harness.fetch).not.toHaveBeenCalled();
   expect(harness.storageCalls).toEqual([]);
+}
+
+function expectCache(response: Response, cache: string | null) {
+  expect(response.headers.get('cache-control')).toBe(cache);
 }
 
 async function prepareAnalyze() {
@@ -119,13 +157,58 @@ async function prepareAssistant(content: unknown) {
 
 const guidanceSelection = { topic: 'vehicles-records', missingFactIds: ['vehicles-records:1'], photoCategories: ['vehicle'] };
 
-const ROUTES = [
+function longHistory(message: string, taxYear: number) {
+  return {
+    message,
+    taxYear,
+    conversationHistory: Array.from({ length: 13 }, () => ({ role: 'user', content: 'hello' })),
+  };
+}
+
+interface RouteCase {
+  name: string;
+  path: string;
+  policy: 'plaidSync' | 'aiAnalyzeTransaction' | 'aiTaxAssistant';
+  invalidPolicy: string;
+  key: string;
+  maxBytes: number;
+  invalidLimit: number;
+  windowMs: number;
+  invalidJsonError: string;
+  tooLargeError: string;
+  invalidJsonCache: string | null;
+  tooLargeCache: string | null;
+  invalidFieldsBody: unknown;
+  invalidFieldsError: string;
+  longHistoryBody?: unknown;
+  longHistoryError?: string;
+  badImageBody?: unknown;
+  badImageError?: string;
+  validBody: unknown;
+  load: () => Promise<RouteHandler>;
+  prepareValid: () => Promise<void>;
+}
+
+const ACCOUNT_FIELD_ERROR = 'Use a valid question, tax year, and photo under 2 MB.';
+const TAX_FIELD_ERROR = 'Use tax year 2026 or 2027, a question under 4,000 characters, and at most 12 recent messages.';
+const PRIVATE_NO_STORE = 'private, no-store';
+
+const ROUTES: RouteCase[] = [
   {
     name: 'reconnect',
     path: '/api/plaid/reconnect',
     policy: 'plaidSync',
+    invalidPolicy: 'reconnectInvalidRequest',
     key: `reconnect:${uid}`,
     maxBytes: DEFAULT_JSON_BODY_MAX_BYTES,
+    invalidLimit: 240,
+    windowMs: 10 * 60_000,
+    invalidJsonError: 'Invalid JSON body',
+    tooLargeError: 'Request body is too large',
+    invalidJsonCache: PRIVATE_NO_STORE,
+    tooLargeCache: PRIVATE_NO_STORE,
+    invalidFieldsBody: { action: 'nope' },
+    invalidFieldsError: 'Invalid bank review action',
     validBody: { action: 'start' },
     load: () => import('../app/api/plaid/reconnect/route'),
     prepareValid: async () => {},
@@ -134,8 +217,17 @@ const ROUTES = [
     name: 'analyze transaction',
     path: '/api/ai/analyze-transaction',
     policy: 'aiAnalyzeTransaction',
+    invalidPolicy: 'analyzeTransactionInvalidRequest',
     key: uid,
     maxBytes: DEFAULT_JSON_BODY_MAX_BYTES,
+    invalidLimit: 120,
+    windowMs: 60 * 60_000,
+    invalidJsonError: 'Invalid request data',
+    tooLargeError: 'Request body is too large',
+    invalidJsonCache: null,
+    tooLargeCache: PRIVATE_NO_STORE,
+    invalidFieldsBody: { transactionId: 'tx1', transaction: { amount: 35 } },
+    invalidFieldsError: 'Invalid request data',
     validBody: {
       transactionId: 'tx1',
       transaction: { merchant_name: 'Office supplies', amount: 35, category: 'office', date: '2026-06-15' },
@@ -147,8 +239,21 @@ const ROUTES = [
     name: 'account assistant',
     path: '/api/ai/account-assistant',
     policy: 'aiTaxAssistant',
+    invalidPolicy: 'accountAssistantInvalidRequest',
     key: `account:${uid}`,
     maxBytes: MAX_REQUEST_BYTES,
+    invalidLimit: 60,
+    windowMs: 10 * 60_000,
+    invalidJsonError: 'Invalid request body.',
+    tooLargeError: 'Request is too large.',
+    invalidJsonCache: PRIVATE_NO_STORE,
+    tooLargeCache: PRIVATE_NO_STORE,
+    invalidFieldsBody: { message: 'What needs review?', taxYear: 2024 },
+    invalidFieldsError: ACCOUNT_FIELD_ERROR,
+    longHistoryBody: longHistory('What needs review?', 2026),
+    longHistoryError: ACCOUNT_FIELD_ERROR,
+    badImageBody: { message: 'What needs review?', taxYear: 2026, imageDataUrl: 'https://example.com/photo.png' },
+    badImageError: ACCOUNT_FIELD_ERROR,
     validBody: { message: 'What needs review?', taxYear: 2026 },
     load: () => import('../app/api/ai/account-assistant/route'),
     prepareValid: () => prepareAssistant({ intent: 'prepare_handoff' }),
@@ -157,13 +262,26 @@ const ROUTES = [
     name: 'tax assistant',
     path: '/api/ai/tax-assistant',
     policy: 'aiTaxAssistant',
+    invalidPolicy: 'taxAssistantInvalidRequest',
     key: uid,
     maxBytes: MAX_REQUEST_BYTES,
+    invalidLimit: 60,
+    windowMs: 10 * 60_000,
+    invalidJsonError: 'Invalid request body',
+    tooLargeError: 'Request is too large. Use a photo under 2 MB.',
+    invalidJsonCache: null,
+    tooLargeCache: null,
+    invalidFieldsBody: { message: 'Can I write this off?', taxYear: 2025 },
+    invalidFieldsError: TAX_FIELD_ERROR,
+    longHistoryBody: longHistory('Can I write this off?', 2026),
+    longHistoryError: TAX_FIELD_ERROR,
+    badImageBody: { message: 'Can I write this off?', taxYear: 2026, imageDataUrl: 'https://example.com/photo.png' },
+    badImageError: 'Attach a valid JPEG, PNG, or WebP photo under 2 MB.',
     validBody: { message: 'Can I write this off?', taxYear: 2026 },
     load: () => import('../app/api/ai/tax-assistant/route'),
     prepareValid: () => prepareAssistant(guidanceSelection),
   },
-] as const;
+];
 
 describe('request body validation before usage counters', () => {
   let limitSpy: ReturnType<typeof vi.spyOn>;
@@ -179,9 +297,39 @@ describe('request body validation before usage counters', () => {
     vi.restoreAllMocks();
   });
 
-  async function scopeFor(policy: typeof ROUTES[number]['policy']) {
+  async function scopeFor(policy: RouteCase['policy']) {
     const limits = (await import('@/lib/security/rate-limit')).RATE_LIMITS;
     return limits[policy].scope;
+  }
+
+  async function readPolicy(name: string): Promise<LimitPolicy | undefined> {
+    const limits = (await import('@/lib/security/rate-limit')).RATE_LIMITS as Record<string, LimitPolicy | undefined>;
+    return limits[name];
+  }
+
+  async function invalidCount(name: string) {
+    const policy = await readPolicy(name);
+    return recordedRateLimitCount(policy?.scope ?? `missing:${name}`);
+  }
+
+  async function expectFieldRejection(route: RouteCase, body: unknown, error: string) {
+    const scope = await scopeFor(route.policy);
+    const invalid = await readPolicy(route.invalidPolicy);
+    const { POST } = await route.load();
+    const response = await POST(request(route.path, JSON.stringify(body)));
+    expect(usageCalls(limitSpy, scope, route.key)).toHaveLength(0);
+    expect(recordedRateLimitCount(scope)).toBe(0);
+    expect(recordedRateLimitCount(invalid?.scope ?? `missing:${route.invalidPolicy}`)).toBe(1);
+    expect(invalid?.limit).toBe(route.invalidLimit);
+    expect(invalid?.windowMs).toBe(route.windowMs);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error });
+    expectCache(response, route.invalidJsonCache);
+    const scopeName = invalid?.scope ?? `missing:${route.invalidPolicy}`;
+    const { rateLimitKeyHash } = await import('@/lib/security/rate-limit');
+    expect(fakeRateLimitFirestore.records.has(`rate_limits/${rateLimitKeyHash(scopeName, uid)}`)).toBe(true);
+    expect(harness.plaidCalls).toEqual([]);
+    expect(harness.fetch).not.toHaveBeenCalled();
   }
 
   for (const route of ROUTES) {
@@ -191,7 +339,8 @@ describe('request body validation before usage counters', () => {
       const response = await POST(request(route.path, partialBody()));
       expectUsageUntouched(limitSpy, scope, route.key);
       expect(response.status).toBe(400);
-      await expect(response.json()).resolves.toEqual({ error: 'Invalid JSON body' });
+      await expect(response.json()).resolves.toEqual({ error: route.invalidJsonError });
+      expectCache(response, route.invalidJsonCache);
     });
 
     it(`reads an aborted ${route.name} request before counting it`, async () => {
@@ -200,7 +349,8 @@ describe('request body validation before usage counters', () => {
       const response = await POST(request(route.path, abortedBody()));
       expectUsageUntouched(limitSpy, scope, route.key);
       expect(response.status).toBe(400);
-      await expect(response.json()).resolves.toEqual({ error: 'Invalid JSON body' });
+      await expect(response.json()).resolves.toEqual({ error: route.invalidJsonError });
+      expectCache(response, route.invalidJsonCache);
     });
 
     it(`reads invalid ${route.name} JSON before counting it`, async () => {
@@ -209,7 +359,8 @@ describe('request body validation before usage counters', () => {
       const response = await POST(request(route.path, '{'));
       expectUsageUntouched(limitSpy, scope, route.key);
       expect(response.status).toBe(400);
-      await expect(response.json()).resolves.toEqual({ error: 'Invalid JSON body' });
+      await expect(response.json()).resolves.toEqual({ error: route.invalidJsonError });
+      expectCache(response, route.invalidJsonCache);
     });
 
     it(`reads an oversize ${route.name} request before counting it`, async () => {
@@ -219,7 +370,8 @@ describe('request body validation before usage counters', () => {
       const response = await POST(request(route.path, body, { 'content-length': String(body.length) }));
       expectUsageUntouched(limitSpy, scope, route.key);
       expect(response.status).toBe(413);
-      await expect(response.json()).resolves.toEqual({ error: 'Request body is too large' });
+      await expect(response.json()).resolves.toEqual({ error: route.tooLargeError });
+      expectCache(response, route.tooLargeCache);
     });
 
     it(`counts one valid ${route.name} request`, async () => {
@@ -246,7 +398,7 @@ describe('request body validation before usage counters', () => {
       const scope = await scopeFor(route.policy);
       const { POST } = await route.load();
       const statuses: number[] = [];
-      for (let attempt = 0; attempt < 50; attempt += 1) {
+      for (let attempt = 0; attempt < route.invalidLimit + 1; attempt += 1) {
         const response = await POST(request(route.path, '{'));
         statuses.push(response.status);
       }
@@ -261,6 +413,130 @@ describe('request body validation before usage counters', () => {
       expect(allowed.status).toBe(200);
       expect(usageCalls(limitSpy, scope, route.key)).toHaveLength(1);
       expect(recordedRateLimitCount(scope)).toBe(1);
+    });
+
+    it(`returns 400 for valid ${route.name} JSON with invalid fields before counting usage`, async () => {
+      await expectFieldRejection(route, route.invalidFieldsBody, route.invalidFieldsError);
+    });
+
+    if (route.longHistoryBody) {
+      it(`returns 400 for a long ${route.name} history before counting usage`, async () => {
+        await expectFieldRejection(route, route.longHistoryBody, route.longHistoryError ?? '');
+      });
+    }
+
+    if (route.badImageBody) {
+      it(`returns 400 for an unsupported ${route.name} photo before counting usage`, async () => {
+        await expectFieldRejection(route, route.badImageBody, route.badImageError ?? '');
+      });
+    }
+
+    it(`returns 429 for ${route.name} once the invalid request limit is reached`, async () => {
+      const scope = await scopeFor(route.policy);
+      const invalid = await readPolicy(route.invalidPolicy);
+      const { POST } = await route.load();
+      const statuses: number[] = [];
+      for (let attempt = 0; attempt < route.invalidLimit + 1; attempt += 1) {
+        const response = await POST(request(route.path, '{'));
+        statuses.push(response.status);
+      }
+      expect(statuses.slice(0, route.invalidLimit).every(status => status === 400)).toBe(true);
+      expect(statuses).toHaveLength(route.invalidLimit + 1);
+      expect(statuses.at(-1)).toBe(429);
+      expect(usageCalls(limitSpy, scope, route.key)).toHaveLength(0);
+      expect(recordedRateLimitCount(scope)).toBe(0);
+      expect(invalid?.limit).toBe(route.invalidLimit);
+      expect(invalid?.windowMs).toBe(route.windowMs);
+      expect(recordedRateLimitCount(invalid?.scope ?? `missing:${route.invalidPolicy}`)).toBe(route.invalidLimit);
+      const denied = await POST(request(route.path, '{')).then(async response => ({ status: response.status, body: await response.json() }));
+      expect(denied.status).toBe(429);
+      expect(denied.body.code).toBe('RATE_LIMITED');
+      await route.prepareValid();
+      const allowed = await POST(request(route.path, JSON.stringify(route.validBody)));
+      expect(allowed.status).toBe(200);
+      expect(usageCalls(limitSpy, scope, route.key)).toHaveLength(1);
+      expect(recordedRateLimitCount(scope)).toBe(1);
+    });
+
+    it(`stops reading an oversize streamed ${route.name} body when no length is declared`, async () => {
+      const scope = await scopeFor(route.policy);
+      const opened = countedStream(route.maxBytes);
+      const incoming = streamedRequest(route.path, opened.stream);
+      expect(incoming.headers.get('content-length')).toBeNull();
+      const { POST } = await route.load();
+      const response = await POST(incoming as NextRequest);
+      expect(usageCalls(limitSpy, scope, route.key)).toHaveLength(0);
+      expect(recordedRateLimitCount(scope)).toBe(0);
+      expect(opened.state.pulled).toBeGreaterThanOrEqual(opened.chunksToPass);
+      expect(opened.state.pulled).toBeLessThanOrEqual(opened.chunksToPass + 1);
+      expect(response.status).toBe(413);
+      await expect(response.json()).resolves.toEqual({ error: route.tooLargeError });
+      expect((await invalidCount(route.invalidPolicy))).toBe(1);
+    });
+
+    it(`stops reading an oversize streamed ${route.name} body when the declared length is too small`, async () => {
+      const scope = await scopeFor(route.policy);
+      const opened = countedStream(route.maxBytes);
+      const incoming = streamedRequest(route.path, opened.stream, { 'content-length': '1' });
+      expect(incoming.headers.get('content-length')).toBe('1');
+      const { POST } = await route.load();
+      const response = await POST(incoming as NextRequest);
+      expect(usageCalls(limitSpy, scope, route.key)).toHaveLength(0);
+      expect(recordedRateLimitCount(scope)).toBe(0);
+      expect(opened.state.pulled).toBeGreaterThanOrEqual(opened.chunksToPass);
+      expect(opened.state.pulled).toBeLessThanOrEqual(opened.chunksToPass + 1);
+      expect(response.status).toBe(413);
+      await expect(response.json()).resolves.toEqual({ error: route.tooLargeError });
+      expect((await invalidCount(route.invalidPolicy))).toBe(1);
+    });
+
+    it(`leaves other invalid request counters unchanged after a bad ${route.name} body`, async () => {
+      const before = new Map<string, number>();
+      for (const other of ROUTES) before.set(other.invalidPolicy, await invalidCount(other.invalidPolicy));
+      const { POST } = await route.load();
+      const response = await POST(request(route.path, '{'));
+      expect(usageCalls(limitSpy, await scopeFor(route.policy), route.key)).toHaveLength(0);
+      expect(response.status).toBe(400);
+      for (const other of ROUTES) {
+        const after = await invalidCount(other.invalidPolicy);
+        const previous = before.get(other.invalidPolicy) ?? 0;
+        expect(after).toBe(other.invalidPolicy === route.invalidPolicy ? previous + 1 : previous);
+      }
+    });
+
+    it(`keeps the ${route.name} invalid request counter when the forwarded address changes`, async () => {
+      const scope = await scopeFor(route.policy);
+      const invalid = await readPolicy(route.invalidPolicy);
+      const { POST } = await route.load();
+      const statuses: number[] = [];
+      for (let attempt = 0; attempt < route.invalidLimit + 1; attempt += 1) {
+        const response = await POST(request(route.path, '{', { 'x-forwarded-for': `198.51.100.${attempt % 250}` }));
+        statuses.push(response.status);
+      }
+      expect(statuses.slice(0, route.invalidLimit).every(status => status === 400)).toBe(true);
+      expect(statuses.at(-1)).toBe(429);
+      expect(usageCalls(limitSpy, scope, route.key)).toHaveLength(0);
+      expect(recordedRateLimitCount(scope)).toBe(0);
+      expect(recordedRateLimitCount(invalid?.scope ?? `missing:${route.invalidPolicy}`)).toBe(route.invalidLimit);
+      const scopeName = invalid?.scope ?? `missing:${route.invalidPolicy}`;
+      const { rateLimitKeyHash } = await import('@/lib/security/rate-limit');
+      const records = [...fakeRateLimitFirestore.records.entries()].filter(([path, data]) => path.startsWith('rate_limits/') && data.scope === scopeName);
+      expect(records.map(([path]) => path)).toEqual([`rate_limits/${rateLimitKeyHash(scopeName, uid)}`]);
+    });
+
+    it(`returns the original ${route.name} rejection when the invalid request counter cannot be stored`, async () => {
+      failRateLimitStore();
+      const scope = await scopeFor(route.policy);
+      const { POST } = await route.load();
+      const invalid = await POST(request(route.path, '{'));
+      expect(invalid.status).toBe(400);
+      await expect(invalid.json()).resolves.toEqual({ error: route.invalidJsonError });
+      expect(usageCalls(limitSpy, scope, route.key)).toHaveLength(0);
+      const body = 'x'.repeat(route.maxBytes + 1);
+      const oversize = await POST(request(route.path, body, { 'content-length': String(body.length) }));
+      expect(oversize.status).toBe(413);
+      await expect(oversize.json()).resolves.toEqual({ error: route.tooLargeError });
+      expect(usageCalls(limitSpy, scope, route.key)).toHaveLength(0);
     });
   }
 });

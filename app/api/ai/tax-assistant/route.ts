@@ -4,8 +4,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { assistantRequestSchema, conversationHistoryTooLong, isSupportedImage, readAssistantBody } from '@/lib/tax-assistant/contract';
 import { loadAssistantContext } from '@/lib/tax-assistant/context-server';
 import { buildGuidanceMessages, guidanceResponse, validateAssessment } from '@/lib/tax-assistant/guidance';
-import { invalidJsonBodyResponse, jsonTooLargeResponse } from '@/lib/http/json-body';
-import { enforceRateLimit, RATE_LIMITS, rateLimitResponse, withRequestValidationLimit } from '@/lib/security/rate-limit';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse, TAX_ASSISTANT_USER_LIMIT, TAX_ASSISTANT_USER_WINDOW_MS, withInvalidRequestLimit } from '@/lib/security/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,25 +15,33 @@ export async function POST(request: NextRequest) {
   if (!hasOpenAIAPIKey()) {
     return NextResponse.json({ error: 'The tax assistant is not configured yet. Your question has not been sent for analysis.' }, { status: 503 });
   }
-  // Read and validate the body before the usage counter. Requests that fail validation use a separate limit.
+  // Read the body and check its fields before the usage counter. Invalid requests use this route's invalid request counter.
   let body: unknown;
   try {
     body = await readAssistantBody(request);
   } catch (error) {
-    const failure = error instanceof RangeError ? jsonTooLargeResponse() : invalidJsonBodyResponse();
-    return withRequestValidationLimit(request, user.uid, failure);
+    const tooLarge = error instanceof RangeError;
+    const failure = NextResponse.json(
+      { error: tooLarge ? 'Request is too large. Use a photo under 2 MB.' : 'Invalid request body' },
+      { status: tooLarge ? 413 : 400 },
+    );
+    return withInvalidRequestLimit(user.uid, RATE_LIMITS.taxAssistantInvalidRequest, failure);
   }
-  const limit = await enforceRateLimit({ ...RATE_LIMITS.aiTaxAssistant, key: user.uid });
-  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many assistant requests. Please wait a few minutes and try again.' });
-  if (conversationHistoryTooLong(body)) {
-    return NextResponse.json({ error: 'Use tax year 2026 or 2027, a question under 4,000 characters, and at most 12 recent messages.' }, { status: 400 });
-  }
+  const fieldError = () => NextResponse.json({ error: 'Use tax year 2026 or 2027, a question under 4,000 characters, and at most 12 recent messages.' }, { status: 400 });
+  if (conversationHistoryTooLong(body)) return withInvalidRequestLimit(user.uid, RATE_LIMITS.taxAssistantInvalidRequest, fieldError());
   const parsed = assistantRequestSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: 'Use tax year 2026 or 2027, a question under 4,000 characters, and at most 12 recent messages.' }, { status: 400 });
+  if (!parsed.success) return withInvalidRequestLimit(user.uid, RATE_LIMITS.taxAssistantInvalidRequest, fieldError());
   const input = parsed.data;
   if (input.imageDataUrl && !isSupportedImage(input.imageDataUrl)) {
-    return NextResponse.json({ error: 'Attach a valid JPEG, PNG, or WebP photo under 2 MB.' }, { status: 400 });
+    return withInvalidRequestLimit(user.uid, RATE_LIMITS.taxAssistantInvalidRequest, NextResponse.json({ error: 'Attach a valid JPEG, PNG, or WebP photo under 2 MB.' }, { status: 400 }));
   }
+  const limit = await enforceRateLimit({
+    ...RATE_LIMITS.aiTaxAssistant,
+    limit: TAX_ASSISTANT_USER_LIMIT,
+    windowMs: TAX_ASSISTANT_USER_WINDOW_MS,
+    key: user.uid,
+  });
+  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many assistant requests. Please wait a few minutes and try again.' });
 
   // Owner-scoped saved facts and (only when a merchant is named) a bounded read of the user's own rows.
   const context = await loadAssistantContext(user.uid, input.message, input.taxYear).catch(() => null);
