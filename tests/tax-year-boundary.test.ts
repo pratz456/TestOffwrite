@@ -1,4 +1,5 @@
-import { expect, it } from 'vitest';
+import { expect, describe, it } from 'vitest';
+import { Timestamp } from 'firebase-admin/firestore';
 import { listIncomeSourceCandidates, reconcileBusinessIncome, UTC_ZONE_ALIASES } from '@/lib/tax-rules/business-income';
 
 /**
@@ -53,9 +54,15 @@ const charge = (id: string, iso: string, zone?: string) => ({
   ...(zone === undefined ? {} : { uploadTimeZone: zone }),
 });
 
-const reconcile = (year: number, row: ReturnType<typeof charge>) => reconcileBusinessIncome(year, [row], [], []);
+type BoundaryRow = {
+  id: string;
+  date: unknown;
+  uploadTimeZone?: string;
+};
 
-const placedDay = (year: number, row: ReturnType<typeof charge>) => {
+const reconcile = (year: number, row: BoundaryRow) => reconcileBusinessIncome(year, [row], [], []);
+
+const placedDay = (year: number, row: BoundaryRow) => {
   const { candidates } = listIncomeSourceCandidates(year, [row], [], []);
   return candidates.find(candidate => candidate.id === row.id)?.date;
 };
@@ -148,6 +155,97 @@ it('2027-01-01T02:00Z with no saved zone lands in tax year 2026', () => {
   expect(year2027.grossReceipts).toBe(0);
   expect(year2027.needsMoreInformationRows).toEqual([]);
   expect(placedDay(2027, row)).toBeUndefined();
+});
+
+const instantShapes: Array<[string, (iso: string) => unknown]> = [
+  ['Firestore Timestamp', iso => Timestamp.fromMillis(Date.parse(iso))],
+  ['{_seconds, _nanoseconds}', iso => {
+    const millis = Date.parse(iso);
+    const seconds = Math.trunc(millis / 1000);
+    return { _seconds: seconds, _nanoseconds: (millis - seconds * 1000) * 1e6 };
+  }],
+];
+
+describe.each(instantShapes)('%s', (_label, makeDate) => {
+  const dated = (iso: string, zone?: string) => ({
+    id: 'boundary-row',
+    trans_id: 'boundary-row',
+    account_id: 'bank-1',
+    amount: -ADDED,
+    category: 'income',
+    merchant_name: 'Boundary Client',
+    pending: false,
+    iso_currency_code: 'USD',
+    date: makeDate(iso),
+    ...(zone === undefined ? {} : { uploadTimeZone: zone }),
+  });
+
+  it('keeps 2026-12-31 23:30 America/Los_Angeles in tax year 2026', () => {
+    const row = dated(LOS_ANGELES_NEW_YEAR, 'America/Los_Angeles');
+    const year2026 = reconcile(2026, row);
+    expect(placedDay(2026, row)).toBe('2026-12-31');
+    expect(year2026.grossReceipts).toBe(ADDED);
+    expect(year2026.quarterlyGrossReceipts).toEqual([0, 0, 0, ADDED]);
+    expect(year2026.needsMoreInformationRows).toEqual([]);
+    const year2027 = reconcile(2027, row);
+    expect(year2027.grossReceipts).toBe(0);
+    expect(year2027.needsMoreInformationRows).toEqual([]);
+    expect(placedDay(2027, row)).toBeUndefined();
+  });
+
+  it('keeps 2027-01-01 00:30 Asia/Tokyo in tax year 2027', () => {
+    const row = dated(TOKYO_NEW_YEAR, 'Asia/Tokyo');
+    const year2027 = reconcile(2027, row);
+    expect(placedDay(2027, row)).toBe('2027-01-01');
+    expect(year2027.grossReceipts).toBe(ADDED);
+    expect(year2027.quarterlyGrossReceipts).toEqual([ADDED, 0, 0, 0]);
+    expect(year2027.needsMoreInformationRows).toEqual([]);
+    const year2026 = reconcile(2026, row);
+    expect(year2026.grossReceipts).toBe(0);
+    expect(year2026.needsMoreInformationRows).toEqual([]);
+    expect(placedDay(2026, row)).toBeUndefined();
+  });
+
+  it.each([
+    ['no saved zone', undefined],
+    ['refused zone Z', 'Z'],
+  ] as const)('2027-01-01T07:30Z with %s needs more information and has no tax year', (_name, zone) => {
+    const row = dated(LOS_ANGELES_NEW_YEAR, zone);
+    for (const year of [2026, 2027]) {
+      const result = reconcile(year, row);
+      expect(result.grossReceipts).toBe(0);
+      expect(placedDay(year, row)).toBeUndefined();
+      expect(namesRow(result)).toBe(true);
+      expect(result.warnings.join(' ')).toMatch(NMI);
+      expect(result.quarterlyGrossReceipts).toEqual([0, 0, 0, 0]);
+    }
+  });
+
+  it('2026-12-31T15:30Z with no saved zone lands in tax year 2026', () => {
+    const row = dated(TOKYO_NEW_YEAR);
+    const year2026 = reconcile(2026, row);
+    expect(placedDay(2026, row)).toBe('2026-12-31');
+    expect(year2026.grossReceipts).toBe(ADDED);
+    expect(year2026.quarterlyGrossReceipts).toEqual([0, 0, 0, ADDED]);
+    expect(year2026.needsMoreInformationRows).toEqual([]);
+    const year2027 = reconcile(2027, row);
+    expect(year2027.grossReceipts).toBe(0);
+    expect(year2027.needsMoreInformationRows).toEqual([]);
+    expect(placedDay(2027, row)).toBeUndefined();
+  });
+
+  it('2027-01-01T02:00Z with no saved zone lands in tax year 2026', () => {
+    const row = dated(AGREED_NEW_YEAR);
+    const year2026 = reconcile(2026, row);
+    expect(placedDay(2026, row)).toBe('2026-12-31');
+    expect(year2026.grossReceipts).toBe(ADDED);
+    expect(year2026.quarterlyGrossReceipts).toEqual([0, 0, 0, ADDED]);
+    expect(year2026.needsMoreInformationRows).toEqual([]);
+    const year2027 = reconcile(2027, row);
+    expect(year2027.grossReceipts).toBe(0);
+    expect(year2027.needsMoreInformationRows).toEqual([]);
+    expect(placedDay(2027, row)).toBeUndefined();
+  });
 });
 
 it('accepts every name in the 18 name list', () => {
