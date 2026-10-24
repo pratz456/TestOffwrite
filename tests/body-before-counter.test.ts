@@ -180,6 +180,10 @@ interface RouteCase {
   tooLargeCache: string | null;
   invalidFieldsBody: unknown;
   invalidFieldsError: string;
+  usageLimit: number;
+  usageLimitName: string;
+  usageLimitError: string;
+  usageLimitCode: string;
   longHistoryBody?: unknown;
   longHistoryError?: string;
   badImageBody?: unknown;
@@ -209,6 +213,10 @@ const ROUTES: RouteCase[] = [
     tooLargeCache: PRIVATE_NO_STORE,
     invalidFieldsBody: { action: 'nope' },
     invalidFieldsError: 'Invalid bank review action',
+    usageLimit: 120,
+    usageLimitName: 'RECONNECT_USER_LIMIT',
+    usageLimitError: 'Please wait a moment before continuing bank review.',
+    usageLimitCode: 'RATE_LIMITED',
     validBody: { action: 'start' },
     load: () => import('../app/api/plaid/reconnect/route'),
     prepareValid: async () => {},
@@ -228,6 +236,10 @@ const ROUTES: RouteCase[] = [
     tooLargeCache: PRIVATE_NO_STORE,
     invalidFieldsBody: { transactionId: 'tx1', transaction: { amount: 35 } },
     invalidFieldsError: 'Invalid request data',
+    usageLimit: 60,
+    usageLimitName: 'ANALYZE_TRANSACTION_USER_LIMIT',
+    usageLimitError: 'Analysis request limit reached. Please try again later.',
+    usageLimitCode: 'AI_RATE_LIMITED',
     validBody: {
       transactionId: 'tx1',
       transaction: { merchant_name: 'Office supplies', amount: 35, category: 'office', date: '2026-06-15' },
@@ -250,6 +262,10 @@ const ROUTES: RouteCase[] = [
     tooLargeCache: PRIVATE_NO_STORE,
     invalidFieldsBody: { message: 'What needs review?', taxYear: 2024 },
     invalidFieldsError: ACCOUNT_FIELD_ERROR,
+    usageLimit: 30,
+    usageLimitName: 'ACCOUNT_ASSISTANT_USER_LIMIT',
+    usageLimitError: 'Too many assistant requests. Please retry in a few minutes.',
+    usageLimitCode: 'RATE_LIMITED',
     longHistoryBody: longHistory('What needs review?', 2026),
     longHistoryError: ACCOUNT_FIELD_ERROR,
     badImageBody: { message: 'What needs review?', taxYear: 2026, imageDataUrl: 'https://example.com/photo.png' },
@@ -273,6 +289,10 @@ const ROUTES: RouteCase[] = [
     tooLargeCache: null,
     invalidFieldsBody: { message: 'Can I write this off?', taxYear: 2025 },
     invalidFieldsError: TAX_FIELD_ERROR,
+    usageLimit: 30,
+    usageLimitName: 'TAX_ASSISTANT_USER_LIMIT',
+    usageLimitError: 'Too many assistant requests. Please wait a few minutes and try again.',
+    usageLimitCode: 'RATE_LIMITED',
     longHistoryBody: longHistory('Can I write this off?', 2026),
     longHistoryError: TAX_FIELD_ERROR,
     badImageBody: { message: 'Can I write this off?', taxYear: 2026, imageDataUrl: 'https://example.com/photo.png' },
@@ -312,6 +332,11 @@ describe('request body validation before usage counters', () => {
     return recordedRateLimitCount(policy?.scope ?? `missing:${name}`);
   }
 
+  async function usageLimitFor(route: RouteCase) {
+    const rateLimit = await import('@/lib/security/rate-limit') as Record<string, unknown>;
+    return rateLimit[route.usageLimitName] as number | undefined;
+  }
+
   async function expectFieldRejection(route: RouteCase, body: unknown, error: string) {
     const scope = await scopeFor(route.policy);
     const invalid = await readPolicy(route.invalidPolicy);
@@ -334,9 +359,13 @@ describe('request body validation before usage counters', () => {
 
   for (const route of ROUTES) {
     it(`reads a partial ${route.name} request before counting it`, async () => {
+      const recordSet = vi.spyOn(harness.db.records, 'set');
+      const recordDelete = vi.spyOn(harness.db.records, 'delete');
       const scope = await scopeFor(route.policy);
       const { POST } = await route.load();
       const response = await POST(request(route.path, partialBody()));
+      expect(recordSet).not.toHaveBeenCalled();
+      expect(recordDelete).not.toHaveBeenCalled();
       expectUsageUntouched(limitSpy, scope, route.key);
       expect(response.status).toBe(400);
       await expect(response.json()).resolves.toEqual({ error: route.invalidJsonError });
@@ -522,6 +551,62 @@ describe('request body validation before usage counters', () => {
       const { rateLimitKeyHash } = await import('@/lib/security/rate-limit');
       const records = [...fakeRateLimitFirestore.records.entries()].filter(([path, data]) => path.startsWith('rate_limits/') && data.scope === scopeName);
       expect(records.map(([path]) => path)).toEqual([`rate_limits/${rateLimitKeyHash(scopeName, uid)}`]);
+    });
+
+    it(`returns 429 for ${route.name} once the usage limit is reached`, async () => {
+      const usageLimit = await usageLimitFor(route);
+      expect(usageLimit).toBe(route.usageLimit);
+      const scope = await scopeFor(route.policy);
+      await route.prepareValid();
+      const { POST } = await route.load();
+      const statuses: number[] = [];
+      for (let attempt = 0; attempt < route.usageLimit; attempt += 1) {
+        if (route.policy === 'aiAnalyzeTransaction') {
+          // A completed analysis leaves its lease on the saved record. Clear that lease so the next request is still valid.
+          const path = `user_profiles/${uid}/accounts/acct/transactions/tx1`;
+          const saved = harness.db.records.get(path);
+          if (saved) {
+            const next = { ...saved };
+            delete next.analysisLeaseToken;
+            delete next.analysisLeaseExpiresAt;
+            harness.db.records.set(path, next);
+          }
+        }
+        const response = await POST(request(route.path, JSON.stringify(route.validBody)));
+        statuses.push(response.status);
+      }
+      expect(statuses).toHaveLength(route.usageLimit);
+      expect(statuses.every(status => status === 200)).toBe(true);
+      const denied = await POST(request(route.path, JSON.stringify(route.validBody)));
+      expect(denied.status).toBe(429);
+      await expect(denied.json()).resolves.toMatchObject({ error: route.usageLimitError, code: route.usageLimitCode });
+      expect(usageCalls(limitSpy, scope, route.key)).toHaveLength(route.usageLimit + 1);
+      expect(recordedRateLimitCount(scope)).toBe(route.usageLimit);
+    });
+
+    it(`returns the original ${route.name} field rejection when the invalid request counter cannot be stored`, async () => {
+      failRateLimitStore();
+      const scope = await scopeFor(route.policy);
+      const { POST } = await route.load();
+      const response = await POST(request(route.path, JSON.stringify(route.invalidFieldsBody)));
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: route.invalidFieldsError });
+      expect(usageCalls(limitSpy, scope, route.key)).toHaveLength(0);
+    });
+
+    it(`returns the original oversize ${route.name} rejection when no length is declared and the invalid request counter cannot be stored`, async () => {
+      failRateLimitStore();
+      const scope = await scopeFor(route.policy);
+      const opened = countedStream(route.maxBytes);
+      const incoming = streamedRequest(route.path, opened.stream);
+      expect(incoming.headers.get('content-length')).toBeNull();
+      const { POST } = await route.load();
+      const response = await POST(incoming as NextRequest);
+      expect(response.status).toBe(413);
+      await expect(response.json()).resolves.toEqual({ error: route.tooLargeError });
+      expect(usageCalls(limitSpy, scope, route.key)).toHaveLength(0);
+      expect(opened.state.pulled).toBeGreaterThan(0);
+      expect(opened.state.pulled).toBeLessThanOrEqual(opened.chunksToPass + 1);
     });
 
     it(`returns the original ${route.name} rejection when the invalid request counter cannot be stored`, async () => {
