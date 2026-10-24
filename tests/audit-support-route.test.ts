@@ -86,7 +86,11 @@ describe('GET /api/reports/audit-support', () => {
   it('returns a typed 422 when records need review and a safe 503 when a source read fails', async () => {
     mock.rows.mockResolvedValueOnce([lodging, { ...lodging, trans_id: 'undated', id: 'doc-3', exportReference: 'transaction-ghi', date: undefined, is_deductible: false }]);
     const review = await GET(request('?year=2026'));
-    expect(review.status).toBe(422); expect(await review.json()).toMatchObject({ code: 'EXPORT_REVIEW_REQUIRED' });
+    expect(review.status).toBe(200);
+    const reviewBody = await review.json();
+    expect(reviewBody.deductions).toHaveLength(1);
+    expect(reviewBody.deductions[0].merchant).toBe('SYNTHETIC-LODGING');
+    expect(JSON.stringify(reviewBody)).not.toContain('transaction-ghi');
     mock.rows.mockRejectedValueOnce(new Error('secret provider credential'));
     const failed = await GET(request('?year=2026&format=csv'));
     expect(failed.status).toBe(503); const failedBody = await failed.text();

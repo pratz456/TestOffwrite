@@ -172,14 +172,18 @@ export default function ReportsPage() {
   const transactionAggregates = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     const rows = allTransactions.filter(record => {
-      const date = exportDate(record.date ?? record.datetime);
+      const date = exportDate(record);
+      // exportDate reads the written date only. A datetime-only row stays blank.
       return !date || chartYear !== currentYear || date <= today;
     });
     const cash = summarizeRecordedCashFlow(rows, chartYear);
     const cashReviewMessage = transactionsError || transactionsLoading || transactionsFetching
       ? 'Cash amounts are unavailable while transaction records are loading or need a retry.' : cash.reviewMessage;
     const perMonth = cashReviewMessage ? [] : cash.months.map(month => ({ paid: month.expenses, received: month.income }));
-    const inYear = rows.filter(record => isCountableRecord(record) && exportDate(record.date ?? record.datetime)?.startsWith(`${chartYear}-`));
+    const inYear = rows.filter(record => {
+      const date = exportDate(record);
+      return isCountableRecord(record) && date !== null && date.startsWith(`${chartYear}-`);
+    });
     return {
       perMonth, inYear, cashReviewMessage,
       totalPaid: cashReviewMessage ? null : perMonth.reduce((sum, month) => sum + month.paid, 0),
@@ -249,14 +253,15 @@ export default function ReportsPage() {
       if (transactionsError || transactionsLoading || transactionsFetching) throw new Error('Wait for transaction records to finish loading, then retry.');
       const today = new Date().toISOString().slice(0, 10);
       const confirmed = summarizeConfirmedDeductions(allTransactions.filter(record => {
-        const date = exportDate(record.date ?? record.datetime);
+        const date = exportDate(record);
         return !date || chartYear !== currentYear || date <= today;
       }), chartYear);
       if (confirmed.reviewMessage) throw new Error(confirmed.reviewMessage);
       const categoryBreakdown: Record<string, number> = {};
       const deductibleTransactions: TransactionDetail[] = [];
       for (const [transaction, contribution] of confirmed.contributions) {
-        const date = exportDate(transaction.date ?? transaction.datetime)!;
+        const date = exportDate(transaction);
+        if (date === null) continue;
         if (Number(date.slice(5, 7)) - 1 !== monthData.month) continue;
         const category = typeof transaction.category === 'string' ? transaction.category : 'Uncategorized';
         categoryBreakdown[category] = Math.round(((categoryBreakdown[category] || 0) + contribution) * 100) / 100;

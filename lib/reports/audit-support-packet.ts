@@ -162,7 +162,7 @@ function businessUsePercent(record: ExportRecord): number | null {
 /** One confirmed deduction paired with the records on file and the §274(d) elements still missing. */
 export function buildEvidenceRecord(record: ExportRecord, context: { uid: string; tripsByDate: Map<string, number>; yearTripCount: number; receiptsByTransaction: Map<string, ExportRecord[]> }): AuditEvidenceRecord {
   const identity = String(record.trans_id ?? record.id ?? '');
-  const date = exportDate(record.date ?? record.datetime)!;
+  const date = exportDate(record)!;
   const amount = transactionAmount(record)!;
   const category = Array.isArray(record.category) ? record.category.join(' > ') : typeof record.category === 'string' ? record.category : '';
   const type = substantiationCategory(category);

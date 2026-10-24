@@ -18,7 +18,6 @@ vi.mock('@/lib/firebase/admin', () => {
 });
 import { readOwnedTransactions, ExportDataUnavailableError } from '@/lib/reports/export-records';
 import { generateUserDataExport, generateDataPackage } from '@/lib/reports/data-export';
-import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 function seed(path: string, data: Record<string, unknown>) { state.rows.set(path, data); }
 beforeEach(() => {
   state.rows.clear(); state.fail = ''; state.reads.length = 0;
@@ -106,9 +105,25 @@ describe('owner export source completeness and privacy', () => {
   it('fails the entire archive if an included tax dataset is unreadable', async () => {
     state.fail = 'income_1099'; await expect(generateUserDataExport('owner')).rejects.toBeInstanceOf(ExportDataUnavailableError);
   });
-  it('requires review for undated transactions instead of silently omitting them from a selected year', async () => {
+  it('leaves a datetime-only row out of the date range and keeps the amount', async () => {
+    seed('transactions/datetime-only', { userId: 'owner', datetime: '2024-12-31T15:00:00Z', amount: 80, is_deductible: true });
+    const data = await generateUserDataExport('owner');
+    const row = data.transactions.find((tx) => tx.amount === 80);
+    expect(row).toMatchObject({ amount: 80, datetime: '2024-12-31T15:00:00Z' });
+    const pack = generateDataPackage(data);
+    expect(pack.summary.dateRange.earliest === '2024-12-31' || pack.summary.dateRange.latest === '2024-12-31').toBe(false);
+    expect(pack.csv).toContain('Needs more information');
+    const lines = pack.csv.split('\r\n');
+    const taxDateIndex = lines[0].split(',').indexOf('Tax Date');
+    const exported = lines.find((line) => line.includes('2024-12-31T15:00:00Z'));
+    if (!exported) throw new Error('datetime-only row missing from the csv');
+    expect(exported.split(',')[taxDateIndex]).toBe('');
+  });
+  it('omits an undated transaction from a selected year and keeps it in the all-years archive', async () => {
     seed('transactions/undated', { userId: 'owner', amount: 10 });
-    await expect(generateUserDataExport('owner', 2026)).rejects.toBeInstanceOf(ExportReviewRequiredError);
+    const yearExport = await generateUserDataExport('owner', 2026);
+    expect(yearExport.transactions.some(record => record.amount === 10)).toBe(false);
+    expect(yearExport.transactions).toHaveLength(2);
     expect((await generateUserDataExport('owner')).transactions).toHaveLength(4);
   });
 });

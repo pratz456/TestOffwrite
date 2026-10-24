@@ -70,6 +70,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
   const [deductibleCount, setDeductibleCount] = useState(0);
   const [confirmedCount, setConfirmedCount] = useState(0);
   const [potentialCount, setPotentialCount] = useState(0);
+  const [needsMoreInformation, setNeedsMoreInformation] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
   const [includeAppendix, setIncludeAppendix] = useState(true);
   const [lineDetails, setLineDetails] = useState<Record<string, { confirmed: number; potential: number; amount: number; transactions: Transaction[] }>>({});
@@ -111,6 +112,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 
     setCategorySummaries(summaries);
     setTotalDeductible(aggregation.totalDeductible);
+    setNeedsMoreInformation(aggregation.needsMoreInformation);
     setDeductibleCount(aggregation.counts.deductible);
     setConfirmedCount(aggregation.counts.deductible);
     setPotentialCount(0);
@@ -386,6 +388,7 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
               <div className="text-sm text-muted-foreground">Total Business Expenses</div>
             </div>
           </div>
+          <p className="mb-8 text-sm text-muted-foreground">Needs more information <span className="font-semibold tabular-nums text-foreground">{needsMoreInformation}</span>. These charges have a date that cannot be read and are in no year total.</p>
 
           {/* IRS Schedule C Line Items */}
           <div>

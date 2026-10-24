@@ -29,12 +29,18 @@ describe('recorded cash-flow JSON/PDF uses complete verified records without tax
     const data = await (await POST(post({ year: 2026, month: 1 }))).json();
     expect(data).toMatchObject({ totalIncome: 100, periodLabel: '2026-01', priorPeriod: { totalIncome: 20 } });
   });
-  it.each([{ amount: '' }, { amount: 'not-an-amount' }, { amount: null }, { amount: 1e308 }, { date: '' }, { date: '2026-02-30' }, { iso_currency_code: undefined }, { iso_currency_code: 'EUR' }, { unofficial_currency_code: 'BTC' }])('blocks unverifiable input instead of printing plausible USD totals: %j', async invalid => {
+  it.each([{ amount: '' }, { amount: 'not-an-amount' }, { amount: null }, { amount: 1e308 }, { iso_currency_code: undefined }, { iso_currency_code: 'EUR' }, { unofficial_currency_code: 'BTC' }])('blocks unverifiable input instead of printing plausible USD totals: %j', async invalid => {
     fixture.records = [tx(100, invalid)]; const create = vi.spyOn(PDFDocument, 'create');
     for (const response of [await POST(post()), await GET(get())]) {
       expect(response.status).toBe(422); const data = await response.json(); expect(data.code).toBe('EXPORT_REVIEW_REQUIRED'); expect(data).not.toHaveProperty('netProfit');
     }
     expect(create).not.toHaveBeenCalled();
+  });
+  it.each([{ date: '' }, { date: '2026-02-30' }])('leaves a row with no charge day out of the cash-flow year: %j', async invalid => {
+    fixture.records = [tx(100, invalid)];
+    const response = await POST(post());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ totalIncome: 0, totalExpenses: 0, netProfit: 0, transactionCount: 0 });
   });
   it('does not combine USD and foreign/unknown currency, even for amounts marked deductible', async () => {
     fixture.records = [tx(-1000), tx(100, { iso_currency_code: 'CAD', is_deductible: true })];

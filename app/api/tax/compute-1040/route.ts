@@ -21,7 +21,7 @@ import { CapitalGainReviewRequiredError } from '@/lib/tax-rules/capital-gains';
 import { BusinessLossReviewRequiredError } from '@/lib/tax-rules/business-losses';
 import { OBBBADeductionReviewRequiredError } from '@/lib/tax-rules/obbba-deductions';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
-import { readTaxExportTransactions } from '@/lib/reports/tax-export-transactions';
+import { readTransactionsForEstimate } from '@/lib/reports/tax-export-transactions';
 import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { adminDb } from '@/lib/firebase/admin';
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
 
   // Fetch all data sources in parallel
   const [
-    transactions,
+    estimateRecords,
     profileResult,
     grossSnap,
     income1099Snap,
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     settingsResult,
     reconciliationDecisions,
   ] = await Promise.all([
-    readTaxExportTransactions(user.uid, year),
+    readTransactionsForEstimate(user.uid, year),
     getUserProfileServer(user.uid),
     adminDb.collection('gross_receipts').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
     adminDb.collection('income_1099').where('userId', '==', user.uid).where('taxYear', '==', year).get(),
@@ -79,6 +79,7 @@ export async function GET(request: NextRequest) {
   }
   const profile = (profileResult.data || {}) as any;
   const settings = settingsResult.data;
+  const { transactions, chargesNeedingDate } = estimateRecords;
 
   const snapshot = buildFederalTaxSnapshot({
     taxYear: year, transactions, profile,
@@ -134,6 +135,7 @@ export async function GET(request: NextRequest) {
     homeOffice: { deduction: snapshot.homeOfficeDeduction, worksheet: snapshot.scheduleC.homeOffice.calculation },
     stateTax,
     businessTaxNotices: snapshot.businessTaxNotices,
+    chargesNeedingDate,
     dataSource: 'auto',
   }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {

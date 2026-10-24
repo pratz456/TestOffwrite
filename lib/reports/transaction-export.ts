@@ -1,31 +1,68 @@
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { calendarChargeDay, chargeDay } from '@/lib/schedule-c/taxDate';
+import { estimateIncomeDate, ROW_FLAG_FIELD, type QuarterlyTransactionLike } from '@/lib/tax-provider/quarterly-estimates';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 
 export type ExportRecord = Record<string, unknown>;
 export class ExportReviewRequiredError extends Error {
   readonly code = 'EXPORT_REVIEW_REQUIRED';
+  readonly needsMoreInformation?: number;
+  constructor(message: string, needsMoreInformation?: number) {
+    super(message);
+    this.needsMoreInformation = needsMoreInformation;
+  }
+}
+/** Non-superseded rows whose charge day cannot be read. They are in no year export. */
+export function needsMoreInformationCount(records: readonly ExportRecord[]): number {
+  return records.filter(record => !isSupersededRecord(record) && !chargeDay(record)).length;
 }
 export function exportYear(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined;
   if (!/^(?:20\d{2}|2100)$/.test(String(value))) throw new RangeError('Provide a four-digit year from 2000 through 2100.');
   return Number(value);
 }
-export function exportDate(value: unknown): string | null {
-  try {
-    if (value instanceof Date) value = value.toISOString();
-    if (value && typeof value === 'object' && 'toDate' in value && typeof value.toDate === 'function') value = value.toDate().toISOString();
-  } catch { return null; }
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}(?:$|T)/.test(value)) return null;
-  const day = value.slice(0, 10), parsed = new Date(`${day}T12:00:00Z`);
-  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
+function isChargeRecord(value: unknown): value is { date?: unknown; datetime?: unknown } {
+  if (value === null || typeof value !== 'object' || value instanceof Date) return false;
+  if (typeof (value as { toDate?: unknown }).toDate === 'function') return false;
+  return 'date' in value || 'datetime' in value;
 }
+/**
+ * Tax date for an export. A charge record uses only its written `date`.
+ * A missing `date` stays blank: `datetime` is not read and is not converted
+ * into a calendar day. A lone string still uses the written-day reader.
+ */
+export function exportDate(value: unknown): string | null {
+  if (isChargeRecord(value)) {
+    if (value.date === undefined || value.date === null) return null;
+    return calendarChargeDay(value.date);
+  }
+  return calendarChargeDay(value);
+}
+function estimatePlacement(record: ExportRecord): string | null {
+  if (typeof record.amount !== 'number' || typeof record.category !== 'string') return null;
+  return estimateIncomeDate(record as QuarterlyTransactionLike, 'UTC');
+}
+
+/**
+ * Rows for one calendar year. A missing or unreadable charge day does not throw.
+ * Undated income whose estimate placement falls in the year is included and
+ * marked placedWithoutDate. Every other undated row is left out of that year.
+ */
 export function selectExportYear(records: ExportRecord[], year?: number): ExportRecord[] {
   if (year === undefined) return [...records];
-  if (records.some(record => !exportDate(record.date ?? record.datetime))) {
-    throw new ExportReviewRequiredError('Some saved transactions have missing or invalid dates. Correct them before exporting a selected year, or download all records for review.');
+  const selected: ExportRecord[] = [];
+  for (const record of records) {
+    const day = chargeDay(record);
+    if (day) {
+      if (day.startsWith(`${year}-`)) selected.push(record);
+      continue;
+    }
+    if (estimatePlacement(record)?.startsWith(`${year}-`) === true) {
+      selected.push({ ...record, [ROW_FLAG_FIELD]: true });
+    }
   }
-  return records.filter(record => exportDate(record.date ?? record.datetime)?.startsWith(`${year}-`));
+  return selected;
 }
 export function csvCell(value: unknown): string {
   if (value === undefined || value === null) return '';
@@ -54,7 +91,7 @@ export const TRANSACTION_CSV_HEADERS = [
 ];
 export function convertTransactionsToCSV(records: ExportRecord[]): string {
   return [TRANSACTION_CSV_HEADERS.map(csvCell).join(','), ...records.map(record => {
-    const amount = transactionAmount(record), date = exportDate(record.date ?? record.datetime), deductible = recordedDeductibility(record);
+    const amount = transactionAmount(record), date = exportDate(record), deductible = recordedDeductibility(record);
     const category = categoryText(record.category);
     const rawPath = record.receipt_url;
     const businessUse = Object.fromEntries(['business_percent', 'business_use_percent', 'business_use_percentage', 'businessUsePercent'].filter(key => record[key] !== undefined).map(key => [key, record[key]]));
@@ -62,7 +99,7 @@ export function convertTransactionsToCSV(records: ExportRecord[]): string {
     if (equipment && typeof equipment === 'object' && 'business_use_percentage' in equipment) businessUse['equipment_details.business_use_percentage'] = equipment.business_use_percentage;
     const adjustments = Object.fromEntries(['deduction_override', 'deductible_amount', 'deduction_amount', 'deductible_amount_override', 'deduction_percentage'].filter(key => record[key] !== undefined).map(key => [key, record[key]]));
     const receiptPath = typeof rawPath === 'string' ? validateReceiptPreviewPath(rawPath) : null;
-    const review = [!date && 'Missing/invalid date', amount === null && 'Missing/invalid amount',
+    const review = [!date && 'Needs more information', !date && 'Missing/invalid date', amount === null && 'Missing/invalid amount',
       !record.iso_currency_code && !record.unofficial_currency_code && 'Currency not recorded',
       record.pending === true && 'Pending record; reconcile posted transaction',
       isSupersededRecord(record) && 'Superseded duplicate of an earlier bank record; excluded from WriteOff totals',

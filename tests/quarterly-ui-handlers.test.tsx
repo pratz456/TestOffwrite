@@ -50,6 +50,16 @@ describe('public regular-method tool uses complete reviewed inputs', () => {
 describe('authenticated quarterly summary handles review and stale data', () => {
   const currentYear = new Date().getFullYear();
   const response = () => Response.json({ taxYear: currentYear, totalEstimatedTax: 12000, recordedEstimatedPayments: 100, w2Withheld: 0, calculationWarnings: [], paymentReview: { message: 'Review dated payments before choosing an installment.' }, quarters: [{ quarter: 1, dueDate: `${currentYear}-04-15`, amountPaid: 100 }] });
+  it('shows the draft count of charges that need a date instead of only a retry error', async () => {
+    h.request.mockResolvedValue(Response.json({ ...(await response().json()), chargesNeedingDate: { needsDateCopy: '1 expense rows need a date. Amount kept: $42.50. These expenses are left out of every estimate quarter and the year total. 1 income rows need a date. Amount kept: $1,000.00. Undated income stays in the estimate year total and is flagged.' } }));
+    const component = () => QuarterlyTaxCalculator({ userProfile: { id: 'synthetic' }, transactions: [] });
+    render(component); await flush();
+    const content = text(render(component));
+    expect(content).toContain('1 expense rows need a date. Amount kept: $42.50.');
+    expect(content).toContain('1 income rows need a date. Amount kept: $1,000.00.');
+    expect(content).toContain('$12,000.00');
+    expect(content).not.toContain('Retry summary');
+  });
   it('displays recorded annual figures without inventing per-quarter payment or penalty status', async () => {
     h.request.mockImplementation(response);
     const component = () => QuarterlyTaxCalculator({ userProfile: { id: 'synthetic' }, transactions: [] });

@@ -229,7 +229,12 @@ describe('Form 1040 planning PDF prints its review notes', () => {
 });
 
 describe('complete tax-export input validation', () => {
-  it.each([{ date: '2026-02-30', amount: 10 }, { date: '2026-02-01', amount: 'unknown' }, { date: '2026-02-01', amount: 10, iso_currency_code: 'EUR' }])('requires review instead of silently dropping malformed records %j', async invalid => {
+  it('leaves an impossible charge day out of the year export', async () => {
+    state.transactions = [{ iso_currency_code: 'USD', date: '2026-02-30', amount: 10, category: 'unknown', is_deductible: true }];
+    const response = await scheduleC(request({ year: 2026 }));
+    expect(response.status).toBe(200);
+  });
+  it.each([{ date: '2026-02-01', amount: 'unknown' }, { date: '2026-02-01', amount: 10, iso_currency_code: 'EUR' }])('requires review instead of silently dropping malformed records %j', async invalid => {
     state.transactions = [{ iso_currency_code: 'USD', ...invalid, category: 'unknown', is_deductible: true }];
     const response = await scheduleC(request({ year: 2026 }));
     expect(response.status).toBe(422); expect(await response.json()).toMatchObject({ code: 'EXPORT_REVIEW_REQUIRED' });

@@ -34,6 +34,22 @@ beforeEach(() => {
   state.tx = [{ iso_currency_code: 'USD', amount: -100000, date: '2026-02-01', category: 'income' }, { iso_currency_code: 'USD', amount: 1000, date: '2026-02-01', category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true }];
 });
 
+describe('quarterly summary keeps an earlier undated row from blocking this year', () => {
+  it('returns this year estimate when a datetime-only income row falls in an earlier year', async () => {
+    const baseline = await (await quarterly(req())).json();
+    state.tx = [...state.tx, { id: 'earlier-income', amount: -1000, category: 'income', datetime: 1735716600, iso_currency_code: 'USD', pending: false }];
+    const response = await quarterly(req());
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.totalEstimatedTax).toBe(baseline.totalEstimatedTax);
+    expect(result.grossReceipts).toBe(baseline.grossReceipts);
+    expect(result.netProfit).toBe(baseline.netProfit);
+    expect(result.chargesNeedingDate).toMatchObject({ incomeNeedsDateCount: 0, incomeNeedsDateAmount: 0, expenseNeedsDateCount: 0, expenseNeedsDateAmount: 0 });
+    expect(result.chargesNeedingDate.needsDateCopy).toContain('0 income rows need a date');
+    expect(result.error).toBeUndefined();
+  });
+});
+
 describe('quarterly summary keeps the review response until every planner fact is saved', () => {
   it.each([
     ['no prior-year facts', {}, ['prior_return_twelve_months', 'prior_year_total_tax', 'prior_year_agi']],

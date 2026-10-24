@@ -1,4 +1,4 @@
-import { exportDate } from '@/lib/reports/transaction-export';
+import { chargeDay } from '@/lib/schedule-c/taxDate';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 
 /** Posted cash movement, never taxable income or deduction totals. */
@@ -8,7 +8,7 @@ export function summarizeRecordedCashFlow(records: readonly Record<string, unkno
   let reviewMessage: string | null = null;
   for (const record of records) {
     if (!isCountableRecord(record)) continue;
-    const date = exportDate(record.date ?? record.datetime);
+    const date = chargeDay(record);
     if (!date) { reviewMessage = 'Review missing or invalid dates before showing cash flow.'; continue; }
     if (Number(date.slice(0, 4)) !== year) continue;
     const identity = record.trans_id ?? record.id;

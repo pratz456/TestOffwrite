@@ -57,8 +57,14 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Sort by date (newest first)
-    filteredTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    // Sort by charge day (newest first). An empty or invalid date sorts as oldest, never as today.
+    const listTime = (value: unknown) => {
+      if (typeof value !== 'string' || !value) return 0;
+      const day = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00Z` : value;
+      const time = new Date(day).getTime();
+      return Number.isFinite(time) ? time : 0;
+    };
+    filteredTransactions.sort((a, b) => listTime(b.date) - listTime(a.date));
 
     return NextResponse.json({ 
       success: true,

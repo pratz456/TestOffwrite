@@ -189,11 +189,19 @@ describe('Form1040 API integration', () => {
     expect(await response.json()).toMatchObject({ code: 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED' });
   });
 
+  it('computes the annual estimate when a charge has no date and reports the expense amount', async () => {
+    state.transactions = [{ date: 'invalid', amount: 100, category: 'SERVICE_SUBSCRIPTION', is_deductible: true, iso_currency_code: 'USD' }];
+    const result = await GET(request());
+    expect(result.status).toBe(200);
+    const body = await result.json();
+    expect(body.form1040).toBeTruthy();
+    expect(body.chargesNeedingDate).toMatchObject({ expenseNeedsDateCount: 1, expenseNeedsDateAmount: 100, incomeNeedsDateCount: 0 });
+    expect(body.chargesNeedingDate.needsDateCopy).toContain('1 expense rows need a date. Amount kept: $100.00.');
+  });
   it.each([
-    { date: 'invalid', amount: 100, category: 'SERVICE_SUBSCRIPTION', is_deductible: true },
     { date: '2026-01-15', amount: 'invalid', category: 'SERVICE_SUBSCRIPTION', is_deductible: true },
     { date: '2026-01-15', amount: 100, iso_currency_code: 'EUR', category: 'SERVICE_SUBSCRIPTION', is_deductible: true },
-  ])('withholds the annual estimate when export inputs require review: %j', async transaction => {
+  ])('withholds the annual estimate when a dated row has a bad amount or currency: %j', async transaction => {
     state.transactions = [transaction];
     const result = await GET(request()); expect(result.status).toBe(422);
     expect(await result.json()).toMatchObject({ code: 'EXPORT_REVIEW_REQUIRED' });

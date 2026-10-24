@@ -21,6 +21,8 @@ vi.mock('@/lib/firebase/admin', () => {
 });
 import { syncUserTransactionsIncremental } from '@/lib/plaid/sync-helper';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { safeTaxYear, safeYMD } from '@/lib/schedule-c/taxDate';
+import { formatTransactionDate } from '@/lib/transactions/calendar-date';
 const accountPath = (account = 'acc-a') => `user_profiles/owner/accounts/${account}`;
 const tx = (id: string, account = 'acc-a', extra = {}) => ({ transaction_id: id, account_id: account, amount: 20, date: '2026-09-01', pending: false,
   name: 'Office purchase', merchant_name: 'Same merchant', category: ['Office Supplies'], iso_currency_code: 'USD', unofficial_currency_code: null, ...extra });
@@ -109,5 +111,40 @@ describe('per-item transaction sync', () => {
     mock.sync.mockResolvedValue(page([tx('removed')]));
     await syncUserTransactionsIncremental('owner', 'bank-a');
     expect(mock.records.get(path)).toMatchObject({ is_deductible: true, review_status: 'confirmed', notes: 'Keep audit note', pending: false, bank_removed: false });
+  });
+  it('keeps a modified provider date that is not YYYY-MM-DD, and that row is in no year', async () => {
+    const path = `${accountPath()}/transactions/legacy-date`;
+    mock.records.set(path, { user_id: 'owner', trans_id: 'legacy-date', account_id: 'acc-a', amount: 100, date: '2026-06-01',
+      category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', iso_currency_code: 'USD', is_deductible: true, review_status: 'confirmed', pending: false });
+    mock.sync.mockResolvedValue(page([], [tx('legacy-date', 'acc-a', { date: '01/05/2025', amount: 100, personal_finance_category: { detailed: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES' } })]));
+    expect((await syncUserTransactionsIncremental('owner', 'bank-a')).success).toBe(true);
+    const stored = mock.records.get(path);
+    expect(stored.date).toBe('01/05/2025');
+    expect(safeYMD(stored.date)).toBeNull();
+    expect(safeTaxYear(stored.date)).toBeNull();
+    expect(safeYMD(' 2025-01-05')).toBe('2025-01-05');
+    expect(safeYMD('2025-01-05 ')).toBe('2025-01-05');
+    expect(safeYMD('2025/01/05')).toBe('2025-01-05');
+    expect(safeYMD('2025/02/30')).toBeNull();
+    expect(safeYMD('2025/13/01')).toBeNull();
+    expect(safeYMD(' 2025/01/05 ')).toBe('2025-01-05');
+    expect(safeYMD('1/31/2025')).toBe('2025-01-31');
+    expect(safeYMD('31/1/2025')).toBe('2025-01-31');
+    expect(safeYMD('12/1/2025')).toBeNull();
+    expect(safeYMD('1/12/2025')).toBeNull();
+    expect(safeYMD('11/3/2026')).toBeNull();
+    expect(safeYMD('31/12/2025')).toBe('2025-12-31');
+    expect(safeYMD('2025-1-5')).toBe('2025-01-05');
+    expect(safeYMD('1/5/2025')).toBeNull();
+    expect(safeYMD('Jan 5, 2025')).toBe('2025-01-05');
+    expect(safeYMD('January 5, 2025')).toBe('2025-01-05');
+    expect(safeYMD(Date.UTC(2025, 0, 5))).toBeNull();
+    expect(formatTransactionDate(stored.date)).toBe('-');
+    expect(formatTransactionDate('Jan 5, 2025')).toBe(formatTransactionDate('2025-01-05'));
+    const row = { id: 'legacy-date', amount: 100, date: stored.date, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', iso_currency_code: 'USD', is_deductible: true, review_status: 'confirmed' };
+  expect(aggregateScheduleC([row], '2025', CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible).toBe(0);
+  expect(aggregateScheduleC([row], '2025', CATEGORY_MAP, { mode: 'confirmed-only' }).needsMoreInformation).toBe(1);
+  expect(aggregateScheduleC([row], '2026', CATEGORY_MAP, { mode: 'confirmed-only' }).totalDeductible).toBe(0);
+  expect(aggregateScheduleC([row], '2026', CATEGORY_MAP, { mode: 'confirmed-only' }).needsMoreInformation).toBe(1);
   });
 });

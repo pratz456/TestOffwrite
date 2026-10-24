@@ -71,10 +71,13 @@ describe('data and report export HTTP contracts', () => {
       expect(response.status).toBe(503); expect(await response.text()).not.toContain('secret');
     }
   });
-  it('returns typed422 for a selected-year review requirement', async () => {
+  it('omits an undated row from a selected year CSV', async () => {
     mock.rows.mockResolvedValue([{ amount: 100 }]);
     const response = await csv(request('transactions/export-csv?year=2026'));
-    expect(response.status).toBe(422); expect(await response.json()).toMatchObject({ code: 'EXPORT_REVIEW_REQUIRED' });
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain('Tax Date');
+    expect(body).not.toContain(',100,');
   });
   it('uses reconciled live Schedule SE data with the authenticated owner and selected year', async () => {
     const response = await forms(request('reports/export', { type: 'scheduleSE', year: 2026 }));

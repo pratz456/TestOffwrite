@@ -18,7 +18,7 @@ import {
 } from '@/lib/icons';
 import { Lightbulb, Target, Car, Phone, Calendar, PieChart } from 'lucide-react';
 import { getUserProfile } from '@/lib/firebase/profiles';
-import { summarizeConfirmedDeductions, isReviewableBusinessOutflow } from '@/lib/tax/display-deductions';
+import { summarizeConfirmedDeductions, isReviewableBusinessOutflow, rowsNeedingDate } from '@/lib/tax/display-deductions';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 import { useTransactions } from '@/lib/firebase/hooks';
 import type { Transaction } from '@/lib/firebase/transactions';
@@ -45,6 +45,9 @@ interface UserInsights {
     reviewableSpending: number;
     identifiedDeductions: number;
     confirmedDeductions: number;
+    needsDateCount: number;
+    needsDateAmount: number;
+    needsDateCopy: string;
   };
   professionInsights: AIInsight[];
   spendingPatternInsights: AIInsight[];
@@ -126,6 +129,10 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
       isReviewableBusinessOutflow(t) && businessLike(t)
     );
     const reviewableSpending = potentialDeductions.reduce((sum, t) => sum + Math.round(t.amount * 100), 0) / 100;
+    const needingDate = rowsNeedingDate(list);
+    const keptAmount = needingDate.amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+    // DRAFT pending approval. This sentence is customer copy.
+    const needsDateCopy = `${needingDate.count} rows need a date. Amount kept: ${keptAmount}. These rows are in Needs more information and are not in the confirmed total.`;
 
     const professionInsights = generateProfessionInsights(effectiveProfile, list);
     const spendingPatternInsights = generateSpendingPatternInsights(list.filter(t => t.amount > 0));
@@ -143,7 +150,10 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
         reviewableSpending,
         deductionReviewMessage: deductionSummary.reviewMessage,
         identifiedDeductions: potentialDeductions.length,
-        confirmedDeductions: deductionSummary.transactions.length
+        confirmedDeductions: deductionSummary.transactions.length,
+        needsDateCount: needingDate.count,
+        needsDateAmount: needingDate.amount,
+        needsDateCopy,
       },
       professionInsights,
       spendingPatternInsights
@@ -416,6 +426,8 @@ export const AIInsightsPage: React.FC<AIInsightsPageProps> = ({ user, onBack }) 
         </Card>
 
         <p role={insights.monthlySummary.deductionReviewMessage ? "alert" : undefined} className="mb-4 text-xs text-muted-foreground">{insights.monthlySummary.deductionReviewMessage || "Refunds and the meals limit are included. Vehicle methods, assets and home-office deductions need separate review in Tax Preview. These record totals are not your tax savings or final tax return."}</p>
+        {/* DRAFT pending approval. The next sentence is customer copy. */}
+        <p className="mb-4 text-xs text-muted-foreground">{insights.monthlySummary.needsDateCopy}</p>
 
         {/* Tab Navigation */}
         <div className="flex gap-1 p-1 rounded-lg bg-muted/40 dark:bg-muted/30 mb-6 overflow-x-auto">

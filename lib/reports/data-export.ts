@@ -117,7 +117,8 @@ export async function generateUserDataExport(userId: string, year?: number): Pro
 export function generateDataPackage(data: UserDataExport) {
   const counts = { accounts: data.accounts.length, transactions: data.transactions.length, receipts: data.receipts.length, aiAnalysis: data.aiAnalysis.length,
     ...Object.fromEntries(Object.entries(data.taxRecords).map(([name, records]) => [name, records.length])) };
-  const dates = data.transactions.map(tx => exportDate(tx.date ?? tx.datetime)).filter((date): date is string => date !== null).sort();
+  // Written charge day only. A datetime-only row stays out of this range; its tax date is blank, not a converted day.
+  const dates = data.transactions.map(tx => exportDate(tx)).filter((date): date is string => date !== null).sort();
   const limitations = [
     'This is an owner data archive and tax-preparer handoff, not an official tax return, TXF import or filing confirmation.',
     'Signed amounts preserve the stored convention: positive is an outflow and negative an inflow. An inflow may be a refund or transfer, not taxable income.',

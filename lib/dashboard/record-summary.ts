@@ -1,6 +1,7 @@
 import { consolidateCategory } from '@/lib/utils';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
+import { chargeDay } from '@/lib/schedule-c/taxDate';
 
 export interface DashboardRecord {
   amount?: number;
@@ -30,7 +31,9 @@ export function dashboardRecordStatus(record: DashboardRecord) {
 
 /** All-date record overview, not deductions after tax limits or a tax-savings calculation. */
 export function summarizeDashboardRecords(allRecords: readonly DashboardRecord[]) {
-  const records = allRecords.filter(record => !isSupersededRecord(record));
+  const visible = allRecords.filter(record => !isSupersededRecord(record));
+  const needsMoreInformationCount = visible.filter(record => chargeDay(record) === null).length;
+  const records = visible.filter(record => chargeDay(record) !== null);
   const marked = records.filter(record => dashboardRecordStatus(record) === 'deductible');
   const categories = new Map<string, number>();
   let categoryIssue: string | null = null;
@@ -61,5 +64,6 @@ export function summarizeDashboardRecords(allRecords: readonly DashboardRecord[]
     categoryEntries,
     categoryMagnitude: categoryEntries.reduce((total, [, amount]) => total + Math.abs(amount), 0),
     categoryIssue,
+    needsMoreInformationCount,
   };
 }

@@ -13,6 +13,7 @@ interface Summary {
   calculationWarnings: string[]; paymentReview: { code?: string; message: string; missingFacts?: MissingFact[]; notes?: string[] };
   quarters: { quarter: number; dueDate: string; amountPaid: number }[];
   planner?: QuarterlyPlannerResponse | null;
+  chargesNeedingDate?: { needsDateCopy: string };
 }
 const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const percent = (rate: number) => `${Math.round(rate * 10000) / 100}%`;
@@ -115,6 +116,8 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
         <div><dt>Recorded estimated payments</dt><dd className="font-semibold">{money(data.recordedEstimatedPayments)}</dd></div>
         <div><dt>Recorded federal withholding</dt><dd className="font-semibold">{money(data.totalFederalWithheld ?? data.w2Withheld)}</dd></div>
       </dl>
+      {/* DRAFT pending approval. The next sentence is customer copy. */}
+      {data.chargesNeedingDate ? <p className="text-sm text-muted-foreground">{data.chargesNeedingDate.needsDateCopy}</p> : null}
       <p className="text-sm text-muted-foreground">{plan
         ? `Planning estimate only. The ${year} estimate treats your saved records as the full-year forecast; if they cover only part of the year the 90% target is understated. The IRS figures any balance or penalty on the filed return.`
         : 'Saved records may cover only part of the year. These figures are not a full-year forecast or an installment amount due.'}</p>
