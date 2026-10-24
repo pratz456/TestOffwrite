@@ -494,9 +494,10 @@ function ambiguousNumericDate(value: string): boolean {
   return first >= 1 && first <= 12 && second >= 1 && second <= 12 && first !== second;
 }
 
-/** Capital dollar prefixes, including one space before the $. A bare $ is not a US signal. */
-const PREFIXED_DOLLAR = /(?<![A-Za-z])(?:CA|AU|NZ|MX|C|A|R) ?\$/;
-const PREFIXED_DOLLAR_ALL = /(?<![A-Za-z])(?:CA|AU|NZ|MX|C|A|R) ?\$/g;
+/** CA, AU, NZ, and MX. A space before the $ still counts. These blank the date on their own. A bare $ is not a US signal. */
+const STRONG_DOLLAR_PREFIX = /(?<![A-Za-z])(?:CA|AU|NZ|MX) ?\$/;
+/** A, C, and R count only when the letter touches the $. A space is a US tax or item flag, not a prefix. */
+const SHORT_DOLLAR_PREFIX = /(?<![A-Za-z])[ACR]\$/;
 /** Capitals-only ISO codes beside an amount. TRY, ALL, and TOP are not in this list. */
 const CURRENCY_CODE = 'EUR|GBP|CAD|AUD|JPY|CHF|CNY|INR|MXN|KRW|SEK|NOK|DKK|NZD|BRL|PLN|HKD|SGD|ZAR|THB|PHP|IDR|VND|TWD|AED|SAR|ILS|BAM|BOB|COP|CUP|GEL|MAD|MOP|PEN|RUB|SOS';
 /** TRY still blanks on its own when it sits on a total, tax, due, or currency line. */
@@ -589,19 +590,26 @@ function commaDecimal(text: string): boolean {
   return /,\d{2}(?!\d)/.test(text);
 }
 
+/** Kind: A$, C$, or R$ with no space. One such prefix is one kind and does not blank on its own. */
+function shortDollarPrefix(text: string): boolean {
+  return SHORT_DOLLAR_PREFIX.test(text);
+}
+
 /** Two signals blank only when the kinds differ. Repeating one kind does not. */
 function differentKindSignals(text: string): boolean {
-  const kinds = [codeBesideAmount(text), symbolKind(text), NON_US_TOTAL_WORD.test(text), commaDecimal(text)].filter(Boolean).length;
+  const kinds = [codeBesideAmount(text), symbolKind(text), NON_US_TOTAL_WORD.test(text), commaDecimal(text), shortDollarPrefix(text)].filter(Boolean).length;
   return kinds >= 2;
 }
 
 function bareDollar(text: string): boolean {
-  PREFIXED_DOLLAR_ALL.lastIndex = 0;
-  return /\$/.test(text.replace(PREFIXED_DOLLAR_ALL, ''));
+  const withoutPrefixes = text
+    .replace(/(?<![A-Za-z])(?:CA|AU|NZ|MX) ?\$/g, '')
+    .replace(/(?<![A-Za-z])[ACR]\$/g, '');
+  return /\$/.test(withoutPrefixes);
 }
 
 function nonUsReceiptSignals(text: string): boolean {
-  if (PREFIXED_DOLLAR.test(text)) return true;
+  if (STRONG_DOLLAR_PREFIX.test(text)) return true;
   // A symbol or kr on a total, tax, due, or currency line blanks on its own.
   if (symbolOnQualifyingLine(text)) return true;
   // A bare $ disagrees with a code, so a code alone does not blank the date.
