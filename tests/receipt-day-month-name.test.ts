@@ -19,6 +19,8 @@ vi.mock('@/lib/firebase/transactions-server', () => ({
 vi.mock('@/lib/firebase/admin', () => ({ adminApp: { name: 'firebase-frameworks' }, adminDb: { collection: mocks.collection, runTransaction: mocks.runTransaction } }));
 vi.mock('firebase-admin/storage', () => ({ getStorage: () => ({ bucket: mocks.bucket, app: { options: {} } }) }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
+import { transactionTaxYear } from '@/lib/ai/transaction-tax-policy';
+import type { TransactionInput } from '@/lib/ai/analyzeTransaction';
 import { receiptProcessor } from '@/lib/ocr/receipt-processor';
 import { POST } from '../app/api/receipts/process/route';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
@@ -31,6 +33,16 @@ const READ: Array<[string, string]> = [
   ['01-MAY-26', '2026-05-01'],
   ['01-Sept-2026', '2026-09-01'],
 ];
+const YEAR_END: Array<[string, string, string]> = [
+  ['28-Dec-2026', '2027-01-03T18:00:00Z', 'America/Los_Angeles'],
+  ['28-Dec-2026', '2027-01-03T18:00:00Z', 'Asia/Tokyo'],
+  ['28-Dec-2026', '2027-01-03T14:00:00Z', 'America/Los_Angeles'],
+  ['28-Dec-2026', '2027-01-03T14:00:00Z', 'Asia/Tokyo'],
+  ['28-DEC-26', '2027-01-03T18:00:00Z', 'America/Los_Angeles'],
+  ['28-DEC-26', '2027-01-03T18:00:00Z', 'Asia/Tokyo'],
+  ['28-DEC-26', '2027-01-03T14:00:00Z', 'America/Los_Angeles'],
+  ['28-DEC-26', '2027-01-03T14:00:00Z', 'Asia/Tokyo'],
+];
 
 function reference(path: string): object {
   return {
@@ -42,16 +54,16 @@ function reference(path: string): object {
   };
 }
 
-function request(text: string) {
+function request(text: string, uploadTimeZone = 'Pacific/Kiritimati') {
   worker.recognize.mockResolvedValue({ data: { text, confidence: 95 } });
   const body = new FormData();
   body.append('file', new File([PNG], 'receipt.png', { type: 'image/png' }));
-  body.append('uploadTimeZone', 'Pacific/Kiritimati');
+  body.append('uploadTimeZone', uploadTimeZone);
   return new NextRequest('https://staging.example/api/receipts/process', { method: 'POST', body });
 }
 
-async function save(text: string) {
-  const response = await POST(request(text));
+async function save(text: string, uploadTimeZone?: string) {
+  const response = await POST(request(text, uploadTimeZone));
   const body = await response.json();
   const saved = mocks.createTransaction.mock.calls.at(-1)?.[2] as {
     amount: number;
@@ -88,6 +100,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await receiptProcessor.terminate();
+  vi.useRealTimers();
   vi.clearAllMocks();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
@@ -207,6 +220,25 @@ describe('day month name year receipts', () => {
     expect(saved.deductionStatus).toBeUndefined();
     expect(saved.tax_review_required).toBeUndefined();
     expect(saved.uploadTimeZone).toBe('Pacific/Kiritimati');
+  });
+
+  it.each(YEAR_END)('saves %s uploaded at %s in %s as 2026-12-28 in tax year 2026', async (printed, instant, zone) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(instant));
+    expect(new Date().toISOString()).toBe(new Date(instant).toISOString());
+    const { response, body, saved } = await save(`CORNER STORE\n${printed}\nTOTAL $12.50`, zone);
+    const taxed = transactionTaxYear({ date: saved.date } as TransactionInput);
+    expect(response.status).toBe(200);
+    expect(saved.date).toBe('2026-12-28');
+    expect(saved.date).not.toBe('2027-01-03');
+    expect(saved.amount).toBe(12.5);
+    expect(taxed).toBe(2026);
+    expect(saved.deductionStatus).toBeUndefined();
+    expect(saved.tax_review_required).toBeUndefined();
+    expect(saved.dateOrderAssumed).toBeUndefined();
+    expect(saved.uploadTimeZone).toBe(zone);
+    expect(body.transaction.date).toBe('2026-12-28');
+    expect(transactionTaxYear({ date: body.transaction.date } as TransactionInput)).toBe(2026);
   });
 
   it('keeps 05/01/2026 when the receipt says CALL US', async () => {
