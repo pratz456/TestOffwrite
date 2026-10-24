@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { syncUserTransactionsIncremental, findUserByPlaidItemId } from '../../../../lib/plaid/sync-helper';
 import { adminDb } from '../../../../lib/firebase/admin';
 import { verifyPlaidWebhook } from '@/lib/plaid/webhook-verification';
+import { readTextBody, WEBHOOK_TEXT_MAX_BYTES } from '@/lib/http/json-body';
 import { createHash } from 'node:crypto';
 import { markPlaidConnectionLoginRequired } from '@/lib/plaid/connections';
 
@@ -29,8 +30,8 @@ export async function POST(request: NextRequest) {
   try {
     console.log('🔔 [Webhook] Received Plaid webhook');
 
-    // Get the raw body for signature verification
-    const body = await request.text();
+    const body = await readTextBody(request, WEBHOOK_TEXT_MAX_BYTES);
+    if (body instanceof NextResponse) return body;
     const signedJwt = request.headers.get('plaid-verification');
     if (!await verifyPlaidWebhook(body, signedJwt)) {
       return NextResponse.json({ error: 'Invalid or missing webhook signature' }, { status: 401 });

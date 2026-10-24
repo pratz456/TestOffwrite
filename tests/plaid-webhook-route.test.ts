@@ -35,6 +35,12 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 describe('Plaid webhook authentication boundary', () => {
+  it('returns 413 when the delivery is over the text limit', async () => {
+    const body = 'x'.repeat(1024 * 1024 + 1);
+    expect((await POST(request(body, body))).status).toBe(413);
+    expect(mock.sync).not.toHaveBeenCalled();
+    expect(mock.markLoginRequired).not.toHaveBeenCalled();
+  });
   it.each(['ITEM', 'ERROR'])('marks only the exact Item for an authenticated %s/ERROR login-required delivery', async webhook_type => {
     const body = JSON.stringify({ webhook_type, webhook_code: 'ERROR', item_id: 'sandbox-item', error: { error_code: 'ITEM_LOGIN_REQUIRED' } });
     expect((await POST(request(body, body))).status).toBe(200);

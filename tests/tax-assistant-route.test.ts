@@ -12,6 +12,7 @@ vi.mock('openai', () => ({ default: function MockOpenAI(options: unknown) { cons
 vi.mock('@/lib/ai/profile-context', () => ({ getAnalysisProfile: readProfile }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: readTransactions }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: {} }));
+import { assistantRequestSchema } from '../lib/tax-assistant/contract';
 import { POST } from '../app/api/ai/tax-assistant/route';
 
 const uid = 'synthetic-test-user';
@@ -58,6 +59,29 @@ describe('authenticated photo guidance endpoint', () => {
     const oversized = new NextRequest('http://localhost', { method: 'POST', body: 'x'.repeat(3 * 1024 * 1024 + 1) });
     expect((await POST(oversized)).status).toBe(413);
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it('returns 429 for a limited request before reading input', async () => {
+    const rateLimit = await import('../lib/security/rate-limit');
+    const limit = vi.spyOn(rateLimit, 'enforceRateLimit').mockResolvedValue({
+      allowed: false, limit: 30, remaining: 0, retryAfterSeconds: 30, resetAt: Date.now() + 30_000, source: 'firestore', unavailable: false,
+    });
+    const req = request();
+    const response = await POST(req);
+    expect(response.status).toBe(429);
+    expect(req.bodyUsed).toBe(false);
+    expect(create).not.toHaveBeenCalled();
+    limit.mockRestore();
+  });
+
+  it('returns 400 for a history of 13 entries', async () => {
+    const parsed = vi.spyOn(assistantRequestSchema, 'safeParse');
+    const history = Array.from({ length: 13 }, () => ({ role: 'user', content: 'hello' }));
+    const response = await POST(request({ ...question, conversationHistory: history }));
+    expect(response.status).toBe(400);
+    expect(parsed).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    parsed.mockRestore();
   });
 
   it('reports missing configuration without pretending an assessment succeeded', async () => {

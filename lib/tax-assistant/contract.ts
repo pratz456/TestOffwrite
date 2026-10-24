@@ -39,6 +39,13 @@ export async function readAssistantBody(request: Request): Promise<unknown> {
   return body;
 }
 
+/** True when conversationHistory is a list longer than the cap. */
+export function conversationHistoryTooLong(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const history = (value as { conversationHistory?: unknown }).conversationHistory;
+  return Array.isArray(history) && history.length > MAX_HISTORY_MESSAGES;
+}
+
 export function priorMessages(input: AssistantRequest) {
   const history = [...input.conversationHistory];
   const last = history.at(-1);

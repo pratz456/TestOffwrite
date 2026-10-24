@@ -30,6 +30,11 @@ beforeEach(() => {
   mock.sePDF.mockResolvedValue(new Uint8Array([37, 80, 68, 70]));
 });
 describe('data and report export HTTP contracts', () => {
+  it('returns 413 when the export request is over the size limit', async () => {
+    const response = await archive(new NextRequest('http://localhost/api/user/export', { method: 'POST', body: 'x'.repeat(64 * 1024 + 1) }));
+    expect(response.status).toBe(413);
+    expect(mock.archive).not.toHaveBeenCalled();
+  });
   it('rejects unauthenticated archive, CSV and PDF before reading data', async () => {
     mock.auth = false;
     expect((await csv(request('transactions/export-csv'))).status).toBe(401);

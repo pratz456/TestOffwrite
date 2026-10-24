@@ -118,7 +118,6 @@ describe('transaction analysis availability', () => {
   it.each([undefined, '', ' \t\n '])('returns a quiet manual-review response for an unavailable key (%j)', async (key) => {
     vi.stubEnv('OPENAI_API_KEY', key);
     const req = request();
-    const readBody = vi.spyOn(req, 'json');
     const response = await POST(req);
 
     expect(response.status).toBe(503);
@@ -127,7 +126,7 @@ describe('transaction analysis availability', () => {
       error: 'AI analysis is currently unavailable. You can review and classify this transaction manually.',
     });
     expect(mocks.authenticate).toHaveBeenCalledWith(req);
-    expect(readBody).not.toHaveBeenCalled();
+    expect(req.bodyUsed).toBe(false);
     expectNoAnalysisWork();
     expect(console.error).not.toHaveBeenCalled();
     expect(console.log).not.toHaveBeenCalled();
@@ -138,12 +137,11 @@ describe('transaction analysis availability', () => {
     vi.stubEnv('OPENAI_API_KEY', key);
     mocks.authenticate.mockResolvedValue({ user: null, error: 'Unauthorized' });
     const req = request();
-    const readBody = vi.spyOn(req, 'json');
     const response = await POST(req);
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: 'Unauthorized' });
-    expect(readBody).not.toHaveBeenCalled();
+    expect(req.bodyUsed).toBe(false);
     expectNoAnalysisWork();
     expect(console.error).not.toHaveBeenCalled();
   });
@@ -166,7 +164,7 @@ describe('transaction analysis availability', () => {
     parse.mockRestore();
   });
 
-  it('checks the request limit before reading the body', async () => {
+  it('routes check sign in and request limits before reading input', async () => {
     const order: string[] = [];
     mocks.authenticate.mockImplementation(async () => {
       order.push('auth');
@@ -177,18 +175,13 @@ describe('transaction analysis availability', () => {
       order.push('limit');
       return { allowed: false, limit: 60, remaining: 0, retryAfterSeconds: 30, resetAt: Date.now() + 30_000, source: 'firestore', unavailable: false };
     });
-    const parse = vi.spyOn(JSON, 'parse');
-    parse.mockClear();
-    const response = await POST(request());
+    const req = request();
+    const response = await POST(req);
     expect(response.status).toBe(429);
     expect(order).toEqual(['auth', 'limit']);
-    const parsed = parse.mock.calls
-      .map((call) => (typeof call[0] === 'string' ? call[0] : ''))
-      .filter((text) => text.length > 0 && !text.includes('"mappings"'));
-    expect(parsed).toEqual([]);
+    expect(req.bodyUsed).toBe(false);
     expectNoAnalysisWork();
     limit.mockRestore();
-    parse.mockRestore();
   });
 
   it('refuses a list longer than the field cap', async () => {

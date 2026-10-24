@@ -178,6 +178,18 @@ describe('signed Stripe lifecycle notifications', () => {
       });
     },
   );
+  it('passes the exact request text to signature verification', async () => {
+    const body = JSON.stringify({ id: 'evt_exact' });
+    await webhook(new Request('https://writeoffapp.com/api/test', { method: 'POST', body, headers: { 'stripe-signature': 'signed-fixture' } }));
+    expect(mock.constructEvent).toHaveBeenCalledWith(body, 'signed-fixture', 'mock-secret');
+  });
+  it('returns 413 when the delivery is over the text limit', async () => {
+    const response = await webhook(new Request('https://writeoffapp.com/api/test', {
+      method: 'POST', headers: { 'stripe-signature': 'signed-fixture' }, body: 'x'.repeat(1024 * 1024 + 1),
+    }));
+    expect(response.status).toBe(413);
+    expect(mock.constructEvent).not.toHaveBeenCalled();
+  });
   it('rejects missing/bad signatures before granting anything', async () => {
     expect((await webhook(req())).status).toBe(400);
     mock.constructEvent.mockImplementation(() => { throw Error('bad signature'); });

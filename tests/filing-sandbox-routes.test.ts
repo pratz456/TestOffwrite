@@ -202,10 +202,9 @@ describe('legacy Form 8879 no longer represents return authorization', () => {
 describe('legacy year locks cannot fabricate provider acknowledgments', () => {
   it('blocks client-assigned accepted/submitted status without reading JSON or writing any record', async () => {
     const request = postRequest({ year: 2025, status: 'accepted', confirmationNumber: 'fabricated-confirmation' });
-    const bodyRead = vi.spyOn(request, 'json');
     const result = await yearLockPost(request);
     expect(result.status).toBe(409); expect((await result.json()).code).toBe('PROVIDER_STATUS_REQUIRED');
-    expect(bodyRead).not.toHaveBeenCalled(); expect(state.query).toEqual([]); expect(state.reads).toEqual([]); noProviderCalls();
+    expect(request.bodyUsed).toBe(false); expect(state.query).toEqual([]); expect(state.reads).toEqual([]); noProviderCalls();
   });
   it.each(['submitted', 'accepted', 'filed', 'draft'])('preserves conservative %s lock behavior but exposes no filing proof or confirmation number', async status => {
     state.records[`tax_year_locks/${uid}_2025`] = { userId: uid, taxYear: 2025, status, confirmationNumber: 'fabricated-confirmation', signedPin: '12345' };
