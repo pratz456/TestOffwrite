@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
-import { getOpenAIClientOrThrow, getOpenAIModel, hasOpenAIAPIKey } from '@/lib/openai/client';
+import { getOpenAIClientOrThrow, getOpenAIModel } from '@/lib/openai/client';
+import { isConsentRequired, isImageProcessingNotApproved, isOpenAINotConfigured, MODEL_CONSENT_UNAVAILABLE } from '@/lib/openai/consent';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 import { assistantRequestSchema, isSupportedImage, readAssistantBody } from '@/lib/tax-assistant/contract';
 import { accountIntentSchema, accountRouterMessages, accountResultSchema, type AccountResult } from '@/lib/tax-assistant/account-contract';
@@ -34,9 +35,8 @@ export async function POST(request: NextRequest) {
   if (input.imageDataUrl) return guidance();
   const limit = await enforceRateLimit({ ...RATE_LIMITS.aiTaxAssistant, key: `account:${user.uid}` });
   if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many assistant requests. Please retry in a few minutes.' });
-  if (!hasOpenAIAPIKey()) return json({ error: 'The assistant is not configured. Your draft is ready to retry.' }, 503);
   try {
-    const client = getOpenAIClientOrThrow({ timeout: 30000, maxRetries: 0 });
+    const client = await getOpenAIClientOrThrow({ uid: user.uid, purpose: 'account_assistant', requestedAt: new Date(), timeout: 30000, maxRetries: 0 });
     const result = await client.chat.completions.create({ model: getOpenAIModel('assistant'), messages: accountRouterMessages(input),
       response_format: { type: 'json_object' }, max_completion_tokens: 120, store: false });
     const choice = result.choices[0];
@@ -76,7 +76,11 @@ export async function POST(request: NextRequest) {
       }
     }
     return json({ ...response, account: accountResultSchema.parse(response.account) });
-  } catch {
+  } catch (error) {
+    if (isConsentRequired(error) || isImageProcessingNotApproved(error)) {
+      return json({ code: isConsentRequired(error) ? 'CONSENT_REQUIRED' : 'IMAGE_PROCESSING_NOT_APPROVED', error: MODEL_CONSENT_UNAVAILABLE }, 403);
+    }
+    if (isOpenAINotConfigured(error)) return json({ error: 'The assistant is not configured. Your draft is ready to retry.' }, 503);
     // Never log provider requests, saved financial records, or raw infrastructure errors.
     return json({ error: 'The assistant is temporarily unavailable. Your draft is ready to retry.' }, 503);
   }

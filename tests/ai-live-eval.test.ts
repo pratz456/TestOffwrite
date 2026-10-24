@@ -15,7 +15,10 @@ import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/ai/learning-engine', () => ({ aiLearningEngine: { getLearningContext: async () => null, recordCorrection: async () => undefined } }));
-vi.mock('@/lib/firebase/admin', () => ({ adminDb: {}, adminAuth: {}, FieldValue: {}, Timestamp: {} }));
+vi.mock('@/lib/firebase/admin', () => ({ adminDb: { doc: () => ({ get: async () => ({ exists: true, data: () => ({
+  status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review', purposes: ['transaction_analysis'],
+  signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+}) }) }) }, adminAuth: {}, FieldValue: {}, Timestamp: {} }));
 
 import { analyzeTransaction, type OutputType, type TransactionInput } from '@/lib/ai/analyzeTransaction';
 import { getOpenAIModel } from '@/lib/openai/client';

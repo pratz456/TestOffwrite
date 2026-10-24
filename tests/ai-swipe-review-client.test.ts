@@ -237,12 +237,21 @@ describe('AI category swipe review', () => {
   it.each([
     { pending: true },
     { analysisStatus: 'running' as const },
+  ])('does not confirm while review is pending or still running', async changes => {
+    records = [base(changes)]; const confirm = action(page(), 'Confirm category');
+    expect(confirm.props.disabled).toBe(true); await confirm.props.onClick!(); expect(harness.request).not.toHaveBeenCalled();
+  });
+
+  it.each([
     { ai_suggestion: null },
     { ai_suggestion: { ...suggestion, status: 'blocked' as const } },
     { ai_suggestion: { ...suggestion, transactionKind: 'unknown' as const } },
-  ])('does not falsely confirm a pending, running, absent, blocked or unknown suggestion', async changes => {
+  ])('opens manual categorization instead of confirming an absent, blocked or unknown suggestion', async changes => {
     records = [base(changes)]; const confirm = action(page(), 'Confirm category');
-    expect(confirm.props.disabled).toBe(true); await confirm.props.onClick!(); expect(harness.request).not.toHaveBeenCalled();
+    expect(confirm.props.disabled).toBe(false);
+    await confirm.props.onClick!();
+    expect(harness.request).not.toHaveBeenCalled();
+    expect(text(page())).toContain('Correct the categorization');
   });
 
   it('runs explicit AI then reloads the persisted suggestion without confirming it', async () => {
@@ -295,7 +304,7 @@ describe('AI category swipe review', () => {
     expect(text(view)).not.toContain('AI analysis needs a retry');
     const notice = walk(view).find(node => node.type === AnalysisStatusNotice) as ReactElement<{ outcome: { code: string; retry: boolean }; accountIds: string[]; compact: boolean }>;
     expect(notice.props).toMatchObject({ outcome: { code }, accountIds: ['account-1'], compact: true });
-    expect(action(view, 'Confirm category').props.disabled).toBe(true);
+    expect(action(view, 'Confirm category').props.disabled).toBe(false);
     expect(action(view, 'Change').props.disabled).toBe(false);
     expect(action(view, 'Run AI analysis').props.disabled).toBe(false);
   });
@@ -304,7 +313,7 @@ describe('AI category swipe review', () => {
     records = [base({ ai_suggestion: null })]; harness.request.mockResolvedValue(Response.json({ code: 'AI_UNAVAILABLE' }, { status: 503 }));
     await action(page(), 'Run AI analysis').props.onClick!();
     expect(text(page())).toContain('AI is temporarily unavailable'); expect(action(page(), 'AI unavailable').props.disabled).toBe(true);
-    expect(action(page(), 'Confirm category').props.disabled).toBe(true); expect(action(page(), 'Change').props.disabled).toBe(false);
+    expect(action(page(), 'Confirm category').props.disabled).toBe(false); expect(action(page(), 'Change').props.disabled).toBe(false);
     expect(harness.updated).not.toHaveBeenCalled();
   });
 
@@ -338,7 +347,11 @@ describe('AI category swipe review', () => {
     expect(text(page())).toContain('Categories reviewed');
     records = [base({ ai_suggestion: null, amount: 40, is_deductible: null, review_status: undefined, analysisStatus: 'pending' })];
     expect(text(page())).toContain('$40.00'); expect(text(page())).toContain('No AI suggestion yet');
-    expect(action(page(), 'Confirm category').props.disabled).toBe(true);
+    const manual = action(page(), 'Confirm category');
+    expect(manual.props.disabled).toBe(false);
+    await manual.props.onClick!();
+    expect(text(page())).toContain('Correct the categorization');
+    expect(harness.request).toHaveBeenCalledOnce();
   });
 
   it('ignores a response after the account changes', async () => {

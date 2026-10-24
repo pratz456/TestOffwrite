@@ -32,6 +32,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb } from '@/lib/firebase/admin';
 import { getOpenAIClientOrThrow, getOpenAIModel } from '@/lib/openai/client';
+import { isConsentRequired, isImageProcessingNotApproved, isOpenAINotConfigured, MODEL_CONSENT_UNAVAILABLE, type ModelPurpose } from '@/lib/openai/consent';
 import { MAX_RECEIPT_BYTES, ReceiptRequestError, receiptFormData, receiptMimeType, receiptSignatureMatches } from '@/lib/firebase/receipt-security';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 import { documentOcrUsable, recognizeDocumentText } from '@/lib/ocr/document-text';
@@ -289,12 +290,14 @@ function parseModelJson(rawText: string): Record<string, any> | null {
 }
 
 /** One extraction call. Text mode sends the redacted OCR text; image mode sends the whole image (consent verified by the caller). */
-async function extractDocument(source: DocumentSource, docType: string, payload: { text?: string; dataUrl?: string }) {
+async function extractDocument(uid: string, source: DocumentSource, docType: string, payload: { text?: string; dataUrl?: string }) {
   const prompt = PROMPTS[docType] || AUTO_DETECT_PROMPT;
+  const purpose: ModelPurpose = source === 'text' ? 'document_text' : 'document_image';
   const content = source === 'text'
     ? [{ type: 'text' as const, text: `${TEXT_SOURCE_RULES}\n\n${prompt}\n\nDOCUMENT TEXT (identification numbers removed):\n${payload.text}` }]
     : [{ type: 'text' as const, text: prompt }, { type: 'image_url' as const, image_url: { url: payload.dataUrl!, detail: 'high' as const } }];
-  const response = await getOpenAIClientOrThrow().chat.completions.create({
+  const client = await getOpenAIClientOrThrow({ uid, purpose, requestedAt: new Date() });
+  const response = await client.chat.completions.create({
     model: getOpenAIModel('document'),
     max_tokens: 1500,
     store: false,
@@ -422,7 +425,7 @@ export async function POST(request: NextRequest) {
       // the boxes the model extracts are numeric and the employer name stays for labeling.
       const personal = redactPersonalDetails(redaction.text, await accountHolderNames(user.uid));
       identifiersRedacted = redaction.count + personal.count;
-      ({ rawText, extracted } = await extractDocument('text', docType, { text: personal.text }));
+      ({ rawText, extracted } = await extractDocument(user.uid, 'text', docType, { text: personal.text }));
       if (extracted?.needs_image === true) { fallbackReason = 'model_requested_image'; extracted = null; }
     }
 
@@ -431,7 +434,7 @@ export async function POST(request: NextRequest) {
       const consentOnFile = await documentImportConsentOnFile(user.uid);
       if (!documentImageConsent || !consentOnFile) return consentRequired(fallbackReason, consentOnFile);
       disclosure = 'image';
-      ({ rawText, extracted } = await extractDocument('image', docType, { dataUrl: `data:${mediaType};base64,${bytes.toString('base64')}` }));
+      ({ rawText, extracted } = await extractDocument(user.uid, 'image', docType, { dataUrl: `data:${mediaType};base64,${bytes.toString('base64')}` }));
     }
 
     if (!extracted || extracted.needs_image === true) {
@@ -538,6 +541,10 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     if (error instanceof ReceiptRequestError) return NextResponse.json({ error: error.message }, { status: error.status });
+    if (isConsentRequired(error) || isImageProcessingNotApproved(error)) {
+      return NextResponse.json({ code: isConsentRequired(error) ? 'CONSENT_REQUIRED' : 'IMAGE_PROCESSING_NOT_APPROVED', error: MODEL_CONSENT_UNAVAILABLE }, { status: 403 });
+    }
+    if (isOpenAINotConfigured(error)) return NextResponse.json({ error: 'Document processing is not configured.' }, { status: 503 });
     return NextResponse.json({ error: 'Document processing failed' }, { status: 500 });
   }
 }

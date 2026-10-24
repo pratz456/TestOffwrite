@@ -113,7 +113,7 @@ function addSecurityHeaders(response: NextResponse, hostname: string): NextRespo
     "style-src 'self' 'unsafe-inline'",
     `img-src 'self' data: blob: https://firebasestorage.googleapis.com https://storage.googleapis.com${localEmulators ? ` ${localEmulators.storageOrigin}` : ''}${googleTagSources('imgSrc')}`,
     "font-src 'self' data:",
-    `connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://api.stripe.com https://api.plaid.com https://sandbox.plaid.com https://production.plaid.com https://api.openai.com${localConnections}${googleTagSources('connectSrc')}`,
+    `connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://api.stripe.com https://api.plaid.com https://sandbox.plaid.com https://production.plaid.com${localConnections}${googleTagSources('connectSrc')}`,
     `frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://cdn.plaid.com https://${process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'writeoff-23910.firebaseapp.com'}${filingOrigin}${localEmulators ? ` ${localEmulators.authOrigin}` : ''}`,
     "frame-ancestors 'none'",
     "object-src 'none'",

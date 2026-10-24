@@ -1,7 +1,14 @@
 import OpenAI from 'openai';
+import { enforceModelGate, OpenAINotConfiguredError, type ModelPurpose } from './consent';
 
 export type OpenAITask = 'transaction' | 'assistant' | 'voice' | 'document';
 export interface OpenAIRequestPolicy { timeout?: number; maxRetries?: number }
+
+export interface OpenAIClientRequest extends OpenAIRequestPolicy {
+  uid: string;
+  purpose: ModelPurpose;
+  requestedAt: Date;
+}
 
 const DEFAULT_MODELS: Record<OpenAITask, string> = {
   // Live evaluation 2026-09-17 (docs/AI_LIVE_EVAL_2026-09-17_round2.md): gpt-4.1-mini approved 23/26 approvable
@@ -11,6 +18,10 @@ const DEFAULT_MODELS: Record<OpenAITask, string> = {
   voice: 'gpt-4o-mini',
   document: 'gpt-4o',
 };
+
+/** Pinned official endpoint. Tests import this so they do not repeat the host. */
+export const OPENAI_API_BASE_URL = 'https://api.openai.com/v1';
+export const OPENAI_COMPLETIONS_URL = `${OPENAI_API_BASE_URL}/chat/completions`;
 
 /** One server secret for every feature; public or legacy keys are never fallbacks. */
 function serverAPIKey(): string | undefined {
@@ -27,20 +38,24 @@ export function getOpenAIModel(task: OpenAITask = 'transaction'): string {
   return process.env.OPENAI_MODEL?.trim() || DEFAULT_MODELS[task];
 }
 
-export function getOpenAIClientOrThrow(options: OpenAIRequestPolicy = {}): OpenAI {
+export async function getOpenAIClientOrThrow(request: OpenAIClientRequest): Promise<OpenAI> {
   if (typeof window !== 'undefined') throw new Error('OpenAI is only available on the server');
+  await enforceModelGate(request.uid, request.purpose, request.requestedAt);
+  if (request.purpose === 'transaction_analysis' && process.env.AI_ANALYSIS_ENABLED === 'false') {
+    throw new OpenAINotConfiguredError();
+  }
   const apiKey = serverAPIKey();
-  if (!apiKey) throw new Error('OpenAI is not configured (missing OPENAI_API_KEY)');
+  if (!apiKey) throw new OpenAINotConfiguredError();
   return new OpenAI({
     apiKey,
     // Do not inherit SDK routing/billing overrides from unrelated environment settings.
-    baseURL: 'https://api.openai.com/v1',
+    baseURL: OPENAI_API_BASE_URL,
     organization: null,
     project: null,
     dangerouslyAllowBrowser: false,
     // SDK debug logs can contain taxpayer request bodies; route errors are sanitized separately.
     logLevel: 'off',
-    ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
-    ...(options.maxRetries === undefined ? {} : { maxRetries: options.maxRetries }),
+    ...(request.timeout === undefined ? {} : { timeout: request.timeout }),
+    ...(request.maxRetries === undefined ? {} : { maxRetries: request.maxRetries }),
   });
 }

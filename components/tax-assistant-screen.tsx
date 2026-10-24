@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, ArrowRight, Bot, ChevronDown, ExternalLink, ImagePlus, Loader2, Send, X } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { MODEL_CONSENT_UNAVAILABLE, useModelConsent } from "@/lib/model-consent/use-model-consent";
 import { TaxAssistantAccountResult } from "@/components/tax-assistant-account-result";
 import { accountResultSchema, type AccountResult } from "@/lib/tax-assistant/account-contract";
 import { TaxYear2027Readiness } from "@/components/tax-year-2027-readiness";
@@ -109,6 +110,7 @@ function renderMarkdown(text: string): React.ReactNode {
 }
 
 export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
+  const modelConsent = useModelConsent();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [taxYear, setTaxYear] = useState<2026 | 2027>(2026);
@@ -414,6 +416,8 @@ export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
       </div>
 
       <div className="sticky bottom-0 border-t border-border bg-background">
+        {modelConsent.loaded && !modelConsent.granted && <p className="mx-auto max-w-4xl px-3 pt-3 text-sm text-muted-foreground sm:px-6">{MODEL_CONSENT_UNAVAILABLE}</p>}
+        {modelConsent.granted && <>
         <div className="mx-auto max-w-4xl px-3 pt-2 pb-1 sm:px-6">
           {error && <p role="alert" className="mb-3 text-sm text-destructive">{error} Your draft is still here.</p>}
           {answeringQuestion && <div className="mb-2 flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-xs">
@@ -451,6 +455,7 @@ export function TaxAssistantScreen({ user, onBack }: TaxAssistantScreenProps) {
             </details>
           </form>
         </div>
+        </>}
       </div>
     </div>
   );

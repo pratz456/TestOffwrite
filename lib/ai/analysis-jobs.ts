@@ -201,7 +201,7 @@ export async function processAnalysisTask(taskId: string, generation: string): P
     if (work.attempts >= MAX_ATTEMPTS || now - work.requestedAt > TASK_MAX_AGE_MS) return finish('failed', 'AI_RETRY_LIMIT');
     if (!getAIProviderStatus().configured) return finish('paused', 'AI_UNAVAILABLE');
     if (!profile.exists) return finish('paused', 'PROFILE_REQUIRED');
-    const context = convertToEnhancedContext(profile.data()!, data.date);
+    const context = { ...convertToEnhancedContext(profile.data()!, data.date), user_id: address.userId };
     if (findMissingUserFields(context).length > 0) return finish('paused', 'PROFILE_REQUIRED');
     if (!Number.isFinite(data.amount) || typeof data.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(data.date) ||
       !Number.isFinite(Date.parse(data.date)) || new Date(data.date).toISOString().slice(0, 10) !== data.date ||
@@ -232,7 +232,7 @@ export async function processAnalysisTask(taskId: string, generation: string): P
       analysisProfileHash(profile.data()!, data.date) === claim.profileHash;
     const code = !current ? 'AI_INPUT_CHANGED' : result.success ? null : result.code || 'AI_FAILED';
     const retry = current && !result.success && result.retryable === true && claim.attempts < MAX_ATTEMPTS;
-    const status = retry ? 'retry_wait' : !current ? 'failed' : result.success ? 'completed' : result.code === 'AI_UNAVAILABLE' ? 'paused' : 'failed';
+    const status = retry ? 'retry_wait' : !current ? 'failed' : result.success ? 'completed' : result.code === 'AI_UNAVAILABLE' || result.code === 'CONSENT_REQUIRED' ? 'paused' : 'failed';
     const now = Date.now();
     tx.update(taskRef, { status, lastErrorCode: code, nextAttemptAt: retry ? now + Math.min(60_000 * (2 ** (claim.attempts - 1)), 300_000) : null,
       leaseToken: null, finishedAt: retry ? null : now });

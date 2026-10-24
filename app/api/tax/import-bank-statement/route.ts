@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { adminDb } from '@/lib/firebase/admin';
 import { getOpenAIClientOrThrow, getOpenAIModel } from '@/lib/openai/client';
+import { isConsentRequired, isImageProcessingNotApproved, isOpenAINotConfigured, MODEL_CONSENT_UNAVAILABLE, type ModelPurpose } from '@/lib/openai/consent';
 import { z } from 'zod';
 import { MAX_RECEIPT_BYTES, ReceiptRequestError, receiptFormData, receiptSignatureMatches } from '@/lib/firebase/receipt-security';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
@@ -92,8 +93,8 @@ Return ONLY valid JSON:
   "reason": string
 }`;
 
-async function callGPT4Vision(base64: string, mimeType: string, prompt: string): Promise<string> {
-  const openai = getOpenAIClientOrThrow();
+async function callGPT4Vision(uid: string, purpose: ModelPurpose, base64: string, mimeType: string, prompt: string): Promise<string> {
+  const openai = await getOpenAIClientOrThrow({ uid, purpose, requestedAt: new Date() });
 
   const response = await openai.chat.completions.create({
     model: getOpenAIModel('document'),
@@ -231,7 +232,7 @@ export async function POST(request: NextRequest) {
 
     let docType = hint;
     if (docType === 'auto') {
-      const detected = parseJSON(await callGPT4Vision(base64, file.type, AUTO_DETECT_PROMPT));
+      const detected = parseJSON(await callGPT4Vision(user.uid, 'statement_autodetect', base64, file.type, AUTO_DETECT_PROMPT));
       const parsed = z.object({ detectedType: z.enum(['bank_statement', 'credit_card', 'receipt', 'expense_report', 'w2', '1099', 'unknown']), confidence: z.enum(['high', 'medium', 'low']) }).safeParse(detected);
       if (!parsed.success || parsed.data.confidence === 'low') throw new ReceiptRequestError('Could not identify this document reliably. Choose its type and try again.', 422);
       docType = parsed.data.detectedType;
@@ -244,7 +245,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (docType === 'bank_statement' || docType === 'credit_card') {
-      const parsed = requireReadable(statementData, parseJSON(await callGPT4Vision(base64, file.type, BANK_STATEMENT_PROMPT)));
+      const parsed = requireReadable(statementData, parseJSON(await callGPT4Vision(user.uid, 'statement_extract', base64, file.type, BANK_STATEMENT_PROMPT)));
       if (parsed.transactions.some(row => Math.abs(Number(row.date.slice(0, 4)) - year) > 1)) {
         throw new ReceiptRequestError('No transactions were saved. The document dates do not match the selected tax year.', 422);
       }
@@ -260,7 +261,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const parsed = requireReadable(receiptData, parseJSON(await callGPT4Vision(base64, file.type, RECEIPT_PROMPT)));
+    const parsed = requireReadable(receiptData, parseJSON(await callGPT4Vision(user.uid, 'statement_receipt', base64, file.type, RECEIPT_PROMPT)));
     if (Math.abs(Number(parsed.date.slice(0, 4)) - year) > 1) {
       throw new ReceiptRequestError('No transactions were saved. The receipt date does not match the selected tax year.', 422);
     }
@@ -273,6 +274,10 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     if (error instanceof ReceiptRequestError) return NextResponse.json({ error: error.message }, { status: error.status });
+    if (isConsentRequired(error) || isImageProcessingNotApproved(error)) {
+      return NextResponse.json({ code: isConsentRequired(error) ? 'CONSENT_REQUIRED' : 'IMAGE_PROCESSING_NOT_APPROVED', error: MODEL_CONSENT_UNAVAILABLE }, { status: 403 });
+    }
+    if (isOpenAINotConfigured(error)) return NextResponse.json({ error: 'Document processing is not configured.' }, { status: 503 });
     // Provider errors may contain document bytes or credentials; do not echo or log them.
     return NextResponse.json({ error: 'Failed to process document' }, { status: 500 });
   }

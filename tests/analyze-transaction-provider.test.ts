@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { APIConnectionError, APIConnectionTimeoutError } from 'openai/error';
 
 const mocks = vi.hoisted(() => ({ create: vi.fn(), construct: vi.fn(), learning: vi.fn() }));
+vi.mock('@/lib/firebase/admin', () => ({
+  adminDb: { doc: () => ({ get: async () => ({ exists: true, data: () => ({
+    status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review',
+    purposes: ['transaction_analysis', 'document_text', 'document_image', 'statement_autodetect', 'statement_extract', 'statement_receipt', 'tax_assistant', 'account_assistant', 'voice_command'],
+    signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+  }) }) }) },
+}));
 vi.mock('openai', () => ({
   default: vi.fn(function (options: unknown) {
     mocks.construct(options);
@@ -12,6 +18,7 @@ vi.mock('@/lib/ai/learning-engine', () => ({
   aiLearningEngine: { getLearningContext: mocks.learning },
 }));
 
+import { OPENAI_API_BASE_URL } from '@/lib/openai/client';
 import { analyzeTransaction, analyzeTransactionWithRetry, convertToEnhancedContext, findMissingUserFields, type TransactionInput, type UserContext } from '../lib/ai/analyzeTransaction';
 
 const transaction: TransactionInput = {
@@ -98,7 +105,7 @@ describe('AI provider request and result contract', () => {
     expect(result.success).toBe(true);
     expect(mocks.construct).toHaveBeenCalledExactlyOnceWith({
       apiKey: 'synthetic-no-network-key', timeout: 25000, maxRetries: 0,
-      baseURL: 'https://api.openai.com/v1', organization: null, project: null,
+      baseURL: OPENAI_API_BASE_URL, organization: null, project: null,
       dangerouslyAllowBrowser: false, logLevel: 'off',
     });
     const request = mocks.create.mock.calls[0][0];
@@ -339,8 +346,8 @@ describe('AI provider failure and bounded retry contract', () => {
   it.each([
     [{ status: 429, code: 'rate_limit_exceeded' }, 'AI_RATE_LIMITED'],
     [{ status: 503 }, 'AI_FAILED'],
-    [new APIConnectionError({ message: 'Sensitive network detail' }), 'AI_FAILED'],
-    [new APIConnectionTimeoutError(), 'AI_FAILED'],
+    [Object.assign(new Error('Sensitive network detail'), { name: 'APIConnectionError' }), 'AI_FAILED'],
+    [Object.assign(new Error('timeout'), { name: 'APIConnectionTimeoutError' }), 'AI_FAILED'],
   ])('retries transient failures at most once and preserves the safe code', async (failure, code) => {
     vi.useFakeTimers();
     mocks.create.mockRejectedValue(failure);
@@ -370,7 +377,7 @@ describe('saved profile facts and safe prompt context', () => {
   it('requires a real profession and state, while age and income remain optional', async () => {
     expect(findMissingUserFields()).toEqual(['profession', 'filing_state']);
     expect(findMissingUserFields(convertToEnhancedContext({}, transaction.date_iso))).toEqual(['profession', 'filing_state']);
-    const profile = convertToEnhancedContext({ profession: ' Designer , ', state: ' CA ' }, transaction.date_iso);
+    const profile = convertToEnhancedContext({ id: 'synthetic-owner', profession: ' Designer , ', state: ' CA ' }, transaction.date_iso);
     expect(findMissingUserFields(profile)).toEqual([]);
     expect(profile.profession).toEqual(['Designer']);
     expect(profile.age).toBeUndefined();
@@ -404,7 +411,7 @@ describe('saved profile facts and safe prompt context', () => {
     [-1, undefined], ['1,2', undefined], ['Under $11,600', undefined],
     ['$11,600 - $47,150', undefined], ['Over $609,350', undefined], ['unknown', undefined],
   ])('preserves only exact finite income facts (%j)', async (income, expected) => {
-    const profile = convertToEnhancedContext({ profession: 'Designer', state: 'CA', income }, transaction.date_iso);
+    const profile = convertToEnhancedContext({ id: 'synthetic-owner', profession: 'Designer', state: 'CA', income }, transaction.date_iso);
     expect(profile.annual_gross_income_usd).toBe(expected);
     await analyzeTransaction(transaction, profile);
     expect(sentContext().profile.annual_income).toBe(expected ?? null);
@@ -412,7 +419,7 @@ describe('saved profile facts and safe prompt context', () => {
 
   it('passes a known birth year without inventing exact age and keeps explicit zero optional facts', async () => {
     const profile = convertToEnhancedContext({
-      profession: ['Designer'], state: 'CA', year_of_birth: '1990', income: 0,
+      id: 'synthetic-owner', profession: ['Designer'], state: 'CA', year_of_birth: '1990', income: 0,
       home_office_sqft: 0, vehicle_business_use_percentage: 0, w2_income: 0, business_income: 0,
       income_breakdown: { w2_income: 99999, business_income: 88888 },
     }, transaction.date_iso);
@@ -444,7 +451,7 @@ describe('saved profile facts and safe prompt context', () => {
 
   it('preserves a valid canonical business_entity and distinguishes travel geography from frequency', async () => {
     const profile = convertToEnhancedContext({
-      profession: 'Designer', state: 'CA', business_entity: 's_corporation',
+      id: 'synthetic-owner', profession: 'Designer', state: 'CA', business_entity: 's_corporation',
       work_related_travel_pattern: 'National Travel',
     }, transaction.date_iso);
     expect(profile.business_entity).toBe('s_corporation');

@@ -17,7 +17,6 @@
 import { vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
-import OpenAI from 'openai';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -148,10 +147,14 @@ export function installApiRouteMocks(): ApiRouteHarness {
   });
   vi.doMock('@/lib/openai/client', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/lib/openai/client')>();
-    return { ...actual, getOpenAIClientOrThrow: (options: { timeout?: number } = {}) => new OpenAI({
-      apiKey: 'contract-openai-key-not-live', baseURL: 'https://openai.contract.invalid/v1', fetch: fetchDouble as unknown as typeof fetch,
-      maxRetries: 0, timeout: options.timeout ?? 1_000, logLevel: 'off',
-    }) };
+    const disabled = () => ({
+      chat: { completions: { create: async (body: unknown) => {
+        await fetchDouble('https://model-provider.example/v1/chat/completions', { method: 'POST', body: JSON.stringify(body ?? {}) });
+        throw networkDisabled('OpenAI');
+      } } },
+      logLevel: 'off',
+    });
+    return { ...actual, getOpenAIClientOrThrow: async () => disabled() };
   });
   vi.doMock('stripe', async (importOriginal) => {
     const actual = await importOriginal<typeof import('stripe')>();

@@ -25,6 +25,7 @@ import { CreditCard, Calendar, Sparkles, ExternalLink, XCircle, AlertTriangle, H
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { TrialCountdown } from '@/components/trial-countdown';
 import { DocumentImageConsentSettings } from '@/components/document-image-consent-settings';
+import { ModelDisclosureConsentScreen, ModelReuseConsentScreen } from '@/components/model-consent-screens';
 import { toast } from 'sonner';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -1684,6 +1685,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <SettingsSection title="Data & Privacy" icon={Shield} summary={'Export data, revoke access or delete account'}>
               <div className="space-y-3">
                 <DocumentImageConsentSettings userId={user.id} />
+                <ModelDisclosureConsentScreen />
+                <ModelReuseConsentScreen />
                 <Button
                   onClick={async () => {
                     if (exportInFlight.current) return;

@@ -1,5 +1,5 @@
-import { APIConnectionError } from 'openai/error';
 import { getOpenAIClientOrThrow } from '@/lib/openai/client';
+import { isConsentRequired, isOpenAINotConfigured, MODEL_CONSENT_UNAVAILABLE } from '@/lib/openai/consent';
 import { z } from 'zod';
 import { aiLearningEngine } from './learning-engine';
 import { merchantIntelligence, merchantIntelligenceForModel } from './merchant-intelligence';
@@ -34,7 +34,7 @@ const OutputSchema = z.object({
 
 export type OutputType = z.infer<typeof OutputSchema> & Partial<TransactionTaxMetadata>;
 
-export type AIAnalysisFailureCode = 'AI_UNAVAILABLE' | 'AI_RATE_LIMITED' | 'AI_INVALID_OUTPUT' | 'AI_FAILED';
+export type AIAnalysisFailureCode = 'AI_UNAVAILABLE' | 'AI_RATE_LIMITED' | 'AI_INVALID_OUTPUT' | 'AI_FAILED' | 'CONSENT_REQUIRED';
 export interface AIAnalysisFailure {
   success: false;
   error: string;
@@ -49,11 +49,14 @@ function analysisFailure(code: AIAnalysisFailureCode, retryable = false): AIAnal
     AI_RATE_LIMITED: 'AI analysis is temporarily rate limited. Try again later or review this transaction manually.',
     AI_INVALID_OUTPUT: 'AI did not return a complete, valid suggestion. Review this transaction manually.',
     AI_FAILED: 'AI analysis could not be completed. Try again later or review this transaction manually.',
+    CONSENT_REQUIRED: MODEL_CONSENT_UNAVAILABLE,
   };
   return { success: false, code, retryable, error: messages[code] };
 }
 
 function classifyProviderFailure(error: unknown): AIAnalysisFailure {
+  if (isConsentRequired(error)) return analysisFailure('CONSENT_REQUIRED');
+  if (isOpenAINotConfigured(error)) return analysisFailure('AI_UNAVAILABLE');
   // Inspect machine-readable fields only. Provider messages may contain request data.
   const value = error && typeof error === 'object' ? error as Record<string, unknown> : {};
   const nested = value.error && typeof value.error === 'object' ? value.error as Record<string, unknown> : {};
@@ -66,7 +69,8 @@ function classifyProviderFailure(error: unknown): AIAnalysisFailure {
     return analysisFailure('AI_UNAVAILABLE');
   }
   if (value.status === 429) return analysisFailure('AI_RATE_LIMITED', true);
-  const networkFailure = error instanceof APIConnectionError;
+  const name = typeof value.name === 'string' ? value.name : '';
+  const networkFailure = name === 'APIConnectionError' || name === 'APIConnectionTimeoutError';
   const serverFailure = typeof value.status === 'number' && value.status >= 500 && value.status < 600;
   return analysisFailure('AI_FAILED', networkFailure || serverFailure);
 }
@@ -433,8 +437,19 @@ export async function analyzeTransaction(
   userContext?: UserContext
 ): Promise<AnalysisResult> {
   const provider = getAIProviderStatus();
-  if (!provider.configured) return analysisFailure('AI_UNAVAILABLE');
   const ctx = userContext || {};
+  let openai: Awaited<ReturnType<typeof getOpenAIClientOrThrow>>;
+  try {
+    openai = await getOpenAIClientOrThrow({
+      uid: (ctx as UserContext).user_id || '',
+      purpose: 'transaction_analysis',
+      requestedAt: new Date(),
+      timeout: 25_000,
+      maxRetries: 0,
+    });
+  } catch (error) {
+    return classifyProviderFailure(error);
+  }
 
   // An explicit AI analysis always reaches the configured provider. Merchant-only
   // shortcuts cannot account for the user's purpose or justify model provenance.
@@ -507,7 +522,7 @@ Do not infer self-employment from a profession, a deduction from a merchant, or 
 taxpayer_context describes this user's saved methods, gaps and past confirmed decisions. Use it to choose the most likely category, to reuse this user's own wording for the business purpose as a question, and to ask about listed open_questions first. A prior confirmation, a recurring charge or a home-office/vehicle method never establishes deductibility for this transaction; when the prior decision conflicts with the current evidence, ask whether this purchase is different.
 tx.merchant_intelligence and profession_context are server hints about the merchant and this user's line of work: prefer their category when confidence is high and nothing saved contradicts it, quote the saved purpose or propose default_purpose as a question, name the Schedule C line, and ask the merchant question first when facts are missing.`;
 
-  return requestAnalysis(transaction, userContext, provider, systemPrompt, userPrompt);
+  return requestAnalysis(transaction, userContext, provider, systemPrompt, userPrompt, openai);
 }
 
 interface AnalysisContextExtras {
@@ -582,6 +597,7 @@ export function buildAnalysisContext(transaction: TransactionInput, ctx: UserCon
 async function requestAnalysis(
   transaction: TransactionInput, userContext: UserContext | undefined, provider: { model: string },
   systemPrompt: string, userPrompt: string,
+  openai: Awaited<ReturnType<typeof getOpenAIClientOrThrow>>,
 ): Promise<AnalysisResult> {
   // JSON schema for OpenAI structured outputs — mirrors OutputSchema exactly
   const RESPONSE_JSON_SCHEMA = {
@@ -617,7 +633,6 @@ async function requestAnalysis(
 
   try {
     // Retry policy is owned by analyzeTransactionWithRetry, not nested SDK retries.
-    const openai = getOpenAIClientOrThrow({ timeout: 25_000, maxRetries: 0 });
     const completion = await openai.chat.completions.create({
       model: provider.model,
       store: false,

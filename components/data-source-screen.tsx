@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
+import { MODEL_CONSENT_UNAVAILABLE, useModelConsent } from '@/lib/model-consent/use-model-consent';
 
 interface DataSourceScreenProps {
   user: any;
@@ -83,6 +84,7 @@ export async function uploadOnboardingDocument(file: File, year: number): Promis
 }
 
 export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: DataSourceScreenProps) {
+  const modelConsent = useModelConsent();
   const [selected, setSelected] = useState<DataSource>(null);
   const [uploadState, setUploadState] = useState<UploadState>('idle');
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -202,8 +204,8 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
               </div>
             </button>
 
-            {/* Option 2: Upload document images */}
-            <button
+            {modelConsent.loaded && !modelConsent.granted && <p className="text-sm text-muted-foreground">{MODEL_CONSENT_UNAVAILABLE}</p>}
+            {modelConsent.granted && <button
               type="button"
               onClick={() => setSelected('upload')}
               className="w-full text-left rounded-2xl border-2 border-border hover:border-primary/40 bg-card p-4 transition-all hover:shadow-sm group"
@@ -223,7 +225,7 @@ export function DataSourceScreen({ user, onConnectBank, onSkipToApp, onBack }: D
                 </div>
                 <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 group-hover:text-primary transition-colors" />
               </div>
-            </button>
+            </button>}
 
             {/* Option 3: Manual Entry */}
             <button

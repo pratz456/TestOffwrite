@@ -8,7 +8,8 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getAnalysisProfile, analysisProfileHash } from '@/lib/ai/profile-context';
 import { loadTaxpayerContext } from '@/lib/ai/taxpayer-context-server';
 import { adminDb } from '@/lib/firebase/admin';
-import { getAIProviderStatus } from '@/lib/ai/provider-status';
+import { getOpenAIClientOrThrow } from '@/lib/openai/client';
+import { isConsentRequired, isOpenAINotConfigured, MODEL_CONSENT_UNAVAILABLE } from '@/lib/openai/consent';
 import { claimAnalysisLease, persistAnalysisSuggestion, releaseAnalysisLease } from '@/lib/ai/analysis-persistence';
 import type { AnalysisLease } from '@/lib/ai/analysis-persistence';
 import type { DocumentReference } from 'firebase-admin/firestore';
@@ -75,10 +76,16 @@ export async function POST(request: NextRequest) {
   try {
     const { user, error: authError } = await getAuthenticatedUser(request);
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!getAIProviderStatus().configured) return NextResponse.json({
-      code: 'AI_UNAVAILABLE',
-      error: 'AI analysis is currently unavailable. You can review and classify this transaction manually.',
-    }, { status: 503 });
+    try {
+      await getOpenAIClientOrThrow({ uid: user.uid, purpose: 'transaction_analysis', requestedAt: new Date(), timeout: 25_000, maxRetries: 0 });
+    } catch (error) {
+      if (isConsentRequired(error)) return NextResponse.json({ code: 'CONSENT_REQUIRED', error: MODEL_CONSENT_UNAVAILABLE }, { status: 403 });
+      if (isOpenAINotConfigured(error)) return NextResponse.json({
+        code: 'AI_UNAVAILABLE',
+        error: 'AI analysis is currently unavailable. You can review and classify this transaction manually.',
+      }, { status: 503 });
+      throw error;
+    }
 
     const validation = AnalyzeTransactionRequestSchema.safeParse(await request.json().catch(() => null));
     if (!validation.success) return NextResponse.json({ error: 'Invalid request data' }, { status: 400 });
@@ -156,8 +163,9 @@ export async function POST(request: NextRequest) {
     const analysis = await analyzeTransactionWithRetry(input, taxpayer ? { ...context, taxpayer_context: taxpayer } : context);
     if (!analysis.success) {
       releaseCode = analysis.code || 'AI_FAILED';
-      const status = releaseCode === 'AI_UNAVAILABLE' ? 503 : releaseCode === 'AI_RATE_LIMITED' ? 429 : 502;
-      const error = releaseCode === 'AI_UNAVAILABLE' ? 'AI analysis is unavailable. Please try again once service is restored; manual review remains available.'
+      const status = releaseCode === 'CONSENT_REQUIRED' ? 403 : releaseCode === 'AI_UNAVAILABLE' ? 503 : releaseCode === 'AI_RATE_LIMITED' ? 429 : 502;
+      const error = releaseCode === 'CONSENT_REQUIRED' ? MODEL_CONSENT_UNAVAILABLE
+        : releaseCode === 'AI_UNAVAILABLE' ? 'AI analysis is unavailable. Please try again once service is restored; manual review remains available.'
         : releaseCode === 'AI_RATE_LIMITED' ? 'The AI service is busy. Please try again shortly.'
           : 'AI could not complete a reliable assessment. Please retry or review this transaction manually.';
       return NextResponse.json({ code: releaseCode, error }, { status });
@@ -186,7 +194,8 @@ export async function POST(request: NextRequest) {
       },
       updatedAt: saved.display.updatedAt,
     });
-  } catch {
+  } catch (error) {
+    if (isConsentRequired(error)) return NextResponse.json({ code: 'CONSENT_REQUIRED', error: MODEL_CONSENT_UNAVAILABLE }, { status: 403 });
     // Model and database payloads can contain financial details; never echo them.
     return NextResponse.json({ code: 'AI_FAILED', error: 'Analysis could not complete. Please retry; your saved records are unchanged.' }, { status: 500 });
   } finally {

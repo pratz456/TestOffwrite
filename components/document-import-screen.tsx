@@ -12,6 +12,7 @@ import {
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import { DocumentImageConsent, type DocumentImageFallbackReason } from "@/components/document-image-consent";
 import { DOCUMENT_IMAGE_CONSENT_REQUIRED } from "@/lib/onboarding/document-import-consent";
+import { MODEL_CONSENT_UNAVAILABLE, useModelConsent } from "@/lib/model-consent/use-model-consent";
 
 interface Props {
   user: { id: string; email?: string };
@@ -308,6 +309,7 @@ const DOC_TYPES: { value: DocType; label: string; icon: React.ElementType }[] = 
 ];
 
 export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
+  const modelConsent = useModelConsent();
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(String(currentYear - 1));
   const [docType, setDocType] = useState<DocType>("auto");
@@ -453,7 +455,8 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
           </div>
         )}
 
-        {!result && !consentPrompt && (
+        {modelConsent.loaded && !modelConsent.granted && <p className="text-sm text-muted-foreground">{MODEL_CONSENT_UNAVAILABLE}</p>}
+        {modelConsent.granted && !result && !consentPrompt && (
           <>
             {/* Document type */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -502,7 +505,7 @@ export function DocumentImportScreen({ user, onBack, onNavigate }: Props) {
           </div>
         )}
 
-        {file && !result && !consentPrompt && (
+        {modelConsent.granted && file && !result && !consentPrompt && (
           <Button onClick={handleExtract} disabled={loading} className="w-full min-h-[48px] gap-2 text-base font-semibold">
             {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />}
             {loading ? "Extracting fields…" : "Extract with AI"}
