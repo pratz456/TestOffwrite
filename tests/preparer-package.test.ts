@@ -37,17 +37,17 @@ beforeEach(() => {
 });
 
 describe('receipt-inclusive preparer ZIP', () => {
-  it('prints the audit packet held out line in the package readme', async () => {
-    const message = 'PLACEHOLDER: 1 possible duplicate row is held out of this total until you review it. Held out credits $0.00. Held out debits $500.00.';
+  it('blocks the preparer package when the audit summary has an unresolved duplicate', async () => {
+    const message = 'PLACEHOLDER: 1 possible duplicate row is held out of tax totals until you review it.';
     mock.audit.mockResolvedValue({
       packetInfo: { taxYear: 2026 }, deductions: [],
-      summary: { heldOutDuplicates: { count: 1, message, reviewHref: '/protected?screen=review-transactions', credits: 0, debits: 500 } },
+      summary: { heldOutDuplicates: { count: 1, message, reviewHref: '/protected?screen=review-transactions' } },
     });
-    const result = await buildPreparerPackage('owner', 2026);
-    const readme = unzip(result.bytes).get('README.txt')!.toString();
-    expect(readme).toContain(message);
-    expect(readme).toContain('/protected?screen=review-transactions');
-    expect(result.manifest.heldOutDuplicates).toMatchObject({ count: 1, debits: 500 });
+    await expect(buildPreparerPackage('owner', 2026)).rejects.toMatchObject({
+      code: 'DUPLICATE_REVIEW_REQUIRED',
+      reviewHref: '/protected?screen=review-transactions',
+    });
+    await expect(buildPreparerPackage('owner', 2026)).rejects.toThrow(/PLACEHOLDER/);
   });
   it('includes exact original bytes, structured/CSV records, audit support and a checkable manifest', async () => {
     const result = await buildPreparerPackage('owner', 2026), entries = unzip(result.bytes);

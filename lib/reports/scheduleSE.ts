@@ -1,7 +1,7 @@
 import type { UserProfile } from '@/lib/firebase/profiles-server';
 import type { ScheduleSECalculation } from './calcSE';
 import { getTaxRatesAndLimits } from './calcSE';
-import { heldOutReviewParagraph, type HeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
+import { heldOutReviewLines, type HeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 export interface ScheduleSEData {
   userProfile: UserProfile; taxYear: number; calculation: ScheduleSECalculation;
@@ -27,8 +27,7 @@ export async function generateScheduleSEPDF(data: ScheduleSEData): Promise<Uint8
   pdf.table(['Item', 'Amount'], [['Recorded W-2 Medicare wages used', money(data.w2MedicareWages)], ['SE portion of Additional Medicare Tax', money(c.additionalMedicareTax)]], [398, 130]);
   pdf.paragraph('The Additional Medicare amount is excluded from Schedule SE tax and its half-tax deduction. This is only the self-employment portion; complete Form 8959 wage tax and withholding reconciliation separately.');
   pdf.paragraph('Income and expense classification, depreciation elections, complete income sources, taxpayer identity/SSN, and supporting schedules must be verified before filing. The wage figures may use the fallback described in the saved W-2 record when individual wage boxes were omitted.');
-  const heldOut = heldOutReviewParagraph(data.heldOutDuplicates);
-  if (heldOut) pdf.paragraph(heldOut);
+  for (const line of heldOutReviewLines(data.heldOutDuplicates)) pdf.paragraph(line);
   pdf.paragraph('References: irs.gov/instructions/i1040sse and ssa.gov/oact/COLA/cbb.html. Published2025 Schedule SE line references are used for 2026 planning.');
   return pdf.save();
 }

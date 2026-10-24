@@ -124,14 +124,19 @@ describe('selected-year SE source and worksheet', () => {
       { id: 'other-year', amount: -900, date: '2025-03-01', iso_currency_code: 'USD', category: 'income', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' },
     ];
     const data = await loadScheduleSEData('export-owner', 2026);
-    expect(data.heldOutDuplicates).toMatchObject({ count: 2, credits: 500, debits: 40 });
+    expect(data.heldOutDuplicates).toMatchObject({ count: 2, income: { count: 1, amount: 500 }, expenses: { count: 1, amount: 40 } });
     const view = inspectText();
     await generateScheduleSEPDF(data);
-    const text = view.text();
+    const text = view.text().replace(/\s+/g, ' ');
     expect(text).toContain('PLACEHOLDER');
-    expect(text).toContain('Held out credits');
+    expect(text).toContain('Held out income');
+    expect(text).toContain('beside gross receipts (line 1)');
+    expect(text).toContain('Held out expenses');
+    expect(text).toContain('beside line 28');
     expect(text).toContain('$500.00');
     expect(text).toContain('$40.00');
+    expect(text).not.toContain('Held out credits');
+    expect(text).not.toContain('$540.00');
     expect(text).not.toContain('$900.00');
     expect(text).not.toMatch(/cross_document|ambiguous_account|legacy_match/);
     view.checkBounds();
@@ -177,10 +182,15 @@ describe('complete bounded asset/home-office PDFs', () => {
       { amount: 40, date: '2026-03-03', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked' },
       { amount: -900, date: '2025-03-01', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' },
     ], taxYear: 2026 });
-    const text = view.text();
+    const text = view.text().replace(/\s+/g, ' ');
     expect(text).toContain('PLACEHOLDER');
+    expect(text).toContain('Held out expenses');
+    expect(text).toContain('Held out expense refunds');
+    expect(text).toContain('not as income');
     expect(text).toContain('$500.00');
     expect(text).toContain('$40.00');
+    expect(text).not.toContain('Held out income');
+    expect(text).not.toContain('Held out credits');
     expect(text).not.toContain('$900.00');
     expect(text).not.toMatch(/statement_match|bank_linked|legacy_match/);
     view.checkBounds();
@@ -202,19 +212,27 @@ describe('complete bounded asset/home-office PDFs', () => {
     ];
     const actual = inspectText();
     await generateForm8829PDF({ ...base, transactions, calculationContext: { method: 'actual', housingType: 'rented', qualifiedScheduleCBusinessUse: true, expensesLimitedToBusinessUsePeriod: true, form8829Line8Income: 1000, directOperatingExpenses: 400, priorOperatingExpenseCarryover: 800, casualtyLosses: 0, depreciationAndCasualtyCarryover: 0 } });
-    expect(actual.text()).toContain('Held out credits');
-    expect(actual.text()).toContain('$500.00');
-    expect(actual.text()).toContain('$40.00');
-    expect(actual.text()).not.toContain('$900.00');
+    const actualText = actual.text().replace(/\s+/g, ' ');
+    expect(actualText).toContain('Held out expenses');
+    expect(actualText).toContain('Held out expense refunds');
+    expect(actualText).toContain('not as income');
+    expect(actualText).toContain('$500.00');
+    expect(actualText).toContain('$40.00');
+    expect(actualText).not.toContain('Held out income');
+    expect(actualText).not.toContain('Held out credits');
+    expect(actualText).not.toContain('$900.00');
     expect(actual.text()).not.toMatch(/cross_document|ambiguous_account|legacy_match/);
     actual.checkBounds();
     const settings = { ...base.homeOfficeSettings, method: 'simplified' as const, regularUse: 'yes' as const, exclusiveUse: 'yes' as const, qualifyingUse: 'principal_place_of_business' as const, housingType: 'rented' as const, monthsUsed: 12 };
     const simplifiedView = inspectText();
     await generateForm8829PDF({ ...base, homeOfficeSettings: settings, transactions, simplified: calcSimplifiedHomeOffice(settings, { taxYear: 2026, grossIncomeLimit: 1000 }) });
-    expect(simplifiedView.text()).toContain('PLACEHOLDER');
-    expect(simplifiedView.text()).toContain('$500.00');
-    expect(simplifiedView.text()).toContain('$40.00');
-    expect(simplifiedView.text()).not.toContain('$900.00');
+    const simplifiedText = simplifiedView.text().replace(/\s+/g, ' ');
+    expect(simplifiedText).toContain('PLACEHOLDER');
+    expect(simplifiedText).toContain('Held out expenses');
+    expect(simplifiedText).toContain('not as income');
+    expect(simplifiedText).toContain('$500.00');
+    expect(simplifiedText).toContain('$40.00');
+    expect(simplifiedText).not.toContain('$900.00');
     simplifiedView.checkBounds();
   });
 });
@@ -298,11 +316,15 @@ describe('Form 1040 planning PDF prints its review notes', () => {
     const view = inspectText();
     const response = await form1040(request1040());
     expect(response.status).toBe(200);
-    const text = view.text();
+    const text = view.text().replace(/\s+/g, ' ');
     expect(text).toContain('PLACEHOLDER');
-    expect(text).toContain('Held out credits');
+    expect(text).toContain('Held out income');
+    expect(text).toContain('beside gross receipts (line 1)');
+    expect(text).toContain('Held out expenses');
+    expect(text).toContain('beside line 28');
     expect(text).toContain('$25,000.00');
     expect(text).toContain('$40.00');
+    expect(text).not.toContain('Held out credits');
     expect(text).not.toContain('$25,040.00');
     expect(text).not.toContain('$900.00');
     expect(text).not.toMatch(/legacy_match|bank_linked|cross_document/);
@@ -333,7 +355,7 @@ it('blocks duplicate logical records across storage paths instead of counting bo
 });
 
 
-it('returns held out duplicates on the Schedule C preview and prints them in the CSV and PDF', async () => {
+it('returns two held out lines on the Schedule C preview and blocks CSV and PDF downloads', async () => {
   state.transactions = [
     { id: 'kept', date: '2026-03-01', iso_currency_code: 'USD', amount: 40, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true, review_status: 'confirmed', merchant_name: 'Kept supplies' },
     { id: 'flagged-debit', date: '2026-03-02', iso_currency_code: 'USD', amount: 40, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true, review_status: 'confirmed', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked', merchant_name: 'Flagged supplies' },
@@ -343,32 +365,34 @@ it('returns held out duplicates on the Schedule C preview and prints them in the
   expect(preview.status).toBe(200);
   const previewBody = await preview.json();
   expect(previewBody.data.confirmedExpenses).toBe(40);
-  expect(previewBody.data.heldOutDuplicates).toMatchObject({ count: 2, amount: 25040, credits: 25000, debits: 40, reviewHref: '/protected?screen=review-transactions' });
+  expect(previewBody.data.heldOutDuplicates).toMatchObject({
+    count: 2,
+    income: { count: 1, amount: 25000 },
+    expenses: { count: 1, amount: 40 },
+    reviewHref: '/protected?screen=review-transactions',
+  });
+  expect(previewBody.data.heldOutDuplicates.incomeMessage).toContain('beside gross receipts (line 1)');
+  expect(previewBody.data.heldOutDuplicates.expenseMessage).toContain('beside line 28');
   expect(previewBody.data.heldOutDuplicates.message).toContain('PLACEHOLDER');
-  expect(previewBody.data.heldOutDuplicates.message).not.toContain('legacy_match');
-  const csv = await (await scheduleC(request({ year: 2026, format: 'csv' }))).text();
-  expect(csv).toContain('PLACEHOLDER');
-  expect(csv).toContain('25000.00');
-  expect(csv).toContain('40.00');
-  expect(csv).not.toContain('25040.00');
-  expect(csv).toContain('/protected?screen=review-transactions');
-  expect(csv).toContain('Kept supplies');
-  expect(csv).not.toContain('Flagged supplies');
-  const view = inspectText();
-  const pdf = await scheduleC(request({ year: 2026, format: 'pdf', includeAppendix: false }));
-  expect(pdf.status).toBe(200);
-  const text = view.text();
-  expect(text).toContain('PLACEHOLDER');
-  expect(text).toContain('$25,000.00');
-  expect(text).toContain('$40.00');
-  expect(text).not.toContain('$25,040.00');
-  expect(text).toContain('/protected?screen=review-transactions');
-  expect(text).not.toContain('Flagged supplies');
-  const subtotalAt = text.indexOf('28 subtotal');
-  const worksheetAt = text.indexOf('Worksheet');
-  expect(worksheetAt).toBeGreaterThan(subtotalAt);
-  expect(text.slice(subtotalAt, worksheetAt)).not.toContain('Held out');
-  view.checkBounds();
+  expect(previewBody.data.heldOutDuplicates.message).toContain('$25,000.00');
+  expect(previewBody.data.heldOutDuplicates.message).toContain('$40.00');
+  expect(previewBody.data.heldOutDuplicates.message).not.toContain('$25,040.00');
+  expect(previewBody.data.heldOutDuplicates.message).not.toMatch(/legacy_match|bank_linked/);
+  for (const format of ['csv', 'pdf'] as const) {
+    const download = await scheduleC(request({ year: 2026, format, includeAppendix: false }));
+    expect(download.status).toBe(422);
+    expect(download.headers.get('cache-control')).toBe('private, no-store');
+    expect(download.headers.get('content-type')).toContain('application/json');
+    const body = await download.json();
+    expect(body).toMatchObject({ code: 'DUPLICATE_REVIEW_REQUIRED', reviewHref: '/protected?screen=review-transactions' });
+    expect(body.error).toContain('PLACEHOLDER');
+    expect(body.error).toContain('$25,000.00');
+    expect(body.error).toContain('$40.00');
+    expect(body.error).not.toContain('$25,040.00');
+    expect(body.error).not.toMatch(/legacy_match|bank_linked/);
+    expect(JSON.stringify(body)).not.toContain('Kept supplies');
+    expect(JSON.stringify(body)).not.toContain('%PDF');
+  }
 });
 
 it('serves complete signed Schedule C CSV with formula-safe merchant text', async () => {

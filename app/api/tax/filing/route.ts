@@ -9,6 +9,7 @@ import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { filingSandboxConfig, isFilingSandboxIdentity } from '@/lib/tax-filing/config';
 import { initializeColumnFiling, getColumnTaxReturn, validateColumnMetadata } from '@/lib/tax-filing/column-client';
 import { filingHeldOutDuplicates } from '@/lib/tax-filing/held-out-line';
+import { DuplicateReviewRequiredError, duplicateReviewResponseBody } from '@/lib/transactions/held-out-duplicates';
 const headers = { 'Cache-Control': 'private, no-store' };
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers });
 const identifier = (uid: string) => createHash('sha256').update(`writeoff-production-testing:column:sandbox:${uid}`).digest('hex');
@@ -46,6 +47,7 @@ export async function GET(request: NextRequest) {
     const linked = connection?.provider === 'column' && connection.environment === 'sandbox' && connection.userIdentifier === identifier(user.uid)
       && connection.consentVersion === 'sandbox-identity-v1' && connection.taxYear === year;
     const heldOutDuplicates = await filingHeldOutDuplicates(user.uid, year);
+    if (heldOutDuplicates.count > 0) return json(duplicateReviewResponseBody(new DuplicateReviewRequiredError(heldOutDuplicates)), 422);
     const taxReturn = linked ? await getColumnTaxReturn(config, identifier(user.uid), year) : null;
     return json({ available: true, environment: 'sandbox', taxYear: year, status: taxReturn?.status ?? (linked ? 'unknown' : 'not_started'),
       jurisdictions: taxReturn?.jurisdictions ?? [], heldOutDuplicates, message: 'Sandbox only. No IRS or state return is filed.' });
@@ -66,6 +68,7 @@ export async function POST(request: NextRequest) {
     const metadata = await metadataFor(user);
     if (!metadata) return json({ error: 'Fresh verified sandbox security information is required.', code: 'FILING_SECURITY_REVIEW_REQUIRED' }, 409);
     const heldOutDuplicates = await filingHeldOutDuplicates(user.uid, config.taxYear);
+    if (heldOutDuplicates.count > 0) return json(duplicateReviewResponseBody(new DuplicateReviewRequiredError(heldOutDuplicates)), 422);
     const userIdentifier = identifier(user.uid);
     const session = await initializeColumnFiling(config, { userIdentifier, email: user.email!, metadata });
     // initialize has no tax_year parameter. Verify the actual return year before opening.

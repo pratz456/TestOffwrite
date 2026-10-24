@@ -12,7 +12,7 @@ import { PremiumFeatureGate, subscriptionGateDestination } from '@/components/pr
 import { useRouter } from 'next/navigation';
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
-import { HELD_OUT_REVIEW_ARIA_LABEL, HELD_OUT_REVIEW_HREF, HELD_OUT_REVIEW_LINK_TEXT, summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
+import { duplicateReviewBlockMessage, HELD_OUT_REVIEW_ARIA_LABEL, HELD_OUT_REVIEW_HREF, HELD_OUT_REVIEW_LINK_TEXT, summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { HeldOutDuplicatesNotice } from '@/components/held-out-duplicates-notice';
 
 interface Transaction {
@@ -292,7 +292,14 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
 
           {/* Export Button */}
           <div className="mt-4 w-full">
-            {!subscriptionLoading && !hasAccess ? (
+            {heldOutDuplicates.count > 0 ? (
+              <div role="status" data-testid="duplicate-review-block" className="rounded-lg border border-border bg-muted p-3 text-sm">
+                <p>{duplicateReviewBlockMessage(heldOutDuplicates)}</p>
+                <p className="mt-2">
+                  <a className="underline" href={HELD_OUT_REVIEW_HREF} aria-label={HELD_OUT_REVIEW_ARIA_LABEL}>{HELD_OUT_REVIEW_LINK_TEXT}</a>
+                </p>
+              </div>
+            ) : !subscriptionLoading && !hasAccess ? (
               <Button
                 disabled
                 className="w-full min-h-[44px] h-11 bg-muted text-muted-foreground rounded-lg cursor-not-allowed flex items-center justify-center gap-2"
@@ -327,6 +334,12 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
             Schedule C Preview - Tax Year {selectedYear}
           </h3>
           <HeldOutDuplicatesNotice summary={heldOutDuplicates} />
+          {heldOutDuplicates.income.count > 0 && (
+            <div data-testid="held-out-income-line" className="mb-4 rounded-lg border border-border p-3 text-sm">
+              <div className="font-medium text-foreground">Line 1 gross receipts</div>
+              <p className="mt-1 text-muted-foreground">{heldOutDuplicates.incomeMessage}</p>
+            </div>
+          )}
 
           {/* Enhanced Form Style Preview */}
           {categorySummaries.length > 0 && (
@@ -438,6 +451,11 @@ export const ScheduleCExportScreen: React.FC<ScheduleCExportScreenProps> = ({
                       {formatCurrency(totalDeductible)}
                     </div>
                   </div>
+                  {heldOutDuplicates.expenses.count > 0 && (
+                    <div data-testid="held-out-expense-line" className="mt-3 rounded-lg border border-dashed border-border p-4 text-sm">
+                      <p className="text-muted-foreground">{heldOutDuplicates.expenseMessage}</p>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : everyRowFlagged ? (

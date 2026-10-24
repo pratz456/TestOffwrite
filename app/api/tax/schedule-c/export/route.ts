@@ -12,7 +12,7 @@ import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal
 import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
-import { summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
+import { DuplicateReviewRequiredError, duplicateReviewResponseBody, summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
 import { incomeReconciliationReviewBody } from '@/lib/tax-rules/income-reconciliation-response';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
@@ -43,7 +43,8 @@ export async function POST(request: NextRequest) {
     const receipts = reconcileBusinessIncome(year, transactions.map(row => ({ ...row })), gross.docs.map(doc => ({ ...doc.data(), id: doc.id })), forms.docs.map(doc => ({ ...doc.data(), id: doc.id })), decisions);
     const aggregate = aggregateScheduleC(transactions, String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
     const heldOutDuplicates = summarizeHeldOutDuplicates(transactions, year);
-    if (body.format === 'csv') return new NextResponse(generateScheduleCCSV(aggregate.lineItemsArray, year, heldOutDuplicates), {
+    if (heldOutDuplicates.count > 0) return NextResponse.json(duplicateReviewResponseBody(new DuplicateReviewRequiredError(heldOutDuplicates)), { status: 422, headers: { 'Cache-Control': 'private, no-store' } });
+    if (body.format === 'csv') return new NextResponse(generateScheduleCCSV(aggregate.lineItemsArray, year), {
       headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="Schedule_C_${year}_WriteOff.csv"`, 'Cache-Control': 'private, no-store' },
     });
     // Identifiers are decrypted only to derive the masked (last 4) display values printed below.
@@ -51,9 +52,10 @@ export async function POST(request: NextRequest) {
     const bytes = await generateScheduleCPlanningPDF({ taxYear: year, grossReceipts: receipts.grossReceipts, lineItems: aggregate.lineItemsArray,
       name: profile.data?.name, ssn: maskOrganizerIdentifier('ssn', org.taxpayerSSN),
       profession: Array.isArray(profile.data?.profession) ? profile.data.profession.join(', ') : profile.data?.profession,
-      naicsCode: profile.data?.naics_code, ein: maskOrganizerIdentifier('ein', profile.data?.ein), includeAppendix: body.includeAppendix !== false, heldOutDuplicates });
+      naicsCode: profile.data?.naics_code, ein: maskOrganizerIdentifier('ein', profile.data?.ein), includeAppendix: body.includeAppendix !== false });
     return new NextResponse(Buffer.from(bytes), { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="Schedule_C_${year}_WriteOff.pdf"`, 'Cache-Control': 'private, no-store' } });
   } catch (error) {
+    if (error instanceof DuplicateReviewRequiredError) return NextResponse.json(duplicateReviewResponseBody(error), { status: 422, headers: { 'Cache-Control': 'private, no-store' } });
     if (error instanceof IncomeReconciliationRequiredError) return NextResponse.json(incomeReconciliationReviewBody(error, year), { status: 422 });
     if (error instanceof ExportReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     return NextResponse.json({ error: 'Could not create the Schedule C preparer summary. Please retry.' }, { status: 503 });

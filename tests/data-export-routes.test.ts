@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
-import { PDFPage } from 'pdf-lib';
 const mock = vi.hoisted(() => ({ uid: 'owner', auth: true, deny: false, rows: vi.fn(), archive: vi.fn(), se: vi.fn(), sePDF: vi.fn(), profile: vi.fn() }));
 // The archive route's durable throttle runs against an in-memory store.
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
@@ -60,24 +59,30 @@ describe('data and report export HTTP contracts', () => {
     const response = await csv(request('transactions/export-csv?year=2026&filter=deductible'));
     expect(response.status).toBe(200); const body = await response.text(); expect(body).toContain('Legacy true'); expect(body).not.toContain('Explicit false');
   });
-  it('prints the selected-year held-out line on the preparer summary PDF and leaves flagged rows out of monthly totals', async () => {
+  it('blocks the preparer summary PDF when the selected year has an unresolved duplicate', async () => {
     mock.rows.mockResolvedValue([
       { date: '2026-01-15', amount: -500, merchant_name: 'Kept client', iso_currency_code: 'USD', trans_id: 'kept' },
       { date: '2026-01-16', amount: -500, merchant_name: 'Flagged client', iso_currency_code: 'USD', trans_id: 'flagged', possibleDuplicate: true, possibleDuplicateReason: 'cross_document' },
       { date: '2026-02-01', amount: 40, merchant_name: 'Flagged supplies', iso_currency_code: 'USD', trans_id: 'flagged-debit', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked' },
       { date: '2025-06-01', amount: -900, merchant_name: 'Other year', iso_currency_code: 'USD', trans_id: 'other-year', possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' },
     ]);
-    const spy = vi.spyOn(PDFPage.prototype, 'drawText');
     const response = await pdf(request('reports/generate-pdf', { year: 2026 }));
-    expect(response.status).toBe(200);
-    const text = spy.mock.calls.map(call => String(call[0])).join('\n');
-    expect(text).toContain('Held out credits');
-    expect(text).toContain('$500.00');
-    expect(text).toContain('$40.00');
-    expect(text).not.toContain('$900.00');
-    expect(text).not.toContain('1000.00');
-    expect(text).not.toMatch(/cross_document|bank_linked|legacy_match/);
-    spy.mockRestore();
+    expect(response.status).toBe(422);
+    expect(response.headers.get('content-type')).toContain('application/json');
+    const body = await response.json();
+    expect(body).toMatchObject({
+      code: 'DUPLICATE_REVIEW_REQUIRED',
+      reviewHref: '/protected?screen=review-transactions',
+      heldOutDuplicates: { count: 2, income: { count: 0, amount: 0 }, expenses: { count: 2, amount: -460 }, expenseRefunds: { count: 1, amount: 500 }, expenseCharges: { count: 1, amount: 40 } },
+    });
+    expect(body.error).toContain('PLACEHOLDER');
+    expect(body.error).toContain('$500.00');
+    expect(body.error).toContain('$40.00');
+    expect(body.error).toContain('not as income');
+    expect(body.error).not.toContain('$900.00');
+    expect(body.error).not.toContain('1000.00');
+    expect(body.error).not.toMatch(/cross_document|bank_linked|legacy_match/);
+    expect(JSON.stringify(body)).not.toContain('%PDF');
   });
   it('rejects forged client totals and owner fields instead of creating a PDF from them', async () => {
     expect((await pdf(request('reports/generate-pdf', { year: 2026, summary: { refund: 9999 }, userId: 'victim' }))).status).toBe(400);

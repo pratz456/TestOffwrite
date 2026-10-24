@@ -1,6 +1,6 @@
 import type { UserProfile } from '@/lib/firebase/profiles-server';
 import { type Asset, type DepreciationElections, calc4562, DE_MINIMIS_SAFE_HARBOR_LIMIT } from './calc4562';
-import { heldOutReviewParagraph, summarizeTransactionHeldOut } from '@/lib/transactions/held-out-duplicates';
+import { heldOutReviewLines, summarizeTransactionHeldOut } from '@/lib/transactions/held-out-duplicates';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 export interface Form4562Data {
   userProfile: UserProfile; assetsSettings: Asset[]; transactions: unknown[]; taxYear: number;
@@ -59,8 +59,7 @@ export async function generateForm4562PDF(data: Form4562Data): Promise<Uint8Arra
     ], [295, 233]);
   }
   pdf.paragraph('Review recovery class, acquisition/service dates, any required elections, business-use evidence, and prior depreciation with your preparer. This export does not claim that omitted elections or carryovers are zero. Retain the source documents; this worksheet cannot be filed instead of Form 4562.');
-  const heldOut = heldOutReviewParagraph(summarizeTransactionHeldOut(data.transactions, data.taxYear));
-  if (heldOut) pdf.paragraph(heldOut);
+  for (const line of heldOutReviewLines(summarizeTransactionHeldOut(data.transactions, data.taxYear))) pdf.paragraph(line);
   pdf.paragraph('Reference: irs.gov/publications/p946 (chapter 2 Section 179, Tables A-1/A-2), irs.gov/instructions/i4562 and Reg. §1.263(a)-1(f) (de minimis safe harbor election statement).');
   return pdf.save();
 }

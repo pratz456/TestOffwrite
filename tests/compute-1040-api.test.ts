@@ -107,9 +107,17 @@ describe('Form1040 API integration', () => {
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data.income.grossReceipts).toBe(0);
-    expect(data.heldOutDuplicates).toMatchObject({ count: 1, amount: 25000, reviewHref: '/protected?screen=review-transactions' });
+    expect(data.heldOutDuplicates).toMatchObject({
+      count: 1,
+      income: { count: 1, amount: 25000 },
+      expenses: { count: 0, amount: 0 },
+      reviewHref: '/protected?screen=review-transactions',
+    });
     expect(data.heldOutDuplicates.message).toContain('PLACEHOLDER');
+    expect(data.heldOutDuplicates.message).toContain('beside gross receipts (line 1)');
     expect(data.heldOutDuplicates.message).toContain('$25,000.00');
+    expect(data.heldOutDuplicates.message).not.toContain('legacy_match');
+    expect(response.status).toBe(200);
   });
 
   it('exposes recorded estimated payments and 1099-documented receipts for the filing hub', async () => {

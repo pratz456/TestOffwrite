@@ -69,6 +69,8 @@ export function PossibleDuplicatesReview({ transactions, taxYear }: { transactio
         </select>
       </label>
       <p className="mt-1">{summary.message}</p>
+      {summary.income.count > 0 && <p className="mt-1">{summary.incomeMessage}</p>}
+      {summary.expenses.count > 0 && <p className="mt-1">{summary.expenseMessage}</p>}
       <p className="mt-1 text-muted-foreground">PLACEHOLDER: Resolving a duplicate is not available yet. These rows stay saved. This screen does not change or delete them.</p>
       {flagged.length > 0 && (
         <ul className="mt-2 space-y-1">

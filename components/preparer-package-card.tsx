@@ -4,10 +4,12 @@ import { Button } from '@/components/ui/button';
 import { PremiumFeatureGate } from '@/components/premium-feature-gate';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { Download, Link2, Loader2, X } from 'lucide-react';
+import { HELD_OUT_REVIEW_ARIA_LABEL, HELD_OUT_REVIEW_LINK_TEXT } from '@/lib/transactions/held-out-duplicates';
 
 interface Handoff { id: string; taxYear: number; createdAt: number; expiresAt: number; revokedAt: number | null; receiptIssues: number }
 export function PreparerPackageCard({ year, userId }: { year: number; userId: string }) {
   const [busy, setBusy] = useState<string | null>(null), [message, setMessage] = useState(''), [link, setLink] = useState('');
+  const [reviewBlock, setReviewBlock] = useState<{ message: string; href: string } | null>(null);
   const [handoffs, setHandoffs] = useState<Handoff[]>([]), [showShare, setShowShare] = useState(false), [confirm, setConfirm] = useState(false), [days, setDays] = useState('3');
   const context = `${userId}:${year}`, active = useRef(context), lock = useRef(false); active.current = context;
   const refresh = useCallback(async () => {
@@ -24,7 +26,15 @@ export function PreparerPackageCard({ year, userId }: { year: number; userId: st
       const response = await makeAuthenticatedRequest(action === 'download' ? '/api/reports/preparer-package' : action === 'revoke' ? `/api/preparer-handoffs/${id}` : '/api/preparer-handoffs', {
         method: action === 'revoke' ? 'DELETE' : 'POST', ...(action === 'revoke' ? {} : { body: JSON.stringify(action === 'share' ? { year, expiresInDays: Number(days), confirmSharing: confirm } : { year }) }),
       });
-      if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || 'Could not prepare the complete package.'); }
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        if (data.code === 'DUPLICATE_REVIEW_REQUIRED' && typeof data.reviewHref === 'string') {
+          if (active.current === context) setReviewBlock({ message: String(data.error || ''), href: data.reviewHref });
+          return;
+        }
+        throw new Error(data.error || 'Could not prepare the complete package.');
+      }
+      if (active.current === context) setReviewBlock(null);
       if (active.current !== context) return;
       if (action === 'download') {
         const bytes = await response.blob(); if (active.current !== context) return;
@@ -55,6 +65,7 @@ export function PreparerPackageCard({ year, userId }: { year: number; userId: st
     </PremiumFeatureGate>
     {link && <div className="space-y-2"><label className="text-xs font-medium" htmlFor="preparer-private-link">Copy and send this link to your preparer</label><input id="preparer-private-link" readOnly value={link} onFocus={event => event.target.select()} className="w-full min-w-0 rounded-lg border bg-background px-3 py-2 text-xs" /><p className="text-xs text-muted-foreground">Shown only now. We do not email it or save the secret link. Create a new link if you lose it.</p></div>}
     {!!current.length && <details><summary className="cursor-pointer text-xs font-medium">Manage {current.length} active link{current.length > 1 ? 's' : ''}</summary><ul className="mt-2 space-y-2">{current.map(item => <li key={item.id} className="flex items-center gap-2 text-xs"><span className="flex-1">{item.taxYear} snapshot · expires {new Date(item.expiresAt).toLocaleDateString()}</span><Button size="sm" variant="ghost" disabled={!!busy} onClick={() => void act('revoke', item.id)} aria-label={`Revoke ${item.taxYear} link created ${new Date(item.createdAt).toLocaleString()}`}>{busy === item.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}Revoke</Button></li>)}</ul></details>}
+    {reviewBlock && <div role="status" className="text-sm"><p>{reviewBlock.message}</p><a className="underline" href={reviewBlock.href} aria-label={HELD_OUT_REVIEW_ARIA_LABEL}>{HELD_OUT_REVIEW_LINK_TEXT}</a></div>}
     {message && <p className="text-xs leading-relaxed" role="status">{message}</p>}
     <p className="text-xs text-muted-foreground">A preparer handoff does not file your return. Missing receipts are listed explicitly; records are never marked complete automatically.</p>
   </section>;

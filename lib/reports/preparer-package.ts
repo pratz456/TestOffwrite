@@ -6,7 +6,7 @@ import { generateUserDataExport, sanitizeExportValue } from './data-export';
 import { readOwnedTransactions } from './export-records';
 import { readAuditSupportPacket, auditSupportPacketCSV } from './audit-support-packet';
 import { convertTransactionsToCSV, type ExportRecord } from './transaction-export';
-import type { HeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
+import { DuplicateReviewRequiredError, type HeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 
 export const MAX_PACKAGE_BYTES = 20 * 1024 * 1024;
 export const MAX_PACKAGE_RECEIPT_BYTES = 16 * 1024 * 1024;
@@ -126,12 +126,12 @@ export async function buildPreparerPackage(uid: string, taxYear: number) {
     'Identity credentials and encrypted tax identifiers are excluded from structured exports. Original uploaded receipt documents are unredacted.',
   ];
   const heldOut = audit.summary?.heldOutDuplicates;
+  if (heldOut && heldOut.count > 0) throw new DuplicateReviewRequiredError(heldOut);
   const manifest: PreparerPackageManifest = { version: 1, taxYear, generatedAt: new Date().toISOString(), purpose: 'Fixed records snapshot for tax-preparer review', records: data.transactions.length,
     receiptFiles: receipts.filter(receipt => receipt.status === 'included').length, receiptBytes, receiptIssues: receipts.filter(receipt => receipt.status !== 'included').length,
-    completeReceiptCoverage: receipts.every(receipt => receipt.status === 'included'), unresolvedQuestions: questions.length, receipts, limitations,
-    ...(heldOut && heldOut.count > 0 ? { heldOutDuplicates: heldOut } : {}), files: [] };
+    completeReceiptCoverage: receipts.every(receipt => receipt.status === 'included'), unresolvedQuestions: questions.length, receipts, limitations, files: [] };
   const json = (value: unknown) => Buffer.from(JSON.stringify(sanitizeExportValue(value), null, 2));
-  const heldOutLine = heldOut && heldOut.count > 0 ? `${heldOut.message} ${heldOut.reviewHref}\n\n` : '';
+  const heldOutLine = '';
   // Audit-support's legacy receipt links remain references; manifest maps original bytes included here.
   entries.push({ name: 'records.json', bytes: json(data) }, { name: 'transactions.csv', bytes: Buffer.from(convertTransactionsToCSV(data.transactions)) },
     { name: 'audit-support.json', bytes: json(audit) }, { name: 'audit-support.csv', bytes: Buffer.from(auditSupportPacketCSV(audit)) },

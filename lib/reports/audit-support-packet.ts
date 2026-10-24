@@ -4,7 +4,7 @@ import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { BUSINESS_STANDARD_MILEAGE_RATES, businessMileageRateForDate, summarizeBusinessMileage } from '@/lib/tax-rules/mileage-rates';
 import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deduction';
-import { heldOutCsvCells, isPossibleDuplicateRecord, summarizeHeldOutDuplicates, type HeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
+import { DuplicateReviewRequiredError, isPossibleDuplicateRecord, summarizeHeldOutDuplicates, type HeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { ExportDataUnavailableError, exportReference, ownedExportRecord, readOwnedTransactions } from './export-records';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
@@ -334,6 +334,7 @@ export function assembleAuditSupportPacket(uid: string, year: number, inputs: Au
   ];
   if (undated) mileageNotes.push(`${undated} saved trip(s) have an unreadable date and are not included. Correct them in the mileage tracker.`);
   const usedRateSources = BUSINESS_STANDARD_MILEAGE_RATES.filter(period => mileage.ratesApplied.includes(period.ratePerMile)).map(period => period.source);
+  if (heldOutDuplicates.count > 0) throw new DuplicateReviewRequiredError(heldOutDuplicates);
   return {
     packetInfo: { title: `${AUDIT_SUPPORT_TITLE} - Tax year ${year}`, taxYear: year, generatedAt: generatedAt.toISOString(), version: '1.0',
       purpose: 'Owner records packet organizing confirmed deductions with the records on file and the substantiation elements still missing. Not audit representation, tax advice or a guarantee that any deduction will be allowed.',
@@ -387,6 +388,7 @@ export const AUDIT_SUPPORT_CSV_HEADERS = [
 ];
 /** Deductions and mileage trips in one owner CSV; the hashed reference is the only identifier. */
 export function auditSupportPacketCSV(packet: AuditSupportPacket): string {
+  if (packet.summary.heldOutDuplicates.count > 0) throw new DuplicateReviewRequiredError(packet.summary.heldOutDuplicates);
   const rows = packet.deductions.map(record => ['Confirmed deduction', record.reference, record.date, record.merchant, record.amount, record.category, record.scheduleCLine ?? '',
     record.substantiation.label, record.substantiation.status === 'complete' ? 'Complete' : 'Needs records', record.substantiation.missing.join('; '), record.substantiation.advisories.join(' '),
     record.businessPurpose.text ?? '', record.businessPurpose.source ?? '', record.attendees.length ? record.attendees.join('; ') : record.clientProject ?? '',
@@ -401,18 +403,17 @@ export function auditSupportPacketCSV(packet: AuditSupportPacket): string {
       `${trip.miles} miles${trip.ratePerMile !== null ? ` @ $${trip.ratePerMile}/mile` : ''}`, '', '', '', '', 'Mileage tracker', '']);
   }
   const lines = [AUDIT_SUPPORT_CSV_HEADERS.map(csvCell).join(','), ...rows.map(row => row.map(csvCell).join(','))];
-  if (packet.summary.heldOutDuplicates.count > 0) lines.push(heldOutCsvCells(packet.summary.heldOutDuplicates).map(csvCell).join(','));
   return lines.join('\r\n');
 }
 
 /** Premium PDF in the shared preparer-records style. Every claim stays a records statement. */
 export async function generateAuditSupportPDF(packet: AuditSupportPacket): Promise<Uint8Array> {
+  if (packet.summary.heldOutDuplicates.count > 0) throw new DuplicateReviewRequiredError(packet.summary.heldOutDuplicates);
   const year = packet.packetInfo.taxYear;
   const pdf = await createPlanningPDF(`${AUDIT_SUPPORT_TITLE} - Tax year ${year}`, year);
   pdf.paragraph(packet.coverNote[0], true);
   for (const note of packet.coverNote.slice(1)) pdf.paragraph(note);
   pdf.paragraph(`Generated ${packet.packetInfo.generatedAt.slice(0, 10)}. Confirmed deductions: ${packet.summary.deductionCount}. Mileage log trips: ${packet.summary.mileage.tripCount}. Excluded: ${packet.summary.excluded.notConfirmed} deductible records not yet confirmed through review, ${packet.summary.excluded.reviewRequired} awaiting tax review, ${packet.summary.excluded.pending} pending, ${packet.summary.excluded.bankRemoved} removed by the bank, ${packet.summary.excluded.superseded} superseded duplicate bank records.`);
-  if (packet.summary.heldOutDuplicates.count > 0) pdf.paragraph(`${packet.summary.heldOutDuplicates.message} ${packet.summary.heldOutDuplicates.reviewHref}`);
   pdf.section('Substantiation summary');
   pdf.table(['Status', 'Records', 'Recorded amount'], [
     ['Complete - every element required for the category is on file', String(packet.summary.byStatus.complete.count), money(packet.summary.byStatus.complete.amount)],

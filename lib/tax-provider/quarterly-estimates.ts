@@ -31,6 +31,7 @@ export type QuarterlyTransactionLike = {
   superseded_by?: string | null; // server-only: duplicate of an earlier reviewed bank record
   tax_review_required?: boolean;
   is_deductible?: boolean | null; // confirmed true, or null/undefined for needs review, false for non-deductible
+  possibleDuplicate?: boolean;
 };
 
 const BUSINESS_CATEGORIES = new Set(Object.keys(CATEGORY_MAP));
@@ -185,6 +186,7 @@ export function sumIncomeForQuarter(
 
   let grossIncomeCents = 0;
   for (const tx of deduped) {
+    if (tx.possibleDuplicate === true) continue;
     if (!isPosted(tx)) continue;
     if (!tx.category) continue;
 
@@ -225,6 +227,7 @@ function sumExpensesLikeForQuarter(
 
   let totalCents = 0;
   for (const tx of deduped) {
+    if (tx.possibleDuplicate === true) continue;
     if (!isPosted(tx)) continue;
     if (!BUSINESS_CATEGORIES.has(tx.category)) continue;
 

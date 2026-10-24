@@ -146,12 +146,16 @@ describe('statement import rows before review', () => {
     expect(result.income.grossReceipts).toBe(0);
     expect(result.income.totalDeductible).toBe(0);
     expect(result.result.totalTax).toBe(baseline.result.totalTax);
-    expect(result.heldOutDuplicates).toMatchObject({ count: 1, amount: 25000, credits: 25000, debits: 0, creditCount: 1, debitCount: 0, reviewHref: '/protected?screen=review-transactions' });
-    expect(result.heldOutDuplicates.message).toContain('PLACEHOLDER');
-    expect(result.heldOutDuplicates.message).toContain('$25,000.00');
+    expect(result.heldOutDuplicates).toMatchObject({
+      count: 1, income: { count: 1, amount: 25000 }, expenses: { count: 0, amount: 0 }, reviewHref: '/protected?screen=review-transactions',
+    });
+    expect(result.heldOutDuplicates.incomeMessage).toContain('PLACEHOLDER');
+    expect(result.heldOutDuplicates.incomeMessage).toContain('$25,000.00');
+    expect(result.heldOutDuplicates.incomeMessage).toContain('line 1');
     expect(result.heldOutDuplicates.message).toContain('review it');
     expect(result.heldOutDuplicates.message).not.toContain('review them');
     expect(result.heldOutDuplicates.message).not.toContain('legacy_match');
+    expect(result.heldOutDuplicates.message).not.toContain('$25,000.00 held out');
   });
 
   it('leaves a flagged bank linked debit out of confirmed expenses and reports the held out amount', () => {
@@ -166,55 +170,123 @@ describe('statement import rows before review', () => {
     });
     expect(result.income.totalDeductible).toBe(40);
     expect(result.income.grossReceipts).toBe(100000);
-    expect(result.heldOutDuplicates).toMatchObject({ count: 1, amount: 40, credits: 0, debits: 40, creditCount: 0, debitCount: 1, reviewHref: '/protected?screen=review-transactions' });
-    expect(result.heldOutDuplicates.message).toContain('PLACEHOLDER');
-    expect(result.heldOutDuplicates.message).toContain('$40.00');
+    expect(result.heldOutDuplicates).toMatchObject({
+      count: 1, income: { count: 0, amount: 0 }, expenses: { count: 1, amount: 40 }, reviewHref: '/protected?screen=review-transactions',
+    });
+    expect(result.heldOutDuplicates.expenseMessage).toContain('PLACEHOLDER');
+    expect(result.heldOutDuplicates.expenseMessage).toContain('$40.00');
+    expect(result.heldOutDuplicates.expenseMessage).toContain('line 28');
     expect(result.heldOutDuplicates.message).toContain('review it');
     expect(result.heldOutDuplicates.message).not.toContain('review them');
     expect(result.heldOutDuplicates.message).not.toContain('bank_linked');
   });
 
-  it('puts the held out count and amount in the Schedule C CSV and PDF', async () => {
+  it('places held out income beside line 1 and held out expenses outside the line 28 subtotal', async () => {
     const flaggedDebit = imported({
       trans_id: 'flagged-debit', amount: 40, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES', is_deductible: true,
       review_status: 'confirmed', date: '2026-06-15', possibleDuplicate: true, possibleDuplicateReason: 'bank_linked',
     });
     const flaggedCredit = { ...incomeCredit, amount: -25000, possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' };
-    const heldOut = summarizeHeldOutDuplicates([flaggedDebit, flaggedCredit], 2026);
-    expect(heldOut).toMatchObject({ count: 2, amount: 25040, credits: 25000, debits: 40, creditCount: 1, debitCount: 1 });
+    const refund = imported({
+      trans_id: 'flagged-refund', amount: -15, category: 'Office Supplies', transaction_type: 'credit', date: '2026-06-21',
+      possibleDuplicate: true, possibleDuplicateReason: 'ambiguous_account',
+    });
+    const heldOut = summarizeHeldOutDuplicates([flaggedDebit, flaggedCredit, refund], 2026);
+    expect(heldOut).toMatchObject({
+      count: 3, income: { count: 1, amount: 25000 }, expenseCharges: { count: 1, amount: 40 }, expenseRefunds: { count: 1, amount: 15 },
+    });
     expect(heldOut.message).toContain('review them');
-    const csv = generateScheduleCCSV([], 2026, heldOut);
-    expect(csv).toContain('PLACEHOLDER');
-    expect(csv).toContain('25000.00');
-    expect(csv).toContain('40.00');
-    expect(csv).not.toContain('25040.00');
-    expect(csv).toContain('/protected?screen=review-transactions');
+    expect(heldOut.message).not.toContain('$25,055.00');
+    expect(heldOut.message).not.toContain('$25,040.00');
+    expect(() => generateScheduleCCSV([], 2026, heldOut)).toThrow(/Review possible duplicates/);
     const { PDFDocument, PDFPage } = await import('pdf-lib');
     const spy = vi.spyOn(PDFPage.prototype, 'drawText');
-    const bytes = await generateScheduleCPlanningPDF({ taxYear: 2026, grossReceipts: 0, lineItems: [], includeAppendix: false, heldOutDuplicates: heldOut });
+    const bytes = await generateScheduleCPlanningPDF({ taxYear: 2026, grossReceipts: 100000, lineItems: [], includeAppendix: false, heldOutDuplicates: heldOut });
     const text = spy.mock.calls.map(call => String(call[0])).join('\n');
     expect(text).toContain('PLACEHOLDER');
     expect(text).toContain('$25,000.00');
     expect(text).toContain('$40.00');
+    expect(text).toContain('-$15.00');
     expect(text).not.toContain('$25,040.00');
-    expect(text).toContain('/protected?screen=review-transactions');
+    expect(text).not.toContain('$25,055.00');
+    const line1At = text.indexOf('Reconciled gross receipts');
+    const incomeAt = text.indexOf('Held out income beside line 1');
     const subtotalAt = text.indexOf('28 subtotal');
+    const expenseAt = text.indexOf('Held out expenses beside line 28');
+    const refundAt = text.indexOf('Held out expense refund');
     const worksheetAt = text.indexOf('Worksheet');
-    expect(worksheetAt).toBeGreaterThan(subtotalAt);
-    expect(text.slice(subtotalAt, worksheetAt)).not.toContain('Held out');
-    expect(text.indexOf('Held out credits')).toBeGreaterThan(worksheetAt);
+    expect(line1At).toBeGreaterThanOrEqual(0);
+    expect(incomeAt).toBeGreaterThan(line1At);
+    expect(subtotalAt).toBeGreaterThan(incomeAt);
+    expect(expenseAt).toBeGreaterThan(subtotalAt);
+    expect(refundAt).toBeGreaterThan(expenseAt);
+    expect(worksheetAt).toBeGreaterThan(refundAt);
+    expect(text.slice(subtotalAt, worksheetAt)).toContain('outside this subtotal');
+    expect(text).toContain('$100,000.00');
     expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThan(0);
     spy.mockRestore();
   });
 
-  it('includes an unflagged income credit in snapshot gross receipts', () => {
-    const row = { ...incomeCredit, amount: -25000 };
-    const result = snapshot([row]);
-    expect(result.income.grossReceipts).toBe(25000);
-    expect(result.heldOutDuplicates).toMatchObject({ count: 0, credits: 0, debits: 0, amount: 0 });
+  it('places a flagged income credit beside line 1 and an expense refund outside line 28 on the snapshot', () => {
+    const flaggedIncome = { ...incomeCredit, amount: -25000, possibleDuplicate: true, possibleDuplicateReason: 'legacy_match' };
+    const refund = imported({
+      trans_id: 'refund', amount: -15, category: 'Office Supplies', transaction_type: 'credit',
+      possibleDuplicate: true, possibleDuplicateReason: 'ambiguous_account', date: '2026-06-21',
+    });
+    const result = buildFederalTaxSnapshot({
+      taxYear: 2026, profile: { filing_status: 'single' }, organizer: reviewedPersonalDeductionOrganizer(),
+      transactions: [flaggedIncome, refund], grossReceipts: [{ amount: 100000 }], forms1099: [], w2Entries: [], deductions: {}, assets: [], estimatedPayments: 0,
+    });
+    expect(result.heldOutPlacement).toEqual({
+      besideGrossReceiptsLine1: { count: 1, amount: 25000 },
+      besideLine28OutsideSubtotal: { count: 1, amount: -15 },
+    });
+    expect(result.income.grossReceipts).toBe(100000);
+    expect(result.heldOutDuplicates.message).toContain('PLACEHOLDER');
+    expect(result.heldOutDuplicates.message).toContain('$25,000.00');
+    expect(result.heldOutDuplicates.message).toContain('-$15.00');
+    expect(result.heldOutDuplicates.message).not.toContain('$25,015.00');
+    expect(result.heldOutDuplicates.message).not.toMatch(/legacy_match|ambiguous_account/);
+    expect(result.heldOutDuplicates.expenseMessage).toContain('not as income');
   });
 
-  it('keeps the audit packet total equal to Schedule C and preparer inflow equal to gross receipts', async () => {
+  it('keeps every export total equal to the Schedule C preview when nothing is flagged', async () => {
+    const kept = imported({
+      trans_id: 'kept-supplies', amount: 500, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES',
+      is_deductible: true, review_status: 'confirmed', merchant_name: 'Kept supplies',
+    });
+    const scheduleCTotal = aggregateScheduleC([kept] as never, '2026', undefined, { mode: 'confirmed-only' }).totalDeductible;
+    const packet = assembleAuditSupportPacket('synthetic-owner', 2026, { transactions: [kept], trips: [], receipts: [] });
+    expect(scheduleCTotal).toBe(500);
+    expect(packet.summary.recordedAmount).toBe(scheduleCTotal);
+    expect(packet.summary.deductionCount).toBe(1);
+    expect(packet.summary.heldOutDuplicates.count).toBe(0);
+    const packetCsv = auditSupportPacketCSV(packet);
+    expect(packetCsv).toContain('500');
+    expect(packetCsv).not.toContain('PLACEHOLDER');
+    const { PDFPage } = await import('pdf-lib');
+    const spy = vi.spyOn(PDFPage.prototype, 'drawText');
+    await generateAuditSupportPDF(packet);
+    expect(spy.mock.calls.map(call => String(call[0])).join('\n')).not.toContain('Held out');
+    spy.mockRestore();
+
+    const keptIncome = { ...incomeCredit, amount: -500, trans_id: 'kept-income' };
+    const gross = reconcileBusinessIncome(2026, [keptIncome], [], []).grossReceipts;
+    const summary = preparerMonthlySummary([keptIncome], 2026);
+    const inflow = summary.groups.get('USD')!.reduce((sum, row) => sum + row.inflow, 0) / 100;
+    expect(gross).toBe(500);
+    expect(inflow).toBe(gross);
+    expect(summary.heldOutDuplicates.count).toBe(0);
+    const reportSpy = vi.spyOn(PDFPage.prototype, 'drawText');
+    await generatePreparerReport([keptIncome], 2026);
+    expect(reportSpy.mock.calls.map(call => String(call[0])).join('\n')).not.toContain('Held out');
+    reportSpy.mockRestore();
+    const csv = generateScheduleCCSV(aggregateScheduleC([kept] as never, '2026', undefined, { mode: 'confirmed-only' }).lineItemsArray, 2026);
+    expect(csv).toContain('500');
+    expect(csv).not.toContain('PLACEHOLDER');
+  });
+
+  it('blocks the audit packet and preparer summary when a flagged row is unresolved', async () => {
     const kept = imported({
       trans_id: 'kept-supplies', amount: 500, category: 'GENERAL_MERCHANDISE_OFFICE_SUPPLIES',
       is_deductible: true, review_status: 'confirmed', merchant_name: 'Kept supplies',
@@ -222,42 +294,18 @@ describe('statement import rows before review', () => {
     const flaggedExpense = {
       ...kept, trans_id: 'flagged-supplies', possibleDuplicate: true, possibleDuplicateReason: 'ambiguous_account', merchant_name: 'Flagged supplies',
     };
-    const rows = [kept, flaggedExpense];
-    const scheduleCTotal = aggregateScheduleC(rows as never, '2026', undefined, { mode: 'confirmed-only' }).totalDeductible;
-    const packet = assembleAuditSupportPacket('synthetic-owner', 2026, { transactions: rows, trips: [], receipts: [] });
-    expect(scheduleCTotal).toBe(500);
-    expect(packet.summary.recordedAmount).toBe(scheduleCTotal);
-    expect(packet.summary.deductionCount).toBe(1);
-    expect(packet.deductions.map(record => record.merchant)).toEqual(['Kept supplies']);
-    expect(packet.summary.heldOutDuplicates).toMatchObject({ count: 1, credits: 0, debits: 500 });
-    const packetCsv = auditSupportPacketCSV(packet);
-    expect(packetCsv).toContain('PLACEHOLDER');
-    expect(packetCsv).toContain('500.00');
-    expect(packetCsv).toContain('/protected?screen=review-transactions');
-    expect(packetCsv).not.toContain('ambiguous_account');
-    const { PDFPage } = await import('pdf-lib');
-    const spy = vi.spyOn(PDFPage.prototype, 'drawText');
-    await generateAuditSupportPDF(packet);
-    const packetText = spy.mock.calls.map(call => String(call[0])).join('\n');
-    expect(packetText).toContain(packet.summary.heldOutDuplicates.message);
-    expect(packetText).not.toContain('ambiguous_account');
-    spy.mockRestore();
-
-    const keptIncome = { ...incomeCredit, amount: -500, trans_id: 'kept-income' };
-    const flaggedIncome = { ...keptIncome, trans_id: 'flagged-income', possibleDuplicate: true, possibleDuplicateReason: 'cross_document' };
-    const gross = reconcileBusinessIncome(2026, [keptIncome, flaggedIncome], [], []).grossReceipts;
-    const summary = preparerMonthlySummary([keptIncome, flaggedIncome], 2026);
-    const inflow = summary.groups.get('USD')!.reduce((sum, row) => sum + row.inflow, 0) / 100;
-    expect(gross).toBe(500);
-    expect(inflow).toBe(gross);
-    expect(summary.heldOutDuplicates).toMatchObject({ count: 1, credits: 500, debits: 0 });
-    const reportSpy = vi.spyOn(PDFPage.prototype, 'drawText');
-    await generatePreparerReport([keptIncome, flaggedIncome], 2026);
-    const reportText = reportSpy.mock.calls.map(call => String(call[0])).join('\n');
-    expect(reportText).toContain('Held out credits');
-    expect(reportText).toContain('$500.00');
-    expect(reportText).not.toContain('cross_document');
-    reportSpy.mockRestore();
+    expect(() => assembleAuditSupportPacket('synthetic-owner', 2026, { transactions: [kept, flaggedExpense], trips: [], receipts: [] })).toThrow(expect.objectContaining({
+      code: 'DUPLICATE_REVIEW_REQUIRED', reviewHref: '/protected?screen=review-transactions',
+    }));
+    const flaggedIncome = { ...incomeCredit, amount: -500, trans_id: 'flagged-income', possibleDuplicate: true, possibleDuplicateReason: 'cross_document' };
+    await expect(generatePreparerReport([flaggedIncome], 2026)).rejects.toMatchObject({ code: 'DUPLICATE_REVIEW_REQUIRED' });
+    try {
+      await generatePreparerReport([flaggedIncome], 2026);
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain('PLACEHOLDER');
+      expect((error as Error).message).not.toContain('cross_document');
+    }
   });
 
   it('marks the review link, label, and reason as placeholders and hides stored reason codes', () => {

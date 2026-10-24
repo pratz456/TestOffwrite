@@ -10,7 +10,7 @@ import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { useSubscription } from '@/lib/hooks/use-subscription';
 import { protectedScreenUrl } from '@/lib/navigation/protected-screens';
 import type { AuditSupportPacket } from '@/lib/reports/audit-support-packet';
-import { HELD_OUT_REVIEW_ARIA_LABEL, HELD_OUT_REVIEW_LINK_TEXT } from '@/lib/transactions/held-out-duplicates';
+import { HELD_OUT_REVIEW_ARIA_LABEL, HELD_OUT_REVIEW_HREF, HELD_OUT_REVIEW_LINK_TEXT } from '@/lib/transactions/held-out-duplicates';
 
 export type AuditSupportSummary = Pick<AuditSupportPacket, 'summary'> & { deductions: Array<Pick<AuditSupportPacket['deductions'][number], 'transactionId' | 'date' | 'merchant' | 'amount' | 'substantiation'>> };
 type PacketFormat = 'json' | 'csv' | 'pdf';
@@ -33,6 +33,7 @@ interface SummaryProps {
 export function AuditSupportRecordsSummary({ year, packet, loading, error, canDownloadPdf, downloading, onDownload, onOpenTransaction, onRetry }: SummaryProps) {
   const needsRecords = packet?.deductions.filter(record => record.substantiation.status === 'needs_records') ?? [];
   const summary = packet?.summary;
+  const duplicateReview = error?.code === 'DUPLICATE_REVIEW_REQUIRED' || (summary?.heldOutDuplicates.count ?? 0) > 0;
   return (
     <Card className="p-4 sm:p-5 bg-card border border-border border-l-[3px] border-l-amber-500/70 rounded-xl overflow-hidden mb-4 sm:mb-5" data-testid="audit-support-records">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -48,13 +49,13 @@ export function AuditSupportRecordsSummary({ year, packet, loading, error, canDo
           </p>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
-          <Button variant="outline" size="sm" className="min-h-[40px]" disabled={loading || !!error || downloading !== null} onClick={() => onDownload('json')} title="JSON records packet, every plan">
+          <Button variant="outline" size="sm" className="min-h-[40px]" disabled={loading || !!error || duplicateReview || downloading !== null} onClick={() => onDownload('json')} title="JSON records packet, every plan">
             <Download className="w-4 h-4" /><span className="ml-1.5">JSON</span>
           </Button>
-          <Button variant="outline" size="sm" className="min-h-[40px]" disabled={loading || !!error || downloading !== null} onClick={() => onDownload('csv')} title="CSV records packet, every plan">
+          <Button variant="outline" size="sm" className="min-h-[40px]" disabled={loading || !!error || duplicateReview || downloading !== null} onClick={() => onDownload('csv')} title="CSV records packet, every plan">
             <Download className="w-4 h-4" /><span className="ml-1.5">CSV</span>
           </Button>
-          <Button size="sm" className="min-h-[40px] bg-primary hover:bg-primary/90 text-primary-foreground" disabled={loading || !!error || downloading !== null} onClick={() => onDownload('pdf')} title={canDownloadPdf ? 'Formatted PDF packet' : 'The PDF packet requires Premium'}>
+          <Button size="sm" className="min-h-[40px] bg-primary hover:bg-primary/90 text-primary-foreground" disabled={loading || !!error || duplicateReview || downloading !== null} onClick={() => onDownload('pdf')} title={canDownloadPdf ? 'Formatted PDF packet' : 'The PDF packet requires Premium'}>
             {canDownloadPdf ? <Download className="w-4 h-4" /> : <Lock className="w-4 h-4" />}<span className="ml-1.5">PDF{canDownloadPdf ? '' : ' · Premium'}</span>
           </Button>
         </div>
@@ -65,6 +66,9 @@ export function AuditSupportRecordsSummary({ year, packet, loading, error, canDo
         <div className="mt-4 text-sm">
           <p className="text-foreground">{error.message}</p>
           <div className="flex flex-wrap gap-2 mt-2">
+            {error.code === 'DUPLICATE_REVIEW_REQUIRED' && (
+              <a href={HELD_OUT_REVIEW_HREF} aria-label={HELD_OUT_REVIEW_ARIA_LABEL} className="inline-flex items-center gap-1 text-primary underline underline-offset-2">{HELD_OUT_REVIEW_LINK_TEXT}<ArrowRight className="w-3.5 h-3.5" /></a>
+            )}
             {error.code === 'EXPORT_REVIEW_REQUIRED' && (
               <a href="/protected/transactions" className="inline-flex items-center gap-1 text-primary underline underline-offset-2">Review transactions<ArrowRight className="w-3.5 h-3.5" /></a>
             )}
@@ -101,13 +105,12 @@ export function AuditSupportRecordsSummary({ year, packet, loading, error, canDo
               {summary.excluded.notConfirmed} deductible record{summary.excluded.notConfirmed === 1 ? ' has' : 's have'} not been confirmed through the review flow and {summary.excluded.notConfirmed === 1 ? 'is' : 'are'} not included.
             </p>
           )}
-          {summary.heldOutDuplicates.count > 0 && (
-            <p className="text-xs text-muted-foreground mt-3">
-              {summary.heldOutDuplicates.message}{' '}
+          {duplicateReview ? (
+            <div className="mt-4 text-sm" role="status">
+              <p>{summary.heldOutDuplicates.message}</p>
               <a className="underline" href={summary.heldOutDuplicates.reviewHref} aria-label={HELD_OUT_REVIEW_ARIA_LABEL}>{HELD_OUT_REVIEW_LINK_TEXT}</a>
-            </p>
-          )}
-          {needsRecords.length > 0 ? (
+            </div>
+          ) : needsRecords.length > 0 ? (
             <div className="mt-4">
               <div className="text-xs font-medium text-foreground mb-2">Items that still need records{summary.missingItems.length ? <span className="text-muted-foreground font-normal"> · most common: {summary.missingItems.slice(0, 3).map(item => `${item.item} (${item.count})`).join(', ')}</span> : null}</div>
               <ul className="divide-y divide-border/60 rounded-lg border border-border/60">

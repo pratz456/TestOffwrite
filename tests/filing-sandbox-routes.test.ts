@@ -175,7 +175,7 @@ describe('filing route gates and provider handoff', () => {
     expect(result.status).toBe(503); expect(JSON.stringify(await result.json())).not.toMatch(/private-token|client-secret/);
     expect(state.returns).not.toHaveBeenCalled(); expect(state.writes).toEqual([]);
   });
-  it('reports the filing-year held-out line and does not send flagged rows to the provider', async () => {
+  it('blocks the filing session when the filing year has an unresolved duplicate', async () => {
     const row = (id: string, date: string, amount: number, possibleDuplicate: boolean) => ({
       id, ref: { path: `user_profiles/${uid}/accounts/acct/transactions/${id}` },
       data: () => ({ userId: uid, date, amount, possibleDuplicate, possibleDuplicateReason: possibleDuplicate ? 'legacy_match' : undefined, iso_currency_code: 'USD', merchant_name: id }),
@@ -185,19 +185,44 @@ describe('filing route gates and provider handoff', () => {
       row('other-year', '2024-03-01', -900, true), row('kept', '2025-03-03', -100, false),
     ];
     const posted = await POST(postRequest());
+    expect(posted.status).toBe(422);
+    expect(posted.headers.get('cache-control')).toBe('private, no-store');
+    const body = await posted.json();
+    expect(body).toMatchObject({
+      code: 'DUPLICATE_REVIEW_REQUIRED',
+      reviewHref: '/protected?screen=review-transactions',
+      heldOutDuplicates: { count: 2, income: { count: 0, amount: 0 }, expenses: { count: 2, amount: -460 }, expenseRefunds: { count: 1, amount: 500 }, expenseCharges: { count: 1, amount: 40 } },
+    });
+    expect(body.error).toContain('PLACEHOLDER');
+    expect(body.error).toContain('$500.00');
+    expect(body.error).toContain('$40.00');
+    expect(body.error).toContain('not as income');
+    expect(body.error).not.toContain('$900.00');
+    expect(body.error).not.toContain('legacy_match');
+    expect(body).not.toHaveProperty('userUrl');
+    expect(JSON.stringify(body)).not.toContain('private-session');
+    noProviderCalls();
+    const listedResponse = await GET(getRequest());
+    expect(listedResponse.status).toBe(422);
+    const listed = await listedResponse.json();
+    expect(listed).toMatchObject({ code: 'DUPLICATE_REVIEW_REQUIRED', reviewHref: '/protected?screen=review-transactions' });
+    expect(listed.heldOutDuplicates).toMatchObject({ count: 2, expenses: { count: 2, amount: -460 } });
+    expect(listed.error).not.toContain('$900.00');
+    expect(listed).not.toHaveProperty('userUrl');
+    expect(state.returns).not.toHaveBeenCalled();
+  });
+  it('does not block a filing year when the only flagged row is in another year', async () => {
+    state.transactions = [{
+      id: 'other-year', ref: { path: `user_profiles/${uid}/accounts/acct/transactions/other-year` },
+      data: () => ({ userId: uid, date: '2024-03-01', amount: -900, possibleDuplicate: true, possibleDuplicateReason: 'legacy_match', iso_currency_code: 'USD', merchant_name: 'other-year' }),
+    }];
+    const posted = await POST(postRequest());
     expect(posted.status).toBe(200);
     const body = await posted.json();
-    expect(body.heldOutDuplicates).toMatchObject({ count: 2, credits: 500, debits: 40, amount: 540, reviewHref: '/protected?screen=review-transactions' });
-    expect(body.heldOutDuplicates.message).toContain('PLACEHOLDER');
-    expect(body.heldOutDuplicates.message).toContain('$500.00');
-    expect(body.heldOutDuplicates.message).toContain('$40.00');
+    expect(body.heldOutDuplicates.count).toBe(0);
     expect(body.heldOutDuplicates.message).not.toContain('$900.00');
-    expect(body.heldOutDuplicates.message).not.toContain('legacy_match');
+    expect(body).not.toHaveProperty('code');
     expect(state.initialize).toHaveBeenCalledWith(expect.objectContaining({ environment: 'sandbox', taxYear: 2025 }), { userIdentifier: expectedIdentifier, email: `${uid}@example.com`, metadata });
-    linked();
-    const listed = await (await GET(getRequest())).json();
-    expect(listed.heldOutDuplicates).toMatchObject({ count: 2, credits: 500, debits: 40 });
-    expect(listed.heldOutDuplicates.message).not.toContain('$900.00');
   });
   it('does not open a filing session when held-out records cannot be loaded', async () => {
     state.transactionReadError = true;

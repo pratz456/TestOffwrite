@@ -1,6 +1,6 @@
-import { PDFDocument, StandardFonts, rgb, type PDFFont } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
-import { summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
+import { DuplicateReviewRequiredError, summarizeHeldOutDuplicates } from '@/lib/transactions/held-out-duplicates';
 import { exportDate, transactionAmount, selectExportYear, recordedDeductibility, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
 
 export function preparerMonthlySummary(records: ExportRecord[], year: number) {
@@ -34,23 +34,9 @@ export function preparerMonthlySummary(records: ExportRecord[], year: number) {
     unreviewed: selected.filter(tx => recordedDeductibility(tx) === null).length, groups, heldOutDuplicates };
 }
 
-function drawWrapped(page: { drawText: (text: string, options: { x: number; y: number; size: number; font: PDFFont; color: ReturnType<typeof rgb> }) => void }, font: PDFFont, value: string, y: number, size: number, color: ReturnType<typeof rgb>): number {
-  const words = value.split(' ');
-  let line = '';
-  for (const word of words) {
-    const next = line ? `${line} ${word}` : word;
-    if (line && font.widthOfTextAtSize(next, size) > 528) {
-      page.drawText(line, { x: 42, y, size, font, color });
-      y -= 10;
-      line = word;
-    } else line = next;
-  }
-  if (line) page.drawText(line, { x: 42, y, size, font, color });
-  return y - 12;
-}
-
 export async function generatePreparerReport(records: ExportRecord[], year: number): Promise<Uint8Array> {
   const summary = preparerMonthlySummary(records, year);
+  if (summary.heldOutDuplicates.count > 0) throw new DuplicateReviewRequiredError(summary.heldOutDuplicates);
   const pdf = await PDFDocument.create();
   pdf.setTitle(`WriteOff ${year} - preparer transaction summary`);
   const font = await pdf.embedFont(StandardFonts.Helvetica), bold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -87,9 +73,6 @@ export async function generatePreparerReport(records: ExportRecord[], year: numb
     text('Total', 148, 11, true);
     [totals.outflow, totals.inflow, totals.markedOutflow].forEach((value, index) => text((value / 100).toFixed(2), 148, 10, true, columns[index + 1]));
     text(String(totals.count), 148, 10, true, columns[4]);
-    if (summary.heldOutDuplicates.count > 0) {
-      drawWrapped(page, font, textSafe(`${summary.heldOutDuplicates.message} ${summary.heldOutDuplicates.reviewHref}`), 126, 8, rgb(.12, .16, .20));
-    }
     text('Keep original statements and receipts. Review missing currency before combining totals.', 102, 9);
   }
   pdf.getPages().forEach((page, index, pages) => page.drawText(`Preparer handoff | Page ${index + 1} of ${pages.length}`, { x: 42, y: 37, size: 9, font }));

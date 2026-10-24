@@ -158,7 +158,13 @@ const IMPORT_ACCOUNT_ID = 'statement-imports';
 const WRITE_CHUNK = 400;
 
 type ImportedTransaction = z.infer<typeof importedTransaction>;
-interface PlannedImport { ref: DocumentReference; data: Record<string, unknown>; legacyMatch: boolean }
+interface PlannedImport {
+  ref: DocumentReference;
+  data: Record<string, unknown>;
+  legacyMatch: boolean;
+  /** Existing rows in an uncertain pair. Updated with the flag fields only, and only when this row is newly saved. */
+  flagExisting: Array<{ ref: DocumentReference; reason: string }>;
+}
 interface ImportSaveCounts { imported: number; alreadyImported: number; flaggedLegacy: number }
 
 function normalizedDescription(value: string): string {
@@ -260,11 +266,18 @@ function cardLast4(value: unknown): string {
   return /^\d{4}$/.test(text) ? text : '';
 }
 
-type AccountIdentity = { last4: string; bank: string };
+type StatementKind = '' | 'credit_card' | 'bank_statement';
+type AccountIdentity = { last4: string; bank: string; kind: StatementKind };
 type AccountRelation = 'different' | 'uncertain' | 'same';
 
-/** Same digits and institution are one card. Different digits or different named institutions are not. Anything else cannot be told apart. */
+function statementKind(value: unknown): StatementKind {
+  return value === 'credit_card' || value === 'bank_statement' ? value : '';
+}
+
+/** A card and a checking account are different even when one statement has no digits. */
 function accountRelation(a: AccountIdentity, b: AccountIdentity): AccountRelation {
+  const cardAndChecking = (a.kind === 'credit_card' && b.kind === 'bank_statement') || (a.kind === 'bank_statement' && b.kind === 'credit_card');
+  if (cardAndChecking) return 'different';
   if (a.last4 && b.last4 && a.last4 !== b.last4) return 'different';
   if (a.bank && b.bank && a.bank !== b.bank && !(a.last4 && a.last4 === b.last4)) return 'different';
   if (a.bank && b.bank && a.bank !== b.bank) return 'uncertain';
@@ -276,6 +289,7 @@ function accountRelation(a: AccountIdentity, b: AccountIdentity): AccountRelatio
 }
 
 interface StoredImportRow {
+  ref: DocumentReference;
   date: string;
   cents: number;
   direction: string;
@@ -283,12 +297,15 @@ interface StoredImportRow {
   receipt: boolean;
   last4: string;
   bank: string;
+  kind: StatementKind;
+  /** Random-id imports have no import_row_id. They stay unchanged. */
+  legacy: boolean;
 }
 
 /** Saved import rows used to decide whether a new row might repeat one already on file. */
 async function existingImportRows(account: DocumentReference): Promise<StoredImportRow[]> {
   const snapshot = await account.collection('transactions')
-    .select('date', 'amount', 'transaction_type', 'merchant_name', 'name', 'description', 'source', 'importedFromReceipt', 'accountLast4', 'statementBank').get();
+    .select('date', 'amount', 'transaction_type', 'merchant_name', 'name', 'description', 'source', 'importedFromReceipt', 'accountLast4', 'statementBank', 'statementKind', 'import_row_id').get();
   const rows: StoredImportRow[] = [];
   for (const transaction of snapshot.docs) {
     const data = transaction.data() ?? {};
@@ -297,8 +314,9 @@ async function existingImportRows(account: DocumentReference): Promise<StoredImp
     const description = textValue(data.merchant_name) || textValue(data.name) || textValue(data.description);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !direction || !description.trim() || typeof data.amount !== 'number' || !Number.isFinite(data.amount)) continue;
     rows.push({
-      date, cents: amountCents(data.amount), direction, description: normalizedDescription(description),
+      ref: transaction.ref, date, cents: amountCents(data.amount), direction, description: normalizedDescription(description),
       receipt: isReceiptRecord(data), last4: cardLast4(data.accountLast4), bank: institutionName(data.statementBank),
+      kind: statementKind(data.statementKind), legacy: typeof data.import_row_id !== 'string' || data.import_row_id.length === 0,
     });
   }
   return rows;
@@ -366,7 +384,7 @@ async function saveTransactions(uid: string, rows: ImportedTransaction[], metada
     const ref = account.collection('transactions').doc(id);
     const now = new Date();
     return {
-      ref, legacyMatch: false,
+      ref, legacyMatch: false, flagExisting: [],
       data: {
         ...metadata,
         trans_id: id, import_row_id: id, userId: uid, account_id: IMPORT_ACCOUNT_ID,
@@ -386,7 +404,9 @@ async function saveTransactions(uid: string, rows: ImportedTransaction[], metada
     existingImportRows(account),
   ]);
   const incomingReceipt = identity.namespace === 'receipt';
-  const incomingIdentity: AccountIdentity = { last4: cardLast4(metadata.accountLast4), bank: institutionName(metadata.statementBank) };
+  const incomingIdentity: AccountIdentity = {
+    last4: cardLast4(metadata.accountLast4), bank: institutionName(metadata.statementBank), kind: statementKind(metadata.statementKind),
+  };
   for (const item of planned) {
     const date = textValue(item.data.date).slice(0, 10);
     const direction = textValue(item.data.transaction_type);
@@ -402,11 +422,17 @@ async function saveTransactions(uid: string, rows: ImportedTransaction[], metada
       const crossType = incomingReceipt !== existing.receipt;
       if (crossType) {
         if (incomingReceipt && !existing.receipt && existing.description === description) statementMatch = true;
-        else crossDocument = true;
+        else {
+          crossDocument = true;
+          if (!existing.legacy) item.flagExisting.push({ ref: existing.ref, reason: 'cross_document' });
+        }
         continue;
       }
       if (existing.description !== description) continue;
-      if (accountRelation(incomingIdentity, existing) === 'uncertain') ambiguousAccount = true;
+      if (accountRelation(incomingIdentity, existing) === 'uncertain') {
+        ambiguousAccount = true;
+        if (!existing.legacy) item.flagExisting.push({ ref: existing.ref, reason: 'ambiguous_account' });
+      }
     }
     item.legacyMatch = legacyMatch;
     const linked = overlapKey(item.data);
@@ -423,7 +449,24 @@ async function saveTransactions(uid: string, rows: ImportedTransaction[], metada
     }
   }
   const created = await createDocuments(planned);
+  await flagMatchedRows(created);
   return { imported: created.length, alreadyImported: planned.length - created.length, flaggedLegacy: created.filter(item => item.legacyMatch).length };
+}
+
+/** Flag the saved partner of an uncertain pair. Amount, merchant, and id stay as they were. */
+async function flagMatchedRows(created: PlannedImport[]): Promise<void> {
+  const updates = new Map<string, { ref: DocumentReference; reason: string }>();
+  for (const item of created) {
+    for (const flag of item.flagExisting) updates.set(flag.ref.path, flag);
+  }
+  const rows = [...updates.values()];
+  for (let offset = 0; offset < rows.length; offset += WRITE_CHUNK) {
+    const batch = adminDb.batch();
+    for (const flag of rows.slice(offset, offset + WRITE_CHUNK)) {
+      batch.update(flag.ref, { possibleDuplicate: true, possibleDuplicateReason: flag.reason });
+    }
+    await batch.commit();
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -472,7 +515,7 @@ export async function POST(request: NextRequest) {
       }
       const saved = await saveTransactions(user.uid, parsed.transactions, {
         source: 'manual', import_source: 'manual_statement', importedFromStatement: true,
-        statementBank: parsed.bankName || 'Unknown', accountLast4: parsed.accountLast4 || null,
+        statementBank: parsed.bankName || 'Unknown', accountLast4: parsed.accountLast4 || null, statementKind: docType,
       }, { namespace: 'statement', scope: detectedAccountScope(parsed.bankName, parsed.accountLast4) ?? `file:${fileHash}` });
       return NextResponse.json({
         success: true, docType: 'bank_statement', bankName: parsed.bankName, accountLast4: parsed.accountLast4,
