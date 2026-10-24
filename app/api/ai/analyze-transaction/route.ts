@@ -12,7 +12,7 @@ import { getAIProviderStatus } from '@/lib/ai/provider-status';
 import { claimAnalysisLease, persistAnalysisSuggestion, releaseAnalysisLease } from '@/lib/ai/analysis-persistence';
 import type { AnalysisLease } from '@/lib/ai/analysis-persistence';
 import type { DocumentReference } from 'firebase-admin/firestore';
-import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse, withRequestValidationLimit } from '@/lib/security/rate-limit';
 import { readJsonBody } from '@/lib/http/json-body';
 import { isCountableRecord } from '@/lib/transactions/record-scope';
 
@@ -78,15 +78,13 @@ export async function POST(request: NextRequest) {
       error: 'AI analysis is currently unavailable. You can review and classify this transaction manually.',
     }, { status: 503 });
 
+    // Read and validate the body before the usage counter. Requests that fail validation use a separate limit.
+    const raw = await readJsonBody(request);
+    if (raw instanceof NextResponse) return withRequestValidationLimit(request, user.uid, raw);
     // Per-owner model spend is bounded durably across instances (60 per hour);
     // an unreachable limiter store refuses rather than allowing unmetered calls.
     const limit = await enforceRateLimit({ ...RATE_LIMITS.aiAnalyzeTransaction, key: user.uid });
     if (!limit.allowed) return rateLimitResponse(limit, { code: 'AI_RATE_LIMITED', error: 'Analysis request limit reached. Please try again later.' });
-    const raw = await readJsonBody(request);
-    if (raw instanceof NextResponse) {
-      if (raw.status === 413) return raw;
-      return NextResponse.json({ error: 'Invalid request data' }, { status: 400 });
-    }
     const validation = AnalyzeTransactionRequestSchema.safeParse(raw);
     if (!validation.success) return NextResponse.json({ error: 'Invalid request data' }, { status: 400 });
     const { transactionId } = validation.data;

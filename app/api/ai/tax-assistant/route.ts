@@ -4,7 +4,8 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { assistantRequestSchema, conversationHistoryTooLong, isSupportedImage, readAssistantBody } from '@/lib/tax-assistant/contract';
 import { loadAssistantContext } from '@/lib/tax-assistant/context-server';
 import { buildGuidanceMessages, guidanceResponse, validateAssessment } from '@/lib/tax-assistant/guidance';
-import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
+import { invalidJsonBodyResponse, jsonTooLargeResponse } from '@/lib/http/json-body';
+import { enforceRateLimit, RATE_LIMITS, rateLimitResponse, withRequestValidationLimit } from '@/lib/security/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,15 +16,16 @@ export async function POST(request: NextRequest) {
   if (!hasOpenAIAPIKey()) {
     return NextResponse.json({ error: 'The tax assistant is not configured yet. Your question has not been sent for analysis.' }, { status: 503 });
   }
-  const limit = await enforceRateLimit({ ...RATE_LIMITS.aiTaxAssistant, key: user.uid });
-  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many assistant requests. Please wait a few minutes and try again.' });
-
+  // Read and validate the body before the usage counter. Requests that fail validation use a separate limit.
   let body: unknown;
   try {
     body = await readAssistantBody(request);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof RangeError ? 'Request is too large. Use a photo under 2 MB.' : 'Invalid request body' }, { status: error instanceof RangeError ? 413 : 400 });
+    const failure = error instanceof RangeError ? jsonTooLargeResponse() : invalidJsonBodyResponse();
+    return withRequestValidationLimit(request, user.uid, failure);
   }
+  const limit = await enforceRateLimit({ ...RATE_LIMITS.aiTaxAssistant, key: user.uid });
+  if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many assistant requests. Please wait a few minutes and try again.' });
   if (conversationHistoryTooLong(body)) {
     return NextResponse.json({ error: 'Use tax year 2026 or 2027, a question under 4,000 characters, and at most 12 recent messages.' }, { status: 400 });
   }

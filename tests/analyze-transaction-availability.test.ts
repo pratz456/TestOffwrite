@@ -163,7 +163,7 @@ describe('transaction analysis availability', () => {
     expectNoAnalysisWork();
   });
 
-  it('routes check sign in and request limits before reading input', async () => {
+  it('returns 429 for a signed in caller when the request limit is already reached', async () => {
     const order: string[] = [];
     mocks.authenticate.mockImplementation(async () => {
       order.push('auth');
@@ -178,7 +178,7 @@ describe('transaction analysis availability', () => {
     const response = await POST(req);
     expect(response.status).toBe(429);
     expect(order).toEqual(['auth', 'limit']);
-    expect(req.bodyUsed).toBe(false);
+    expect(req.bodyUsed).toBe(true);
     expectNoAnalysisWork();
   });
 

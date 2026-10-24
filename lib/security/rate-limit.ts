@@ -105,6 +105,8 @@ export const RATE_LIMITS = {
   supportAccountLookup: { scope: 'support.account', limit: 60, windowMs: 10 * 60_000, onUnavailable: 'deny' },
   /** Each call may stamp up to 200 of the caller's transactions, so the window stays small. */
   bulkConfirm: { scope: 'transactions.bulk-confirm', limit: 20, windowMs: 10 * 60_000, onUnavailable: 'deny' },
+  /** Separate limit for requests that fail validation. It does not consume a route usage count. */
+  requestValidation: { scope: 'request.validation', limit: 45, windowMs: 10 * 60_000, onUnavailable: 'deny' },
 } as const satisfies Record<string, Omit<RateLimitOptions, 'key'>>;
 
 interface WindowState { windowStart: number; count: number }
@@ -222,6 +224,19 @@ function unavailableResult(id: string, options: RateLimitOptions, now: number, c
   }
   return { allowed: false, limit: options.limit, remaining: 0, retryAfterSeconds: UNAVAILABLE_RETRY_SECONDS,
     resetAt: now + UNAVAILABLE_RETRY_SECONDS * 1000, source: 'policy', unavailable: true };
+}
+
+/**
+ * Count a request that failed validation on a separate limit.
+ * The route usage window is left unchanged. A caller past this limit receives 429.
+ */
+export async function withRequestValidationLimit(request: Request, uid: string, failure: NextResponse): Promise<NextResponse> {
+  const result = await enforceRateLimit({
+    ...RATE_LIMITS.requestValidation,
+    key: `${uid}:${anonymousRateLimitKey(request)}`,
+  });
+  if (!result.allowed) return rateLimitResponse(result, { error: 'Too many requests that fail validation. Please try again later.' });
+  return failure;
 }
 
 /** Consume one request from the owner's window. Never throws for store failures. */
