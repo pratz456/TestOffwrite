@@ -15,7 +15,7 @@ function grant() {
   consent.record = {
     status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review',
     purposes: ['transaction_analysis', 'document_text', 'document_image', 'statement_autodetect', 'statement_extract', 'statement_receipt', 'tax_assistant', 'account_assistant', 'voice_command'],
-    signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+    signedAt: new Date('2026-01-01T00:00:00.000Z'), expiresAt: new Date('2027-01-01T00:00:00.000Z'),
   };
 }
 

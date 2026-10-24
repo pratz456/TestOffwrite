@@ -11,9 +11,17 @@ export {
 } from './consent-contract';
 export type { ConsentRecordType, ConsentRefusalReason, ConsentStatus, ModelPurpose } from './consent-contract';
 
+export interface PurposeConsent {
+  signedAt: Date;
+  expiresAt: Date;
+  timeZone: string | null;
+}
+
 export interface DisclosureConsent {
   status: ConsentStatus;
   purposes: ModelPurpose[];
+  terms: Partial<Record<ModelPurpose, PurposeConsent>>;
+  invalidPurposes: ModelPurpose[];
   consentDocumentVersion: string;
   signedAt: Date;
   expiresAt: Date;
@@ -73,18 +81,128 @@ function asDate(value: unknown): Date | null {
   return null;
 }
 
+function zoneOf(value: unknown): string | null {
+  return typeof value === 'string' && isValidTimeZone(value) ? value : null;
+}
+
+/**
+ * Data-integrity rule. The writer always stores signedAt and expiresAt, so a missing or
+ * unreadable instant is incomplete data and does not allow model calls. expiresAt has to
+ * fall after signedAt and no later than the one year anniversary of signedAt in the signing
+ * zone, with February 29 clamped to February 28. A later instant is incomplete data too.
+ */
+function storedTerm(signedAtRaw: unknown, expiresAtRaw: unknown, timeZone: string | null): PurposeConsent | null {
+  const signedAt = asDate(signedAtRaw);
+  const expiresAt = asDate(expiresAtRaw);
+  if (!signedAt || !expiresAt) return null;
+  if (expiresAt.getTime() <= signedAt.getTime()) return null;
+  if (expiresAt.getTime() > defaultConsentExpiry(signedAt, timeZone).getTime()) return null;
+  return { signedAt, expiresAt, timeZone };
+}
+
+function grantMap(data: Record<string, unknown>): Record<string, unknown> | null {
+  const value = data.purposeGrants;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function listedPurposes(data: Record<string, unknown>): ModelPurpose[] {
+  return Array.isArray(data.purposes) ? data.purposes.filter(isModelPurpose) : [];
+}
+
+interface ParsedConsent {
+  recognized: boolean;
+  status: ConsentStatus | null;
+  version: string;
+  timeZone: string | null;
+  terms: Partial<Record<ModelPurpose, PurposeConsent>>;
+  order: ModelPurpose[];
+  invalidPurposes: ModelPurpose[];
+  shared: PurposeConsent | null;
+  recordInvalid: boolean;
+}
+
+function parseConsent(data: Record<string, unknown> | null | undefined, recordType: ConsentRecordType): ParsedConsent {
+  const empty: ParsedConsent = {
+    recognized: false, status: null, version: '', timeZone: null, terms: {}, order: [],
+    invalidPurposes: [], shared: null, recordInvalid: false,
+  };
+  if (!data || data.recordType !== recordType) return empty;
+  if (data.status !== 'granted' && data.status !== 'declined' && data.status !== 'withdrawn') return empty;
+  const version = typeof data.consentDocumentVersion === 'string' ? data.consentDocumentVersion.trim() : '';
+  if (!version) return empty;
+  const timeZone = zoneOf(data.timeZone);
+  const listed = listedPurposes(data);
+  const map = grantMap(data);
+  const terms: Partial<Record<ModelPurpose, PurposeConsent>> = {};
+  const invalidPurposes: ModelPurpose[] = [];
+  const order: ModelPurpose[] = [];
+  if (map) {
+    for (const purpose of [...listed, ...Object.keys(map).filter(isModelPurpose)]) {
+      if (order.includes(purpose) || !Object.hasOwn(map, purpose)) continue;
+      order.push(purpose);
+      const entry = map[purpose];
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        invalidPurposes.push(purpose);
+        continue;
+      }
+      const raw = entry as Record<string, unknown>;
+      const term = storedTerm(raw.signedAt, raw.expiresAt, zoneOf(raw.timeZone) ?? timeZone);
+      if (!term) invalidPurposes.push(purpose);
+      else terms[purpose] = term;
+    }
+    const shared = storedTerm(data.signedAt, data.expiresAt, timeZone);
+    return {
+      recognized: true, status: data.status, version, timeZone, terms, order, invalidPurposes, shared,
+      recordInvalid: Object.keys(terms).length === 0 && !shared,
+    };
+  }
+  const shared = storedTerm(data.signedAt, data.expiresAt, timeZone);
+  if (!shared) {
+    return {
+      recognized: true, status: data.status, version, timeZone, terms, order: [...listed],
+      invalidPurposes: [...listed], shared: null, recordInvalid: true,
+    };
+  }
+  for (const purpose of listed) {
+    terms[purpose] = shared;
+    order.push(purpose);
+  }
+  return {
+    recognized: true, status: data.status, version, timeZone, terms, order, invalidPurposes, shared, recordInvalid: false,
+  };
+}
+
+function anchorOf(parsed: ParsedConsent): PurposeConsent | null {
+  for (const purpose of parsed.order) {
+    const term = parsed.terms[purpose];
+    if (term) return term;
+  }
+  return parsed.shared;
+}
+
+function toDisclosure(parsed: ParsedConsent): DisclosureConsent | null {
+  if (!parsed.recognized || !parsed.status || parsed.recordInvalid) return null;
+  const anchor = anchorOf(parsed);
+  if (!anchor) return null;
+  return {
+    status: parsed.status,
+    purposes: parsed.order.filter(purpose => parsed.terms[purpose]),
+    terms: parsed.terms,
+    invalidPurposes: parsed.invalidPurposes,
+    consentDocumentVersion: parsed.version,
+    signedAt: anchor.signedAt,
+    expiresAt: anchor.expiresAt,
+    timeZone: anchor.timeZone ?? parsed.timeZone,
+    recordType: 'disclosure',
+  };
+}
+
 /** A disclosure grant is trusted only from the disclosure document. Reuse never satisfies it. */
 export function readDisclosureConsent(data: Record<string, unknown> | null | undefined): DisclosureConsent | null {
-  if (!data || data.recordType !== 'disclosure') return null;
-  if (data.status !== 'granted' && data.status !== 'declined' && data.status !== 'withdrawn') return null;
-  const signedAt = asDate(data.signedAt);
-  const version = typeof data.consentDocumentVersion === 'string' ? data.consentDocumentVersion.trim() : '';
-  if (!signedAt || !version) return null;
-  const timeZone = typeof data.timeZone === 'string' && isValidTimeZone(data.timeZone) ? data.timeZone : null;
-  // Stored expiresAt wins. No stored length means one year from the local signing date, or one UTC year when no zone is stored.
-  const expiresAt = asDate(data.expiresAt) ?? defaultConsentExpiry(signedAt, timeZone);
-  const purposes = Array.isArray(data.purposes) ? data.purposes.filter(isModelPurpose) : [];
-  return { status: data.status, purposes, consentDocumentVersion: version, signedAt, expiresAt, timeZone, recordType: 'disclosure' };
+  const parsed = parseConsent(data, 'disclosure');
+  if (!parsed.recognized || parsed.recordInvalid) return null;
+  return toDisclosure(parsed);
 }
 
 export function evaluateDisclosureConsent(
@@ -93,11 +211,28 @@ export function evaluateDisclosureConsent(
   requestedAt: Date,
 ): { ok: true } | { ok: false; reason: ConsentRefusalReason } {
   if (!record) return { ok: false, reason: 'missing' };
+  if (record.invalidPurposes.includes(purpose)) return { ok: false, reason: 'invalid_record' };
   if (record.status !== 'granted') return { ok: false, reason: 'not_granted' };
-  if (requestedAt.getTime() < record.signedAt.getTime()) return { ok: false, reason: 'before_signed_at' };
-  if (requestedAt.getTime() >= record.expiresAt.getTime()) return { ok: false, reason: 'expired' };
-  if (!record.purposes.includes(purpose)) return { ok: false, reason: 'purpose' };
+  const term = record.terms[purpose];
+  if (!term) return { ok: false, reason: 'purpose' };
+  if (requestedAt.getTime() < term.signedAt.getTime()) return { ok: false, reason: 'before_signed_at' };
+  if (requestedAt.getTime() >= term.expiresAt.getTime()) return { ok: false, reason: 'expired' };
   return { ok: true };
+}
+
+function disclosureDecision(
+  data: Record<string, unknown> | null | undefined,
+  purpose: ModelPurpose,
+  requestedAt: Date,
+): { ok: true; record: DisclosureConsent } | { ok: false; reason: ConsentRefusalReason } {
+  const parsed = parseConsent(data, 'disclosure');
+  if (!parsed.recognized || !parsed.status) return { ok: false, reason: 'missing' };
+  if (parsed.recordInvalid || parsed.invalidPurposes.includes(purpose)) return { ok: false, reason: 'invalid_record' };
+  const record = toDisclosure(parsed);
+  if (!record) return { ok: false, reason: 'invalid_record' };
+  const verdict = evaluateDisclosureConsent(record, purpose, requestedAt);
+  if (!verdict.ok) return verdict;
+  return { ok: true, record };
 }
 
 export function imageProcessingApproved(): boolean {
@@ -110,10 +245,10 @@ export async function requireModelConsent(uid: string, purpose: ModelPurpose, re
     throw new ConsentRequiredError('missing');
   }
   const snapshot = await adminDb.doc(modelConsentPath(uid, 'disclosure')).get();
-  const record = snapshot.exists ? readDisclosureConsent(snapshot.data() as Record<string, unknown>) : null;
-  const decision = evaluateDisclosureConsent(record, purpose, requestedAt);
+  const data = snapshot.exists ? snapshot.data() as Record<string, unknown> : null;
+  const decision = disclosureDecision(data, purpose, requestedAt);
   if (!decision.ok) throw new ConsentRequiredError(decision.reason);
-  return record!;
+  return decision.record;
 }
 
 /**
@@ -137,18 +272,49 @@ export interface ModelConsentView {
 
 export async function readModelConsentView(uid: string, now = new Date()): Promise<ModelConsentView> {
   const snapshot = await adminDb.doc(modelConsentPath(uid, 'disclosure')).get();
-  const record = snapshot.exists ? readDisclosureConsent(snapshot.data() as Record<string, unknown>) : null;
-  if (!record) {
+  const parsed = snapshot.exists ? parseConsent(snapshot.data() as Record<string, unknown>, 'disclosure') : null;
+  const record = parsed ? toDisclosure(parsed) : null;
+  if (!parsed?.recognized || !record) {
     return { status: 'declined', purposes: [], consentDocumentVersion: null, signedAt: null, expiresAt: null, timeZone: null, recordType: null };
   }
-  const expired = record.status === 'granted' && now.getTime() >= record.expiresAt.getTime();
+  if (record.status !== 'granted') {
+    return {
+      status: record.status,
+      purposes: [],
+      consentDocumentVersion: record.consentDocumentVersion,
+      signedAt: record.signedAt.toISOString(),
+      expiresAt: record.expiresAt.toISOString(),
+      timeZone: record.timeZone,
+      recordType: 'disclosure',
+    };
+  }
+  const live = record.purposes.filter(purpose => {
+    const term = record.terms[purpose];
+    return !!term && now.getTime() < term.expiresAt.getTime();
+  });
+  const anchor = live[0] ? record.terms[live[0]] ?? null : null;
+  if (!anchor) {
+    return {
+      status: 'declined',
+      purposes: [],
+      consentDocumentVersion: record.consentDocumentVersion,
+      signedAt: record.signedAt.toISOString(),
+      expiresAt: record.expiresAt.toISOString(),
+      timeZone: record.timeZone,
+      recordType: 'disclosure',
+    };
+  }
+  const latest = live.reduce((max, purpose) => {
+    const term = record.terms[purpose];
+    return term && term.expiresAt.getTime() > max.getTime() ? term.expiresAt : max;
+  }, anchor.expiresAt);
   return {
-    status: expired ? 'declined' : record.status,
-    purposes: expired ? [] : record.purposes,
+    status: 'granted',
+    purposes: live,
     consentDocumentVersion: record.consentDocumentVersion,
-    signedAt: record.signedAt.toISOString(),
-    expiresAt: record.expiresAt.toISOString(),
-    timeZone: record.timeZone,
+    signedAt: anchor.signedAt.toISOString(),
+    expiresAt: latest.toISOString(),
+    timeZone: anchor.timeZone ?? record.timeZone,
     recordType: 'disclosure',
   };
 }
@@ -160,6 +326,7 @@ function emptyConsentView(): ModelConsentView {
 interface DatedConsent {
   status: ConsentStatus;
   purposes: ModelPurpose[];
+  terms: Partial<Record<ModelPurpose, PurposeConsent>>;
   consentDocumentVersion: string;
   signedAt: Date;
   expiresAt: Date;
@@ -167,16 +334,24 @@ interface DatedConsent {
 }
 
 /** Reuse is a different document. A disclosure record, or no record, is not reuse consent. */
-export function readReuseConsent(data: Record<string, unknown> | null | undefined): DatedConsent | null {
-  if (!data || data.recordType !== 'reuse') return null;
-  if (data.status !== 'granted' && data.status !== 'declined' && data.status !== 'withdrawn') return null;
-  const signedAt = asDate(data.signedAt);
-  const expiresAt = asDate(data.expiresAt);
-  const version = typeof data.consentDocumentVersion === 'string' ? data.consentDocumentVersion.trim() : '';
-  if (!signedAt || !expiresAt || !version) return null;
-  const timeZone = typeof data.timeZone === 'string' && isValidTimeZone(data.timeZone) ? data.timeZone : null;
-  const purposes = Array.isArray(data.purposes) ? data.purposes.filter(isModelPurpose) : [];
-  return { status: data.status, purposes, consentDocumentVersion: version, signedAt, expiresAt, timeZone };
+export function readReuseConsent(data: Record<string, unknown> | null | undefined, now = new Date()): DatedConsent | null {
+  const parsed = parseConsent(data, 'reuse');
+  if (!parsed.recognized || !parsed.status || parsed.recordInvalid) return null;
+  const anchor = anchorOf(parsed);
+  if (!anchor) return null;
+  const purposes = parsed.order.filter(purpose => {
+    const term = parsed.terms[purpose];
+    return !!term && now.getTime() < term.expiresAt.getTime();
+  });
+  return {
+    status: parsed.status,
+    purposes,
+    terms: parsed.terms,
+    consentDocumentVersion: parsed.version,
+    signedAt: anchor.signedAt,
+    expiresAt: anchor.expiresAt,
+    timeZone: anchor.timeZone ?? parsed.timeZone,
+  };
 }
 
 function viewFrom(record: DatedConsent | null, recordType: ConsentRecordType): ModelConsentView {
@@ -192,9 +367,9 @@ function viewFrom(record: DatedConsent | null, recordType: ConsentRecordType): M
   };
 }
 
-export async function readReuseConsentView(uid: string): Promise<ModelConsentView> {
+export async function readReuseConsentView(uid: string, now = new Date()): Promise<ModelConsentView> {
   const snapshot = await adminDb.doc(modelConsentPath(uid, 'reuse')).get();
-  const record = snapshot.exists ? readReuseConsent(snapshot.data() as Record<string, unknown>) : null;
+  const record = snapshot.exists ? readReuseConsent(snapshot.data() as Record<string, unknown>, now) : null;
   return viewFrom(record, 'reuse');
 }
 
@@ -203,23 +378,69 @@ export async function readModelConsentBundle(uid: string): Promise<ModelConsentV
   return { ...disclosure, reuse };
 }
 
-/** Stores a signed disclosure for the one purpose that screen names. Does not create or update the reuse document. */
+type StoredGrant = { signedAt: unknown; expiresAt: unknown; timeZone?: string };
+
+/** Keep grants already stored. A legacy record contributes its shared dates once, and only when both instants are present. */
+function storedGrants(existing: Record<string, unknown> | undefined): Record<string, StoredGrant> {
+  const grants: Record<string, StoredGrant> = {};
+  if (!existing) return grants;
+  const map = grantMap(existing);
+  if (map) {
+    for (const [key, value] of Object.entries(map)) {
+      if (!isModelPurpose(key) || !value || typeof value !== 'object' || Array.isArray(value)) continue;
+      const entry = value as Record<string, unknown>;
+      grants[key] = {
+        signedAt: entry.signedAt,
+        expiresAt: entry.expiresAt,
+        ...(typeof entry.timeZone === 'string' ? { timeZone: entry.timeZone } : {}),
+      };
+    }
+    return grants;
+  }
+  if (existing.signedAt === undefined || existing.expiresAt === undefined) return grants;
+  const timeZone = typeof existing.timeZone === 'string' ? existing.timeZone : undefined;
+  for (const item of listedPurposes(existing)) {
+    grants[item] = {
+      signedAt: existing.signedAt,
+      expiresAt: existing.expiresAt,
+      ...(timeZone ? { timeZone } : {}),
+    };
+  }
+  return grants;
+}
+
+/** Stores a signed disclosure for one purpose and leaves every other purpose's dates as they were stored. Does not write the reuse document. */
 export async function acceptDisclosureConsent(uid: string, signedName: string, purpose: ModelPurpose, timeZone: string, requestedAt: Date): Promise<ModelConsentView> {
   const name = signedName.trim();
   const zone = timeZone.trim();
   if (!uid || !name || !isModelPurpose(purpose) || !isValidTimeZone(zone)) throw new ConsentRequiredError('missing');
   const signedAt = requestedAt;
-  await adminDb.doc(modelConsentPath(uid, 'disclosure')).set({
-    status: 'granted',
-    purposes: [purpose],
-    consentDocumentVersion: MODEL_CONSENT_DOCUMENT_VERSION,
-    signedAt,
-    timeZone: zone,
-    consentLength: MODEL_DISCLOSURE_LENGTH,
-    expiresAt: defaultConsentExpiry(signedAt, zone),
-    recordType: 'disclosure',
-    signedName: name,
-    acknowledged: true,
+  const expiresAt = defaultConsentExpiry(signedAt, zone);
+  const ref = adminDb.doc(modelConsentPath(uid, 'disclosure'));
+  await adminDb.runTransaction(async tx => {
+    const snapshot = await tx.get(ref);
+    const existing = snapshot.exists ? snapshot.data() as Record<string, unknown> : undefined;
+    const purposeGrants = storedGrants(existing);
+    purposeGrants[purpose] = { signedAt, expiresAt, timeZone: zone };
+    const purposes: ModelPurpose[] = [];
+    const prior = existing ? listedPurposes(existing) : [];
+    for (const item of [...prior, purpose, ...Object.keys(purposeGrants).filter(isModelPurpose)]) {
+      if (!purposeGrants[item] || purposes.includes(item)) continue;
+      purposes.push(item);
+    }
+    tx.set(ref, {
+      status: 'granted',
+      purposes,
+      purposeGrants,
+      consentDocumentVersion: MODEL_CONSENT_DOCUMENT_VERSION,
+      signedAt,
+      timeZone: zone,
+      consentLength: MODEL_DISCLOSURE_LENGTH,
+      expiresAt,
+      recordType: 'disclosure',
+      signedName: name,
+      acknowledged: true,
+    });
   });
   return readModelConsentView(uid);
 }
@@ -256,21 +477,26 @@ export async function acceptReuseConsent(uid: string, timeZone: string, requeste
   return readReuseConsentView(uid);
 }
 
-/** Owner withdrawal. A missing disclosure becomes an explicit withdrawn record. No duration rule is cited. */
+/** Owner withdrawal. Clears every purpose. A missing disclosure becomes an explicit withdrawn record. */
 export async function withdrawModelConsent(uid: string, requestedAt: Date): Promise<ModelConsentView> {
   const ref = adminDb.doc(modelConsentPath(uid, 'disclosure'));
   const snapshot = await ref.get();
   const existing = snapshot.exists ? snapshot.data() as Record<string, unknown> : {};
   const record = readDisclosureConsent(existing);
   const signedAt = record?.signedAt ?? requestedAt;
-  const expiresAt = record?.expiresAt ?? defaultConsentExpiry(signedAt);
+  const zone = record?.timeZone ?? null;
+  const kept = record?.expiresAt;
+  const expiresAt = kept && kept.getTime() > signedAt.getTime() && kept.getTime() <= defaultConsentExpiry(signedAt, zone).getTime()
+    ? kept
+    : defaultConsentExpiry(signedAt, zone);
   await ref.set({
     status: 'withdrawn',
-    purposes: record?.purposes ?? [],
+    purposes: [],
+    purposeGrants: {},
     consentDocumentVersion: record?.consentDocumentVersion || (typeof existing.consentDocumentVersion === 'string' ? existing.consentDocumentVersion : MODEL_CONSENT_DOCUMENT_VERSION),
     signedAt,
     expiresAt,
-    ...(record?.timeZone ? { timeZone: record.timeZone } : {}),
+    ...(zone ? { timeZone: zone } : {}),
     recordType: 'disclosure',
     withdrawnAt: requestedAt,
   });

@@ -7,7 +7,7 @@ import { NextRequest } from 'next/server';
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'synthetic-tax-audit' }, error: null }) }));
 vi.mock('@/lib/firebase/admin', () => ({ adminDb: { doc: () => ({ get: async () => ({ exists: true, data: () => ({
   status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review', purposes: ['tax_assistant', 'account_assistant'],
-  signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+  signedAt: new Date('2026-01-01T00:00:00.000Z'), expiresAt: new Date('2027-01-01T00:00:00.000Z'),
 }) }) }) } }));
 vi.mock('@/lib/tax-assistant/context-server', () => ({ loadAssistantContext: async () => null }));
 vi.mock('@/lib/security/rate-limit', () => ({ RATE_LIMITS: { aiTaxAssistant: {} }, enforceRateLimit: async () => ({ allowed: true }), rateLimitResponse: () => { throw new Error('Unexpected synthetic rate limit'); } }));

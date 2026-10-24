@@ -58,7 +58,7 @@ const generation = async () => (await h.db!.doc(task).get()).data()!.generation;
     await h.db!.doc(profile).set({ profession: 'Designer', state: 'CA' });
     await h.db!.doc(`${profile}/model_consents/disclosure`).set({
       status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review',
-      purposes: ['transaction_analysis'], signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+      purposes: ['transaction_analysis'], signedAt: new Date('2026-01-01T00:00:00.000Z'), expiresAt: new Date('2027-01-01T00:00:00.000Z'),
     });
     await h.db!.doc(account).set({ user_id: address.userId, type: 'depository', plaid_item_id: 'synthetic-item' });
     await h.db!.doc(record).set({ userId: address.userId, account_id: address.accountId, trans_id: address.transactionId,

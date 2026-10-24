@@ -74,7 +74,7 @@ beforeEach(() => {
   uid = `availability-test-${++nextUser}`;
   (adminDb as unknown as { records: Map<string, Record<string, unknown>> }).records.set(`user_profiles/${uid}/model_consents/disclosure`, {
     status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review',
-    purposes: ['transaction_analysis'], signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+    purposes: ['transaction_analysis'], signedAt: new Date('2026-01-01T00:00:00.000Z'), expiresAt: new Date('2027-01-01T00:00:00.000Z'),
   });
   mocks.authenticate.mockResolvedValue({ user: { uid }, error: null });
   mocks.profile.mockResolvedValue({ data: { profession: 'Designer' }, error: null });
@@ -219,7 +219,7 @@ describe('transaction analysis availability', () => {
     // Another owner keeps an independent window.
     (adminDb as unknown as { records: Map<string, Record<string, unknown>> }).records.set(`user_profiles/${uid}-other/model_consents/disclosure`, {
       status: 'granted', recordType: 'disclosure', consentDocumentVersion: 'pending-legal-review',
-      purposes: ['transaction_analysis'], signedAt: new Date('2020-01-01T00:00:00.000Z'), expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+      purposes: ['transaction_analysis'], signedAt: new Date('2026-01-01T00:00:00.000Z'), expiresAt: new Date('2027-01-01T00:00:00.000Z'),
     });
     mocks.authenticate.mockResolvedValue({ user: { uid: `${uid}-other` }, error: null });
     mocks.get.mockResolvedValue({ empty: false, docs: [{ ref: { path: `user_profiles/${uid}-other/accounts/owned-account/transactions/${body.transactionId}` } }] });
