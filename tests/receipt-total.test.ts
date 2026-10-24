@@ -223,4 +223,36 @@ describe('receipt totals from US and EU layouts', () => {
     expect(data.amount).not.toBe(1234);
     expect(data.amount).not.toBe(1);
   });
+
+  it('leaves a Quebec TOTAL 12,50 $ blank when the receipt shows QC H2X 1Y4', async () => {
+    const data = await read(market(['QC H2X 1Y4', 'TOTAL 12,50 $']));
+    expect(data.amount).toBeNull();
+    expect(data.amountNeedsReview).toBe(true);
+    expect(data.amount).not.toBe(12.5);
+    expect(data.amount).not.toBe(1250);
+    expect(data.amount).not.toBe(12);
+    expect(data.amount).not.toBe(0);
+  });
+
+  it('leaves TOTAL 1,234 blank when a Canadian signal is present', async () => {
+    const data = await read(market(['QC H2X 1Y4', 'ITEM $4.00', 'TOTAL 1,234']));
+    expect(data.amount).toBeNull();
+    expect(data.amountNeedsReview).toBe(true);
+    expect(data.amount).not.toBe(1234);
+    expect(data.amount).not.toBe(1.234);
+    expect(data.amount).not.toBe(4);
+  });
+
+  it('still reads TOTAL $1,234 when a dollar sign and a state plus ZIP are present', async () => {
+    const data = await read(market(['WILMINGTON, DE 19801', 'TOTAL $1,234']));
+    expect(data.amount).toBe(1234);
+    expect(data.amountNeedsReview).toBe(false);
+  });
+
+  it('reads TOTAL $1,234 when CA is only the US state on a California receipt', async () => {
+    const data = await read(market(['San Jose, CA 95112', 'TAX CA $0.33', 'TOTAL $1,234']));
+    expect(data.amount).toBe(1234);
+    expect(data.amountNeedsReview).toBe(false);
+    expect(data.amount).not.toBe(0.33);
+  });
 });

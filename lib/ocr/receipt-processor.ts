@@ -58,6 +58,12 @@ const US_POSTAL = 'AL|AK|AZ|AR|CA|CO|CT|FL|GA|HI|ID|IL|IA|KS|KY|LA|MD|MA|MI|MN|M
 const WORD_POSTAL = 'DE|IN|ME|PA';
 const US_STATE_NAMES = 'ALABAMA|ALASKA|ARIZONA|ARKANSAS|CALIFORNIA|COLORADO|CONNECTICUT|DELAWARE|FLORIDA|GEORGIA|HAWAII|IDAHO|ILLINOIS|INDIANA|IOWA|KANSAS|KENTUCKY|LOUISIANA|MAINE|MARYLAND|MASSACHUSETTS|MICHIGAN|MINNESOTA|MISSISSIPPI|MISSOURI|MONTANA|NEBRASKA|NEVADA|NEW HAMPSHIRE|NEW JERSEY|NEW MEXICO|NEW YORK|NORTH CAROLINA|NORTH DAKOTA|OHIO|OKLAHOMA|OREGON|PENNSYLVANIA|RHODE ISLAND|SOUTH CAROLINA|SOUTH DAKOTA|TENNESSEE|TEXAS|UTAH|VERMONT|VIRGINIA|WASHINGTON|WEST VIRGINIA|WISCONSIN|WYOMING|DISTRICT OF COLUMBIA';
 const US_ZIP = String.raw`\s+\d{5}(?:-\d{4})?(?!\d)`;
+/**
+ * Canadian province codes, uppercase whole tokens. CA is California, not a province.
+ * A space before a dollar sign (CA $) stays a US tax flag.
+ */
+const CA_PROVINCE_CODES = 'AB|BC|MB|NB|NL|NS|NT|NU|ON|PE|QC|SK|YT';
+const CA_PROVINCE_NAMES = 'BRITISH COLUMBIA|PRINCE EDWARD ISLAND|NEWFOUNDLAND AND LABRADOR|NORTHWEST TERRITORIES|NOVA SCOTIA|NEW BRUNSWICK|SASKATCHEWAN|NEWFOUNDLAND|QUEBEC|QUÉBEC|ONTARIO|ALBERTA|MANITOBA|LABRADOR|NUNAVUT|YUKON';
 
 function blankTotal(): TotalRead {
   return { amount: null, amountNeedsReview: true };
@@ -112,8 +118,31 @@ function hasUsStateAndZip(text: string): boolean {
   return new RegExp(String.raw`\b(?:${US_STATE_NAMES})${US_ZIP}`, 'i').test(text);
 }
 
+/** CA$ and C$ only when the letters touch the sign. CA $ keeps the dollar. */
+function hasCanadianCurrencyPrefix(text: string): boolean {
+  return /(?<![A-Za-z])C(?:A)?\$/i.test(text);
+}
+
+/** A dollar sign other than the CA$ or C$ prefix. */
+function hasBareDollar(text: string): boolean {
+  return /\$/.test(text.replace(/(?<![A-Za-z])C(?:A)?\$/gi, ' '));
+}
+
+/**
+ * CA$, C$, CAD, a province code or name, or a postal code such as H2X 1Y4.
+ * CA beside a US ZIP, or CA with a space before $, is not a Canadian signal.
+ */
+function hasCanadianReceiptSignal(text: string): boolean {
+  if (hasCanadianCurrencyPrefix(text)) return true;
+  if (/\bCAD\b/i.test(text)) return true;
+  if (new RegExp(String.raw`(?<![A-Za-z])(?:${CA_PROVINCE_CODES})(?![A-Za-z])`).test(text)) return true;
+  if (new RegExp(String.raw`\b(?:${CA_PROVINCE_NAMES})\b`, 'i').test(text)) return true;
+  return /(?<![A-Za-z0-9])[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z][ -]?\d[ABCEGHJ-NPRSTV-Z]\d(?![A-Za-z0-9])/i.test(text);
+}
+
 function hasUsReceiptSignal(text: string): boolean {
-  return /\$/.test(text) || /\bUSD\b/i.test(text) || hasUsStateAndZip(text);
+  const bareDollar = hasBareDollar(text) && !hasCanadianReceiptSignal(text);
+  return bareDollar || /\bUSD\b/i.test(text) || hasUsStateAndZip(text);
 }
 
 /**
@@ -134,6 +163,14 @@ function interpretNumber(raw: string, leadingDollar: boolean, receiptText: strin
     return confidentTotal(Number(raw.replace(/\./g, '').replace(',', '.')));
   }
   if (comma) {
+    // Quebec uses the comma as the decimal mark. A comma group is not US thousands
+    // on a Canadian receipt, and a bare dollar disagrees with comma cents.
+    if (hasCanadianReceiptSignal(receiptText)) {
+      if (/^\d+,\d{2}$/.test(raw) && !hasBareDollar(receiptText)) {
+        return confidentTotal(Number(raw.replace(',', '.')));
+      }
+      return blankTotal();
+    }
     if (/^\d+,\d{2}$/.test(raw)) return confidentTotal(Number(raw.replace(',', '.')));
     // Comma cents anywhere else mean this group is not a US thousands separator.
     if (/^\d{1,3}(?:,\d{3})+$/.test(raw) && !hasEuMoneyClue(receiptText, raw)

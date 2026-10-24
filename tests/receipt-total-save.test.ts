@@ -83,6 +83,8 @@ describe('saved receipt totals', () => {
     ['TOTAL 1,234 with a state and ZIP', market(['CA 94105', 'TOTAL 1,234']), 1234],
     ['AMOUNT 2,000 with USD', market(['PAID USD', 'AMOUNT 2,000']), 2000],
     ['TOTAL 1,234 with a comma address', market(['WILMINGTON, DE 19801', 'TOTAL 1,234']), 1234],
+    ['dollar TOTAL 1,234 with a state plus ZIP', market(['WILMINGTON, DE 19801', 'TOTAL $1,234']), 1234],
+    ['California TAX CA dollar 0.33 and TOTAL dollar 1,234', market(['San Jose, CA 95112', 'TAX CA $0.33', 'TOTAL $1,234']), 1234],
     ['TAX TOTAL before TOTAL 12.50', market(['GRAND TOTAL TAX 99.00', 'TOTAL 12.50']), 12.5],
   ])('saves %s', async (_label, text, amount) => {
     recognize(text);
@@ -110,6 +112,8 @@ describe('saved receipt totals', () => {
     ['German TOTAL 1,234 dated 05/03/2026', ['SYNTHETIC MARKET', 'BERLIN', '05/03/2026', 'TOTAL 1,234'].join('\n'), [0, 1, 1234]],
     ['TOTAL 12,500 with a slash date', market(['09/02/2026', 'TOTAL 12,500']), [0, 12, 12500]],
     ['TOTAL 1,234 with an ordinary IN', market(['SOLD IN 12345', 'TOTAL 1,234']), [0, 1, 1234]],
+    ['Quebec TOTAL 12,50 $', market(['QC H2X 1Y4', 'TOTAL 12,50 $']), [0, 12.5, 1250, 12]],
+    ['Quebec TOTAL 1,234', market(['QC H2X 1Y4', 'ITEM $4.00', 'TOTAL 1,234']), [0, 1, 4, 1234, 1.234]],
   ])('saves %s blank for review', async (_label, text, forbidden) => {
     recognize(text);
     const response = await POST(request());
