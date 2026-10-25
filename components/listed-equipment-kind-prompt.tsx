@@ -7,6 +7,7 @@ import {
   LISTED_EQUIPMENT_KIND_RECREATION_PLACEHOLDER,
   listedEquipmentFollowUpNeededCopy,
   listedEquipmentKindNeededCopy,
+  listedEquipmentLocationNeededCopy,
   listedEquipmentMainLineNeededCopy,
   type ListedEquipmentHeldAsset,
 } from '@/lib/reports/calc4562';
@@ -14,6 +15,7 @@ import {
 function questionCopy(asset: Pick<ListedEquipmentHeldAsset, 'name' | 'ask'>): string {
   if (asset.ask === 'main_line') return listedEquipmentMainLineNeededCopy(asset.name);
   if (asset.ask === 'follow_up') return listedEquipmentFollowUpNeededCopy(asset.name);
+  if (asset.ask === 'location') return listedEquipmentLocationNeededCopy(asset.name);
   return listedEquipmentKindNeededCopy(asset.name);
 }
 
@@ -23,7 +25,7 @@ export function ListedEquipmentKindPrompt({ assets }: { assets: readonly Pick<Li
   return (
     <div className="space-y-3 text-left">
       {assets.map(asset => {
-        const kindQuestion = asset.ask !== 'main_line' && asset.ask !== 'follow_up';
+        const kindQuestion = asset.ask !== 'main_line' && asset.ask !== 'follow_up' && asset.ask !== 'location';
         return (
           <div key={asset.id} className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-gray-800">
             <p>{questionCopy(asset)}</p>

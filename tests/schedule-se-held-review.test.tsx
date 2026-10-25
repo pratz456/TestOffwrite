@@ -115,6 +115,30 @@ describe('Schedule SE page', () => {
     expect(content).not.toContain('$1,000.00');
   });
 
+  it('shows the business location question when the main line answer is no and the location is blank', async () => {
+    const sentence = 'PLACEHOLDER: We need one more answer about Camera. Do you use it only at your business location?';
+    h.fetch.mockImplementation(async (url: string) => {
+      if (String(url).includes('/api/tax/schedule-se/auto')) {
+        return new Response(JSON.stringify({
+          error: MESSAGE,
+          code: 'DEPRECIATION_REVIEW_REQUIRED',
+          heldAssets: [{ id: 'camera', name: 'Camera', reason: 'question', ask: 'location' }],
+        }), { status: 422, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: { scheduleCNetProfit: 99999, taxYear: 2026 } }), { status: 200 });
+    });
+    render(); await flush();
+    const content = text(render());
+    expect(content).toContain(sentence);
+    expect(content).toContain('Answer now');
+    expect(content).toContain('/protected/form4562?asset=camera');
+    expect(content).not.toContain(MESSAGE);
+    expect(content).not.toContain('Do you use it in your main line of work?');
+    expect(content).not.toContain('PLACEHOLDER: photo, audio, video or communication gear');
+    expect(content).not.toContain('99999');
+    expect(content).not.toContain('$1,000.00');
+  });
+
   it('shows the follow-up question when the business location is yes and the outside-home answer is blank', async () => {
     const sentence = 'PLACEHOLDER: We need one more answer about Camera. Is that a studio or office outside your home?';
     h.fetch.mockImplementation(async (url: string) => {

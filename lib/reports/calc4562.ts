@@ -49,6 +49,10 @@ export const LISTED_EQUIPMENT_MAIN_LINE_NEEDED_PLACEHOLDER =
 export const LISTED_EQUIPMENT_FOLLOW_UP_NEEDED_PLACEHOLDER =
   'PLACEHOLDER: We need one more answer about {asset name}. Is that a studio or office outside your home?';
 
+/** Main line is no and the business-location answer is still blank. PLACEHOLDER wording. */
+export const LISTED_EQUIPMENT_LOCATION_NEEDED_PLACEHOLDER =
+  'PLACEHOLDER: We need one more answer about {asset name}. Do you use it only at your business location?';
+
 function listedEquipmentNamedCopy(template: string, assetName: string): string {
   const name = assetName.trim() || 'this asset';
   return template.replace('{asset name}', name);
@@ -64,6 +68,10 @@ export function listedEquipmentMainLineNeededCopy(assetName: string): string {
 
 export function listedEquipmentFollowUpNeededCopy(assetName: string): string {
   return listedEquipmentNamedCopy(LISTED_EQUIPMENT_FOLLOW_UP_NEEDED_PLACEHOLDER, assetName);
+}
+
+export function listedEquipmentLocationNeededCopy(assetName: string): string {
+  return listedEquipmentNamedCopy(LISTED_EQUIPMENT_LOCATION_NEEDED_PLACEHOLDER, assetName);
 }
 
 /**
@@ -99,7 +107,7 @@ export const LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER =
   'PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.';
 
 /** Which unanswered question a held asset is showing. Kind questions omit `ask`. */
-export type ListedEquipmentAsk = 'kind' | 'main_line' | 'follow_up';
+export type ListedEquipmentAsk = 'kind' | 'main_line' | 'follow_up' | 'location';
 
 /** An asset the worksheet held instead of calculating. `question` withholds the estimate until the named answer is saved. */
 export interface ListedEquipmentHeldAsset {
@@ -141,7 +149,7 @@ export interface Asset {
    * Blank, including a legacy yes with no kind, asks again.
    */
   listedEquipmentKind?: ListedEquipmentKind | null;
-  /** Yes releases photo, audio, video, or communication gear wherever it is kept. No stays in review. Blank asks. */
+  /** Yes releases photo, audio, video, or communication gear wherever it is kept. Blank asks. No asks the business location when that answer is blank. */
   listedEquipmentMainLineOfWork?: ListedEquipmentAnswer | null;
   /** Yes can release that gear only when the location follow-up says the office is outside the home. */
   listedEquipmentBusinessLocation?: ListedEquipmentAnswer | null;
@@ -295,13 +303,14 @@ export function listedEquipmentKindFor(asset: Pick<Asset, 'listedEquipmentKind' 
 
 /**
  * The sentence shown instead of a profit figure while an answer is still missing.
- * Recreation, a home-office follow-up, and a no answer keep the generic review sentence.
+ * Recreation, a home-office follow-up, and a no on both release answers keep the generic review sentence.
  */
 export function listedEquipmentReviewDetail(heldAssets: readonly ListedEquipmentHeldAsset[]): string {
   const asking = heldAssets.find(asset => asset.reason === 'question');
   if (!asking) return LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER;
   if (asking.ask === 'main_line') return listedEquipmentMainLineNeededCopy(asking.name);
   if (asking.ask === 'follow_up') return listedEquipmentFollowUpNeededCopy(asking.name);
+  if (asking.ask === 'location') return listedEquipmentLocationNeededCopy(asking.name);
   return listedEquipmentKindNeededCopy(asking.name);
 }
 
@@ -322,7 +331,8 @@ export function depreciationReviewBody(error: unknown, fallback: string, code: s
  * qualifying home office for a tax year, and stays on the generic review;
  * a yes business location with a blank follow-up asks that follow-up;
  * blank release answers on that named kind ask the main-line question;
- * a no answer stays on the generic review;
+ * a no on the main line with a blank business location asks that location question;
+ * a no on both answers stays on the generic review;
  * recreation or amusement gear stays on the generic review and cannot be released;
  * a blank kind, including a legacy yes with no kind, asks again;
  * business use over 50%, or any non-equipment category → no hold.
@@ -341,6 +351,7 @@ export function listedEquipmentHoldFor(asset: ListedEquipmentHoldInput): ListedE
     if (asset.listedEquipmentBusinessLocation === 'yes' && asset.listedEquipmentLocationFollowUp === LISTED_EQUIPMENT_LOCATION_HOME) return 'review';
     if (asset.listedEquipmentBusinessLocation === 'yes') return 'question_required';
     if (asset.listedEquipmentMainLineOfWork !== 'no') return 'question_required';
+    if (asset.listedEquipmentBusinessLocation !== 'no') return 'question_required';
     return 'review';
   }
   if (kind === LISTED_EQUIPMENT_KIND_RECREATION) return 'review';
@@ -352,7 +363,8 @@ export function listedEquipmentAskFor(asset: ListedEquipmentHoldInput): ListedEq
   if (listedEquipmentHoldFor(asset) !== 'question_required') return null;
   const kind = listedEquipmentKindFor(asset);
   if (kind === LISTED_EQUIPMENT_KIND_PHOTO && asset.listedEquipmentBusinessLocation === 'yes') return 'follow_up';
-  if (kind === LISTED_EQUIPMENT_KIND_PHOTO) return 'main_line';
+  if (kind === LISTED_EQUIPMENT_KIND_PHOTO && asset.listedEquipmentMainLineOfWork !== 'no') return 'main_line';
+  if (kind === LISTED_EQUIPMENT_KIND_PHOTO) return 'location';
   return 'kind';
 }
 
@@ -361,6 +373,7 @@ export function listedEquipmentQuestionCopy(asset: ListedEquipmentHoldInput & Pi
   const ask = listedEquipmentAskFor(asset);
   if (ask === 'main_line') return listedEquipmentMainLineNeededCopy(asset.description);
   if (ask === 'follow_up') return listedEquipmentFollowUpNeededCopy(asset.description);
+  if (ask === 'location') return listedEquipmentLocationNeededCopy(asset.description);
   return listedEquipmentKindNeededCopy(asset.description);
 }
 
@@ -507,7 +520,7 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
     if (row.listedEquipmentHold === 'review') heldAssets.push({ id: row.asset.id, name: row.asset.description, reason: 'review' });
     else if (row.listedEquipmentHold === 'question_required') {
       const ask = listedEquipmentAskFor(row.asset);
-      heldAssets.push(ask === 'main_line' || ask === 'follow_up'
+      heldAssets.push(ask === 'main_line' || ask === 'follow_up' || ask === 'location'
         ? { id: row.asset.id, name: row.asset.description, reason: 'question', ask }
         : { id: row.asset.id, name: row.asset.description, reason: 'question' });
     }
