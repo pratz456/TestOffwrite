@@ -377,6 +377,17 @@ export function listedEquipmentQuestionCopy(asset: ListedEquipmentHoldInput & Pi
   return listedEquipmentKindNeededCopy(asset.description);
 }
 
+/** Held asset record for a review error. The id is the Answer now link. A question also carries the named ask. */
+function listedEquipmentHeldRecord(asset: Pick<Asset, 'id' | 'description'> & ListedEquipmentHoldInput): ListedEquipmentHeldAsset | null {
+  const hold = listedEquipmentHoldFor(asset);
+  if (hold === 'review') return { id: asset.id, name: asset.description, reason: 'review' };
+  if (hold !== 'question_required') return null;
+  const ask = listedEquipmentAskFor(asset);
+  return ask === 'main_line' || ask === 'follow_up' || ask === 'location'
+    ? { id: asset.id, name: asset.description, reason: 'question', ask }
+    : { id: asset.id, name: asset.description, reason: 'question' };
+}
+
 const assetDate = (value: unknown): Date => {
   if (value && typeof value === 'object' && 'toDate' in value && typeof value.toDate === 'function') return value.toDate();
   return new Date(value as string | number | Date);
@@ -485,18 +496,24 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
 
   // 2025 Form 4562 instructions and Reg. §1.168(d)-1(b)(2): the 40% test covers MACRS
   // property placed in service during the year, and ADS property counts. Listed property
-  // at 50% or less business use is ADS property, so a held asset counts at business basis.
+  // at 50% or less business use is ADS property, so a held asset counts.
+  // Reg. §1.168(d)-1(b)(4): basis is depreciable basis after the section 179 expense and before bonus.
   // Section 179 elected for a held asset is zero. De minimis safe-harbor items are not
   // MACRS property. Real property and same-year dispositions are not in this population.
   const midQuarterProperty = current.filter(asset => !deMinimis.includes(asset));
-  const macrsBasis = (asset: Asset) => businessBasis(asset) - (elected.get(asset) ?? 0);
-  const totalBasis = midQuarterProperty.reduce((sum, asset) => sum + macrsBasis(asset), 0);
+  const depreciableBasisAfterSection179 = (asset: Asset) => businessBasis(asset) - (elected.get(asset) ?? 0);
+  const totalBasis = midQuarterProperty.reduce((sum, asset) => sum + depreciableBasisAfterSection179(asset), 0);
   const lastQuarterBasis = midQuarterProperty.filter(asset => assetDate(asset.datePlacedInService).getUTCMonth() >= 9)
-    .reduce((sum, asset) => sum + macrsBasis(asset), 0);
+    .reduce((sum, asset) => sum + depreciableBasisAfterSection179(asset), 0);
   // Only held assets means nothing is calculated under the half-year convention.
   // A single held asset in the last quarter therefore stays a withheld result.
   const calculatesHalfYear = midQuarterProperty.some(asset => !listedEquipmentHoldFor(asset));
-  if (calculatesHalfYear && totalBasis > 0 && lastQuarterBasis / totalBasis > 0.4) throw new DepreciationReviewRequiredError('More than 40% of this year’s basis was placed in service in the last quarter; the mid-quarter convention requires a separate calculation.');
+  const heldAssets: ListedEquipmentHeldAsset[] = [];
+  for (const asset of current) {
+    const held = listedEquipmentHeldRecord(asset);
+    if (held) heldAssets.push(held);
+  }
+  if (calculatesHalfYear && totalBasis > 0 && lastQuarterBasis / totalBasis > 0.4) throw new DepreciationReviewRequiredError('More than 40% of this year’s basis was placed in service in the last quarter; the mid-quarter convention requires a separate calculation.', heldAssets);
 
   for (const asset of current) {
     const hold = listedEquipmentHoldFor(asset);
@@ -515,7 +532,7 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
     }
     const section179Elected = elected.get(asset) ?? 0;
     const section179Deduction = allowed.get(asset) ?? 0;
-    const regularDepreciation = acceleratedMacrsDeduction(basis - section179Elected, asset.method);
+    const regularDepreciation = acceleratedMacrsDeduction(depreciableBasisAfterSection179(asset), asset.method);
     return { asset, treatment: section179Elected > 0 ? 'section_179' : 'macrs', listedEquipmentHold: null, deMinimisExpense: 0, section179Elected, section179Deduction,
       bonusDepreciation: 0, regularDepreciation, totalDepreciation: roundCents(section179Deduction + regularDepreciation),
       remainingBasis: roundCents(basis - section179Elected - regularDepreciation), carryoverToNextYear: roundCents(section179Elected - section179Deduction) };
@@ -523,16 +540,6 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
   const sum = (select: (row: AssetCalculation) => number) => roundCents(calculations.reduce((total, row) => total + select(row), 0));
   const totalSection179 = sum(row => row.section179Deduction);
   const totalRegularDepreciation = sum(row => row.regularDepreciation);
-  const heldAssets: ListedEquipmentHeldAsset[] = [];
-  for (const row of calculations) {
-    if (row.listedEquipmentHold === 'review') heldAssets.push({ id: row.asset.id, name: row.asset.description, reason: 'review' });
-    else if (row.listedEquipmentHold === 'question_required') {
-      const ask = listedEquipmentAskFor(row.asset);
-      heldAssets.push(ask === 'main_line' || ask === 'follow_up' || ask === 'location'
-        ? { id: row.asset.id, name: row.asset.description, reason: 'question', ask }
-        : { id: row.asset.id, name: row.asset.description, reason: 'question' });
-    }
-  }
   return {
     taxYear, assets: calculations, totalDeMinimisExpense: sum(row => row.deMinimisExpense), section179, totalSection179,
     totalBonusDepreciation: 0, totalRegularDepreciation, totalDepreciation: roundCents(totalSection179 + totalRegularDepreciation),

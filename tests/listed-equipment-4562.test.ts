@@ -4,7 +4,7 @@ import type { UserProfile } from '@/lib/firebase/profiles-server';
 import {
   ACCELERATED_MACRS_HALF_YEAR_RATE, ASSET_CATEGORIES, EQUIPMENT_ASSET_CATEGORIES, LISTED_EQUIPMENT_BUSINESS_USE_CEILING,
   LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER, acceleratedMacrsDeduction, businessUseBasis,
-  calc4562, listedEquipmentBusinessUseAtOrUnderCeiling, roundCents, type Asset, type ListedEquipmentAnswer,
+  calc4562, depreciationReviewBody, listedEquipmentBusinessUseAtOrUnderCeiling, listedEquipmentQuestionCopy, roundCents, type Asset, type ListedEquipmentAnswer,
 } from '@/lib/reports/calc4562';
 import { generateForm4562PDF } from '@/lib/reports/form4562';
 import { computeScheduleCProfit } from '@/lib/tax-rules/schedule-c-profit';
@@ -206,6 +206,27 @@ describe('equipment listed-property flag', () => {
     const camera = heldPhoto({ cost: 4000, datePlacedInService: new Date(Date.UTC(2025, 9, 1)) });
     expect(businessUseBasis(camera.cost, camera.businessUsePercent)).toBe(2000);
     expect(() => calc4562([laptop, camera], BUSINESS_INCOME, 2025)).toThrow(/mid-quarter/);
+  });
+
+  it('carries the camera question on the mid-quarter review', () => {
+    const laptop = asset({ id: 'laptop', description: 'Laptop', category: 'computer', cost: 2000, businessUsePercent: 100, datePlacedInService: new Date(Date.UTC(2025, 8, 1)) });
+    const camera = heldPhoto({
+      cost: 4000, datePlacedInService: new Date(Date.UTC(2025, 9, 1)),
+      listedEquipmentMainLineOfWork: null, listedEquipmentBusinessLocation: null,
+    });
+    const question = listedEquipmentQuestionCopy(camera);
+    expect(question).toBe('PLACEHOLDER: We need one more answer about Camera. Do you use it in your main line of work?');
+    let thrown: unknown = null;
+    expect(() => {
+      try { calc4562([laptop, camera], BUSINESS_INCOME, 2025); }
+      catch (error) { thrown = error; throw error; }
+    }).toThrow(/mid-quarter/);
+    expect(depreciationReviewBody(thrown, 'fallback', 'DEPRECIATION_REVIEW_REQUIRED')).toEqual({
+      error: expect.stringMatching(/mid-quarter/),
+      code: 'DEPRECIATION_REVIEW_REQUIRED',
+      heldAssets: [{ id: 'camera', name: 'Camera', reason: 'question', ask: 'main_line' }],
+    });
+    expect(question).toContain('Camera');
   });
 
   it('does not apply the mid-quarter review when held basis makes the last quarter exactly 40 percent', () => {
