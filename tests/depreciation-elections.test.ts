@@ -115,6 +115,7 @@ describe('first-year Section 179 expensing', () => {
 
 describe('Section 179 income limit after de minimis and other depreciation', () => {
   const placed = new Date('2026-03-15T00:00:00Z');
+  const partialReview = "Asset depreciation needs review: We can't show your business profit, Form 4562 or tax estimate right now. We're still confirming how a tax rule applies to one of your assets: part of its cost is more than its Section 179 amount, and depreciation on that part may lower how much you can deduct this year. Your numbers will show again once we've confirmed the rule. There's nothing you need to do.";
   const profit = (grossReceipts: number, assets: Asset[], years: number[] = [2026]) => computeScheduleCProfit({
     taxYear: 2026, grossReceipts, confirmedExpenses: 0, w2Wages: 0, assets, depreciationElections: elected(...years),
   });
@@ -177,14 +178,14 @@ describe('Section 179 income limit after de minimis and other depreciation', () 
   it('sends a partial Section 179 election to review with no amount when the income limit binds', () => {
     const partial = [asset({ cost: 9000, section179Requested: true, section179Amount: 5000, datePlacedInService: placed })];
     expect(reviewCode(() => calc4562(partial, 4000, 2026))).toBe('DEPRECIATION_REVIEW_REQUIRED');
-    expect(() => calc4562(partial, 4000, 2026)).toThrow(/Part of this asset's cost isn't covered by the Section 179 amount/);
+    expect(() => calc4562(partial, 4000, 2026)).toThrow(partialReview);
     let caught: unknown;
     try {
       computeScheduleCProfit({ taxYear: 2026, grossReceipts: 4000, confirmedExpenses: 0, w2Wages: 0, assets: partial });
     } catch (error) { caught = error; }
     expect(scheduleCReviewCode(caught)).toBe('DEPRECIATION_REVIEW_REQUIRED');
     expect(caught).toBeInstanceOf(Error);
-    expect((caught as Error).message).toMatch(/How should it be counted/);
+    expect((caught as Error).message).toBe(partialReview);
     // The same hold applies when the dollar limit, rather than a stated amount, leaves elected basis below business basis.
     expect(reviewCode(() => calc4562([asset({ section179Requested: true, cost: 3000000 })], 150000, 2026))).toBe('DEPRECIATION_REVIEW_REQUIRED');
   });
@@ -194,13 +195,13 @@ describe('Section 179 income limit after de minimis and other depreciation', () 
     let caught: unknown;
     try { profit(9550, assets, []); } catch (error) { caught = error; }
     expect(scheduleCReviewCode(caught)).toBe('DEPRECIATION_REVIEW_REQUIRED');
-    expect((caught as Error).message).toMatch(/How should it be counted/);
+    expect((caught as Error).message).toBe(partialReview);
   });
 
   it('holds a partial election for review when uncovered first-year depreciation of 800 drops 5500 below the amount elected', () => {
     const assets = [asset({ cost: 9000, method: 'MACRS_5YR', section179Requested: true, section179Amount: 5000, datePlacedInService: placed })];
     expect(reviewCode(() => calc4562(assets, 5500, 2026))).toBe('DEPRECIATION_REVIEW_REQUIRED');
-    expect(() => calc4562(assets, 5500, 2026)).toThrow(/How should it be counted/);
+    expect(() => calc4562(assets, 5500, 2026)).toThrow(partialReview);
   });
 
   it('returns a partial election when uncovered first-year depreciation does not drop 50000 below the amount elected', () => {
@@ -214,14 +215,14 @@ describe('Section 179 income limit after de minimis and other depreciation', () 
   it('holds a partial election for review when uncovered first-year depreciation of 800 drops 5400 below the amount elected', () => {
     const assets = [asset({ cost: 9000, method: 'MACRS_5YR', section179Requested: true, section179Amount: 5000, datePlacedInService: placed })];
     expect(reviewCode(() => calc4562(assets, 5400, 2026))).toBe('DEPRECIATION_REVIEW_REQUIRED');
-    expect(() => calc4562(assets, 5400, 2026)).toThrow(/How should it be counted/);
+    expect(() => calc4562(assets, 5400, 2026)).toThrow(partialReview);
   });
 
   it('holds a dollar-limit partial for review when uncovered first-year depreciation of 88000 drops 2600000 below the elected cap', () => {
     const assets = [asset({ cost: 3000000, businessUsePercent: 100, method: 'MACRS_5YR', section179Requested: true, datePlacedInService: placed })];
     expect(assets[0].section179Amount).toBeUndefined();
     expect(reviewCode(() => calc4562(assets, 2600000, 2026))).toBe('DEPRECIATION_REVIEW_REQUIRED');
-    expect(() => calc4562(assets, 2600000, 2026)).toThrow(/How should it be counted/);
+    expect(() => calc4562(assets, 2600000, 2026)).toThrow(partialReview);
   });
 
   it('returns a dollar-limit partial when uncovered first-year depreciation of 88000 does not drop 2700000 below the elected cap', () => {
