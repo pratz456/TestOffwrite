@@ -377,6 +377,8 @@ export default function Form4562Page() {
                     <div className="flex justify-between"><dt>Dollar limit ({calculation.section179.source})</dt><dd className="font-medium">{money(calculation.section179.limit)}</dd></div>
                     <div className="flex justify-between"><dt>Phaseout threshold</dt><dd className="font-medium">{money(calculation.section179.phaseoutThreshold)}</dd></div>
                     <div className="flex justify-between"><dt>Business income limit (§179(b)(3)(A))</dt><dd className="font-medium">{money(calculation.section179.businessIncomeLimit)}</dd></div>
+                    <div className="flex justify-between"><dt>De minimis netted from the income limit</dt><dd className="font-medium">{money(calculation.section179.deMinimisNettedFromIncomeLimit)}</dd></div>
+                    <div className="flex justify-between"><dt>Other depreciation netted from the income limit</dt><dd className="font-medium">{money(calculation.section179.otherDepreciationNettedFromIncomeLimit)}</dd></div>
                     <div className="flex justify-between"><dt>Elected / allowed / carryover</dt><dd className="font-medium">{money(calculation.section179.elected)} / {money(calculation.section179.allowed)} / {money(calculation.section179.carryover)}</dd></div>
                   </dl>
                 </div>

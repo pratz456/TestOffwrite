@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { calc4562, DE_MINIMIS_SAFE_HARBOR_LIMIT, SECTION_179_CALCULATION_YEARS, type Asset } from '@/lib/reports/calc4562';
+import { computeScheduleCProfit, scheduleCReviewCode } from '@/lib/tax-rules/schedule-c-profit';
 import { getSection179Limits, UnsupportedTaxYearError } from '@/lib/tax-rules/federal-year-rules';
 
 const asset = (overrides: Partial<Asset> = {}): Asset => ({ id: 'a', description: 'Business computer',
@@ -87,10 +88,10 @@ describe('first-year Section 179 expensing', () => {
   });
   it('splits the election and the income limit across several elected assets by business basis', () => {
     const result = calc4562([asset({ section179Requested: true, cost: 6000 }), asset({ id: 'b', section179Requested: true, cost: 4000, method: 'MACRS_7YR', category: 'furniture' }), asset({ id: 'c', cost: 1000 })], 5000, 2026);
-    expect(result.section179).toMatchObject({ costOfSection179Property: 11000, elected: 10000, allowed: 5000, carryover: 5000 });
-    expect(result.assets.map(row => [row.section179Elected, row.section179Deduction])).toEqual([[6000, 3000], [4000, 2000], [0, 0]]);
+    expect(result.section179).toMatchObject({ costOfSection179Property: 11000, elected: 10000, allowed: 4800, carryover: 5200, businessIncomeLimit: 4800, deMinimisNettedFromIncomeLimit: 0, otherDepreciationNettedFromIncomeLimit: 200 });
+    expect(result.assets.map(row => [row.section179Elected, row.section179Deduction])).toEqual([[6000, 2880], [4000, 1920], [0, 0]]);
     expect(result.assets[2]).toMatchObject({ treatment: 'macrs', regularDepreciation: 200 });
-    expect(result.totalDepreciation).toBe(5200);
+    expect(result.totalDepreciation).toBe(5000);
   });
   it('runs the 40% mid-quarter test on basis after the §179 reduction (Publication 946 ch. 4)', () => {
     expect(() => calc4562([asset({ section179Requested: true }), asset({ id: 'b', cost: 1000, datePlacedInService: new Date('2026-11-01T00:00:00Z') })], 50000, 2026)).toThrow(/mid-quarter/);
@@ -109,5 +110,112 @@ describe('first-year Section 179 expensing', () => {
   it('refuses §179 for years without published post-OBBBA limits in this planning subset', () => {
     expect(() => calc4562([asset({ section179Requested: true, datePlacedInService: new Date('2024-05-01T00:00:00Z') })], 50000, 2024)).toThrow(/2025 or 2026/);
     expect(() => calc4562([asset({ section179Requested: true, datePlacedInService: new Date('2027-05-01T00:00:00Z') })], 50000, 2027)).toThrow(/supported tax year/);
+  });
+});
+
+describe('Section 179 income limit after de minimis and other depreciation', () => {
+  const placed = new Date('2026-03-15T00:00:00Z');
+  const profit = (grossReceipts: number, assets: Asset[], years: number[] = [2026]) => computeScheduleCProfit({
+    taxYear: 2026, grossReceipts, confirmedExpenses: 0, w2Wages: 0, assets, depreciationElections: elected(...years),
+  });
+
+  it('reduces the limit by a de minimis expense and carries the excess under §179(b)(3)(B)', () => {
+    const result = profit(10000, [
+      asset({ id: 'tool', description: 'Tool', cost: 2000, category: 'equipment', datePlacedInService: placed }),
+      asset({ id: 'computer', description: 'Computer', cost: 9000, section179Requested: true, datePlacedInService: placed }),
+    ]);
+    expect(result.assetCalculation?.section179).toMatchObject({
+      businessIncomeLimit: 8000, elected: 9000, allowed: 8000, carryover: 1000,
+      deMinimisNettedFromIncomeLimit: 2000, otherDepreciationNettedFromIncomeLimit: 0,
+    });
+    expect(result.assetCalculation?.assets.find(row => row.asset.id === 'computer')).toMatchObject({
+      section179Elected: 9000, section179Deduction: 8000, regularDepreciation: 0, remainingBasis: 0, carryoverToNextYear: 1000,
+    });
+    expect(result).toMatchObject({ deMinimisExpense: 2000, depreciationDeduction: 8000, netProfit: 0 });
+  });
+
+  it('keeps the prior limit when there is no de minimis expense and no other asset', () => {
+    const limited = calc4562([asset({ section179Requested: true })], 4000, 2026);
+    expect(limited.section179).toMatchObject({
+      businessIncomeLimit: 4000, elected: 10000, allowed: 4000, carryover: 6000,
+      deMinimisNettedFromIncomeLimit: 0, otherDepreciationNettedFromIncomeLimit: 0,
+    });
+    expect(limited.assets[0]).toMatchObject({ section179Elected: 10000, section179Deduction: 4000, regularDepreciation: 0, remainingBasis: 0, carryoverToNextYear: 6000 });
+    const open = calc4562([asset({ section179Requested: true })], 50000, 2026);
+    expect(open.section179).toMatchObject({ businessIncomeLimit: 50000, elected: 10000, allowed: 10000, carryover: 0, deMinimisNettedFromIncomeLimit: 0, otherDepreciationNettedFromIncomeLimit: 0 });
+    expect(open).toMatchObject({ totalSection179: 10000, totalRegularDepreciation: 0, totalDepreciation: 10000, totalCarryover: 0 });
+  });
+
+  it('allows Section 179 in full when de minimis is present and receipts are high', () => {
+    const result = profit(100000, [
+      asset({ id: 'tool', description: 'Tool', cost: 2000, category: 'equipment', datePlacedInService: placed }),
+      asset({ id: 'computer', description: 'Computer', cost: 9000, section179Requested: true, datePlacedInService: placed }),
+    ]);
+    expect(result.assetCalculation?.section179).toMatchObject({
+      businessIncomeLimit: 98000, elected: 9000, allowed: 9000, carryover: 0,
+      deMinimisNettedFromIncomeLimit: 2000, otherDepreciationNettedFromIncomeLimit: 0,
+    });
+    expect(result.netProfit).toBe(89000);
+  });
+
+  it('reduces the limit by first-year MACRS on an asset with no Section 179 election', () => {
+    const result = profit(10000, [
+      asset({ id: 'furniture', description: 'Furniture', cost: 50000, category: 'furniture', method: 'MACRS_7YR', section179Requested: false, datePlacedInService: placed }),
+      asset({ id: 'computer', description: 'Computer', cost: 9000, section179Requested: true, datePlacedInService: placed }),
+    ], []);
+    expect(result.assetCalculation?.section179).toMatchObject({
+      businessIncomeLimit: 2855, elected: 9000, allowed: 2855, carryover: 6145,
+      deMinimisNettedFromIncomeLimit: 0, otherDepreciationNettedFromIncomeLimit: 7145,
+    });
+    expect(result.assetCalculation?.assets.find(row => row.asset.id === 'furniture')).toMatchObject({ treatment: 'macrs', regularDepreciation: 7145, section179Elected: 0, section179Deduction: 0 });
+    expect(result.assetCalculation?.assets.find(row => row.asset.id === 'computer')).toMatchObject({
+      section179Elected: 9000, section179Deduction: 2855, regularDepreciation: 0, remainingBasis: 0, carryoverToNextYear: 6145,
+    });
+    expect(result).toMatchObject({ deMinimisExpense: 0, depreciationDeduction: 10000, netProfit: 0 });
+  });
+
+  it('sends a partial Section 179 election to review with no amount when the income limit binds', () => {
+    const partial = [asset({ cost: 9000, section179Requested: true, section179Amount: 5000, datePlacedInService: placed })];
+    expect(reviewCode(() => calc4562(partial, 4000, 2026))).toBe('DEPRECIATION_REVIEW_REQUIRED');
+    expect(() => calc4562(partial, 4000, 2026)).toThrow(/partial Section 179 election/);
+    let caught: unknown;
+    try {
+      computeScheduleCProfit({ taxYear: 2026, grossReceipts: 4000, confirmedExpenses: 0, w2Wages: 0, assets: partial });
+    } catch (error) { caught = error; }
+    expect(scheduleCReviewCode(caught)).toBe('DEPRECIATION_REVIEW_REQUIRED');
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch(/How should regular depreciation on the remaining basis affect that limit/);
+    // The same hold applies when the dollar limit, rather than a stated amount, leaves elected basis below business basis.
+    expect(reviewCode(() => calc4562([asset({ section179Requested: true, cost: 3000000 })], 150000, 2026))).toBe('DEPRECIATION_REVIEW_REQUIRED');
+  });
+
+  it('nets only the business share of a de minimis item', () => {
+    const result = profit(10000, [
+      asset({ id: 'tool', description: 'Tool', cost: 2000, businessUsePercent: 60, category: 'equipment', datePlacedInService: placed }),
+      asset({ id: 'computer', description: 'Computer', cost: 9000, section179Requested: true, datePlacedInService: placed }),
+    ]);
+    expect(result.deMinimisExpense).toBe(1200);
+    expect(result.assetCalculation?.section179).toMatchObject({
+      deMinimisNettedFromIncomeLimit: 1200, otherDepreciationNettedFromIncomeLimit: 0,
+      businessIncomeLimit: 8800, elected: 9000, allowed: 8800, carryover: 200,
+    });
+  });
+
+  // Waiting on confirmation of the sole-proprietor basis rule.
+  // $10,000 receipts, a $9,000 5-year laptop at 100% business use, $5,000 of Section 179 elected, half-year convention.
+  // Remaining basis is $4,000. The 20% first-year rate is $800 of regular depreciation.
+  // That $800 lowers the income limit to $9,200. The carryover adds nothing back to basis.
+  it.skip('lowers the income limit by regular depreciation on the basis a partial Section 179 election does not cover', () => {
+    const result = profit(10000, [
+      asset({ id: 'laptop', description: 'Laptop', cost: 9000, businessUsePercent: 100, method: 'MACRS_5YR', section179Requested: true, section179Amount: 5000, datePlacedInService: placed }),
+    ], []);
+    expect(result.assetCalculation?.section179).toMatchObject({
+      businessIncomeLimit: 9200, elected: 5000, allowed: 5000, carryover: 0,
+      deMinimisNettedFromIncomeLimit: 0, otherDepreciationNettedFromIncomeLimit: 800,
+    });
+    expect(result.assetCalculation?.assets[0]).toMatchObject({
+      section179Elected: 5000, section179Deduction: 5000, regularDepreciation: 800, remainingBasis: 3200, carryoverToNextYear: 0,
+    });
+    expect(result.netProfit).toBe(4200);
   });
 });

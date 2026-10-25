@@ -49,11 +49,13 @@ export interface ScheduleCProfit {
  * One Schedule C ordering shared by the annual snapshot, the SE loader and the exports:
  * confirmed expenses → de minimis expenses and Form 4562 depreciation (line 13) → line 29
  * tentative profit → home office (line 30) → line 31 net profit.
- * The §179(b)(3) limit uses business income before §179 and before line 30; Form 4562 line 11
- * technically references Schedule C line 31 computed without §179 while the Simplified Method
- * Worksheet line 1 starts from line 29 after §179, which makes the two limits circular. This
- * planning estimate applies §179 first; whenever the §179 income limit binds, line 29 is already
- * at or below zero, so the home office amount is $0 and the ordering cannot overstate either.
+ * The figure passed to calc4562 is profit before asset deductions plus W-2 wages. calc4562
+ * then subtracts de minimis expenses and regular depreciation on assets with no section 179
+ * amount. W-2 wages stay in the limit. Form 4562 line 11 technically references Schedule C
+ * line 31 computed without §179 while the Simplified Method Worksheet line 1 starts from
+ * line 29 after §179, which makes the two limits circular. This planning estimate applies
+ * §179 first; whenever the §179 income limit binds, line 29 is already at or below zero, so
+ * the home office amount is $0 and the ordering cannot overstate either.
  */
 export function computeScheduleCProfit(input: ScheduleCProfitInput): ScheduleCProfit {
   const cents = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;

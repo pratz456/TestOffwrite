@@ -9,6 +9,8 @@ export interface Asset {
   category: 'computer' | 'furniture' | 'vehicle' | 'equipment' | 'other';
   method: 'MACRS_5YR' | 'MACRS_7YR' | 'SL'; // Straight Line
   section179Requested: boolean;
+  /** When set, the §179 election is this dollar amount instead of the full business basis. */
+  section179Amount?: number;
   bonusEligible: boolean;
 }
 
@@ -45,8 +47,15 @@ export interface Section179Summary {
   /** Cost of all §179 property placed in service this year (§179(b)(2) reduction base). */
   costOfSection179Property: number;
   dollarLimitAfterPhaseout: number;
-  /** §179(b)(3)(A): aggregate active trade/business taxable income supplied by the caller. */
+  /**
+   * §179(b)(3)(A) limit after de minimis expenses and depreciation on assets with no §179 amount.
+   * W-2 wages stay in the caller-supplied income this limit starts from.
+   */
   businessIncomeLimit: number;
+  /** Business share of de minimis safe harbor expenses subtracted to reach businessIncomeLimit. */
+  deMinimisNettedFromIncomeLimit: number;
+  /** Regular depreciation, plus bonus when calculated, on assets with no §179 amount, subtracted to reach businessIncomeLimit. */
+  otherDepreciationNettedFromIncomeLimit: number;
   elected: number;
   allowed: number;
   carryover: number;
@@ -95,14 +104,28 @@ const assetDate = (value: unknown): Date => {
 const businessBasis = (asset: Asset) => asset.cost * asset.businessUsePercent / 100;
 
 /**
+ * Half-year MACRS from Publication 946 Tables A-1 (5-year, 20%) and A-2 (7-year, 14.29%).
+ * Bonus is 0 until acquisition-date facts are collected. A calculated bonus is part of this allowance.
+ */
+const firstYearDepreciation = (asset: Asset, depreciableBasis: number) => {
+  const regularDepreciation = roundCents(depreciableBasis * (asset.method === 'MACRS_5YR' ? 0.2 : 0.1429));
+  const bonusDepreciation = 0;
+  return { regularDepreciation, bonusDepreciation };
+};
+
+/**
  * Supported subset, in Publication 946 order (§179 first, then MACRS):
  * - De minimis safe harbor: items at or under $2,500 in a year the taxpayer elected
  *   Reg. §1.263(a)-1(f) are current expenses, never MACRS property.
  * - §179: first-year, nonlisted 5/7-year property with more than 50% qualified business
  *   use (Reg. §1.179-1(d)) placed in service in 2025 or 2026, limited to the published
- *   §179(b)(1)/(b)(2) dollar limit and to business taxable income under §179(b)(3)(A);
- *   the disallowed amount carries forward (§179(b)(3)(B)) and still reduces basis
+ *   §179(b)(1)/(b)(2) dollar limit and to business taxable income under §179(b)(3)(A)
+ *   after de minimis expenses and regular depreciation on assets with no §179 amount.
+ *   The disallowed amount carries forward (§179(b)(3)(B)) and still reduces basis
  *   (Reg. §1.179-1(f)(1), §1.179-3).
+ * - A partial §179 election (elected amount below business basis) whose income limit
+ *   binds is not given a deduction. Depreciation on that uncovered basis and the
+ *   income limit depend on each other.
  * - Remaining basis: half-year MACRS from Publication 946 Tables A-1/A-2.
  * Bonus depreciation (acquisition-date and binding-contract tests, class elections),
  * vehicles/listed property (§280F caps, substantiation), prior-year basis, straight-line
@@ -143,6 +166,16 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
     if (asset.businessUsePercent <= 50) throw new DepreciationReviewRequiredError('Section 179 requires more than 50% qualified business use in the year the property is placed in service (Reg. §1.179-1(d)); otherwise the election is unavailable.');
   }
 
+  // Reg. §1.179-2(c)(1) and Form 4562 line 11: taxable income for the limit is figured
+  // without the §179 deduction, the §164(f) deduction, and NOL deductions. Every other
+  // deduction lowers it. De minimis expenses and depreciation on assets with no §179
+  // amount are known before the cap. W-2 wages stay in the caller-supplied income.
+  const deMinimisBusinessShare = roundCents(deMinimis.reduce((sum, asset) => sum + roundCents(businessBasis(asset)), 0));
+  const otherAssetsRegularDepreciation = roundCents(depreciable.filter(asset => !asset.section179Requested).reduce((sum, asset) => {
+    const allowance = firstYearDepreciation(asset, businessBasis(asset));
+    return sum + allowance.regularDepreciation + allowance.bonusDepreciation;
+  }, 0));
+
   let section179: Section179Summary | null = null;
   const elected = new Map<Asset, number>();
   const allowed = new Map<Asset, number>();
@@ -150,27 +183,48 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
     const limits = getSection179Limits(taxYear);
     const costOfSection179Property = depreciable.reduce((sum, asset) => sum + asset.cost, 0);
     const dollarLimitAfterPhaseout = Math.max(0, limits.limit - Math.max(0, costOfSection179Property - limits.phaseoutThreshold));
-    const requested = electing.reduce((sum, asset) => sum + businessBasis(asset), 0);
-    const electedTotal = Math.min(requested, dollarLimitAfterPhaseout);
-    const businessIncomeLimit = Math.max(0, businessIncome);
-    const allowedTotal = Math.min(electedTotal, businessIncomeLimit);
+    const requestedAmount = (asset: Asset) => {
+      const basis = businessBasis(asset);
+      if (asset.section179Amount === undefined) return basis;
+      if (!Number.isFinite(asset.section179Amount) || asset.section179Amount <= 0 || asset.section179Amount - basis > 0.000001) {
+        throw new DepreciationReviewRequiredError('Section 179 amount must be greater than zero and no more than the business basis.');
+      }
+      return roundCents(asset.section179Amount);
+    };
+    const requested = roundCents(electing.reduce((sum, asset) => sum + requestedAmount(asset), 0));
+    const electedTotal = roundCents(Math.min(requested, dollarLimitAfterPhaseout));
+    const businessIncomeLimit = Math.max(0, roundCents(businessIncome - deMinimisBusinessShare - otherAssetsRegularDepreciation));
     // Pro-rata allocation across elected assets; Reg. §1.179-3(b) lets the taxpayer
     // pick which properties carry the disallowed amount, so this split is a planning default.
-    let electedRemaining = roundCents(electedTotal), allowedRemaining = roundCents(allowedTotal);
+    let electedRemaining = roundCents(electedTotal);
     electing.forEach((asset, index) => {
       const last = index === electing.length - 1;
-      const share = requested > 0 ? businessBasis(asset) / requested : 0;
+      const share = requested > 0 ? requestedAmount(asset) / requested : 0;
       const assetElected = last ? electedRemaining : roundCents(electedTotal * share);
-      const assetAllowed = last ? allowedRemaining : roundCents(allowedTotal * share);
       electedRemaining = roundCents(electedRemaining - assetElected);
-      allowedRemaining = roundCents(allowedRemaining - assetAllowed);
       elected.set(asset, assetElected);
+    });
+    const partialElection = electing.some(asset => roundCents(businessBasis(asset) - (elected.get(asset) ?? 0)) > 0);
+    // Depreciation on the basis a partial election does not cover depends on the §179
+    // amount, and that amount depends on the income limit. That order is not confirmed.
+    if (partialElection && businessIncomeLimit < electedTotal) {
+      throw new DepreciationReviewRequiredError('A partial Section 179 election is below the business basis and the income limit is below the amount elected. How should regular depreciation on the remaining basis affect that limit?');
+    }
+    const allowedTotal = Math.min(electedTotal, businessIncomeLimit);
+    let allowedRemaining = roundCents(allowedTotal);
+    electing.forEach((asset, index) => {
+      const last = index === electing.length - 1;
+      const share = requested > 0 ? requestedAmount(asset) / requested : 0;
+      const assetAllowed = last ? allowedRemaining : roundCents(allowedTotal * share);
+      allowedRemaining = roundCents(allowedRemaining - assetAllowed);
       allowed.set(asset, assetAllowed);
     });
     section179 = {
       electionYear: taxYear, limit: limits.limit, phaseoutThreshold: limits.phaseoutThreshold, costOfSection179Property,
       dollarLimitAfterPhaseout, businessIncomeLimit, elected: roundCents(electedTotal), allowed: roundCents(allowedTotal),
       carryover: roundCents(electedTotal - allowedTotal), source: limits.source,
+      deMinimisNettedFromIncomeLimit: deMinimisBusinessShare,
+      otherDepreciationNettedFromIncomeLimit: otherAssetsRegularDepreciation,
     };
     notes.push(`Section 179 election year ${taxYear}: the deduction is limited to business taxable income under §179(b)(3)(A); any carryover is reported on Form 4562 line 13 and reduces basis now (Reg. §1.179-1(f)). Recapture applies if business use falls to 50% or less (§179(d)(10)).`);
     if (requested > dollarLimitAfterPhaseout) notes.push(`Requested §179 amounts exceed the ${taxYear} dollar limit after the §179(b)(2) phaseout (${limits.source}); the excess stays in MACRS.`);
@@ -195,17 +249,17 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
     }
     const section179Elected = elected.get(asset) ?? 0;
     const section179Deduction = allowed.get(asset) ?? 0;
-    const regularDepreciation = roundCents((basis - section179Elected) * (asset.method === 'MACRS_5YR' ? 0.2 : 0.1429));
+    const { regularDepreciation, bonusDepreciation } = firstYearDepreciation(asset, basis - section179Elected);
     return { asset, treatment: section179Elected > 0 ? 'section_179' : 'macrs', deMinimisExpense: 0, section179Elected, section179Deduction,
-      bonusDepreciation: 0, regularDepreciation, totalDepreciation: roundCents(section179Deduction + regularDepreciation),
-      remainingBasis: roundCents(basis - section179Elected - regularDepreciation), carryoverToNextYear: roundCents(section179Elected - section179Deduction) };
+      bonusDepreciation, regularDepreciation, totalDepreciation: roundCents(section179Deduction + regularDepreciation + bonusDepreciation),
+      remainingBasis: roundCents(basis - section179Elected - regularDepreciation - bonusDepreciation), carryoverToNextYear: roundCents(section179Elected - section179Deduction) };
   });
   const sum = (select: (row: AssetCalculation) => number) => roundCents(calculations.reduce((total, row) => total + select(row), 0));
   const totalSection179 = sum(row => row.section179Deduction);
   const totalRegularDepreciation = sum(row => row.regularDepreciation);
   return {
     taxYear, assets: calculations, totalDeMinimisExpense: sum(row => row.deMinimisExpense), section179, totalSection179,
-    totalBonusDepreciation: 0, totalRegularDepreciation, totalDepreciation: roundCents(totalSection179 + totalRegularDepreciation),
+    totalBonusDepreciation: sum(row => row.bonusDepreciation), totalRegularDepreciation, totalDepreciation: roundCents(totalSection179 + totalRegularDepreciation + sum(row => row.bonusDepreciation)),
     totalCarryover: sum(row => row.carryoverToNextYear), notes,
   };
 }
