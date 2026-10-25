@@ -3,7 +3,7 @@
 import React from 'react';
 import { ArrowUpRight, ChevronDown, FileText, Info } from 'lucide-react';
 import { TaxCalculationNotice } from '@/components/tax-calculation-notice';
-import { reviewTargetForCode, type DashboardTaxState } from '@/lib/tax/dashboard-snapshot';
+import { isSection179PartialHold, reviewTargetForCode, type DashboardTaxState } from '@/lib/tax/dashboard-snapshot';
 
 interface KpiGridProps {
   state: DashboardTaxState;
@@ -25,30 +25,32 @@ export function KpiGrid({ state, taxYear, confirmedDeductions, onRetry, onReview
     </section>;
   }
   if (state.status !== 'ready') {
-    const target = reviewTargetForCode(state.code, state.message);
+    const partialHold = state.status === 'review' && isSection179PartialHold(state.code, state.kind);
+    const target = reviewTargetForCode(state.code, state.kind);
     const netRefunds = confirmedDeductions?.totalDeductible != null && confirmedDeductions.totalDeductible < 0;
     return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-card shadow-sm" aria-label={`${taxYear} federal tax overview`}>
       <div className="bg-slate-900 px-5 py-4 text-white sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="flex items-center gap-2 text-xs font-medium text-slate-300"><FileText className="h-4 w-4" aria-hidden="true" /> {taxYear} · Federal taxes</p>
-          <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2.5 py-1 text-[11px] font-semibold text-amber-200">{state.status === 'review' ? 'Needs review' : 'Estimate unavailable'}</span>
+          <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2.5 py-1 text-[11px] font-semibold text-amber-200">{partialHold ? 'Tax estimate on hold' : state.status === 'review' ? 'Needs review' : 'Estimate unavailable'}</span>
         </div>
         <div role="alert">
-          <h2 className="mt-3 max-w-md text-xl font-semibold leading-tight tracking-tight sm:text-2xl">{taxYear} federal estimate {state.status === 'review' ? 'needs review' : 'unavailable'}</h2>
-          {state.status === 'review' ? <>
+          <h2 className="mt-3 max-w-md text-xl font-semibold leading-tight tracking-tight sm:text-2xl">{partialHold ? 'Tax estimate on hold' : `${taxYear} federal estimate ${state.status === 'review' ? 'needs review' : 'unavailable'}`}</h2>
+          {partialHold ? <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-300">{state.message}</p>
+            : state.status === 'review' ? <>
             <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-300">{state.code === 'INCOME_RECONCILIATION_REQUIRED'
               ? 'Check overlapping income so the same payment is counted once.'
               : 'Resolve the flagged details to see your estimated balance or refund.'}</p>
           </> : <p className="mt-2 text-sm leading-relaxed text-slate-300">{state.message}</p>}
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
-            {state.status === 'review' && <button className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-white px-3 text-sm font-semibold text-slate-900 transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900" onClick={() => onReview(target.screen)}>{target.label}</button>}
+          {!partialHold && <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+            {state.status === 'review' && target.screen && <button className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-white px-3 text-sm font-semibold text-slate-900 transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900" onClick={() => onReview(target.screen!)}>{target.label}</button>}
             <button className="min-h-11 rounded-md text-xs font-medium text-slate-300 underline underline-offset-4 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" onClick={onRetry}>Retry estimate</button>
-          </div>
+          </div>}
         </div>
       </div>
       {confirmedDeductions && <div className="px-5 py-3 sm:px-6"><dl className="flex flex-wrap items-baseline justify-between gap-2"><dt className="text-xs font-medium text-muted-foreground">{taxYear} confirmed expenses</dt><dd className="text-xl font-semibold tracking-tight tabular-nums text-foreground">{confirmedDeductions.totalDeductible === null ? 'Needs review' : formatUSD(confirmedDeductions.totalDeductible)}</dd></dl>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{confirmedDeductions.reviewMessage || (netRefunds ? 'Recorded refunds exceed confirmed expenses. Assets and home office are separate.' : 'After category limits and refunds. Assets and home office are separate.')}</p></div>}
-      {state.status === 'review' && <details className="group border-t border-border/60">
+      {state.status === 'review' && !isSection179PartialHold(state.code, state.kind) && <details className="group border-t border-border/60">
         <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-5 py-2 text-xs text-muted-foreground sm:px-6 [&::-webkit-details-marker]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"><Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /><span className="flex-1">Why review is needed</span><ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden="true" /></summary>
         <p className="px-5 pb-4 text-xs leading-relaxed text-muted-foreground sm:px-6">{state.message}</p>
       </details>}

@@ -10,6 +10,7 @@ import { loadScheduleCRecords, loadScheduleSEData, scheduleCProfitFromRecords } 
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { exportYear } from '@/lib/reports/transaction-export';
 import { HomeOfficeReviewRequiredError, homeOfficeReviewReasons } from '@/lib/reports/calc8829';
+import { reviewErrorJson } from '@/lib/reports/calc4562';
 import { enforceRateLimit, RATE_LIMITS, rateLimitResponse } from '@/lib/security/rate-limit';
 
 const REVIEW_CODES = ['TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', 'EXPORT_REVIEW_REQUIRED', 'DEPRECIATION_REVIEW_REQUIRED', 'HOME_OFFICE_REVIEW_REQUIRED', 'HOME_OFFICE_DETAILS_REQUIRED', 'INVALID_HOME_OFFICE_INPUT', 'FILING_STATUS_REVIEW_REQUIRED', 'INCOME_RECONCILIATION_REQUIRED'];
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
     if (REVIEW_CODES.includes(code)) {
-      return NextResponse.json({ error: error instanceof Error ? error.message : 'Additional tax details required', code }, { status: 422 });
+      return NextResponse.json(reviewErrorJson(error, 'Additional tax details required'), { status: 422 });
     }
     return NextResponse.json({ error: 'Could not load a complete report. Please retry.' }, { status: 503 });
   }

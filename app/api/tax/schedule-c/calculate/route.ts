@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { loadScheduleSEData } from '@/lib/reports/load-schedule-se';
+import { reviewErrorJson } from '@/lib/reports/calc4562';
 export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
@@ -17,7 +18,7 @@ export async function GET(request: NextRequest) {
       message: 'Provisional business subtotal. Review returns/allowances, COGS and other uncollected adjustments before filing; the home office amount is the simplified-method planning estimate from your saved facts.' } }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
-    if (['TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', 'EXPORT_REVIEW_REQUIRED', 'INCOME_RECONCILIATION_REQUIRED', 'FILING_STATUS_REVIEW_REQUIRED', 'DEPRECIATION_REVIEW_REQUIRED', 'HOME_OFFICE_REVIEW_REQUIRED'].includes(code)) return NextResponse.json({ error: error instanceof Error ? error.message : 'Review business records.', code }, { status: 422 });
+    if (['TAX_CALCULATION_SCOPE_REVIEW_REQUIRED', 'EXPORT_REVIEW_REQUIRED', 'INCOME_RECONCILIATION_REQUIRED', 'FILING_STATUS_REVIEW_REQUIRED', 'DEPRECIATION_REVIEW_REQUIRED', 'HOME_OFFICE_REVIEW_REQUIRED'].includes(code)) return NextResponse.json(reviewErrorJson(error, 'Review business records.'), { status: 422 });
     return NextResponse.json({ error: 'Could not load business records. Please retry.' }, { status: 503 });
   }
 }

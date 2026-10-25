@@ -76,10 +76,30 @@ export interface Form4562Calculation {
   notes: string[];
 }
 
+/** Structured flag for the partial Section 179 income-limit hold. Other depreciation reviews leave this unset. */
+export const SECTION_179_PARTIAL_HOLD_KIND = 'section179_partial_hold' as const;
+export type Section179PartialHoldKind = typeof SECTION_179_PARTIAL_HOLD_KIND;
+
+export function isSection179PartialHold(code?: string | null, kind?: string | null): boolean {
+  return code === 'DEPRECIATION_REVIEW_REQUIRED' && kind === SECTION_179_PARTIAL_HOLD_KIND;
+}
+
+/** 422 body for a review error. `kind` is included only for the partial Section 179 hold. */
+export function reviewErrorJson(error: unknown, fallback: string): { error: string; code: string; kind?: Section179PartialHoldKind } {
+  const record = error && typeof error === 'object' ? error as { code?: unknown; kind?: unknown } : {};
+  const code = typeof record.code === 'string' ? record.code : '';
+  const kind = record.kind === SECTION_179_PARTIAL_HOLD_KIND ? SECTION_179_PARTIAL_HOLD_KIND : undefined;
+  return { error: error instanceof Error ? error.message : fallback, code, ...(kind ? { kind } : {}) };
+}
+
 /** The current asset form lacks the facts needed to calculate elections and prior-year basis. */
 export class DepreciationReviewRequiredError extends Error {
   readonly code = 'DEPRECIATION_REVIEW_REQUIRED';
-  constructor(detail: string, prefix = 'Asset depreciation needs review: ') { super(`${prefix}${detail}`); }
+  readonly kind?: Section179PartialHoldKind;
+  constructor(detail: string, prefix = 'Asset depreciation needs review: ', kind?: Section179PartialHoldKind) {
+    super(`${prefix}${detail}`);
+    if (kind) this.kind = kind;
+  }
 }
 
 /**
@@ -218,7 +238,7 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
     }, 0));
     if (partialElection && (businessIncomeLimit - partialRemainingDepreciation) < electedTotal) {
       // The user-facing copy is a placeholder pending approval.
-      throw new DepreciationReviewRequiredError("We can't show your business profit, Form 4562 or tax estimate right now. We're still confirming how a tax rule applies to one of your assets: part of its cost isn't covered by the Section 179 deduction this year, and depreciation on that part may lower how much you can deduct this year. Your numbers will show again once we've confirmed the rule. There's nothing you need to do.", 'Tax estimate on hold: ');
+      throw new DepreciationReviewRequiredError("We can't show your business profit, Form 4562 or tax estimate right now. We're still confirming how a tax rule applies to one of your assets: part of its cost isn't covered by the Section 179 deduction this year, and depreciation on that part may lower how much you can deduct. Your numbers will show again once we've confirmed the rule. There's nothing you need to do.", 'Tax estimate on hold: ', SECTION_179_PARTIAL_HOLD_KIND);
     }
     const allowedTotal = Math.min(electedTotal, businessIncomeLimit);
     let allowedRemaining = roundCents(allowedTotal);

@@ -15,7 +15,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { useToasts } from '@/components/ui/toast';
 import { ToastContainer } from '@/components/ui/toast';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
-import { type Asset, type AssetCalculation, type Form4562Calculation, type DepreciationElections } from '@/lib/reports/calc4562';
+import { SECTION_179_PARTIAL_HOLD_KIND, type Asset, type AssetCalculation, type Form4562Calculation, type DepreciationElections, type Section179PartialHoldKind } from '@/lib/reports/calc4562';
 
 interface Form4562Worksheet {
   taxYear: number;
@@ -30,7 +30,7 @@ interface Form4562Worksheet {
 type WorksheetState =
   | { status: 'loading' }
   | { status: 'ready'; data: Form4562Worksheet }
-  | { status: 'review'; code: string; message: string }
+  | { status: 'review'; code: string; message: string; kind?: Section179PartialHoldKind }
   | { status: 'error'; message: string };
 
 const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -70,7 +70,8 @@ export default function Form4562Page() {
         const listed = await makeAuthenticatedRequest('/api/settings/assets').then(res => res.ok ? res.json() : { data: [] }).catch(() => ({ data: [] }));
         if (current !== requestId.current) return;
         setAssets(Array.isArray(listed.data) ? listed.data : []);
-        setState({ status: 'review', code: body.code, message: body.error || 'Review the saved asset records before calculating.' });
+        const kind = body.kind === SECTION_179_PARTIAL_HOLD_KIND ? SECTION_179_PARTIAL_HOLD_KIND : undefined;
+        setState({ status: 'review', code: body.code, message: body.error || 'Review the saved asset records before calculating.', ...(kind ? { kind } : {}) });
         return;
       }
       if (!response.ok) throw new Error(body.error || 'The depreciation worksheet could not be loaded.');
@@ -300,12 +301,12 @@ export default function Form4562Page() {
               </Select>
             </div>
           </div>
-          <PremiumFeatureGate feature="exports" featureName="tax form exports" inline>
+          {!(state.status === 'review' && state.kind === SECTION_179_PARTIAL_HOLD_KIND) && <PremiumFeatureGate feature="exports" featureName="tax form exports" inline>
             <Button onClick={handleExport} disabled={isExporting || !canExport} className="w-full bg-blue-600 hover:bg-blue-700 text-white">
               <Download className="w-4 h-4 mr-2" />
               {isExporting ? 'Generating...' : `Export ${selectedYear} Form 4562 worksheet`}
             </Button>
-          </PremiumFeatureGate>
+          </PremiumFeatureGate>}
         </Card>
 
         <Card className="p-4">
@@ -320,7 +321,14 @@ export default function Form4562Page() {
             </div>
           )}
 
-          {state.status === 'review' && (
+          {state.status === 'review' && state.kind === SECTION_179_PARTIAL_HOLD_KIND && (
+            <div className="py-6 text-center" role="alert">
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Tax estimate on hold</h3>
+              <p className="text-sm text-gray-700 max-w-xl mx-auto">{state.message}</p>
+            </div>
+          )}
+
+          {state.status === 'review' && state.kind !== SECTION_179_PARTIAL_HOLD_KIND && (
             <div className="space-y-4" role="alert">
               <div className="text-center py-6">
                 <AlertCircle className="w-12 h-12 text-amber-400 mx-auto mb-4" />

@@ -20,6 +20,7 @@ import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
+  isSection179PartialHold,
   loadDashboardTaxSnapshot,
   reviewTargetForCode,
   type DashboardTaxState,
@@ -112,34 +113,38 @@ export function FileTaxesScreen() {
     }
 
     if (taxState.status !== "ready") {
-      const target = reviewTargetForCode(taxState.code, taxState.message);
+      const partialHold = taxState.status === "review" && isSection179PartialHold(taxState.code, taxState.kind);
+      const target = reviewTargetForCode(taxState.code, taxState.kind);
       return (
         <div
           role="alert"
           className="rounded-lg border border-amber-300 bg-amber-50/60 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-100"
         >
           <h4 className="font-medium">
-            {selectedYear} Schedule C summary{" "}
-            {taxState.status === "review" ? "needs review" : "unavailable"}
+            {partialHold
+              ? "Tax estimate on hold"
+              : `${selectedYear} Schedule C summary ${taxState.status === "review" ? "needs review" : "unavailable"}`}
           </h4>
           <p className="mt-1">{taxState.message}</p>
-          <div className="mt-2 flex flex-wrap gap-x-4">
-            {taxState.status === "review" && (
-              <Link
-                href={protectedScreenUrl(target.screen)}
-                className="min-h-[44px] inline-flex items-center underline underline-offset-4 font-medium"
+          {!partialHold && (
+            <div className="mt-2 flex flex-wrap gap-x-4">
+              {taxState.status === "review" && target.screen && (
+                <Link
+                  href={protectedScreenUrl(target.screen)}
+                  className="min-h-[44px] inline-flex items-center underline underline-offset-4 font-medium"
+                >
+                  {target.label}
+                </Link>
+              )}
+              <button
+                type="button"
+                className="min-h-[44px] underline underline-offset-4"
+                onClick={() => setAttempt(count => count + 1)}
               >
-                {target.label}
-              </Link>
-            )}
-            <button
-              type="button"
-              className="min-h-[44px] underline underline-offset-4"
-              onClick={() => setAttempt(count => count + 1)}
-            >
-              Retry summary
-            </button>
-          </div>
+                Retry summary
+              </button>
+            </div>
+          )}
         </div>
       );
     }

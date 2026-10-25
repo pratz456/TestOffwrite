@@ -40,6 +40,7 @@ import { getScheduleCSettings } from '@/lib/firebase/settings-server';
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
 import { incomeReconciliationReviewBody } from '@/lib/tax-rules/income-reconciliation-response';
 import { scheduleCReviewCode } from '@/lib/tax-rules/schedule-c-profit';
+import { reviewErrorJson } from '@/lib/reports/calc4562';
 
 const PW = 612, PH = 792, ML = 36, MR = 576, MT = 756;
 const BLACK  = rgb(0, 0, 0);
@@ -479,7 +480,7 @@ export async function POST(request: NextRequest) {
     if (err instanceof ExportReviewRequiredError || err instanceof IncomeReconciliationRequiredError || err instanceof TaxCalculationScopeReviewRequiredError || err instanceof FilingStatusReviewRequiredError || err instanceof SocialSecurityReviewRequiredError || err instanceof PersonalDeductionReviewRequiredError || err instanceof DependentCreditReviewRequiredError
       || err instanceof CapitalGainReviewRequiredError || err instanceof BusinessLossReviewRequiredError || err instanceof OBBBADeductionReviewRequiredError || err instanceof QBIReviewRequiredError) return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
     const reviewCode = scheduleCReviewCode(err);
-    if (reviewCode) return NextResponse.json({ error: err instanceof Error ? err.message : 'Schedule C records need review', code: reviewCode }, { status: 422 });
+    if (reviewCode) return NextResponse.json(reviewErrorJson(err, 'Schedule C records need review'), { status: 422 });
     if (err instanceof ExportDataUnavailableError) return NextResponse.json({ error: err.message, code: err.code }, { status: 503 });
     console.error('[1040 Export]', err);
     return NextResponse.json({ error: 'Failed to generate Form 1040' }, { status: 500 });

@@ -116,7 +116,7 @@ describe('first-year Section 179 expensing', () => {
 
 describe('Section 179 income limit after de minimis and other depreciation', () => {
   const placed = new Date('2026-03-15T00:00:00Z');
-  const partialReview = "Tax estimate on hold: We can't show your business profit, Form 4562 or tax estimate right now. We're still confirming how a tax rule applies to one of your assets: part of its cost isn't covered by the Section 179 deduction this year, and depreciation on that part may lower how much you can deduct this year. Your numbers will show again once we've confirmed the rule. There's nothing you need to do.";
+  const partialReview = "Tax estimate on hold: We can't show your business profit, Form 4562 or tax estimate right now. We're still confirming how a tax rule applies to one of your assets: part of its cost isn't covered by the Section 179 deduction this year, and depreciation on that part may lower how much you can deduct. Your numbers will show again once we've confirmed the rule. There's nothing you need to do.";
   const profit = (grossReceipts: number, assets: Asset[], years: number[] = [2026]) => computeScheduleCProfit({
     taxYear: 2026, grossReceipts, confirmedExpenses: 0, w2Wages: 0, assets, depreciationElections: elected(...years),
   });
@@ -181,11 +181,18 @@ describe('Section 179 income limit after de minimis and other depreciation', () 
     expect(reviewCode(() => calc4562(partial, 4000, 2026))).toBe('DEPRECIATION_REVIEW_REQUIRED');
     expect(() => calc4562(partial, 4000, 2026)).toThrow(partialReview);
     expect(partialReview).not.toContain('needs review');
-    expect(reviewTargetForCode('DEPRECIATION_REVIEW_REQUIRED', partialReview)).toEqual({ screen: 'settings', label: 'Tax estimate on hold' });
+    expect(partialReview.match(/this year/g)).toEqual(['this year']);
+    let held: unknown;
+    try { calc4562(partial, 4000, 2026); } catch (error) { held = error; }
+    expect(held).toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold', message: partialReview });
+    expect(reviewTargetForCode('DEPRECIATION_REVIEW_REQUIRED', 'section179_partial_hold')).toEqual({ label: 'Tax estimate on hold' });
+    expect(reviewTargetForCode('DEPRECIATION_REVIEW_REQUIRED', partialReview)).toEqual({ screen: 'settings', label: 'Review asset records' });
     let other: unknown;
     try { calc4562([asset({ category: 'vehicle', section179Requested: true })], 50000, 2026); } catch (error) { other = error; }
     expect((other as Error).message.startsWith('Asset depreciation needs review: ')).toBe(true);
+    expect(other).not.toHaveProperty('kind');
     expect(reviewTargetForCode((other as { code?: string }).code, (other as Error).message)).toEqual({ screen: 'settings', label: 'Review asset records' });
+    expect(reviewTargetForCode((other as { code?: string }).code)).toEqual({ screen: 'settings', label: 'Review asset records' });
     let caught: unknown;
     try {
       computeScheduleCProfit({ taxYear: 2026, grossReceipts: 4000, confirmedExpenses: 0, w2Wages: 0, assets: partial });

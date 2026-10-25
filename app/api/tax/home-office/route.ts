@@ -3,6 +3,7 @@ import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { loadScheduleCRecords, scheduleCProfitFromRecords } from '@/lib/reports/load-schedule-se';
 import { homeOfficeReviewReasons } from '@/lib/reports/calc8829';
+import { reviewErrorJson } from '@/lib/reports/calc4562';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
   try { records = await loadScheduleCRecords(user.uid, year); }
   catch (loadError) {
     const code = loadError && typeof loadError === 'object' && 'code' in loadError ? String(loadError.code) : '';
-    if (REVIEW_CODES.includes(code)) return NextResponse.json({ error: loadError instanceof Error ? loadError.message : 'Review the tax records before calculating.', code }, { status: 422 });
+    if (REVIEW_CODES.includes(code)) return NextResponse.json(reviewErrorJson(loadError, 'Review the tax records before calculating.'), { status: 422 });
     return NextResponse.json({ error: 'Could not load all records needed for this worksheet. Please retry.' }, { status: 503 });
   }
   const reviewReasons = homeOfficeReviewReasons(records.homeOffice);
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
   } catch (calcError) {
     const code = calcError && typeof calcError === 'object' && 'code' in calcError ? String(calcError.code) : '';
     if (REVIEW_CODES.includes(code)) {
-      return NextResponse.json({ error: calcError instanceof Error ? calcError.message : 'Review the tax records before calculating.', code, reviewReasons, settings: records.homeOffice }, { status: 422, headers });
+      return NextResponse.json({ ...reviewErrorJson(calcError, 'Review the tax records before calculating.'), reviewReasons, settings: records.homeOffice }, { status: 422, headers });
     }
     return NextResponse.json({ error: 'Could not calculate the home office worksheet. Please retry.' }, { status: 503 });
   }

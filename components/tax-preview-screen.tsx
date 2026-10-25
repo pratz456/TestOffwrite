@@ -10,7 +10,7 @@ import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 import type { BusinessTaxNotice, StateTaxComponents, StateTaxLine } from "@/lib/tax-rules/state";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
-import { reviewTargetForCode } from "@/lib/tax/dashboard-snapshot";
+import { isSection179PartialHold, reviewTargetForCode } from "@/lib/tax/dashboard-snapshot";
 
 interface Props {
   user: { id: string; email?: string };
@@ -72,6 +72,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reviewCode, setReviewCode] = useState<string | null>(null);
+  const [reviewKind, setReviewKind] = useState<string | null>(null);
   const [reviewConflicts, setReviewConflicts] = useState<Array<{ message: string; sources: Array<{ label: string; amount: number }> }>>([]);
   const [data, setData] = useState<any>(null);
   const [showDetails, setShowDetails] = useState(false);
@@ -79,13 +80,14 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
 
   const load = useCallback(async () => {
     const currentRequest = ++requestId.current;
-    setLoading(true); setError(null); setReviewCode(null); setReviewConflicts([]); setData(null);
+    setLoading(true); setError(null); setReviewCode(null); setReviewKind(null); setReviewConflicts([]); setData(null);
     try {
       const res = await makeAuthenticatedRequest(`/api/tax/compute-1040?year=${year}`);
       const result = await res.json();
       if (!res.ok) {
         if (currentRequest === requestId.current && res.status === 422 && typeof result.code === 'string') {
           setReviewCode(result.code);
+          setReviewKind(result.kind === 'section179_partial_hold' ? result.kind : null);
           // The income gate names conflicting records by reference so the owner knows what to reconcile.
           setReviewConflicts(Array.isArray(result.conflicts) ? result.conflicts.filter((c: unknown) => c && typeof c === 'object' && typeof (c as { message?: unknown }).message === 'string') : []);
         }
@@ -124,6 +126,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
   }
   const nextStep = gaps[0] ?? { msg: "Review your saved income and tax details", screen: "tax-organizer" };
   const amountOrDash = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? fmt(value) : "—";
+  const partialHold = isSection179PartialHold(reviewCode, reviewKind);
 
   return (
     <div className="min-h-full bg-background">
@@ -139,9 +142,9 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
               {[...SUPPORTED_TAX_YEARS].reverse().map(y => <SelectItem key={y} value={String(y)} className="min-h-11 text-base">{y}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Button onClick={load} aria-label="Refresh tax estimate" variant="ghost" size="icon" className="h-11 w-11 shrink-0 rounded-xl" disabled={loading}>
+          {!partialHold && <Button onClick={load} aria-label="Refresh tax estimate" variant="ghost" size="icon" className="h-11 w-11 shrink-0 rounded-xl" disabled={loading}>
             <RefreshCw aria-hidden="true" className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          </Button>
+          </Button>}
         </div>
       </header>
 
@@ -165,15 +168,16 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
             )}
             {onNavigate && reviewCode === 'HOME_OFFICE_REVIEW_REQUIRED' &&
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate('settings')}>Review home office settings</Button>}
-            {reviewCode === 'DEPRECIATION_REVIEW_REQUIRED' &&
-              <Button asChild className="mt-3 min-h-11" variant="outline"><Link href="/protected/tax-forms-setup?tab=assets">{reviewTargetForCode(reviewCode, error ?? undefined).label}</Link></Button>}
+            {partialHold && <p className="mt-3 text-sm text-foreground">Tax estimate on hold</p>}
+            {!partialHold && reviewCode === 'DEPRECIATION_REVIEW_REQUIRED' &&
+              <Button asChild className="mt-3 min-h-11" variant="outline"><Link href="/protected/tax-forms-setup?tab=assets">{reviewTargetForCode(reviewCode, reviewKind ?? undefined).label}</Link></Button>}
             {onNavigate && reviewCode === 'INCOME_RECONCILIATION_REQUIRED' &&
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate(`income-tracking?tab=reconcile&year=${year}`)}>Reconcile income sources</Button>}
-            <Button className="mt-2 min-h-11" variant="ghost" onClick={load}>Retry estimate</Button>
+            {!partialHold && <Button className="mt-2 min-h-11" variant="ghost" onClick={load}>Retry estimate</Button>}
           </div>
         )}
 
-        {error && !loading && (
+        {error && !loading && !partialHold && (
           <section aria-labelledby="estimate-preparation" className="rounded-xl border border-border bg-card p-4">
             <h2 id="estimate-preparation" className="text-base font-semibold">Keep preparing your {year} estimate</h2>
             <p className="mt-1 text-sm text-muted-foreground">Your saved records are available. Resolve the issue above, then refresh to calculate your totals.</p>
