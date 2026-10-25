@@ -36,7 +36,7 @@ beforeEach(() => {
 
 describe('quarterly summary keeps the review response until every planner fact is saved', () => {
   it.each([
-    ['no prior-year facts', {}, ['prior_return_twelve_months', 'prior_year_total_tax', 'prior_year_agi']],
+    ['no prior-year facts', {}, ['add_prior_year_return', 'confirm_full_year_forecast', 'prior_year_tax_was_zero']],
     ['12-month answer only', { priorReturnCoveredTwelveMonths: 'yes' }, ['prior_year_total_tax', 'prior_year_agi']],
     ['prior tax without AGI', { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000' }, ['prior_year_agi']],
     ['prior tax and AGI without the 12-month answer', { priorYearTax: '10000', priorYearAGI: '100000' }, ['prior_return_twelve_months']],
@@ -85,10 +85,18 @@ describe('quarterly summary returns planner figures from reviewed facts', () => 
     expect(result.planner.sources.publication505).toBe('https://www.irs.gov/publications/p505');
     expect(result.quarters[0].recommended).not.toBe(Math.round(expected.form1040.totalTax / 4 * 100) / 100);
   });
-  it('uses only the 90% current-year target when the prior return did not cover 12 months', async () => {
+  it('keeps a short prior year in review until a full-year forecast is confirmed', async () => {
     state.records.tax_organizers = [organizer({ priorReturnCoveredTwelveMonths: 'no' })];
     const result = await (await quarterly(req())).json();
+    expect(result.planner.status).toBe('review_required'); expect(result.safeHarborBasis).toBeNull(); expect(result.safeHarborTotal).toBeNull();
+    expect(result.planner.notes.join(' ')).toContain("Can't tell yet");
+    expect(JSON.stringify(result.planner)).not.toContain('no estimated payments are required');
+  });
+  it('uses only the 90% current-year target when a short prior year has a confirmed full-year forecast', async () => {
+    state.records.tax_organizers = [organizer({ priorReturnCoveredTwelveMonths: 'no', fullYearForecastConfirmed: 'yes' })];
+    const result = await (await quarterly(req())).json();
     expect(result.planner.status).toBe('ready'); expect(result.planner.requiredAnnualPayment.priorYear).toBeNull();
+    expect(result.planner.requiredAnnualPayment.fullYearForecastConfirmed).toBe(true);
     expect(result.safeHarborBasis).toBe('current_year_90'); expect(result.usingPriorYearSafeHarbor).toBe(false); expect(result.safeHarborTotal).toBe(result.planner.requiredAnnualPayment.ninetyPercentOfCurrentYear);
   });
   it('applies the 110% multiplier from saved prior-year AGI and reads Deductions when the organizer lacks amounts', async () => {

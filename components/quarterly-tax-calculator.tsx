@@ -25,6 +25,16 @@ function basisSummary(plan: QuarterlyPlan): string {
   return `${required.basis === 'prior_year_110' ? '110%' : '100%'} of ${plan.taxYear - 1} tax (${money(required.priorYear?.target ?? 0)})`;
 }
 
+/** A 90% current-year basis is a safe harbor only after the user confirms a full-year forecast. */
+function basisHeading(plan: QuarterlyPlan): string {
+  const required = plan.requiredAnnualPayment;
+  const summary = basisSummary(plan);
+  if (required.basis === 'current_year_90' && required.fullYearForecastConfirmed !== true) {
+    return `PLACEHOLDER Current-year percentage basis: ${summary}`;
+  }
+  return `Safe-harbor basis used: ${summary}`;
+}
+
 function nextDueSection(plan: QuarterlyPlan) {
   if (plan.nextDue) {
     const next = plan.nextDue;
@@ -98,9 +108,11 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
         <div role="note" className="rounded-lg border p-3"><h2 className="font-semibold">Planning estimate from reviewed facts</h2><p className="mt-1 text-sm">{data.paymentReview.message}</p></div>
         {nextDueSection(plan)}
         <div className="rounded-lg border p-3 text-sm">
-          <h3 className="font-semibold">Safe-harbor basis used: {basisSummary(plan)}</h3>
-          <p className="mt-1">Required annual payment {money(required.requiredAnnualPayment)} = lesser of 90% of the {year} estimate ({money(required.ninetyPercentOfCurrentYear)}) and {required.priorYear ? `${required.priorYear.multiplier === 1.1 ? '110%' : '100%'} of ${year - 1} tax (${money(required.priorYear.target)}; ${year - 1} AGI ${money(required.priorYear.agi)} vs. ${money(required.priorYear.agiThreshold)} threshold)` : `the prior-year target (unavailable: the ${year - 1} return did not cover 12 months)`}.</p>
-          <p className="mt-1">Withholding credited {money(required.withholding)} · estimated payments planned for the year {money(required.estimatedPaymentsRequired)}{required.deMinimis.applies && ` · tax less withholding ${money(required.deMinimis.taxLessWithholding)} is under $1,000, so no estimated payments are required by the regular method`}.</p>
+          <h3 className="font-semibold">{basisHeading(plan)}</h3>
+          {required.fullYearForecastConfirmed === true
+            ? <p className="mt-1">Required annual payment {money(required.requiredAnnualPayment)} = lesser of 90% of the {year} estimate ({money(required.ninetyPercentOfCurrentYear)}) and {required.priorYear ? `${required.priorYear.multiplier === 1.1 ? '110%' : '100%'} of ${year - 1} tax (${money(required.priorYear.target)}; ${year - 1} AGI ${money(required.priorYear.agi)} vs. ${money(required.priorYear.agiThreshold)} threshold)` : `the prior-year target (unavailable: the ${year - 1} return did not cover 12 months)`}.</p>
+            : <p className="mt-1">PLACEHOLDER Required annual payment {money(required.requiredAnnualPayment)} uses the prior-year target until a full-year forecast is confirmed. 90% of the {year} estimate ({money(required.ninetyPercentOfCurrentYear)}) is not the safe-harbor basis.</p>}
+          <p className="mt-1">Withholding credited {money(required.withholding)} · estimated payments planned for the year {money(required.estimatedPaymentsRequired)}{required.deMinimis.applies && required.fullYearForecastConfirmed === true && ` · tax less withholding ${money(required.deMinimis.taxLessWithholding)} is under $1,000, so no estimated payments are required by the regular method`}.</p>
         </div>
       </> : <>
         <div role="note" className="rounded-lg border p-3"><h2 className="font-semibold">Payment amount needs review</h2><p className="mt-1 text-sm">{data.paymentReview.message}</p>
@@ -116,7 +128,9 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
         <div><dt>Recorded federal withholding</dt><dd className="font-semibold">{money(data.totalFederalWithheld ?? data.w2Withheld)}</dd></div>
       </dl>
       <p className="text-sm text-muted-foreground">{plan
-        ? `Planning estimate only. The ${year} estimate treats your saved records as the full-year forecast; if they cover only part of the year the 90% target is understated. The IRS figures any balance or penalty on the filed return.`
+        ? (plan.requiredAnnualPayment.fullYearForecastConfirmed
+          ? `Planning estimate only. The ${year} estimate treats your saved records as the full-year forecast; if they cover only part of the year the 90% target is understated. The IRS figures any balance or penalty on the filed return.`
+          : 'PLACEHOLDER Planning estimate only. Saved records are not a confirmed full-year forecast, so this plan uses the prior-year target. The IRS figures any balance or penalty on the filed return.')
         : 'Saved records may cover only part of the year. These figures are not a full-year forecast or an installment amount due.'}</p>
       <div className="flex flex-wrap gap-3 text-sm underline"><a href="/tools/quarterly-estimate-calculator">Open payment-planning tool</a><a href="https://www.irs.gov/pub/irs-pdf/f1040es.pdf" target="_blank" rel="noopener noreferrer">Official IRS 1040-ES worksheet and vouchers</a><a href="https://www.irs.gov/payments" target="_blank" rel="noopener noreferrer">IRS payment options</a></div>
     </CardContent></Card>

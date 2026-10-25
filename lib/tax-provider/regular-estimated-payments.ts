@@ -1,6 +1,7 @@
 import { getFederalTaxRules } from '@/lib/tax-rules/federal-year-rules';
 import { normalizeFilingStatus } from '@/lib/tax-rules/filing-status';
 import { getEstimatedTaxDeadline } from './payment-deadlines';
+import { priorYearSameTaxpayersAndFilingStatus } from './prior-year-same-taxpayers';
 
 export const QUARTERLY_REVIEW_MESSAGE = 'Review your full-year federal tax forecast, expected withholding, prior-year return and dated payments before choosing an installment. Saved transactions alone do not establish an amount due or penalty protection. Use the 1040-ES worksheet or the payment-planning tool, then record your actual payments.';
 export class QuarterlyReviewRequiredError extends Error {
@@ -42,8 +43,11 @@ export function calculateRegularEstimatedPayments(input: RegularEstimatedPayment
   }
   if (input.priorYear.available) {
     const prior = input.priorYear;
-    if (!prior.fullTwelveMonths || !prior.sameTaxpayersAndFilingStatus || !prior.fullYearUSResident) {
-      fail('The prior-year method needs a full 12-month return, the same taxpayer(s) and filing status and U.S. residency facts. Review changed joint/separate returns or the no-prior-tax exception before using a target.');
+    const sameTaxpayers = priorYearSameTaxpayersAndFilingStatus(prior.sameTaxpayersAndFilingStatus);
+    if (!prior.fullTwelveMonths || !sameTaxpayers.allowed || !prior.fullYearUSResident) {
+      fail(sameTaxpayers.review
+        ? sameTaxpayers.message
+        : 'The prior-year method needs a full 12-month return, the same taxpayer(s) and filing status and U.S. residency facts. Review changed joint/separate returns or the no-prior-tax exception before using a target.');
     }
     const agi = amount(prior.adjustedGrossIncome, 'prior-year adjusted gross income', true);
     const priorTax = amount(prior.taxAfterAdjustments, 'prior-year tax after 1040-ES adjustments');

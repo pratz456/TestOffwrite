@@ -92,6 +92,12 @@ interface OrgAnswers extends SocialSecurityAnswers {
   priorYearTax: string;
   /** "yes" | "no": whether the prior-year federal return covered a full 12 months (§6654(d)(1)(B)). */
   priorReturnCoveredTwelveMonths: string;
+  /** "yes" | "no": same taxpayer(s) and filing status as the prior-year return. */
+  priorYearSameTaxpayersAndFilingStatus: string;
+  /** "yes" | "no": U.S. citizen or resident for all of the prior year (§6654(e)(2)). */
+  priorYearFullYearUsCitizenOrResident: string;
+  /** "yes" | "no": the user confirmed saved records are a full-year tax forecast. */
+  fullYearForecastConfirmed: string;
   madeQuarterlyPayments: string;
   quarterlyTotal: string;
 }
@@ -104,7 +110,7 @@ export const EMPTY_ORGANIZER_ANSWERS: OrgAnswers = {
   paidHealthInsurance:"",healthInsurancePremium:"",madeRetirementContrib:"",retirementAmount:"",retirementType:"sep_ira",
   paidStudentLoanInterest:"",studentLoanInterest:"",paidHSA:"",hsaAmount:"",hasHomeMortgage:"",
   marriedThisYear:"",hadChild:"",boughtHome:"",soldHome:"",startedBusiness:"",
-  priorYearTax:"",priorReturnCoveredTwelveMonths:"",madeQuarterlyPayments:"",quarterlyTotal:"",
+  priorYearTax:"",priorReturnCoveredTwelveMonths:"",priorYearSameTaxpayersAndFilingStatus:"",priorYearFullYearUsCitizenOrResident:"",fullYearForecastConfirmed:"",madeQuarterlyPayments:"",quarterlyTotal:"",
 };
 
 const EMPTY = EMPTY_ORGANIZER_ANSWERS;
@@ -669,7 +675,7 @@ export function TaxOrganizerScreen({ user }: Props) {
         {step === 4 && (
           <Card className="bg-card border-border">
             <CardContent className="p-4 space-y-3">
-              <p className="text-sm text-muted-foreground">Keep prior-year records for your preparer. Quarterly payment planning uses all three facts below to compare the 90% current-year target with the 100%/110% prior-year target; it stays in review until each one is saved.</p>
+              <p className="text-sm text-muted-foreground">PLACEHOLDER Keep prior-year records for your preparer. Until you confirm a full-year forecast, quarterly planning uses the prior-year target (100% of last year&apos;s tax, or 110% when last year&apos;s AGI is over the threshold). It stays in review until the needed facts are saved.</p>
               <div className="space-y-1.5">
                 <Label htmlFor="organizer-priorYearTax" className="text-sm font-medium">Prior year total tax ({year - 1} Form 1040, Line 24)</Label>
                 <Input id="organizer-priorYearTax" type="number" min="0" step="0.01" value={answers.priorYearTax} onChange={e => set("priorYearTax", e.target.value)} placeholder="e.g. 8500" className="bg-background" />
@@ -681,7 +687,10 @@ export function TaxOrganizerScreen({ user }: Props) {
                 <p className="text-xs text-muted-foreground">Same field as the filing reference record in Personal facts. AGI above $150,000 ($75,000 if filing separately this year) raises the prior-year target from 100% to 110% of prior-year tax.</p>
               </div>
               {yesno("priorReturnCoveredTwelveMonths", `Did your ${year - 1} federal return cover a full 12 months?`)}
-              <p className="text-xs text-muted-foreground">Answer no if you did not file a {year - 1} return or it covered a short year; the prior-year safe harbor is then unavailable and only the current-year target is used.</p>
+              <p className="text-xs text-muted-foreground">PLACEHOLDER Answer no if you did not file a {year - 1} return or it covered a short year. The prior-year target is then unavailable until you confirm a full-year forecast.</p>
+              {yesno("priorYearSameTaxpayersAndFilingStatus", "PLACEHOLDER Are the taxpayer(s) and filing status the same as on last year's federal return?")}
+              {yesno("priorYearFullYearUsCitizenOrResident", "PLACEHOLDER Were you a U.S. citizen or resident for all of last year?")}
+              {yesno("fullYearForecastConfirmed", "PLACEHOLDER Confirm a full-year forecast for this year's saved records?")}
               {yesno("madeQuarterlyPayments", `Did you make estimated tax payments in ${year}?`)}
               {answers.madeQuarterlyPayments === "yes" && (
                 <div className="space-y-1.5">
