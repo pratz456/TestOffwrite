@@ -186,11 +186,11 @@ describe('equipment listed-property flag', () => {
     const cheapSibling = asset({ id: 'mouse', description: 'Mouse', category: 'computer', cost: 1000, businessUsePercent: 100 });
     const expensed = calc4562([cheapSibling, cheapHeld], BUSINESS_INCOME, TAX_YEAR, { deMinimisSafeHarborYears: [TAX_YEAR] });
     const siblingExpense = roundCents(businessUseBasis(cheapSibling.cost, cheapSibling.businessUsePercent));
-    const withheldExpense = roundCents(businessUseBasis(cheapHeld.cost, cheapHeld.businessUsePercent));
-    expect(withheldExpense).toBeGreaterThan(0);
-    expect(expensed.totalDeMinimisExpense).toBe(siblingExpense);
-    expect(expensed.totalDeMinimisExpense).not.toBe(roundCents(siblingExpense + withheldExpense));
-    expect(expensed.assets.find(row => row.asset.id === 'cheap')!.deMinimisExpense).toBe(0);
+    const cheapExpense = roundCents(businessUseBasis(cheapHeld.cost, cheapHeld.businessUsePercent));
+    expect(cheapExpense).toBeGreaterThan(0);
+    expect(expensed.totalDeMinimisExpense).toBe(roundCents(siblingExpense + cheapExpense));
+    expect(expensed.assets.find(row => row.asset.id === 'cheap')).toMatchObject({ deMinimisExpense: cheapExpense, listedEquipmentHold: null });
+    expect(expensed.heldAssets).toEqual([]);
   });
 
   it('reduces the Section 179 dollar limit when a held asset pushes cost over the phaseout threshold', () => {
@@ -203,6 +203,30 @@ describe('equipment listed-property flag', () => {
     expect(alone.section179?.dollarLimitAfterPhaseout).toBe(2560000);
     expect(result.section179!.dollarLimitAfterPhaseout).toBeLessThan(alone.section179!.dollarLimitAfterPhaseout);
     expect(result.assets.find(row => row.asset.id === 'held')).toMatchObject({ section179Deduction: 0, bonusDepreciation: 0, regularDepreciation: 0, totalDepreciation: 0 });
+  });
+
+  it('expenses a $1,200 camera at 40 percent business use and leaves it out of the hold and the mid-quarter base', () => {
+    const computer = asset({ id: 'computer', description: 'Office computer', category: 'computer', cost: 2600, businessUsePercent: 20, datePlacedInService: new Date(Date.UTC(TAX_YEAR, 1, 1)) });
+    const camera = asset({ id: 'camera', description: 'Camera', category: 'equipment', cost: 1200, businessUsePercent: 40, listedEquipmentKind: 'recreation_or_amusement', datePlacedInService: new Date(Date.UTC(TAX_YEAR, 9, 1)) });
+    const elections = { deMinimisSafeHarborYears: [TAX_YEAR] };
+    expect(() => calc4562([computer, camera], BUSINESS_INCOME, TAX_YEAR, elections)).not.toThrow();
+    const result = calc4562([computer, camera], BUSINESS_INCOME, TAX_YEAR, elections);
+    expect(businessUseBasis(camera.cost, camera.businessUsePercent)).toBe(480);
+    expect(result.assets.find(row => row.asset.id === 'camera')).toMatchObject({ treatment: 'de_minimis_expense', deMinimisExpense: 480, listedEquipmentHold: null, totalDepreciation: 0 });
+    expect(result.heldAssets).toEqual([]);
+    expect(result.totalDeMinimisExpense).toBe(480);
+  });
+
+  it('keeps a $2,600 camera at 40 percent business use held and in the mid-quarter base', () => {
+    const computer = asset({ id: 'computer', description: 'Office computer', category: 'computer', cost: 2600, businessUsePercent: 50, datePlacedInService: new Date(Date.UTC(TAX_YEAR, 1, 1)) });
+    const camera = asset({ id: 'camera', description: 'Camera', category: 'equipment', cost: 2600, businessUsePercent: 40, listedEquipmentKind: 'recreation_or_amusement', datePlacedInService: new Date(Date.UTC(TAX_YEAR, 9, 1)) });
+    const elections = { deMinimisSafeHarborYears: [TAX_YEAR] };
+    let thrown: unknown = null;
+    expect(() => {
+      try { calc4562([computer, camera], BUSINESS_INCOME, TAX_YEAR, elections); }
+      catch (error) { thrown = error; throw error; }
+    }).toThrow(/mid-quarter/);
+    expect((thrown as { heldAssets?: unknown }).heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'review' }]);
   });
 
   const heldPhoto = (overrides: Partial<Asset>): Asset => asset({

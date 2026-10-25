@@ -438,19 +438,20 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
   const notes: string[] = [];
   const earlierDeMinimis = assets.filter(expensedInEarlierYear).length;
   if (earlierDeMinimis) notes.push(`${earlierDeMinimis} item(s) at or under $${DE_MINIMIS_SAFE_HARBOR_LIMIT.toLocaleString('en-US')} were expensed under the de minimis safe harbor in an earlier elected year and have no basis to depreciate in ${taxYear}.`);
+  // Full cost, before the listed-equipment hold. A selected item is expensed at its business share and is not held.
+  const deMinimisElected = electedYears.includes(taxYear);
+  const deMinimis = current.filter(asset => deMinimisElected && asset.cost <= DE_MINIMIS_SAFE_HARBOR_LIMIT);
+  const holdFor = (asset: Asset): ListedEquipmentHold | null => deMinimis.includes(asset) ? null : listedEquipmentHoldFor(asset);
   for (const asset of current) {
     const year = assetDate(asset.datePlacedInService).getUTCFullYear();
     if (year < taxYear) throw new DepreciationReviewRequiredError('Prior-year assets require their depreciation history and adjusted basis.');
     if (asset.category === 'vehicle' || asset.category === 'other') throw new DepreciationReviewRequiredError('Confirm the asset class, vehicle limits and listed-property rules.');
     // Held equipment is not given Section 179, bonus, or accelerated MACRS. Do not block the rest of the worksheet.
-    if (listedEquipmentHoldFor(asset)) continue;
+    if (holdFor(asset)) continue;
     if (asset.bonusEligible) throw new DepreciationReviewRequiredError('Bonus depreciation needs the acquisition date (binding-contract test for the January 19, 2025 boundary), purchase eligibility and any class election out. Automatic bonus deductions are unavailable until these are confirmed.');
     if (asset.method === 'SL') throw new DepreciationReviewRequiredError('Straight-line depreciation needs a recovery period and convention.');
   }
-  const deMinimisElected = electedYears.includes(taxYear);
-  const calculable = current.filter(asset => !listedEquipmentHoldFor(asset));
-
-  const deMinimis = calculable.filter(asset => deMinimisElected && asset.cost <= DE_MINIMIS_SAFE_HARBOR_LIMIT);
+  const calculable = current.filter(asset => !holdFor(asset));
   const depreciable = calculable.filter(asset => !deMinimis.includes(asset));
   const electing = depreciable.filter(asset => asset.section179Requested);
   for (const asset of electing) {
@@ -513,19 +514,20 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
   const calculatesHalfYear = midQuarterProperty.some(asset => !listedEquipmentHoldFor(asset));
   const heldAssets: ListedEquipmentHeldAsset[] = [];
   for (const asset of current) {
+    if (deMinimis.includes(asset)) continue;
     const held = listedEquipmentHeldRecord(asset);
     if (held) heldAssets.push(held);
   }
   if (calculatesHalfYear && totalBasis > 0 && lastQuarterBasis / totalBasis > 0.4) throw new DepreciationReviewRequiredError('More than 40% of this year’s basis was placed in service in the last quarter; the mid-quarter convention requires a separate calculation.', heldAssets);
 
   for (const asset of current) {
-    const hold = listedEquipmentHoldFor(asset);
+    const hold = holdFor(asset);
     if (hold === 'review') notes.push(`${asset.description}: ${LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER}`);
     if (hold === 'question_required') notes.push(listedEquipmentQuestionCopy(asset));
   }
 
   const calculations: AssetCalculation[] = current.map(asset => {
-    const hold = listedEquipmentHoldFor(asset);
+    const hold = holdFor(asset);
     if (hold) return withheldAssetCalculation(asset, hold);
     const basis = businessBasis(asset);
     if (deMinimis.includes(asset)) {
