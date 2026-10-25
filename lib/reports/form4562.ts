@@ -1,5 +1,5 @@
 import type { UserProfile } from '@/lib/firebase/profiles-server';
-import { type Asset, type DepreciationElections, businessUseBasis, calc4562, DE_MINIMIS_SAFE_HARBOR_LIMIT, DepreciationReviewRequiredError, listedEquipmentKindNeededCopy, listedEquipmentReviewDetail, LISTED_EQUIPMENT_KIND_NOTE_PLACEHOLDER, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER } from './calc4562';
+import { type Asset, type DepreciationElections, businessUseBasis, calc4562, DE_MINIMIS_SAFE_HARBOR_LIMIT, DepreciationReviewRequiredError, listedEquipmentQuestionCopy, listedEquipmentReviewDetail, LISTED_EQUIPMENT_KIND_NOTE_PLACEHOLDER, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER } from './calc4562';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 export interface Form4562Data {
   userProfile: UserProfile; assetsSettings: Asset[]; transactions: unknown[]; taxYear: number;
@@ -49,9 +49,9 @@ export async function generateForm4562PDF(data: Form4562Data): Promise<Uint8Arra
       ['Business-use percentage', `${a.businessUsePercent}%`],
       ...(held
         ? [
-          ['Listed equipment question', held === 'question_required' ? listedEquipmentKindNeededCopy(a.description) : LISTED_EQUIPMENT_KIND_NOTE_PLACEHOLDER],
+          ['Listed equipment question', held === 'question_required' ? listedEquipmentQuestionCopy(a) : LISTED_EQUIPMENT_KIND_NOTE_PLACEHOLDER],
           ['Listed equipment answer', a.listedEquipmentAnswer === 'yes' ? 'Yes' : a.listedEquipmentAnswer === 'no' ? 'No' : 'Blank'],
-          ['Worksheet status', held === 'question_required' ? listedEquipmentKindNeededCopy(a.description) : LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER],
+          ['Worksheet status', held === 'question_required' ? listedEquipmentQuestionCopy(a) : LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER],
         ]
         : [
           ['Business basis', money(businessUseBasis(a.cost, a.businessUsePercent))],

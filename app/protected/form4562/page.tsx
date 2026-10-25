@@ -15,7 +15,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { useToasts } from '@/components/ui/toast';
 import { ToastContainer } from '@/components/ui/toast';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
-import { type Asset, type AssetCalculation, type Form4562Calculation, type DepreciationElections, type ListedEquipmentAnswer, type ListedEquipmentKind, type ListedEquipmentLocation, isEquipmentAssetCategory, listedEquipmentBusinessUseAtOrUnderCeiling, listedEquipmentKindFor, listedEquipmentKindNeededCopy, LISTED_EQUIPMENT_BUSINESS_LOCATION_PLACEHOLDER, LISTED_EQUIPMENT_KIND_NEITHER, LISTED_EQUIPMENT_KIND_NEITHER_PLACEHOLDER, LISTED_EQUIPMENT_KIND_NOTE_PLACEHOLDER, LISTED_EQUIPMENT_KIND_PHOTO, LISTED_EQUIPMENT_KIND_PHOTO_PLACEHOLDER, LISTED_EQUIPMENT_KIND_RECREATION, LISTED_EQUIPMENT_KIND_RECREATION_PLACEHOLDER, LISTED_EQUIPMENT_LOCATION_FOLLOW_UP_PLACEHOLDER, LISTED_EQUIPMENT_LOCATION_HOME, LISTED_EQUIPMENT_LOCATION_HOME_PLACEHOLDER, LISTED_EQUIPMENT_LOCATION_OUTSIDE, LISTED_EQUIPMENT_LOCATION_OUTSIDE_PLACEHOLDER, LISTED_EQUIPMENT_MAIN_LINE_PLACEHOLDER, LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER } from '@/lib/reports/calc4562';
+import { type Asset, type AssetCalculation, type Form4562Calculation, type DepreciationElections, type ListedEquipmentAnswer, type ListedEquipmentKind, type ListedEquipmentLocation, isEquipmentAssetCategory, listedEquipmentBusinessUseAtOrUnderCeiling, listedEquipmentKindFor, listedEquipmentKindNeededCopy, listedEquipmentQuestionCopy, LISTED_EQUIPMENT_BUSINESS_LOCATION_PLACEHOLDER, LISTED_EQUIPMENT_KIND_NEITHER, LISTED_EQUIPMENT_KIND_NEITHER_PLACEHOLDER, LISTED_EQUIPMENT_KIND_NOTE_PLACEHOLDER, LISTED_EQUIPMENT_KIND_PHOTO, LISTED_EQUIPMENT_KIND_PHOTO_PLACEHOLDER, LISTED_EQUIPMENT_KIND_RECREATION, LISTED_EQUIPMENT_KIND_RECREATION_PLACEHOLDER, LISTED_EQUIPMENT_LOCATION_FOLLOW_UP_PLACEHOLDER, LISTED_EQUIPMENT_LOCATION_HOME, LISTED_EQUIPMENT_LOCATION_HOME_PLACEHOLDER, LISTED_EQUIPMENT_LOCATION_OUTSIDE, LISTED_EQUIPMENT_LOCATION_OUTSIDE_PLACEHOLDER, LISTED_EQUIPMENT_MAIN_LINE_PLACEHOLDER, LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER } from '@/lib/reports/calc4562';
 import { ListedEquipmentKindPrompt } from '@/components/listed-equipment-kind-prompt';
 
 interface Form4562Worksheet {
@@ -399,7 +399,7 @@ export default function Form4562Page() {
                 <div className="text-sm text-amber-700">{LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER}</div>
               )}
               {assetCalc?.listedEquipmentHold === 'question_required' && (
-                <div className="text-sm text-amber-700">{listedEquipmentKindNeededCopy(asset.description)}</div>
+                <div className="text-sm text-amber-700">{listedEquipmentQuestionCopy(asset)}</div>
               )}
               {assetCalc && !assetCalc.listedEquipmentHold && (
                 <div className="text-sm text-blue-600">

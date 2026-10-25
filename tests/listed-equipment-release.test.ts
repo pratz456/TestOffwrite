@@ -14,6 +14,8 @@ const PHOTO = 'photo_audio_video_communication';
 const RECREATION = 'recreation_or_amusement';
 const NEITHER = 'neither';
 const kindNeeded = (name: string) => `PLACEHOLDER: We need one answer about ${name} before we can show your estimate. What kind of equipment is it?`;
+const mainLineNeeded = (name: string) => `PLACEHOLDER: We need one more answer about ${name}. Do you use it in your main line of work?`;
+const followUpNeeded = (name: string) => `PLACEHOLDER: We need one more answer about ${name}. Is that a studio or office outside your home?`;
 
 const asset = (overrides: Partial<Asset> = {}): Asset => ({
   id: 'camera', description: 'Camera', datePlacedInService: new Date(Date.UTC(TAX_YEAR, 4, 1)),
@@ -69,7 +71,7 @@ describe('calc4562 release answer at 50 percent', () => {
   });
 
   it('keeps the hold when the release answer is no', () => {
-    const sample = asset({ listedEquipmentKind: PHOTO, listedEquipmentReleaseAnswer: 'no' });
+    const sample = asset({ listedEquipmentKind: PHOTO, listedEquipmentMainLineOfWork: 'no', listedEquipmentReleaseAnswer: 'no' });
     const result = calc4562([sample], BUSINESS_INCOME, TAX_YEAR);
     const baseMacrs = macrsFromHelpers(sample.cost, sample.businessUsePercent, sample.method);
     expect(baseMacrs).toBeGreaterThan(0);
@@ -77,14 +79,17 @@ describe('calc4562 release answer at 50 percent', () => {
     expect(result.totalDepreciation).not.toBe(baseMacrs);
   });
 
-  it('keeps the hold when the release answer is blank', () => {
+  it('asks the main line question when photo gear has no release answers', () => {
     for (const listedEquipmentReleaseAnswer of [undefined, null] as const) {
       const sample = asset({ listedEquipmentKind: PHOTO, listedEquipmentReleaseAnswer });
       const result = calc4562([sample], BUSINESS_INCOME, TAX_YEAR);
       const baseMacrs = macrsFromHelpers(sample.cost, sample.businessUsePercent, sample.method);
       expect(baseMacrs).toBeGreaterThan(0);
-      expect({ ...figures(result), review: result.notes.join('\n').includes(REVIEW_NOTE) }).toEqual({ ...withheld, review: true });
+      expect(figures(result)).toEqual(withheld);
       expect(result.totalDepreciation).not.toBe(baseMacrs);
+      expect(result.notes.join('\n')).toContain(mainLineNeeded('Camera'));
+      expect(result.notes.join('\n')).not.toContain(REVIEW_NOTE);
+      expect(result.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'question', ask: 'main_line' }]);
     }
   });
 
@@ -116,7 +121,7 @@ describe('computeScheduleCProfit release answer at 50 percent', () => {
   });
 
   it('sends profit to review when the release answer is no', () => {
-    const sample = asset({ listedEquipmentKind: PHOTO, listedEquipmentReleaseAnswer: 'no' });
+    const sample = asset({ listedEquipmentKind: PHOTO, listedEquipmentMainLineOfWork: 'no', listedEquipmentReleaseAnswer: 'no' });
     const baseMacrs = macrsFromHelpers(sample.cost, sample.businessUsePercent, sample.method);
     const { profit, error } = captureProfit(sample);
     expect(baseMacrs).toBeGreaterThan(0);
@@ -126,12 +131,13 @@ describe('computeScheduleCProfit release answer at 50 percent', () => {
     expect((error as { code?: string } | null)?.code).toBe('DEPRECIATION_REVIEW_REQUIRED');
   });
 
-  it('sends profit to review when the release answer is blank', () => {
+  it('asks the main line question in profit when photo gear has no release answers', () => {
     for (const listedEquipmentReleaseAnswer of [undefined, null] as const) {
       const { profit, error } = captureProfit({ listedEquipmentKind: PHOTO, listedEquipmentReleaseAnswer });
       expect(profit === null ? 0 : profit.depreciationDeduction).toBe(0);
       expect(profit === null ? null : profit.netProfit).toBeNull();
-      expect(error?.message ?? '').toContain(PROFIT_REVIEW);
+      expect(error?.message ?? '').toContain(mainLineNeeded('Camera'));
+      expect(error?.message ?? '').not.toContain(PROFIT_REVIEW);
     }
   });
 
@@ -259,10 +265,78 @@ describe('gear kind replaces the first equipment question', () => {
   });
 
   it('does not let a stored yes on the earlier release question release photo gear', () => {
-    const { result, baseMacrs } = held({ listedEquipmentKind: PHOTO, listedEquipmentReleaseAnswer: 'yes' });
+    const { result, baseMacrs, error } = held({ listedEquipmentKind: PHOTO, listedEquipmentReleaseAnswer: 'yes' });
+    expect(baseMacrs).toBeGreaterThan(0);
+    expect(figures(result)).toEqual(withheld);
+    expect(result.totalDepreciation).not.toBe(baseMacrs);
+    expect(result.notes.join('\n')).toContain(mainLineNeeded('Camera'));
+    expect(result.notes.join('\n')).not.toContain(REVIEW_NOTE);
+    expect(error?.message ?? '').toContain(mainLineNeeded('Camera'));
+    expect(error?.message ?? '').not.toContain(PROFIT_REVIEW);
+  });
+
+  it('shows the main line question for photo gear at 30 percent with no release answers', () => {
+    const { result, baseMacrs, profit, error } = held({
+      businessUsePercent: 30, listedEquipmentKind: PHOTO, section179Requested: false, bonusEligible: false,
+    });
+    expect(baseMacrs).toBeGreaterThan(0);
+    expect(figures(result)).toEqual(withheld);
+    expect(result.totalDepreciation).not.toBe(baseMacrs);
+    expect(result.notes.join('\n')).toContain(mainLineNeeded('Camera'));
+    expect(result.notes.join('\n')).not.toContain(REVIEW_NOTE);
+    expect(result.notes.join('\n')).not.toContain(kindNeeded('Camera'));
+    expect(result.notes.join('\n')).not.toMatch(/\$|1,000|600/);
+    expect(result.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'question', ask: 'main_line' }]);
+    expect(profit === null ? 0 : profit.depreciationDeduction).toBe(0);
+    expect(profit === null ? null : profit.netProfit).toBeNull();
+    expect(error?.message ?? '').toContain(mainLineNeeded('Camera'));
+    expect(error?.message ?? '').not.toContain(PROFIT_REVIEW);
+  });
+
+  it('shows the follow-up question when the business location is yes and the outside-home answer is blank', () => {
+    for (const listedEquipmentLocationFollowUp of [undefined, null] as const) {
+      const { result, baseMacrs, profit, error } = held({
+        businessUsePercent: 30,
+        listedEquipmentKind: PHOTO,
+        listedEquipmentBusinessLocation: 'yes',
+        listedEquipmentLocationFollowUp,
+        section179Requested: false,
+        bonusEligible: false,
+      });
+      expect(baseMacrs).toBeGreaterThan(0);
+      expect(figures(result)).toEqual(withheld);
+      expect(result.totalDepreciation).not.toBe(baseMacrs);
+      expect(result.notes.join('\n')).toContain(followUpNeeded('Camera'));
+      expect(result.notes.join('\n')).not.toContain(REVIEW_NOTE);
+      expect(result.notes.join('\n')).not.toContain(mainLineNeeded('Camera'));
+      expect(result.notes.join('\n')).not.toMatch(/\$|1,000|600/);
+      expect(result.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'question', ask: 'follow_up' }]);
+      expect(profit === null ? 0 : profit.depreciationDeduction).toBe(0);
+      expect(error?.message ?? '').toContain(followUpNeeded('Camera'));
+      expect(error?.message ?? '').not.toContain(PROFIT_REVIEW);
+    }
+  });
+
+  it('keeps recreation gear at 30 percent on the generic review', () => {
+    const { result, baseMacrs, profit, error } = held({
+      businessUsePercent: 30,
+      listedEquipmentKind: RECREATION,
+      listedEquipmentReleaseAnswer: 'yes',
+      listedEquipmentMainLineOfWork: 'yes',
+      listedEquipmentBusinessLocation: 'yes',
+      listedEquipmentLocationFollowUp: 'outside_home',
+      section179Requested: false,
+      bonusEligible: false,
+    });
     expect(baseMacrs).toBeGreaterThan(0);
     expect(figures(result)).toEqual(withheld);
     expect(result.totalDepreciation).not.toBe(baseMacrs);
     expect(result.notes.join('\n')).toContain(REVIEW_NOTE);
+    expect(result.notes.join('\n')).not.toContain(mainLineNeeded('Camera'));
+    expect(result.notes.join('\n')).not.toContain(followUpNeeded('Camera'));
+    expect(result.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'review' }]);
+    expect(profit === null ? 0 : profit.depreciationDeduction).toBe(0);
+    expect(error?.message ?? '').toContain(PROFIT_REVIEW);
+    expect(error?.message ?? '').not.toContain(mainLineNeeded('Camera'));
   });
 });

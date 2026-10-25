@@ -41,9 +41,29 @@ export const LISTED_EQUIPMENT_QUESTION_PLACEHOLDER = LISTED_EQUIPMENT_KIND_NOTE_
 export const LISTED_EQUIPMENT_KIND_NEEDED_PLACEHOLDER =
   'PLACEHOLDER: We need one answer about {asset name} before we can show your estimate. What kind of equipment is it?';
 
-export function listedEquipmentKindNeededCopy(assetName: string): string {
+/** Blank release answers on photo, audio, video, or communication gear. PLACEHOLDER wording. */
+export const LISTED_EQUIPMENT_MAIN_LINE_NEEDED_PLACEHOLDER =
+  'PLACEHOLDER: We need one more answer about {asset name}. Do you use it in your main line of work?';
+
+/** Business location is yes and the outside-home follow-up is still blank. PLACEHOLDER wording. */
+export const LISTED_EQUIPMENT_FOLLOW_UP_NEEDED_PLACEHOLDER =
+  'PLACEHOLDER: We need one more answer about {asset name}. Is that a studio or office outside your home?';
+
+function listedEquipmentNamedCopy(template: string, assetName: string): string {
   const name = assetName.trim() || 'this asset';
-  return LISTED_EQUIPMENT_KIND_NEEDED_PLACEHOLDER.replace('{asset name}', name);
+  return template.replace('{asset name}', name);
+}
+
+export function listedEquipmentKindNeededCopy(assetName: string): string {
+  return listedEquipmentNamedCopy(LISTED_EQUIPMENT_KIND_NEEDED_PLACEHOLDER, assetName);
+}
+
+export function listedEquipmentMainLineNeededCopy(assetName: string): string {
+  return listedEquipmentNamedCopy(LISTED_EQUIPMENT_MAIN_LINE_NEEDED_PLACEHOLDER, assetName);
+}
+
+export function listedEquipmentFollowUpNeededCopy(assetName: string): string {
+  return listedEquipmentNamedCopy(LISTED_EQUIPMENT_FOLLOW_UP_NEEDED_PLACEHOLDER, assetName);
 }
 
 /**
@@ -78,11 +98,16 @@ export const LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER =
 export const LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER =
   'PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.';
 
-/** An asset the worksheet held instead of calculating. `question` means the gear kind is still blank. */
+/** Which unanswered question a held asset is showing. Kind questions omit `ask`. */
+export type ListedEquipmentAsk = 'kind' | 'main_line' | 'follow_up';
+
+/** An asset the worksheet held instead of calculating. `question` withholds the estimate until the named answer is saved. */
 export interface ListedEquipmentHeldAsset {
   id: string;
   name: string;
   reason: 'review' | 'question';
+  /** Set for a release question. A blank gear kind leaves this off and uses the kind question. */
+  ask?: Exclude<ListedEquipmentAsk, 'kind'>;
 }
 
 /** Yes or no. Omit or null while the equipment question is still blank. */
@@ -116,7 +141,7 @@ export interface Asset {
    * Blank, including a legacy yes with no kind, asks again.
    */
   listedEquipmentKind?: ListedEquipmentKind | null;
-  /** Yes releases photo, audio, video, or communication gear wherever it is kept. No or blank does not. */
+  /** Yes releases photo, audio, video, or communication gear wherever it is kept. No stays in review. Blank asks. */
   listedEquipmentMainLineOfWork?: ListedEquipmentAnswer | null;
   /** Yes can release that gear only when the location follow-up says the office is outside the home. */
   listedEquipmentBusinessLocation?: ListedEquipmentAnswer | null;
@@ -269,12 +294,15 @@ export function listedEquipmentKindFor(asset: Pick<Asset, 'listedEquipmentKind' 
 }
 
 /**
- * The sentence shown instead of a profit figure when a gear kind is still missing.
- * Recreation and other review holds keep the generic review sentence.
+ * The sentence shown instead of a profit figure while an answer is still missing.
+ * Recreation, a home-office follow-up, and a no answer keep the generic review sentence.
  */
 export function listedEquipmentReviewDetail(heldAssets: readonly ListedEquipmentHeldAsset[]): string {
   const asking = heldAssets.find(asset => asset.reason === 'question');
-  return asking ? listedEquipmentKindNeededCopy(asking.name) : LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER;
+  if (!asking) return LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER;
+  if (asking.ask === 'main_line') return listedEquipmentMainLineNeededCopy(asking.name);
+  if (asking.ask === 'follow_up') return listedEquipmentFollowUpNeededCopy(asking.name);
+  return listedEquipmentKindNeededCopy(asking.name);
 }
 
 /** Attach the held asset id and name when a depreciation review error carries them. */
@@ -291,13 +319,18 @@ export function depreciationReviewBody(error: unknown, fallback: string, code: s
  * photo, audio, video, or communication gear releases when it is used in the main line of work,
  * or only at a business location that the follow-up places outside the home (Reg. §1.280F-6(b)(3));
  * a home-office follow-up does not release, because home office settings do not store a confirmed
- * qualifying home office for a tax year;
- * recreation or amusement gear stays held and cannot be released;
+ * qualifying home office for a tax year, and stays on the generic review;
+ * a yes business location with a blank follow-up asks that follow-up;
+ * blank release answers on that named kind ask the main-line question;
+ * a no answer stays on the generic review;
+ * recreation or amusement gear stays on the generic review and cannot be released;
  * a blank kind, including a legacy yes with no kind, asks again;
  * business use over 50%, or any non-equipment category → no hold.
  * A stored answer on the earlier single release question does not release anything.
  */
-export function listedEquipmentHoldFor(asset: Pick<Asset, 'category' | 'businessUsePercent' | 'listedEquipmentAnswer' | 'listedEquipmentKind' | 'listedEquipmentMainLineOfWork' | 'listedEquipmentBusinessLocation' | 'listedEquipmentLocationFollowUp'>): ListedEquipmentHold | null {
+type ListedEquipmentHoldInput = Pick<Asset, 'category' | 'businessUsePercent' | 'listedEquipmentAnswer' | 'listedEquipmentKind' | 'listedEquipmentMainLineOfWork' | 'listedEquipmentBusinessLocation' | 'listedEquipmentLocationFollowUp'>;
+
+export function listedEquipmentHoldFor(asset: ListedEquipmentHoldInput): ListedEquipmentHold | null {
   if (!isEquipmentAssetCategory(asset.category)) return null;
   if (!listedEquipmentBusinessUseAtOrUnderCeiling(asset.businessUsePercent)) return null;
   const kind = listedEquipmentKindFor(asset);
@@ -305,10 +338,30 @@ export function listedEquipmentHoldFor(asset: Pick<Asset, 'category' | 'business
   if (kind === LISTED_EQUIPMENT_KIND_PHOTO) {
     if (asset.listedEquipmentMainLineOfWork === 'yes') return null;
     if (asset.listedEquipmentBusinessLocation === 'yes' && asset.listedEquipmentLocationFollowUp === LISTED_EQUIPMENT_LOCATION_OUTSIDE) return null;
+    if (asset.listedEquipmentBusinessLocation === 'yes' && asset.listedEquipmentLocationFollowUp === LISTED_EQUIPMENT_LOCATION_HOME) return 'review';
+    if (asset.listedEquipmentBusinessLocation === 'yes') return 'question_required';
+    if (asset.listedEquipmentMainLineOfWork !== 'no') return 'question_required';
     return 'review';
   }
   if (kind === LISTED_EQUIPMENT_KIND_RECREATION) return 'review';
   return 'question_required';
+}
+
+/** Which question to show for a held asset. Review holds and released assets return null. */
+export function listedEquipmentAskFor(asset: ListedEquipmentHoldInput): ListedEquipmentAsk | null {
+  if (listedEquipmentHoldFor(asset) !== 'question_required') return null;
+  const kind = listedEquipmentKindFor(asset);
+  if (kind === LISTED_EQUIPMENT_KIND_PHOTO && asset.listedEquipmentBusinessLocation === 'yes') return 'follow_up';
+  if (kind === LISTED_EQUIPMENT_KIND_PHOTO) return 'main_line';
+  return 'kind';
+}
+
+/** The sentence for the question this asset is waiting on. Review holds use the generic review sentence instead. */
+export function listedEquipmentQuestionCopy(asset: ListedEquipmentHoldInput & Pick<Asset, 'description'>): string {
+  const ask = listedEquipmentAskFor(asset);
+  if (ask === 'main_line') return listedEquipmentMainLineNeededCopy(asset.description);
+  if (ask === 'follow_up') return listedEquipmentFollowUpNeededCopy(asset.description);
+  return listedEquipmentKindNeededCopy(asset.description);
 }
 
 const assetDate = (value: unknown): Date => {
@@ -427,7 +480,7 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
   for (const asset of current) {
     const hold = listedEquipmentHoldFor(asset);
     if (hold === 'review') notes.push(`${asset.description}: ${LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER}`);
-    if (hold === 'question_required') notes.push(listedEquipmentKindNeededCopy(asset.description));
+    if (hold === 'question_required') notes.push(listedEquipmentQuestionCopy(asset));
   }
 
   const calculations: AssetCalculation[] = current.map(asset => {
@@ -452,7 +505,12 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
   const heldAssets: ListedEquipmentHeldAsset[] = [];
   for (const row of calculations) {
     if (row.listedEquipmentHold === 'review') heldAssets.push({ id: row.asset.id, name: row.asset.description, reason: 'review' });
-    else if (row.listedEquipmentHold === 'question_required') heldAssets.push({ id: row.asset.id, name: row.asset.description, reason: 'question' });
+    else if (row.listedEquipmentHold === 'question_required') {
+      const ask = listedEquipmentAskFor(row.asset);
+      heldAssets.push(ask === 'main_line' || ask === 'follow_up'
+        ? { id: row.asset.id, name: row.asset.description, reason: 'question', ask }
+        : { id: row.asset.id, name: row.asset.description, reason: 'question' });
+    }
   }
   return {
     taxYear, assets: calculations, totalDeMinimisExpense: sum(row => row.deMinimisExpense), section179, totalSection179,

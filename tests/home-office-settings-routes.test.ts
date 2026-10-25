@@ -410,7 +410,7 @@ describe('equipment release answer', () => {
   });
 
   it('keeps every profit consumer in review when the release answer is no', async () => {
-    seed({ listedEquipmentKind: 'photo_audio_video_communication', listedEquipmentReleaseAnswer: 'no' });
+    seed({ listedEquipmentKind: 'photo_audio_video_communication', listedEquipmentMainLineOfWork: 'no', listedEquipmentReleaseAnswer: 'no' });
     const expectReview = async (response: Response) => {
       expect(response.status).toBe(422);
       const body = await response.json();
@@ -483,6 +483,43 @@ describe('equipment release answer', () => {
       expect(worksheetBody.calculation.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'question' }]);
       expect(worksheetBody.calculation.assets.find((row: { asset: { id: string } }) => row.asset.id === 'camera').regularDepreciation).toBe(0);
     }
+  });
+
+  it('shows the main line question for photo gear at 30 percent with no release answers', async () => {
+    const sentence = 'PLACEHOLDER: We need one more answer about Camera. Do you use it in your main line of work?';
+    const generic = 'PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.';
+    seed({ businessUsePercent: 30, listedEquipmentKind: 'photo_audio_video_communication', section179Requested: false, bonusEligible: false });
+    const response = await calculateScheduleC(json('tax/schedule-c/calculate?year=2026'));
+    expect(response.status).toBe(422);
+    const body = await response.json();
+    expect(body.code).toBe('DEPRECIATION_REVIEW_REQUIRED');
+    expect(body.error).toContain(sentence);
+    expect(body.error).not.toContain(generic);
+    expect(body.error).not.toContain('What kind of equipment is it?');
+    expect(body.error).not.toMatch(/\$\d/);
+    expect(body.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'question', ask: 'main_line' }]);
+    expect(body).not.toHaveProperty('data');
+    const worksheet = await form4562Worksheet(json('tax/form-4562?year=2026'));
+    expect(worksheet.status).toBe(200);
+    const worksheetBody = await worksheet.json();
+    expect(worksheetBody.calculation.notes.join('\n')).toContain(sentence);
+    expect(worksheetBody.calculation.notes.join('\n')).not.toContain(generic);
+    expect(worksheetBody.calculation.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'question', ask: 'main_line' }]);
+    expect(worksheetBody.calculation.assets.find((row: { asset: { id: string } }) => row.asset.id === 'camera').regularDepreciation).toBe(0);
+    expect(worksheetBody.calculation.assets.find((row: { asset: { id: string } }) => row.asset.id === 'camera').totalDepreciation).toBe(0);
+  });
+
+  it('shows the follow-up question when the business location is yes and the outside-home answer is blank', async () => {
+    const sentence = 'PLACEHOLDER: We need one more answer about Camera. Is that a studio or office outside your home?';
+    const generic = 'PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.';
+    seed({ businessUsePercent: 30, listedEquipmentKind: 'photo_audio_video_communication', listedEquipmentBusinessLocation: 'yes', section179Requested: false, bonusEligible: false });
+    const response = await calculateScheduleC(json('tax/schedule-c/calculate?year=2026'));
+    expect(response.status).toBe(422);
+    const body = await response.json();
+    expect(body.error).toContain(sentence);
+    expect(body.error).not.toContain(generic);
+    expect(body.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'question', ask: 'follow_up' }]);
+    expect(body).not.toHaveProperty('data');
   });
 
   it('rejects a bad gear kind and a bad release answer', async () => {
