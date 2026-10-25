@@ -80,7 +80,7 @@ export async function generateUserDataExport(userId: string, year?: number): Pro
     const split = year === undefined ? { dated: rawTransactions, dateNeeded: [] as ExportRecord[] } : partitionExportYear(rawTransactions, year);
     const selected = split.dated;
     const dateNeeded = year === undefined ? undefined : summarizeDateNeeded(split.dateNeeded);
-    const mileageDateNeeded = year === undefined ? undefined : summarizeMileageDateNeeded(undatedMileage);
+    const mileageDateNeeded = year === undefined ? undefined : summarizeMileageDateNeeded(undatedMileage.map(clean));
     const transactions = selected.map(record => {
       const result = clean(record);
       result.id = record.exportReference; result.trans_id = record.exportReference;
@@ -141,14 +141,14 @@ export function generateDataPackage(data: UserDataExport) {
     'A transaction with superseded_by is a bank re-import that duplicates the earlier record referenced by that value; WriteOff totals count only the earlier record.',
     'Receipt metadata and private sign-in links are included; receipt image/PDF binaries are NOT attached. A preparer cannot open these links without authorized account access.',
     'A selected-year archive includes receipt metadata linked to transactions in that year and receipt metadata linked to transactions that need a date. Use an all-years archive to include unlinked receipt metadata.',
-    'Mileage trips with a missing or invalid date are listed as Date needed with a trip count and miles only. No mileage rate is applied and no dollar amount is calculated.',
+    'Mileage trips with a missing or invalid date are listed as Date needed with a trip count, miles, and each cleaned trip record. A trip with blank or invalid miles is counted as no miles and is not added to the miles total. No mileage rate is applied and no dollar amount is calculated.',
     'Tax datasets can overlap (for example bank deposits, gross receipts and 1099s). Do not sum them without reconciling duplicate income.',
     'Assets, settings and profile are current all-year snapshots; transaction, mileage, payment and tax-year records honor the selected year when supplied.',
     'Authentication credentials, Plaid/Stripe connection details, SSN/ITIN/EIN and IRS IP PIN ciphertexts, bank account/routing numbers and legacy authorization PINs are excluded, and identifier-shaped numbers are removed from dependent notes. Provide needed filing identity details separately through a secure preparer workflow.',
     'Only records saved in WriteOff are included. Missing W2/1099 forms, basis, carryovers, credits and other tax facts must be supplied separately.',
     'Audit support records (each confirmed deduction with its records on file, missing substantiation elements, mileage log and Pub 583 retention note) are a separate owner export from Reports > Audit support records; JSON and CSV are included on every plan.',
   ];
-  const csv = data.dateNeeded ? appendTransactionDateNeeded(convertTransactionsToCSV(data.transactions), data.transactions, data.dateNeeded.rows.map(row => ({ merchant_name: row.merchant, amount: row.amount }))) : convertTransactionsToCSV(data.transactions);
+  const csv = data.dateNeeded ? appendTransactionDateNeeded(convertTransactionsToCSV(data.transactions), data.transactions, data.dateNeeded.rows.map(row => ({ merchant_name: row.merchant, amount: row.amount, exportReference: row.exportReference }))) : convertTransactionsToCSV(data.transactions);
   return { json: data, csv, summary: { exportInfo: data.exportInfo, counts,
     dateRange: { earliest: dates[0] ?? null, latest: dates.at(-1) ?? null }, receiptBinariesIncluded: false, limitations },
     readme: `WriteOff - preparer data handoff\n\nGenerated: ${data.exportInfo.exportDate}\nScope: ${data.exportInfo.taxYear ?? 'All saved years'}\n\nPackage: JSON contains all datasets plus the transaction CSV and this README as text. Some download screens save those text fields as separate files; the filing hub downloads one JSON package. No source records are modified by this export.\n\nRecord counts:\n${[...Object.entries(counts).map(([name, count]) => `- ${name}: ${count}`), data.mileageDateNeeded ? `- mileage date needed: ${data.mileageDateNeeded.label}` : ''].filter(Boolean).join('\n')}\n\nLimits and interpretation:\n${limitations.map(text => `- ${text}`).join('\n')}\n`,

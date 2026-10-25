@@ -13,6 +13,6 @@ export function generateScheduleCCSV(lines: LineItemSummary[], taxYear: number, 
   if (!dateNeeded) return csv;
   const total = yearTotal ?? lines.reduce((sum, line) => sum + line.deductible, 0);
   const summary = ['Year total', '', '', '', total.toFixed(2), '', '', dateNeeded.label];
-  const needed = dateNeeded.rows.map(row => ['', row.merchant, '', '', row.amount === null ? '' : row.amount.toFixed(2), '', 'Date needed', '']);
+  const needed = dateNeeded.rows.map(row => ['', row.merchant, '', '', row.amount === null ? '' : row.amount.toFixed(2), '', 'Date needed', row.exportReference]);
   return [csv, summary.map(csvCell).join(','), ...needed.map(row => row.map(csvCell).join(','))].join('\r\n');
 }

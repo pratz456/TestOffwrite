@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
-import { exportDate, partitionExportYear, recordedDeductibility, summarizeDateNeeded, transactionAmount, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
+import { dateNeededMerchantCell, exportDate, partitionExportYear, recordedDeductibility, summarizeDateNeeded, transactionAmount, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
 
 export function preparerMonthlySummary(records: ExportRecord[], year: number) {
   // Superseded duplicates of an earlier bank record are not part of the handoff totals.
@@ -78,7 +78,7 @@ export async function generatePreparerReport(records: ExportRecord[], year: numb
     const text = (value: string, y: number, size = 10, strong = false, x = 42) => page.drawText(textSafe(value), { x, y, size, font: strong ? bold : font, color: rgb(.12, .16, .20) });
     text('Date needed', 747, 17, true);
     text(`${summary.dateNeeded.label}. These amounts are not included in the year total.`, 720, 11, true);
-    summary.dateNeeded.rows.forEach((row, index) => text(`${row.merchant}  ${row.amount === null ? '' : row.amount.toFixed(2)}`, 690 - index * 16, 10));
+    summary.dateNeeded.rows.forEach((row, index) => text(`${dateNeededMerchantCell(row)}  ${row.amount === null ? '' : row.amount.toFixed(2)}`, 690 - index * 16, 10));
   }
   pdf.getPages().forEach((page, index, pages) => page.drawText(`Preparer handoff | Page ${index + 1} of ${pages.length}`, { x: 42, y: 37, size: 9, font }));
   return pdf.save();

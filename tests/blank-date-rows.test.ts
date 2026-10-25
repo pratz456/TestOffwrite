@@ -145,8 +145,18 @@ describe('undated mileage stays in the selected year as miles only', () => {
     const split = partitionExportYear(trips, 2026);
     expect(split.dated).toEqual([trips[0]]);
     const summary = summarizeMileageDateNeeded(split.dateNeeded);
-    expect(summary).toEqual({ count: 1, miles: 12, label: 'Date needed: 1 trip, 12 miles', trips: [{ miles: 12 }] });
+    expect(summary).toEqual({ count: 1, miles: 12, noMilesCount: 0, label: 'Date needed: 1 trip, 12 miles', trips: [{ date: '', miles: 12 }] });
     expect(JSON.stringify(summary)).not.toMatch(/\$|rate|deduction|72\.5|0\.725|9\.99/);
+  });
+
+  it('counts a blank miles trip under no miles and does not treat it as 0 miles or assign a rate', () => {
+    const summary = summarizeMileageDateNeeded([{ date: '', miles: '', businessPurpose: 'Site walk', deduction: 4.5, ratePerMile: 0.76 }]);
+    expect(summary.noMilesCount).toBe(1);
+    expect(summary.miles).toBe(0);
+    expect(summary.label).toBe('Date needed: 1 trip, 1 trip has no miles');
+    expect(summary.label).not.toContain('0 miles');
+    expect(summary.trips[0]).toEqual({ date: '', miles: '', businessPurpose: 'Site walk' });
+    expect(JSON.stringify(summary)).not.toMatch(/\$|rate|deduction|0\.76|4\.5/);
   });
 });
 

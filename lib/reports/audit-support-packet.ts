@@ -7,7 +7,7 @@ import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deducti
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { ExportDataUnavailableError, exportReference, ownedExportRecord, readOwnedTransactions } from './export-records';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
-import { csvCell, exportDate, partitionExportYear, summarizeDateNeeded, transactionAmount, ExportReviewRequiredError, type DateNeededSummary, type ExportRecord } from './transaction-export';
+import { csvCell, dateNeededMerchantCell, exportDate, partitionExportYear, summarizeDateNeeded, transactionAmount, ExportReviewRequiredError, type DateNeededSummary, type ExportRecord } from './transaction-export';
 
 /**
  * Audit support records packet: the confirmed deductions of one tax year, each paired with
@@ -407,6 +407,7 @@ export function auditSupportPacketCSV(packet: AuditSupportPacket): string {
   for (const row of packet.summary.dateNeeded.rows) {
     const cells = AUDIT_SUPPORT_CSV_HEADERS.map(() => '');
     cells[0] = 'Date needed';
+    cells[1] = row.exportReference;
     cells[2] = '';
     cells[3] = row.merchant;
     cells[4] = row.amount === null ? '' : String(row.amount);
@@ -433,7 +434,7 @@ export async function generateAuditSupportPDF(packet: AuditSupportPacket): Promi
   if (packet.summary.dateNeeded.count) {
     pdf.section('Date needed');
     pdf.paragraph(`${packet.summary.dateNeeded.label}. These amounts are not included in the year total.`);
-    pdf.table(['Merchant', 'Amount'], packet.summary.dateNeeded.rows.map(row => [row.merchant, row.amount === null ? '' : money(row.amount)]), [358, 170]);
+    pdf.table(['Merchant', 'Amount'], packet.summary.dateNeeded.rows.map(row => [dateNeededMerchantCell(row), row.amount === null ? '' : money(row.amount)]), [358, 170]);
   }
   pdf.table(['Substantiation category', 'Records', 'Complete', 'Need records', 'Recorded amount'],
     packet.summary.byCategory.length ? packet.summary.byCategory.map(row => [row.label, String(row.count), String(row.complete), String(row.needsRecords), money(row.amount)]) : [['No confirmed deductions in this year', '0', '0', '0', money(0)]],

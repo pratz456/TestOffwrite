@@ -1,7 +1,7 @@
 import { aggregateScheduleC, CATEGORY_MAP, type LineItemSummary } from '@/lib/schedule-c/aggregate';
 import { scheduleCExportLine } from '@/lib/schedule-c/export-lines';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
-import type { DateNeededSummary } from './transaction-export';
+import { dateNeededMerchantCell, type DateNeededSummary } from './transaction-export';
 
 export interface ScheduleCExportData {
   taxYear: number; grossReceipts: number; lineItems: LineItemSummary[];
@@ -45,7 +45,7 @@ export async function generateScheduleCPlanningPDF(data: ScheduleCExportData) {
   } else pdf.paragraph('Transaction appendix omitted at your request. Retain the detailed records and receipts with your preparer.');
   if (data.dateNeeded?.count) {
     pdf.section('Date needed');
-    pdf.table(['Merchant', 'Amount'], data.dateNeeded.rows.map(row => [row.merchant, row.amount === null ? '' : money(row.amount)]), [358, 170]);
+    pdf.table(['Merchant', 'Amount'], data.dateNeeded.rows.map(row => [dateNeededMerchantCell(row), row.amount === null ? '' : money(row.amount)]), [358, 170]);
   }
   pdf.paragraph('Reference: irs.gov/pub/irs-pdf/f1040sc.pdf and irs.gov/pub/irs-prior/f1040sc--2024.pdf. Unsupported font characters are preserved as U+codepoints.');
   return pdf.save();

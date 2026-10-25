@@ -20,7 +20,7 @@ export function exportDate(value: unknown): string | null {
   const day = value.slice(0, 10), parsed = new Date(`${day}T12:00:00Z`);
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
 }
-export interface DateNeededRow { merchant: string; amount: number | null }
+export interface DateNeededRow { merchant: string; amount: number | null; exportReference: string }
 export interface DateNeededSummary {
   count: number;
   total: number;
@@ -49,15 +49,22 @@ export function sumRecordedAmounts(records: ExportRecord[]): number {
   }
   return cents / 100;
 }
+function recordedExportReference(record: ExportRecord): string {
+  return typeof record.exportReference === 'string' ? record.exportReference : '';
+}
 export function summarizeDateNeeded(records: ExportRecord[]): DateNeededSummary {
   let cents = 0;
   const rows = records.map(record => {
     const amount = transactionAmount(record);
     if (amount !== null) cents += Math.round(amount * 100);
-    return { merchant: exportMerchant(record), amount };
+    return { merchant: exportMerchant(record), amount, exportReference: recordedExportReference(record) };
   });
   const total = cents / 100;
   return { count: records.length, total, label: formatDateNeededSummary(records.length, total), rows };
+}
+/** Merchant cell that also carries the same export reference a dated row uses. */
+export function dateNeededMerchantCell(row: DateNeededRow): string {
+  return row.exportReference ? `${row.exportReference} ${row.merchant}` : row.merchant;
 }
 /** Dated rows for the year, plus every blank or invalid date. Other years stay in neither list. */
 export function partitionExportYear(records: ExportRecord[], year: number): { dated: ExportRecord[]; dateNeeded: ExportRecord[] } {
@@ -70,17 +77,18 @@ export function partitionExportYear(records: ExportRecord[], year: number): { da
   }
   return { dated, dateNeeded };
 }
-export interface MileageDateNeededTrip { miles: number }
 export interface MileageDateNeededSummary {
   count: number;
   miles: number;
+  noMilesCount: number;
   label: string;
-  trips: MileageDateNeededTrip[];
+  trips: ExportRecord[];
 }
-function recordedTripMiles(record: ExportRecord): number {
+/** Positive miles, or null when the saved miles are blank or invalid. Null is not a recorded zero. */
+function recordedTripMiles(record: ExportRecord): number | null {
   const value = record.miles;
   const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : Number.NaN;
-  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
   return Math.round(parsed * 100) / 100;
 }
 function formatTripMiles(miles: number): string {
@@ -90,13 +98,26 @@ function formatTripMiles(miles: number): string {
   const digits = fraction === 0 ? String(whole) : `${whole}.${String(fraction).padStart(2, '0').replace(/0$/, '')}`;
   return `${digits} ${hundredths === 100 ? 'mile' : 'miles'}`;
 }
-/** Count and miles only. An undated trip has no rate, so this summary never carries dollars. */
+const MILEAGE_MONEY_KEY = /rate|deduction|dollar|amount|cents/i;
+/** Cleaned trip with rate and dollar fields removed. An undated trip has no rate. */
+function mileageDateNeededTrip(record: ExportRecord): ExportRecord {
+  return Object.fromEntries(Object.entries(record).filter(([key]) => key === 'miles' || !MILEAGE_MONEY_KEY.test(key)));
+}
+function formatMileageDateNeededLabel(count: number, miles: number, noMilesCount: number): string {
+  const parts = [`Date needed: ${count} ${count === 1 ? 'trip' : 'trips'}`];
+  if (noMilesCount === 0 || noMilesCount < count) parts.push(formatTripMiles(miles));
+  if (noMilesCount > 0) parts.push(`${noMilesCount} ${noMilesCount === 1 ? 'trip has no miles' : 'trips have no miles'}`);
+  return parts.join(', ');
+}
+/** Count, miles, and each cleaned trip. Blank or invalid miles stay out of the miles total. */
 export function summarizeMileageDateNeeded(records: ExportRecord[]): MileageDateNeededSummary {
-  const trips = records.map(record => ({ miles: recordedTripMiles(record) }));
-  const hundredths = trips.reduce((sum, trip) => sum + Math.round(trip.miles * 100), 0);
+  const trips = records.map(mileageDateNeededTrip);
+  const measured = records.map(recordedTripMiles);
+  const noMilesCount = measured.filter(miles => miles === null).length;
+  const hundredths = measured.reduce((sum, miles) => miles === null ? sum : sum + Math.round(miles * 100), 0);
   const miles = hundredths / 100;
   const count = records.length;
-  return { count, miles, label: `Date needed: ${count} ${count === 1 ? 'trip' : 'trips'}, ${formatTripMiles(miles)}`, trips };
+  return { count, miles, noMilesCount, label: formatMileageDateNeededLabel(count, miles, noMilesCount), trips };
 }
 /** Dated rows for one year. A blank or invalid date throws, because this caller has no Date needed summary. */
 export function selectExportYear(records: ExportRecord[], year?: number): ExportRecord[] {

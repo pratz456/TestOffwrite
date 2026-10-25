@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { readOwnedTransactions } from '@/lib/reports/export-records';
-import { exportDate, exportYear, partitionExportYear, summarizeDateNeeded, transactionAmount, ExportReviewRequiredError, type DateNeededSummary, type ExportRecord } from '@/lib/reports/transaction-export';
+import { dateNeededMerchantCell, exportDate, exportYear, partitionExportYear, summarizeDateNeeded, transactionAmount, ExportReviewRequiredError, type DateNeededSummary, type ExportRecord } from '@/lib/reports/transaction-export';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { createPlanningPDF, formatExportMoney } from '@/lib/reports/planning-pdf';
 
@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
     if (data.dateNeeded.count) {
       pdf.section('Date needed');
       pdf.paragraph(`${data.dateNeeded.label}. These amounts are not included in the year total.`);
-      pdf.table(['Merchant', 'Amount (USD)'], data.dateNeeded.rows.map(row => [row.merchant, row.amount === null ? '' : formatExportMoney(row.amount)]), [358, 170]);
+      pdf.table(['Merchant', 'Amount (USD)'], data.dateNeeded.rows.map(row => [dateNeededMerchantCell(row), row.amount === null ? '' : formatExportMoney(row.amount)]), [358, 170]);
     }
     pdf.section('Inflows by recorded source');
     pdf.table(['Source', 'Amount (USD)'], data.income.map(row => [row.source, formatExportMoney(row.amount)]), [358, 170]);

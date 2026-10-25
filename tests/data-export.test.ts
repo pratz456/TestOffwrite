@@ -125,18 +125,33 @@ describe('owner export source completeness and privacy', () => {
     const selected = await generateUserDataExport('owner', 2026);
     expect(selected.taxRecords.mileage_trips).toHaveLength(1);
     expect(selected.taxRecords.mileage_trips[0].miles).toBe(30);
-    expect(selected.mileageDateNeeded).toEqual({ count: 1, miles: 12, label: 'Date needed: 1 trip, 12 miles', trips: [{ miles: 12 }] });
+    expect(selected.mileageDateNeeded).toEqual({
+      count: 1, miles: 12, noMilesCount: 0, label: 'Date needed: 1 trip, 12 miles',
+      trips: [{ date: '', miles: 12, businessPurpose: 'Client visit', id: 'undated' }],
+    });
+    expect(selected.taxRecords.mileage_trips[0].id).toBe('trip');
     const listed = JSON.stringify(selected.taxRecords.mileage_trips);
     const needed = JSON.stringify(selected.mileageDateNeeded);
     expect(listed).not.toContain('9.99');
     expect(needed).not.toMatch(/\$|rate|deduction|0\.725|9\.99/);
+    expect(needed).toContain('Client visit');
+    expect(needed).toContain('"id":"undated"');
     const pack = generateDataPackage(selected);
     expect(pack.readme).toContain('mileage date needed: Date needed: 1 trip, 12 miles');
-    expect(pack.readme).toContain('trip count and miles only');
+    expect(pack.readme).toContain('each cleaned trip record');
     expect(pack.json.mileageDateNeeded).toEqual(selected.mileageDateNeeded);
     const allYears = await generateUserDataExport('owner');
     expect(allYears.taxRecords.mileage_trips).toHaveLength(3);
     expect(allYears.mileageDateNeeded).toBeUndefined();
+  });
+  it('counts an undated trip with blank miles under no miles and assigns no rate', async () => {
+    seed('user_profiles/owner/mileage_trips/blankmiles', { date: '', miles: '', deduction: 9.99, ratePerMile: 0.76, businessPurpose: 'Site walk' });
+    const selected = await generateUserDataExport('owner', 2026);
+    expect(selected.mileageDateNeeded).toMatchObject({ count: 1, miles: 0, noMilesCount: 1, label: 'Date needed: 1 trip, 1 trip has no miles' });
+    expect(selected.mileageDateNeeded?.label).not.toContain('0 miles');
+    expect(selected.mileageDateNeeded?.trips[0]).toMatchObject({ id: 'blankmiles', businessPurpose: 'Site walk', miles: '' });
+    expect(selected.mileageDateNeeded?.trips[0].miles).not.toBe(0);
+    expect(JSON.stringify(selected.mileageDateNeeded)).not.toMatch(/\$|rate|deduction|0\.76|9\.99/);
   });
   it('keeps a receipt linked to an undated transaction in the selected year', async () => {
     seed('transactions/undated', { userId: 'owner', trans_id: 'undated-tx', date: '', amount: 10, merchant_name: 'Needs more information' });
@@ -144,7 +159,11 @@ describe('owner export source completeness and privacy', () => {
     const selected = await generateUserDataExport('owner', 2026);
     expect(selected.transactions.some(row => row.amount === 10)).toBe(false);
     expect(selected.dateNeeded).toMatchObject({ count: 1, total: 10 });
-    expect(selected.receipts).toEqual(expect.arrayContaining([expect.objectContaining({ filename: 'undated.png' })]));
+    const receipt = selected.receipts.find(row => row.filename === 'undated.png');
+    const needed = selected.dateNeeded?.rows[0];
+    expect(receipt?.transactionId).toBe(needed?.exportReference);
+    expect(String(needed?.exportReference).startsWith('transaction-')).toBe(true);
+    expect(generateDataPackage(selected).csv).toContain(String(needed?.exportReference));
     expect(generateDataPackage(selected).readme).toContain('transactions that need a date');
   });
 });
