@@ -1,16 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { PDFPage } from 'pdf-lib';
 import type { UserProfile } from '@/lib/firebase/profiles-server';
-import { calcScheduleSE } from '@/lib/reports/calcSE';
 import {
   ACCELERATED_MACRS_HALF_YEAR_RATE, ASSET_CATEGORIES, EQUIPMENT_ASSET_CATEGORIES, LISTED_EQUIPMENT_BUSINESS_USE_CEILING,
   LISTED_EQUIPMENT_QUESTION_PLACEHOLDER, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER, acceleratedMacrsDeduction, businessUseBasis,
   calc4562, listedEquipmentBusinessUseAtOrUnderCeiling, roundCents, type Asset, type ListedEquipmentAnswer,
 } from '@/lib/reports/calc4562';
 import { generateForm4562PDF } from '@/lib/reports/form4562';
-import { formatExportMoney } from '@/lib/reports/planning-pdf';
-import { generateScheduleSEPDF } from '@/lib/reports/scheduleSE';
 import { computeScheduleCProfit } from '@/lib/tax-rules/schedule-c-profit';
 
 const TAX_YEAR = 2026;
@@ -206,71 +202,33 @@ describe('callers that read calc4562 money totals', () => {
   const withheldMacrs = () => acceleratedMacrsDeduction(businessUseBasis(equipment.cost, equipment.businessUsePercent), equipment.method);
 
   it('keeps the withheld asset out of Schedule C profit', () => {
-    const profit = computeScheduleCProfit({ taxYear: TAX_YEAR, grossReceipts, confirmedExpenses: 0, w2Wages: 0, assets: [equipment, sibling] });
-    const expectedDepreciation = siblingMacrs();
-    const expectedNet = roundCents(grossReceipts - expectedDepreciation);
-    expect(withheldSection179()).not.toBe(expectedDepreciation);
-    expect(profit.depreciationDeduction).toBe(expectedDepreciation);
-    expect(profit.deMinimisExpense).toBe(0);
-    expect(profit.netProfit).toBe(expectedNet);
-    expect(profit.assetCalculation?.totalBonusDepreciation).toBe(0);
-    expect(profit.assetCalculation?.totalSection179).toBe(0);
-    expect(profit.depreciationDeduction).not.toBe(roundCents(expectedDepreciation + withheldMacrs()));
-    expect(profit.depreciationDeduction).not.toBe(roundCents(expectedDepreciation + withheldSection179()));
+    expect(() => computeScheduleCProfit({ taxYear: TAX_YEAR, grossReceipts, confirmedExpenses: 0, w2Wages: 0, assets: [equipment, sibling] })).toThrow(/PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown/);
+    try {
+      computeScheduleCProfit({ taxYear: TAX_YEAR, grossReceipts, confirmedExpenses: 0, w2Wages: 0, assets: [equipment, sibling] });
+    } catch (error) {
+      expect(error).toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED', heldAssets: [{ id: equipment.id, reason: 'review' }] });
+    }
   });
 
-  async function pdfText(render: () => Promise<Uint8Array>) {
-    const spy = vi.spyOn(PDFPage.prototype, 'drawText');
-    await render();
-    return spy.mock.calls.map(call => String(call[0])).join(' ').replace(/\s+/g, ' ');
-  }
-
-  it('omits withheld Section 179, bonus, and accelerated MACRS from the Form 4562 PDF', async () => {
-    const text = await pdfText(() => generateForm4562PDF({
+  it('blocks the Form 4562 PDF when an asset is held', async () => {
+    const input = {
       userProfile: { name: 'Synthetic Taxpayer' } as UserProfile,
       assetsSettings: [equipment, sibling], transactions: [], taxYear: TAX_YEAR, businessIncome: BUSINESS_INCOME,
-    }));
-    expect(text).toContain(formatExportMoney(siblingMacrs()));
-    expect(text).toContain(LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER);
-    expect(text).toContain(LISTED_EQUIPMENT_QUESTION_PLACEHOLDER);
-    expect(text).not.toContain(formatExportMoney(withheldSection179()));
-    expect(text).not.toContain(formatExportMoney(withheldMacrs()));
-    expect(text).not.toContain(formatExportMoney(roundCents(siblingMacrs() + withheldMacrs())));
-    expect(text).not.toContain(formatExportMoney(roundCents(siblingMacrs() + withheldSection179())));
+    };
+    await expect(generateForm4562PDF(input)).rejects.toThrow(/PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown/);
+    await expect(generateForm4562PDF(input)).rejects.toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED', heldAssets: [{ id: equipment.id, reason: 'review' }] });
   });
 
-  it('omits a blank equipment asset at 50% from the Form 4562 PDF figures', async () => {
+  it('blocks the Form 4562 PDF when an equipment asset at 50% is blank', async () => {
     const blank = asset({ ...equipment, listedEquipmentAnswer: null, description: 'Unanswered recorder' });
-    const text = await pdfText(() => generateForm4562PDF({
+    await expect(generateForm4562PDF({
       userProfile: { name: 'Synthetic Taxpayer' } as UserProfile,
       assetsSettings: [blank, sibling], transactions: [], taxYear: TAX_YEAR, businessIncome: BUSINESS_INCOME,
-    }));
-    expect(text).toContain(LISTED_EQUIPMENT_QUESTION_PLACEHOLDER);
-    expect(text).not.toContain(LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER);
-    expect(text).toContain(formatExportMoney(siblingMacrs()));
-    expect(text).not.toContain(formatExportMoney(withheldSection179()));
-    expect(text).not.toContain(formatExportMoney(withheldMacrs()));
+    })).rejects.toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED', heldAssets: [{ id: blank.id, reason: 'question' }] });
   });
 
-  it('keeps the withheld deduction out of the Schedule SE PDF profit', async () => {
-    const profit = computeScheduleCProfit({ taxYear: TAX_YEAR, grossReceipts, confirmedExpenses: 0, w2Wages: 0, assets: [equipment, sibling] });
-    const expectedNet = roundCents(grossReceipts - siblingMacrs());
-    const leakedNet = roundCents(expectedNet - withheldMacrs());
-    expect(profit.netProfit).toBe(expectedNet);
-    expect(leakedNet).not.toBe(expectedNet);
-    const calculation = calcScheduleSE({ scheduleCNetProfit: profit.netProfit, taxYear: TAX_YEAR, adjustments: 0 }, 'single');
-    const printed = Object.values(calculation).filter((value): value is number => typeof value === 'number').map(formatExportMoney);
-    expect(printed).not.toContain(formatExportMoney(withheldMacrs()));
-    expect(printed).not.toContain(formatExportMoney(withheldSection179()));
-    expect(printed).not.toContain(formatExportMoney(leakedNet));
-    const text = await pdfText(() => generateScheduleSEPDF({
-      userProfile: { name: 'Synthetic Taxpayer', filing_status: 'single' } as UserProfile,
-      taxYear: TAX_YEAR, calculation, w2SocialSecurityWages: 0, w2MedicareWages: 0,
-    }));
-    expect(text).toContain(formatExportMoney(expectedNet));
-    expect(text).not.toContain(formatExportMoney(withheldMacrs()));
-    expect(text).not.toContain(formatExportMoney(withheldSection179()));
-    expect(text).not.toContain(formatExportMoney(leakedNet));
+  it('does not build a Schedule SE profit while an asset is held', () => {
+    expect(() => computeScheduleCProfit({ taxYear: TAX_YEAR, grossReceipts, confirmedExpenses: 0, w2Wages: 0, assets: [equipment, sibling] })).toThrow(/PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown/);
   });
 
   it('returns withheld figures as zero from the Form 4562 worksheet route', async () => {

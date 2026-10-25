@@ -27,6 +27,20 @@ export const LISTED_EQUIPMENT_QUESTION_PLACEHOLDER =
 export const LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER =
   'PLACEHOLDER: This asset needs review.';
 
+/**
+ * Customer-facing message when a profit, self-employment, or tax figure cannot be shown
+ * because an equipment asset is held for an answer or review.
+ * PLACEHOLDER wording. Replace with reviewed copy before this text is treated as final.
+ */
+export const LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER =
+  'PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.';
+
+/** An asset the worksheet held instead of calculating. `question` means the equipment question is still blank. */
+export interface ListedEquipmentHeldAsset {
+  id: string;
+  reason: 'review' | 'question';
+}
+
 /** Yes or no. Omit or null while the equipment question is still blank. */
 export type ListedEquipmentAnswer = 'yes' | 'no';
 
@@ -105,13 +119,19 @@ export interface Form4562Calculation {
   /** Form 4562 line 22 equivalent for the supported subset: §179 allowed plus regular MACRS. */
   totalDepreciation: number;
   totalCarryover: number;
+  /** Assets held for an answer or review. Empty when every current asset was calculated. */
+  heldAssets: ListedEquipmentHeldAsset[];
   notes: string[];
 }
 
 /** The current asset form lacks the facts needed to calculate elections and prior-year basis. */
 export class DepreciationReviewRequiredError extends Error {
   readonly code = 'DEPRECIATION_REVIEW_REQUIRED';
-  constructor(detail: string) { super(`Asset depreciation needs review: ${detail}`); }
+  readonly heldAssets?: ListedEquipmentHeldAsset[];
+  constructor(detail: string, heldAssets?: ListedEquipmentHeldAsset[]) {
+    super(`Asset depreciation needs review: ${detail}`);
+    this.heldAssets = heldAssets;
+  }
 }
 
 /**
@@ -309,10 +329,15 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
   const sum = (select: (row: AssetCalculation) => number) => roundCents(calculations.reduce((total, row) => total + select(row), 0));
   const totalSection179 = sum(row => row.section179Deduction);
   const totalRegularDepreciation = sum(row => row.regularDepreciation);
+  const heldAssets: ListedEquipmentHeldAsset[] = [];
+  for (const row of calculations) {
+    if (row.listedEquipmentHold === 'review') heldAssets.push({ id: row.asset.id, reason: 'review' });
+    else if (row.listedEquipmentHold === 'question_required') heldAssets.push({ id: row.asset.id, reason: 'question' });
+  }
   return {
     taxYear, assets: calculations, totalDeMinimisExpense: sum(row => row.deMinimisExpense), section179, totalSection179,
     totalBonusDepreciation: 0, totalRegularDepreciation, totalDepreciation: roundCents(totalSection179 + totalRegularDepreciation),
-    totalCarryover: sum(row => row.carryoverToNextYear), notes,
+    totalCarryover: sum(row => row.carryoverToNextYear), heldAssets, notes,
   };
 }
 

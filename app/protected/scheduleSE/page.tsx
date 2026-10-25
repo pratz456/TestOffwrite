@@ -12,6 +12,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { useToasts } from '@/components/ui/toast';
 import { ToastContainer } from '@/components/ui/toast';
 import { calcScheduleSE, validateTaxSummarySettings, TaxSummarySettings } from '@/lib/reports/calcSE';
+import { LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER } from '@/lib/reports/calc4562';
 
 export default function ScheduleSEPage() {
   const router = useRouter();
@@ -25,6 +26,7 @@ export default function ScheduleSEPage() {
   const [taxSummary, setTaxSummary] = useState<TaxSummarySettings | null>(null);
   const [calculation, setCalculation] = useState<any>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [figureReview, setFigureReview] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -35,6 +37,7 @@ export default function ScheduleSEPage() {
   const loadTaxSummary = async () => {
     try {
       setIsLoading(true);
+      setFigureReview(null);
       // Try auto-calculate first (reads directly from transactions + income)
       const { auth } = await import('@/lib/firebase/client');
       const currentUser = auth.currentUser;
@@ -44,14 +47,20 @@ export default function ScheduleSEPage() {
         const autoRes = await fetch(`/api/tax/schedule-se/auto?year=${selectedYear}`, {
           headers: { 'Authorization': `Bearer ${token}` },
         });
-        if (autoRes.ok) {
-          const autoData = await autoRes.json();
-          if (autoData.calculation) {
-            setCalculation(autoData.calculation);
-            setTaxSummary({ scheduleCNetProfit: autoData.netProfit, taxYear: parseInt(selectedYear) });
-            setValidationErrors([]);
-            return;
-          }
+        const autoData = await autoRes.json().catch(() => ({}));
+        if (autoRes.status === 422 && autoData?.code === 'DEPRECIATION_REVIEW_REQUIRED') {
+          setCalculation(null);
+          setTaxSummary(null);
+          setValidationErrors([]);
+          setFigureReview(typeof autoData.error === 'string' && autoData.error.trim() ? autoData.error : LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER);
+          return;
+        }
+        if (autoRes.ok && autoData.calculation) {
+          setFigureReview(null);
+          setCalculation(autoData.calculation);
+          setTaxSummary({ scheduleCNetProfit: autoData.netProfit, taxYear: parseInt(selectedYear) });
+          setValidationErrors([]);
+          return;
         }
       }
 
@@ -221,7 +230,13 @@ export default function ScheduleSEPage() {
         <Card className="p-4">
           <h2 className="text-base font-semibold mb-3">Schedule SE Preview - Tax Year {selectedYear}</h2>
 
-          {!taxSummary ? (
+          {figureReview ? (
+            <div role="alert" className="text-center py-6">
+              <AlertCircle className="w-8 h-8 text-amber-600 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">This figure needs review</h3>
+              <p className="text-gray-700">{figureReview}</p>
+            </div>
+          ) : !taxSummary ? (
             <div className="text-center py-6">
               <User className="w-8 h-8 text-gray-300 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">Tax Summary Settings Not Configured</h3>

@@ -1,4 +1,4 @@
-import { calc4562, type Asset, type DepreciationElections, type Form4562Calculation } from '@/lib/reports/calc4562';
+import { calc4562, DepreciationReviewRequiredError, LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER, type Asset, type DepreciationElections, type Form4562Calculation, type ListedEquipmentHeldAsset } from '@/lib/reports/calc4562';
 import { resolveHomeOfficeDeduction, type HomeOfficeResolution, type HomeOfficeSettings } from '@/lib/reports/calc8829';
 
 /** Review codes the shared Schedule C ordering can raise; routes answer them with HTTP 422. */
@@ -42,6 +42,11 @@ export interface ScheduleCProfit {
   homeOfficeDeduction: number;
   /** Schedule C line 31 equivalent: the amount Schedule SE, QBI and Form 1040 use. */
   netProfit: number;
+  /**
+   * Empty when every asset was calculated. A held asset is not returned with profit dollars:
+   * `computeScheduleCProfit` throws `DepreciationReviewRequiredError` and puts the same list on that error.
+   */
+  heldAssets: ListedEquipmentHeldAsset[];
   warnings: string[];
 }
 
@@ -62,6 +67,9 @@ export function computeScheduleCProfit(input: ScheduleCProfitInput): ScheduleCPr
   const assetCalculation = input.assets.length
     ? calc4562([...input.assets], section179BusinessIncome, input.taxYear, input.depreciationElections ?? null)
     : null;
+  const heldAssets = assetCalculation?.heldAssets ?? [];
+  // Same whole-worksheet review the bonus gate used: callers already map this code to HTTP 422 and show no dollars.
+  if (heldAssets.length) throw new DepreciationReviewRequiredError(LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER, heldAssets);
   const deMinimisExpense = assetCalculation?.totalDeMinimisExpense ?? 0;
   const depreciationDeduction = assetCalculation?.totalDepreciation ?? 0;
   const tentativeProfit = cents(profitBeforeAssets - deMinimisExpense - depreciationDeduction);
@@ -69,6 +77,6 @@ export function computeScheduleCProfit(input: ScheduleCProfitInput): ScheduleCPr
   const warnings = [...(assetCalculation?.notes ?? []), ...homeOffice.warnings];
   return {
     profitBeforeAssets, section179BusinessIncome, assetCalculation, deMinimisExpense, depreciationDeduction, tentativeProfit,
-    homeOffice, homeOfficeDeduction: homeOffice.deduction, netProfit: cents(tentativeProfit - homeOffice.deduction), warnings,
+    homeOffice, homeOfficeDeduction: homeOffice.deduction, netProfit: cents(tentativeProfit - homeOffice.deduction), heldAssets, warnings,
   };
 }

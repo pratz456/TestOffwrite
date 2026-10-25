@@ -1,5 +1,5 @@
 import type { UserProfile } from '@/lib/firebase/profiles-server';
-import { type Asset, type DepreciationElections, businessUseBasis, calc4562, DE_MINIMIS_SAFE_HARBOR_LIMIT, LISTED_EQUIPMENT_QUESTION_PLACEHOLDER, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER } from './calc4562';
+import { type Asset, type DepreciationElections, businessUseBasis, calc4562, DE_MINIMIS_SAFE_HARBOR_LIMIT, DepreciationReviewRequiredError, LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER, LISTED_EQUIPMENT_QUESTION_PLACEHOLDER, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER } from './calc4562';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 export interface Form4562Data {
   userProfile: UserProfile; assetsSettings: Asset[]; transactions: unknown[]; taxYear: number;
@@ -11,6 +11,8 @@ const TREATMENT_LABELS = { de_minimis_expense: 'De minimis safe harbor expense (
 export async function generateForm4562PDF(data: Form4562Data): Promise<Uint8Array> {
   const businessIncome = data.businessIncome ?? 0;
   const c = calc4562(data.assetsSettings, businessIncome, data.taxYear, data.elections ?? null);
+  // Totals on this PDF would omit a held asset. Block the file the same way a whole-worksheet review blocks other exports.
+  if (c.heldAssets.length) throw new DepreciationReviewRequiredError(LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER, c.heldAssets);
   const pdf = await createPlanningPDF('Form 4562 - supported depreciation worksheet', data.taxYear);
   pdf.paragraph('Preparer review only, not an IRS Form 4562 or complete depreciation schedule. Supported cases: first-year nonlisted 5/7-year property (MACRS half-year), Section 179 elections for 2025-2026 property with more than 50% business use, and de minimis safe harbor items in an elected year. Bonus depreciation, vehicles and listed property, prior-year basis, straight-line and mid-quarter cases require review.', true);
   pdf.paragraph(`Name as saved: ${data.userProfile.name || 'Not provided'}. Assets calculated: ${c.assets.length}.`);

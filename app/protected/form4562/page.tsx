@@ -15,7 +15,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { useToasts } from '@/components/ui/toast';
 import { ToastContainer } from '@/components/ui/toast';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
-import { type Asset, type AssetCalculation, type Form4562Calculation, type DepreciationElections, type ListedEquipmentAnswer, isEquipmentAssetCategory, LISTED_EQUIPMENT_QUESTION_PLACEHOLDER, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER } from '@/lib/reports/calc4562';
+import { type Asset, type AssetCalculation, type Form4562Calculation, type DepreciationElections, type ListedEquipmentAnswer, isEquipmentAssetCategory, LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER, LISTED_EQUIPMENT_QUESTION_PLACEHOLDER, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER } from '@/lib/reports/calc4562';
 
 interface Form4562Worksheet {
   taxYear: number;
@@ -93,7 +93,8 @@ export default function Form4562Page() {
   const handleSetupSettings = () => { router.push('/protected/tax-forms-setup?tab=assets'); };
   const handleElectionSettings = () => { router.push('/protected/settings?tab=tax'); };
   const calculation = state.status === 'ready' ? state.data.calculation : null;
-  const canExport = state.status === 'ready' && calculation !== null;
+  const heldAssets = calculation?.heldAssets ?? [];
+  const canExport = state.status === 'ready' && calculation !== null && heldAssets.length === 0;
 
   const handleExport = async () => {
     if (!canExport) {
@@ -356,6 +357,7 @@ export default function Form4562Page() {
               </Select>
             </div>
           </div>
+          {heldAssets.length > 0 && <p className="mb-3 text-sm text-amber-700">{LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER}</p>}
           <PremiumFeatureGate feature="exports" featureName="tax form exports" inline>
             <Button onClick={handleExport} disabled={isExporting || !canExport} className="w-full bg-blue-600 hover:bg-blue-700 text-white">
               <Download className="w-4 h-4 mr-2" />
