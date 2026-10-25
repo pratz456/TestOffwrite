@@ -483,12 +483,20 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
     notes.push(`De minimis safe harbor items are ordinary current-year expenses, not depreciation, because you elected Reg. §1.263(a)-1(f) for ${taxYear}. Attach the election statement to a timely filed return, keep invoices showing each item cost $${DE_MINIMIS_SAFE_HARBOR_LIMIT.toLocaleString('en-US')} or less, and do not also deduct the purchase transaction.`);
   }
 
-  // Pub 946 ch. 4: the 40% test uses depreciable basis after the §179 reduction and personal use.
+  // 2025 Form 4562 instructions and Reg. §1.168(d)-1(b)(2): the 40% test covers MACRS
+  // property placed in service during the year, and ADS property counts. Listed property
+  // at 50% or less business use is ADS property, so a held asset counts at business basis.
+  // Section 179 elected for a held asset is zero. De minimis safe-harbor items are not
+  // MACRS property. Real property and same-year dispositions are not in this population.
+  const midQuarterProperty = current.filter(asset => !deMinimis.includes(asset));
   const macrsBasis = (asset: Asset) => businessBasis(asset) - (elected.get(asset) ?? 0);
-  const totalBasis = depreciable.reduce((sum, asset) => sum + macrsBasis(asset), 0);
-  const lastQuarterBasis = depreciable.filter(asset => assetDate(asset.datePlacedInService).getUTCMonth() >= 9)
+  const totalBasis = midQuarterProperty.reduce((sum, asset) => sum + macrsBasis(asset), 0);
+  const lastQuarterBasis = midQuarterProperty.filter(asset => assetDate(asset.datePlacedInService).getUTCMonth() >= 9)
     .reduce((sum, asset) => sum + macrsBasis(asset), 0);
-  if (totalBasis > 0 && lastQuarterBasis / totalBasis > 0.4) throw new DepreciationReviewRequiredError('More than 40% of this year’s basis was placed in service in the last quarter; the mid-quarter convention requires a separate calculation.');
+  // Only held assets means nothing is calculated under the half-year convention.
+  // A single held asset in the last quarter therefore stays a withheld result.
+  const calculatesHalfYear = midQuarterProperty.some(asset => !listedEquipmentHoldFor(asset));
+  if (calculatesHalfYear && totalBasis > 0 && lastQuarterBasis / totalBasis > 0.4) throw new DepreciationReviewRequiredError('More than 40% of this year’s basis was placed in service in the last quarter; the mid-quarter convention requires a separate calculation.');
 
   for (const asset of current) {
     const hold = listedEquipmentHoldFor(asset);

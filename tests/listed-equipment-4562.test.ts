@@ -173,7 +173,7 @@ describe('equipment listed-property flag', () => {
 
   it('does not let a withheld equipment asset change another asset through de minimis, Section 179 phaseout, or the mid-quarter test', () => {
     const sibling = asset({ id: 'sibling', description: 'Office computer', category: 'computer', cost: 10000, businessUsePercent: 100, section179Requested: true });
-    const held = asset({ id: 'held', description: 'Lighting kit', cost: 6650000, businessUsePercent: 50, listedEquipmentAnswer: 'yes', listedEquipmentKind: 'recreation_or_amusement', section179Requested: true, bonusEligible: true, datePlacedInService: new Date(Date.UTC(TAX_YEAR, 10, 1)) });
+    const held = asset({ id: 'held', description: 'Lighting kit', cost: 6650000, businessUsePercent: 50, listedEquipmentAnswer: 'yes', listedEquipmentKind: 'recreation_or_amusement', section179Requested: true, bonusEligible: true });
     const combined = calc4562([sibling, held], BUSINESS_INCOME, TAX_YEAR);
     const alone = calc4562([sibling], BUSINESS_INCOME, TAX_YEAR);
     const expected = roundCents(businessUseBasis(sibling.cost, sibling.businessUsePercent));
@@ -182,6 +182,8 @@ describe('equipment listed-property flag', () => {
     expect(combined.section179?.costOfSection179Property).toBe(sibling.cost);
     expect(combined.totalDepreciation).toBe(alone.totalDepreciation);
     expect(combined.totalSection179).toBe(alone.totalSection179);
+    const heldLastQuarter = { ...held, datePlacedInService: new Date(Date.UTC(TAX_YEAR, 10, 1)) };
+    expect(() => calc4562([sibling, heldLastQuarter], BUSINESS_INCOME, TAX_YEAR)).toThrow(/mid-quarter/);
     const cheapHeld = asset({ id: 'cheap', description: 'Microphone', cost: 2000, businessUsePercent: 50, listedEquipmentAnswer: 'yes', listedEquipmentKind: 'recreation_or_amusement' });
     const cheapSibling = asset({ id: 'mouse', description: 'Mouse', category: 'computer', cost: 1000, businessUsePercent: 100 });
     const expensed = calc4562([cheapSibling, cheapHeld], BUSINESS_INCOME, TAX_YEAR, { deMinimisSafeHarborYears: [TAX_YEAR] });
@@ -191,6 +193,39 @@ describe('equipment listed-property flag', () => {
     expect(expensed.totalDeMinimisExpense).toBe(siblingExpense);
     expect(expensed.totalDeMinimisExpense).not.toBe(roundCents(siblingExpense + withheldExpense));
     expect(expensed.assets.find(row => row.asset.id === 'cheap')!.deMinimisExpense).toBe(0);
+  });
+
+  const heldPhoto = (overrides: Partial<Asset>): Asset => asset({
+    id: 'camera', description: 'Camera', category: 'equipment', method: 'MACRS_5YR', businessUsePercent: 50,
+    listedEquipmentKind: 'photo_audio_video_communication', listedEquipmentMainLineOfWork: 'no', listedEquipmentBusinessLocation: 'no',
+    section179Requested: false, bonusEligible: false, ...overrides,
+  });
+
+  it('counts a held camera in the last quarter toward the mid-quarter test', () => {
+    const laptop = asset({ id: 'laptop', description: 'Laptop', category: 'computer', cost: 2000, businessUsePercent: 100, datePlacedInService: new Date(Date.UTC(2025, 8, 1)) });
+    const camera = heldPhoto({ cost: 4000, datePlacedInService: new Date(Date.UTC(2025, 9, 1)) });
+    expect(businessUseBasis(camera.cost, camera.businessUsePercent)).toBe(2000);
+    expect(() => calc4562([laptop, camera], BUSINESS_INCOME, 2025)).toThrow(/mid-quarter/);
+  });
+
+  it('does not apply the mid-quarter review when held basis makes the last quarter exactly 40 percent', () => {
+    const camera = heldPhoto({ cost: 6000, datePlacedInService: new Date(Date.UTC(2025, 1, 1)) });
+    const laptop = asset({ id: 'laptop', description: 'Laptop', category: 'computer', cost: 2000, businessUsePercent: 100, datePlacedInService: new Date(Date.UTC(2025, 11, 1)) });
+    expect(businessUseBasis(camera.cost, camera.businessUsePercent)).toBe(3000);
+    expect(() => calc4562([camera, laptop], BUSINESS_INCOME, 2025)).not.toThrow();
+    const result = calc4562([camera, laptop], BUSINESS_INCOME, 2025);
+    expect(result.assets.find(row => row.asset.id === 'camera')!.totalDepreciation).toBe(0);
+    expect(result.assets.find(row => row.asset.id === 'laptop')!.regularDepreciation).toBe(acceleratedMacrsDeduction(2000, 'MACRS_5YR'));
+  });
+
+  it('returns a withheld result for a single held asset placed in the last quarter', () => {
+    const camera = heldPhoto({ cost: 4000, datePlacedInService: new Date(Date.UTC(2025, 9, 1)) });
+    expect(() => calc4562([camera], BUSINESS_INCOME, 2025)).not.toThrow();
+    const result = calc4562([camera], BUSINESS_INCOME, 2025);
+    expect(result.assets[0].listedEquipmentHold).toBe('review');
+    expect(moneyFields(result.assets[0])).toEqual({ section179Deduction: 0, bonusDepreciation: 0, regularDepreciation: 0, totalDepreciation: 0, deMinimisExpense: 0, carryoverToNextYear: 0 });
+    expect(result.totalDepreciation).toBe(0);
+    expect(result.notes.join('\n')).not.toContain('mid-quarter');
   });
 });
 
