@@ -179,7 +179,8 @@ describe('worksheet and estimate routes share the 422 review contract', () => {
     expect(partial.status).toBe(422);
     const partialBody = await partial.json();
     expect(partialBody).toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED' });
-    expect(partialBody.error).toMatch(/partial Section 179 election/);
+    expect(partialBody.error).toMatch(/Part of this asset's cost isn't covered by the Section 179 amount/);
+    expect(partialBody.error).toMatch(/How should it be counted/);
     expect(partialBody).not.toHaveProperty('calculation');
     const estimate = await compute1040(json('tax/compute-1040?year=2026'));
     expect(estimate.status).toBe(422);

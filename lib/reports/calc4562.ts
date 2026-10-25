@@ -217,7 +217,8 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
       return sum + allowance.regularDepreciation + allowance.bonusDepreciation;
     }, 0));
     if (partialElection && (businessIncomeLimit - partialRemainingDepreciation) < electedTotal) {
-      throw new DepreciationReviewRequiredError('A partial Section 179 election is below the business basis and the income limit is below the amount elected. How should regular depreciation on the remaining basis affect that limit?');
+      // The user-facing copy is a placeholder pending approval.
+      throw new DepreciationReviewRequiredError("Part of this asset's cost isn't covered by the Section 179 amount, and depreciation on that part may lower your business income limit below the amount elected. How should it be counted?");
     }
     const allowedTotal = Math.min(electedTotal, businessIncomeLimit);
     let allowedRemaining = roundCents(allowedTotal);

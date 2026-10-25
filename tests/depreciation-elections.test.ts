@@ -177,14 +177,14 @@ describe('Section 179 income limit after de minimis and other depreciation', () 
   it('sends a partial Section 179 election to review with no amount when the income limit binds', () => {
     const partial = [asset({ cost: 9000, section179Requested: true, section179Amount: 5000, datePlacedInService: placed })];
     expect(reviewCode(() => calc4562(partial, 4000, 2026))).toBe('DEPRECIATION_REVIEW_REQUIRED');
-    expect(() => calc4562(partial, 4000, 2026)).toThrow(/partial Section 179 election/);
+    expect(() => calc4562(partial, 4000, 2026)).toThrow(/Part of this asset's cost isn't covered by the Section 179 amount/);
     let caught: unknown;
     try {
       computeScheduleCProfit({ taxYear: 2026, grossReceipts: 4000, confirmedExpenses: 0, w2Wages: 0, assets: partial });
     } catch (error) { caught = error; }
     expect(scheduleCReviewCode(caught)).toBe('DEPRECIATION_REVIEW_REQUIRED');
     expect(caught).toBeInstanceOf(Error);
-    expect((caught as Error).message).toMatch(/How should regular depreciation on the remaining basis affect that limit/);
+    expect((caught as Error).message).toMatch(/How should it be counted/);
     // The same hold applies when the dollar limit, rather than a stated amount, leaves elected basis below business basis.
     expect(reviewCode(() => calc4562([asset({ section179Requested: true, cost: 3000000 })], 150000, 2026))).toBe('DEPRECIATION_REVIEW_REQUIRED');
   });
@@ -194,13 +194,13 @@ describe('Section 179 income limit after de minimis and other depreciation', () 
     let caught: unknown;
     try { profit(9550, assets, []); } catch (error) { caught = error; }
     expect(scheduleCReviewCode(caught)).toBe('DEPRECIATION_REVIEW_REQUIRED');
-    expect((caught as Error).message).toMatch(/partial Section 179 election/);
+    expect((caught as Error).message).toMatch(/How should it be counted/);
   });
 
   it('holds a partial election for review when uncovered first-year depreciation of 800 drops 5500 below the amount elected', () => {
     const assets = [asset({ cost: 9000, method: 'MACRS_5YR', section179Requested: true, section179Amount: 5000, datePlacedInService: placed })];
     expect(reviewCode(() => calc4562(assets, 5500, 2026))).toBe('DEPRECIATION_REVIEW_REQUIRED');
-    expect(() => calc4562(assets, 5500, 2026)).toThrow(/How should regular depreciation on the remaining basis affect that limit/);
+    expect(() => calc4562(assets, 5500, 2026)).toThrow(/How should it be counted/);
   });
 
   it('returns a partial election when uncovered first-year depreciation does not drop 50000 below the amount elected', () => {
@@ -209,6 +209,28 @@ describe('Section 179 income limit after de minimis and other depreciation', () 
       elected: 5000, allowed: 5000, carryover: 0, businessIncomeLimit: 50000, otherDepreciationNettedFromIncomeLimit: 0,
     });
     expect(result.assets[0]).toMatchObject({ section179Deduction: 5000, regularDepreciation: 800, remainingBasis: 3200, carryoverToNextYear: 0 });
+  });
+
+  it('holds a partial election for review when uncovered first-year depreciation of 800 drops 5400 below the amount elected', () => {
+    const assets = [asset({ cost: 9000, method: 'MACRS_5YR', section179Requested: true, section179Amount: 5000, datePlacedInService: placed })];
+    expect(reviewCode(() => calc4562(assets, 5400, 2026))).toBe('DEPRECIATION_REVIEW_REQUIRED');
+    expect(() => calc4562(assets, 5400, 2026)).toThrow(/How should it be counted/);
+  });
+
+  it('holds a dollar-limit partial for review when uncovered first-year depreciation of 88000 drops 2600000 below the elected cap', () => {
+    const assets = [asset({ cost: 3000000, businessUsePercent: 100, method: 'MACRS_5YR', section179Requested: true, datePlacedInService: placed })];
+    expect(assets[0].section179Amount).toBeUndefined();
+    expect(reviewCode(() => calc4562(assets, 2600000, 2026))).toBe('DEPRECIATION_REVIEW_REQUIRED');
+    expect(() => calc4562(assets, 2600000, 2026)).toThrow(/How should it be counted/);
+  });
+
+  it('returns a dollar-limit partial when uncovered first-year depreciation of 88000 does not drop 2700000 below the elected cap', () => {
+    const result = calc4562([asset({ cost: 3000000, businessUsePercent: 100, method: 'MACRS_5YR', section179Requested: true, datePlacedInService: placed })], 2700000, 2026);
+    expect(result.section179).toMatchObject({
+      elected: 2560000, allowed: 2560000, carryover: 0, businessIncomeLimit: 2700000,
+      dollarLimitAfterPhaseout: 2560000, otherDepreciationNettedFromIncomeLimit: 0,
+    });
+    expect(result.assets[0]).toMatchObject({ section179Deduction: 2560000, regularDepreciation: 88000, remainingBasis: 352000, carryoverToNextYear: 0 });
   });
 
   it('nets only the business share of a de minimis item', () => {
@@ -224,6 +246,7 @@ describe('Section 179 income limit after de minimis and other depreciation', () 
   });
 
   // Waiting on confirmation of the sole-proprietor basis rule.
+  // Enabling this test also needs a code change that nets the uncovered-basis depreciation into the limit, not just removing .skip.
   // $10,000 receipts, a $9,000 5-year laptop at 100% business use, $5,000 of Section 179 elected, half-year convention.
   // Remaining basis is $4,000. The 20% first-year rate is $800 of regular depreciation.
   // That $800 lowers the income limit to $9,200. The carryover adds nothing back to basis.
