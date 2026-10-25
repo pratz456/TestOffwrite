@@ -13,6 +13,7 @@ import { useToasts } from '@/components/ui/toast';
 import { ToastContainer } from '@/components/ui/toast';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { SIMPLIFIED_MAX_SQFT, type HomeOfficeSettings, type SimplifiedHomeOfficeCalculation } from '@/lib/reports/calc8829';
+import { SECTION_179_PARTIAL_HOLD_KIND, type Section179PartialHoldKind } from '@/lib/reports/calc4562';
 
 interface HomeOfficeWorksheetResponse {
   taxYear: number;
@@ -26,7 +27,7 @@ interface HomeOfficeWorksheetResponse {
 type WorksheetState =
   | { status: 'loading' }
   | { status: 'ready'; data: HomeOfficeWorksheetResponse }
-  | { status: 'review'; code: string; message: string; reasons: string[]; settings: HomeOfficeSettings | null }
+  | { status: 'review'; code: string; message: string; kind?: Section179PartialHoldKind; reasons: string[]; settings: HomeOfficeSettings | null }
   | { status: 'error'; message: string };
 
 const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -50,7 +51,8 @@ export default function Form8829Page() {
       const body = await response.json().catch(() => ({}));
       if (current !== requestId.current) return;
       if (response.status === 422 && typeof body.code === 'string') {
-        setState({ status: 'review', code: body.code, message: body.error || 'Review the saved records before calculating.', reasons: Array.isArray(body.reviewReasons) ? body.reviewReasons : [], settings: body.settings ?? null });
+        const kind = body.kind === SECTION_179_PARTIAL_HOLD_KIND ? SECTION_179_PARTIAL_HOLD_KIND : undefined;
+        setState({ status: 'review', code: body.code, message: body.error || 'Review the saved records before calculating.', ...(kind ? { kind } : {}), reasons: Array.isArray(body.reviewReasons) ? body.reviewReasons : [], settings: body.settings ?? null });
         return;
       }
       if (!response.ok) throw new Error(body.error || 'The home office worksheet could not be loaded.');
@@ -153,12 +155,12 @@ export default function Form8829Page() {
               </Select>
             </div>
           </div>
-          <PremiumFeatureGate feature="exports" featureName="tax form exports" inline>
+          {!(state.status === 'review' && state.kind === SECTION_179_PARTIAL_HOLD_KIND) && <PremiumFeatureGate feature="exports" featureName="tax form exports" inline>
             <Button onClick={handleExport} disabled={isExporting || !canExport} className="w-full bg-blue-600 hover:bg-blue-700 text-white">
               <Download className="w-4 h-4 mr-2" />
               {isExporting ? 'Generating...' : `Export ${selectedYear} planning worksheet`}
             </Button>
-          </PremiumFeatureGate>
+          </PremiumFeatureGate>}
         </Card>
 
         <Card className="p-4">
@@ -173,7 +175,17 @@ export default function Form8829Page() {
             </div>
           )}
 
-          {state.status === 'review' && (
+          {state.status === 'review' && state.kind === SECTION_179_PARTIAL_HOLD_KIND && (
+            <div className="py-6 text-center" role="alert">
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Tax estimate on hold</h3>
+              <p className="text-sm text-gray-700 max-w-xl mx-auto">{state.message}</p>
+              <p className="mt-4">
+                <a href="/protected/tax-forms-setup?tab=assets" className="inline-flex min-h-11 items-center text-sm font-medium text-blue-700 underline underline-offset-4">View your assets</a>
+              </p>
+            </div>
+          )}
+
+          {state.status === 'review' && state.kind !== SECTION_179_PARTIAL_HOLD_KIND && (
             <div className="py-6" role="alert">
               <AlertCircle className="w-12 h-12 text-amber-400 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2 text-center">{state.code === 'HOME_OFFICE_REVIEW_REQUIRED' ? 'Home office facts need review' : 'Records need review before this worksheet'}</h3>

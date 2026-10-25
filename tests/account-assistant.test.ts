@@ -58,6 +58,20 @@ describe('account assistant read boundary', () => {
     expect(h.tax.mock.calls[0][0].nextUrl.searchParams.get('year')).toBe('2026');
     expect(h.save).toHaveBeenCalledWith(expect.objectContaining({ userId: 'owner', taxYear: 2026, totalTax: 11413 }));
   });
+  it('returns the partial Section 179 hold with no action link, and keeps a vehicle review linked', async () => {
+    h.create.mockResolvedValue(completion({ intent: 'tax_position' }));
+    const message = "Tax estimate on hold: Different wording about one asset.";
+    h.tax.mockImplementation(async () => NextResponse.json({ error: message, code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold' }, { status: 422 }));
+    const held = await (await POST(req())).json();
+    expect(held.reply).toBe(message);
+    expect(held.account.title).toBe('Tax estimate on hold');
+    expect(held.account.actions).toEqual([]);
+    expect(held.account.items).toEqual([]);
+    expect(JSON.stringify(held.account)).not.toMatch(/href|settings|assets|form4562|tax-preview|tax-organizer/);
+    h.tax.mockImplementation(async () => NextResponse.json({ error: 'Asset depreciation needs review: Confirm the asset class.', code: 'DEPRECIATION_REVIEW_REQUIRED' }, { status: 422 }));
+    const vehicle = await (await POST(req())).json();
+    expect(vehicle.account.actions.map((action: { href: string }) => action.href)).toEqual(['/protected?screen=tax-preview', '/protected?screen=tax-organizer']);
+  });
   it('keeps eligibility gates visible instead of displaying invented zeros or saving a baseline', async () => {
     h.create.mockResolvedValue(completion({ intent: 'tax_changes' }));
     h.tax.mockImplementation(async () => NextResponse.json({ error: 'Reconcile duplicated income first.', code: 'INCOME_RECONCILIATION_REQUIRED' }, { status: 422 }));

@@ -63,11 +63,17 @@ export async function POST(request: NextRequest) {
       const body = await taxResponse.json();
       if (!taxResponse.ok) {
         if (![400, 422].includes(taxResponse.status)) return json({ error: 'Your tax calculation could not be loaded. Retry before relying on an estimate.' }, 503);
-        response = { reply: typeof body.error === 'string' ? body.error : 'Your saved tax inputs need review before an estimate is available.', account: {
-          title: 'Resolve this before estimating tax', asOf: now.toISOString(), scope: `No tax amount was calculated for ${input.taxYear}.`, metrics: [], items: [],
-          actions: [{ label: 'Review tax inputs', href: '/protected?screen=tax-preview' }, { label: 'Open tax organizer', href: '/protected?screen=tax-organizer' }],
-          notes: [typeof body.code === 'string' ? `Review reference: ${body.code}` : 'Review the saved inputs and try again.'],
-        } };
+        const partialHold = body?.kind === 'section179_partial_hold' && body?.code === 'DEPRECIATION_REVIEW_REQUIRED';
+        response = partialHold
+          ? { reply: typeof body.error === 'string' ? body.error : 'Tax estimate on hold', account: {
+            title: 'Tax estimate on hold', asOf: now.toISOString(), scope: `No tax amount was calculated for ${input.taxYear}.`, metrics: [], items: [],
+            actions: [], notes: [],
+          } }
+          : { reply: typeof body.error === 'string' ? body.error : 'Your saved tax inputs need review before an estimate is available.', account: {
+            title: 'Resolve this before estimating tax', asOf: now.toISOString(), scope: `No tax amount was calculated for ${input.taxYear}.`, metrics: [], items: [],
+            actions: [{ label: 'Review tax inputs', href: '/protected?screen=tax-preview' }, { label: 'Open tax organizer', href: '/protected?screen=tax-organizer' }],
+            notes: [typeof body.code === 'string' ? `Review reference: ${body.code}` : 'Review the saved inputs and try again.'],
+          } };
       } else {
         const current = extractTaxPosition(body, user.uid, input.taxYear, now);
         if (!current) return json({ error: 'The tax estimate was incomplete. Please retry.' }, 503);

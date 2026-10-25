@@ -1,4 +1,7 @@
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
+import { isSection179PartialHold, SECTION_179_PARTIAL_HOLD_KIND, type Section179PartialHoldKind } from '@/lib/reports/calc4562';
+
+export { isSection179PartialHold, SECTION_179_PARTIAL_HOLD_KIND };
 
 export interface DashboardTaxSnapshot {
   taxYear: number;
@@ -9,20 +12,21 @@ export interface DashboardTaxSnapshot {
 export type DashboardTaxState =
   | { status: 'loading' }
   | { status: 'ready'; snapshot: DashboardTaxSnapshot }
-  | { status: 'review' | 'error'; message: string; code?: string };
+  | { status: 'review' | 'error'; message: string; code?: string; kind?: Section179PartialHoldKind };
 
 export type ReviewTargetScreen = 'settings' | 'tax-organizer' | 'income-tracking' | 'transactions' | 'tax-preview';
 
 export interface ReviewTarget {
-  screen: ReviewTargetScreen;
+  screen?: ReviewTargetScreen;
   label: string;
 }
 
 /**
- * Where a 422 review code from /api/tax/compute-1040 is resolved. Every screen that
- * shows the shared snapshot links here so the fix lands on the same input screen.
+ * Where a 422 review code from /api/tax/compute-1040 is resolved. Screens that
+ * show the shared snapshot use this label. The partial Section 179 hold has a
+ * label and no destination; the choice comes from `kind`, not from message text.
  */
-export function reviewTargetForCode(code?: string): ReviewTarget {
+export function reviewTargetForCode(code?: string, kind?: string): ReviewTarget {
   switch (code) {
     case 'FILING_STATUS_REVIEW_REQUIRED': return { screen: 'settings', label: 'Review profile' };
     case 'INCOME_RECONCILIATION_REQUIRED': return { screen: 'income-tracking', label: 'Review income sources' };
@@ -35,7 +39,10 @@ export function reviewTargetForCode(code?: string): ReviewTarget {
     case 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED': return { screen: 'tax-preview', label: 'Review calculation limits' };
     case 'OBBBA_DEDUCTION_REVIEW_REQUIRED': return { screen: 'tax-organizer', label: 'Review Working Families Tax Cuts deductions' };
     case 'HOME_OFFICE_REVIEW_REQUIRED': return { screen: 'settings', label: 'Review home office settings' };
-    case 'DEPRECIATION_REVIEW_REQUIRED': return { screen: 'settings', label: 'Review asset records' };
+    case 'DEPRECIATION_REVIEW_REQUIRED':
+      return isSection179PartialHold(code, kind)
+        ? { label: 'Tax estimate on hold' }
+        : { screen: 'settings', label: 'Review asset records' };
     case 'EXPORT_REVIEW_REQUIRED': return { screen: 'transactions', label: 'Review transactions' };
     default: return { screen: 'tax-preview', label: 'Review tax inputs' };
   }
@@ -47,10 +54,12 @@ export async function loadDashboardTaxSnapshot(taxYear: number, signal?: AbortSi
     const response = await makeAuthenticatedRequest(`/api/tax/compute-1040?year=${taxYear}`, { signal, cache: 'no-store' });
     const data = await response.json().catch(() => null);
     if (!response.ok) {
+      const kind = data?.kind === SECTION_179_PARTIAL_HOLD_KIND ? SECTION_179_PARTIAL_HOLD_KIND : undefined;
       return {
         status: response.status === 422 ? 'review' : 'error',
         message: typeof data?.error === 'string' ? data.error : 'The federal estimate could not be loaded. Please retry.',
         code: typeof data?.code === 'string' ? data.code : undefined,
+        ...(kind ? { kind } : {}),
       };
     }
     const income = data?.income;

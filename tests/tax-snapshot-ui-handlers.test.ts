@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactElement } from 'react';
 
 // Runs the real UI request/state handlers. This is not a browser rendering test.
-const harness = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effects: [] as (() => void)[], request: vi.fn(), navigate: vi.fn() }));
+const harness = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effects: [] as (() => void)[], request: vi.fn(), navigate: vi.fn(), showError: vi.fn() }));
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: harness.request }));
 vi.mock('react', async importOriginal => {
   const actual = await importOriginal<typeof import('react')>();
@@ -35,10 +35,16 @@ vi.mock('react', async importOriginal => {
 });
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: harness.navigate, replace: harness.navigate }) }));
 vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 'snapshot-owner' }, loading: false }) }));
+vi.mock('@/components/ui/toast', () => ({ ToastContainer: 'ToastContainer', useToasts: () => ({ toasts: [], removeToast() {}, showSuccess() {}, showError: harness.showError }) }));
+vi.mock('@/lib/hooks/use-subscription', () => ({ useSubscription: () => ({ hasAccess: true, canAccess: () => true, isLoading: false, status: null, error: null, refetch() {} }) }));
 import { TaxFilingHubScreen } from '../components/tax-filing-hub-screen';
 import { TaxPreviewScreen } from '../components/tax-preview-screen';
 import { FileTaxesScreen } from '../components/file-taxes-screen';
+import { KpiGrid } from '../components/dashboard/KpiGrid';
+import Form4562Page from '../app/protected/form4562/page';
+import Form8829Page from '../app/protected/form8829/page';
 import { reviewTargetForCode, loadDashboardTaxSnapshot } from '../lib/tax/dashboard-snapshot';
+import { SUPPORTED_TAX_YEARS } from '../lib/tax-rules/federal-year-rules';
 
 type Element = ReactElement<Record<string, any>>;
 function render(component = TaxFilingHubScreen): Element {
@@ -55,6 +61,18 @@ function text(node: any): string {
   if (Array.isArray(node)) return node.map(text).join('');
   if (node && typeof node === 'object') return text(node.props?.children);
   return typeof node === 'string' || typeof node === 'number' ? String(node) : '';
+}
+function controlName(node: Element): string {
+  const type = node.type as unknown;
+  if (typeof type === 'string') return type;
+  if (typeof type === 'function') return (type as { name?: string }).name || '';
+  return '';
+}
+function controls(node: any): Element[] {
+  return walk(node).filter(item => {
+    const name = controlName(item);
+    return name === 'button' || name === 'a' || name === 'Button' || name === 'Link' || typeof item.props?.href === 'string';
+  });
 }
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 const year = new Date().getFullYear();
@@ -78,7 +96,7 @@ function requests(url: string) {
     totalExpenses: 5000, confirmedExpenses: 5000, depreciationDeduction: 0 } }));
 }
 beforeEach(() => {
-  harness.slots = []; harness.cursor = 0; harness.effects = []; harness.request.mockReset(); harness.navigate.mockReset();
+  harness.slots = []; harness.cursor = 0; harness.effects = []; harness.request.mockReset(); harness.navigate.mockReset(); harness.showError.mockReset();
   harness.request.mockImplementation(requests);
 });
 
@@ -276,6 +294,24 @@ describe('file taxes screen routes Schedule C through the shared federal snapsho
     expect(content).toContain(providerCopy);
   });
 
+  it('shows the partial Section 179 hold with a link to the assets tab and no retry', async () => {
+    harness.request.mockImplementation(() => Promise.resolve(response({
+      error: 'Different wording that does not start with the status label.',
+      code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold',
+    }, 422)));
+    renderFileTaxes(); await flush();
+    const tree = renderFileTaxes();
+    const alert = walk(tree).find(node => node.props?.role === 'alert')!;
+    expect(text(alert)).toContain('Tax estimate on hold');
+    expect(text(alert)).toContain('Different wording that does not start with the status label.');
+    expect(text(alert)).not.toMatch(/needs review/i);
+    const assetsLink = walk(alert).find(node => node.type === 'a')!;
+    expect(text(assetsLink)).toBe('View your assets');
+    expect(assetsLink.props.href).toBe('/protected/tax-forms-setup?tab=assets');
+    expect(walk(alert).some(node => node.type === 'button')).toBe(false);
+    expect(text(alert)).not.toMatch(/Retry|Refresh|Keep preparing/);
+  });
+
   it('offers a retry without a deep link when the calculation is unavailable', async () => {
     harness.request.mockImplementation(() => Promise.resolve(response({ error: 'Could not complete the tax calculation. Please retry.' }, 503)));
     renderFileTaxes(); await flush(); let tree = renderFileTaxes();
@@ -302,6 +338,155 @@ describe('file taxes screen routes Schedule C through the shared federal snapsho
     expect(harness.request.mock.calls.at(-1)![0]).toBe(`/api/tax/compute-1040?year=${year - 1}`);
     expect(text(previous)).toContain(`No business income or confirmed expenses recorded for ${year - 1}`);
     expect(text(previous)).not.toContain('Net profit');
+  });
+});
+
+describe('partial Section 179 hold stays plain status text', () => {
+  const differentMessage = 'Different wording that does not start with the status label.';
+
+  it('stores kind from the response and does not infer the hold from message text', async () => {
+    harness.request.mockResolvedValue(response({ error: differentMessage, code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold' }, 422));
+    await expect(loadDashboardTaxSnapshot(year)).resolves.toEqual({
+      status: 'review', message: differentMessage, code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold',
+    });
+    harness.request.mockResolvedValue(response({ error: 'Asset depreciation needs review: vehicle limits.', code: 'DEPRECIATION_REVIEW_REQUIRED' }, 422));
+    const vehicle = await loadDashboardTaxSnapshot(year);
+    expect(vehicle).toEqual({ status: 'review', message: 'Asset depreciation needs review: vehicle limits.', code: 'DEPRECIATION_REVIEW_REQUIRED' });
+    expect(vehicle).not.toHaveProperty('kind');
+    expect(reviewTargetForCode('DEPRECIATION_REVIEW_REQUIRED', 'section179_partial_hold')).toEqual({ label: 'Tax estimate on hold' });
+    expect(reviewTargetForCode('DEPRECIATION_REVIEW_REQUIRED', differentMessage)).toEqual({ screen: 'settings', label: 'Review asset records' });
+  });
+
+  it('renders the tax preview hold as plain text with no button or link', async () => {
+    harness.request.mockResolvedValue(response({ error: differentMessage, code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold' }, 422));
+    render(TaxPreviewScreen); await flush();
+    const tree = render(TaxPreviewScreen);
+    const alert = walk(tree).find(node => node.props?.role === 'alert')!;
+    expect(text(alert)).toContain('Tax estimate on hold');
+    expect(text(alert)).toContain(differentMessage);
+    const assetsLink = walk(alert).find(node => node.type === 'a')!;
+    expect(text(assetsLink)).toBe('View your assets');
+    expect(assetsLink.props.href).toBe('/protected/tax-forms-setup?tab=assets');
+    expect(walk(alert).some(node => node.type === 'button' || controlName(node) === 'Button')).toBe(false);
+    expect(text(tree)).not.toContain('Retry estimate');
+    expect(text(tree)).not.toContain('Keep preparing');
+    expect(walk(tree).some(node => node.props?.['aria-label'] === 'Refresh tax estimate')).toBe(false);
+    expect(text(tree)).not.toContain('Resolve the issue above');
+    expect(text(tree)).not.toContain('Review asset records');
+    expect(text(tree)).not.toContain('Export');
+  });
+
+  it('keeps a vehicle depreciation review linked to the assets tab', async () => {
+    harness.request.mockResolvedValue(response({ error: 'Asset depreciation needs review: Confirm the asset class.', code: 'DEPRECIATION_REVIEW_REQUIRED' }, 422));
+    render(TaxPreviewScreen); await flush();
+    const tree = render(TaxPreviewScreen);
+    const link = walk(tree).find(node => node.props?.href === '/protected/tax-forms-setup?tab=assets');
+    expect(text(link)).toBe('Review asset records');
+  });
+
+  it('renders the filing summary and federal card without a button or link for this hold', () => {
+    const state = { status: 'review' as const, code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold' as const, message: differentMessage };
+    const card = KpiGrid({ state, taxYear: 2026, onRetry() {}, onReview() {} });
+    expect(text(card)).toContain('Tax estimate on hold');
+    expect(text(card)).toContain(differentMessage);
+    expect(text(card)).not.toMatch(/needs review/i);
+    expect(text(card)).not.toContain('Retry estimate');
+    expect(text(card)).not.toContain('Review asset records');
+    const assetsLink = walk(card).find(node => node.type === 'a')!;
+    expect(text(assetsLink)).toBe('View your assets');
+    expect(assetsLink.props.href).toBe('/protected/tax-forms-setup?tab=assets');
+    expect(walk(card).some(node => node.type === 'button')).toBe(false);
+    const vehicle = KpiGrid({ state: { status: 'review', code: 'DEPRECIATION_REVIEW_REQUIRED', message: 'Asset depreciation needs review: vehicle limits.' }, taxYear: 2026, onRetry() {}, onReview() {} });
+    expect(text(vehicle)).toContain('Review asset records');
+    expect(walk(vehicle).some(node => node.type === 'button' && text(node) === 'Review asset records')).toBe(true);
+  });
+
+  it('keeps Remove and Add Asset working on a held Form 4562 page, with earlier-year notes that do not block them', async () => {
+    const page = (component: () => Element) => {
+      harness.cursor = 0;
+      const tree = component();
+      harness.effects.splice(0).forEach(effect => effect());
+      return tree;
+    };
+    const taxYear = SUPPORTED_TAX_YEARS[SUPPORTED_TAX_YEARS.length - 1];
+    const removeNote = "This asset was placed in service in an earlier year. Removing it here doesn't undo deductions you've already claimed. If you sold it, traded it in or stopped using it for business, tell your tax preparer, because that may need to be reported on your return.";
+    const addNote = "This date is in an earlier year. Adding this asset can change returns you've already filed, so check with your tax preparer first.";
+    const savedAssets = [
+      { id: 'computer', description: 'Computer', cost: 9000, businessUsePercent: 100, category: 'computer', method: 'MACRS_5YR', section179Requested: true, bonusEligible: false, datePlacedInService: `${taxYear}-03-15T00:00:00.000Z` },
+      { id: 'printer', description: 'Printer', cost: 800, businessUsePercent: 100, category: 'equipment', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false, datePlacedInService: `${taxYear - 2}-06-01T00:00:00.000Z` },
+    ];
+    harness.request.mockImplementation((url: string) => Promise.resolve(response(
+      String(url).includes('assets') ? { data: savedAssets } : { error: differentMessage, code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold' },
+      String(url).includes('assets') ? 200 : 422,
+    )));
+    page(Form4562Page as unknown as () => Element); await flush();
+    const form4562 = page(Form4562Page as unknown as () => Element);
+    const form4562Alert = walk(form4562).find(node => node.props?.role === 'alert')!;
+    const assetRow = (name: string) => walk(form4562Alert).find(node => typeof node.props?.className === 'string' && node.props.className.includes('justify-between') && text(node).includes(name))!;
+    expect(text(form4562Alert)).toContain('Tax estimate on hold');
+    expect(text(form4562Alert)).toContain(differentMessage);
+    expect(text(form4562Alert)).toContain('Saved assets (2)');
+    expect(text(form4562Alert)).toContain('Add Asset');
+    expect(text(form4562Alert)).not.toContain('Asset records need review');
+    expect(text(assetRow('Computer'))).not.toContain(removeNote);
+    expect(text(assetRow('Printer'))).toContain(removeNote);
+    expect(walk(assetRow('Printer')).some(node => text(node) === removeNote)).toBe(true);
+    expect(walk(form4562Alert).some(node => node.props?.['aria-label'] === 'Remove Computer')).toBe(true);
+    expect(walk(form4562Alert).some(node => node.props?.['aria-label'] === 'Remove Printer')).toBe(true);
+    expect(walk(form4562).some(node => String(node.props?.['aria-label'] || '').startsWith('Edit'))).toBe(false);
+    expect(walk(form4562).filter(node => node.props?.onClick && text(node).includes('Export'))).toEqual([]);
+    expect(text(form4562)).not.toContain('View your assets');
+    expect(walk(form4562).some(node => node.props?.href === '/protected/tax-forms-setup?tab=assets')).toBe(false);
+    expect(text(form4562)).not.toContain('Retry');
+    expect(text(form4562)).not.toContain('Refresh');
+    expect(text(form4562)).not.toContain('Keep preparing');
+    await walk(assetRow('Printer')).find(node => node.props?.['aria-label'] === 'Remove Printer')!.props.onClick();
+    await walk(assetRow('Computer')).find(node => node.props?.['aria-label'] === 'Remove Computer')!.props.onClick();
+    const deletions = harness.request.mock.calls.filter(([, init]) => init?.method === 'DELETE');
+    expect(deletions.map(([url, init]) => [String(url), JSON.parse(init.body)])).toEqual([
+      ['/api/settings/assets', { assetId: 'printer' }],
+      ['/api/settings/assets', { assetId: 'computer' }],
+    ]);
+    const addButtons = (root: Element) => walk(root).filter(node => node.props?.onClick && text(node).includes('Add Asset'));
+    addButtons(form4562)[0].props.onClick();
+    await flush();
+    const setField = async (id: string, value: string) => {
+      const current = page(Form4562Page as unknown as () => Element);
+      walk(current).find(node => node.props?.id === id)!.props.onChange({ target: { value } });
+      await flush();
+    };
+    await setField('description', 'Earlier desk');
+    await setField('cost', '250');
+    await setField('datePlacedInService', `${taxYear}-06-01`);
+    const currentYearForm = page(Form4562Page as unknown as () => Element);
+    expect(walk(currentYearForm).some(node => node.props?.id === 'datePlacedInService')).toBe(true);
+    expect(text(currentYearForm)).not.toContain(addNote);
+    await flush();
+    await setField('datePlacedInService', `${taxYear - 2}-06-01`);
+    const earlierForm = page(Form4562Page as unknown as () => Element);
+    expect(text(earlierForm)).toContain(addNote);
+    expect(walk(earlierForm).some(node => text(node) === addNote)).toBe(true);
+    await addButtons(earlierForm).at(-1)!.props.onClick();
+    const created = harness.request.mock.calls.find(([, init]) => init?.method === 'POST')!;
+    expect(String(created[0])).toBe('/api/settings/assets');
+    const added = JSON.parse(created[1].body).assets[0];
+    expect(added).toMatchObject({ description: 'Earlier desk', cost: 250 });
+    expect(new Date(added.datePlacedInService).getUTCFullYear()).toBe(taxYear - 2);
+    harness.slots = [];
+    page(Form8829Page as unknown as () => Element); await flush();
+    const form8829 = page(Form8829Page as unknown as () => Element);
+    const form8829Alert = walk(form8829).find(node => node.props?.role === 'alert')!;
+    expect(text(form8829Alert)).toContain('Tax estimate on hold');
+    expect(text(form8829Alert)).toContain(differentMessage);
+    expect(text(form8829)).not.toContain('Open Settings');
+    const assetsLink = walk(form8829Alert).find(node => node.type === 'a')!;
+    expect(text(assetsLink)).toBe('View your assets');
+    expect(assetsLink.props.href).toBe('/protected/tax-forms-setup?tab=assets');
+    expect(walk(form8829Alert).some(node => node.type === 'button' || controlName(node) === 'Button')).toBe(false);
+    expect(walk(form8829).filter(node => node.props?.onClick && text(node).includes('Export'))).toEqual([]);
+    expect(text(form8829)).not.toContain('Retry');
+    expect(text(form8829)).not.toContain('Refresh');
+    expect(text(form8829)).not.toContain('Keep preparing');
   });
 });
 

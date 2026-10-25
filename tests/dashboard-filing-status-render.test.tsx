@@ -5,7 +5,9 @@ import type { ReactElement } from 'react';
 // are mocked. This checks rendering/state contracts, not browser layout.
 const harness = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effects: [] as (() => void)[],
   profile: { id: 'synthetic', income: 100000, filing_status: 'Qualifying Widower', name: 'Synthetic' },
-  transactions: [{ id: 'income', amount: -100000, date: '2026-03-01', category: 'income' }], navigate: vi.fn() }));
+  transactions: [{ id: 'income', amount: -100000, date: '2026-03-01', category: 'income' }] as any[],
+  navigate: vi.fn(),
+  request: vi.fn(async () => Response.json({ error: 'Review filing status' }, { status: 422 })) }));
 vi.mock('react', async importOriginal => {
   const actual = await importOriginal<typeof import('react')>();
   const same = (left: unknown[] | undefined, right: unknown[] | undefined) => left && right && left.length === right.length && left.every((value, index) => Object.is(value, right[index]));
@@ -35,7 +37,7 @@ vi.mock('@/lib/firebase/client', () => ({ auth: { currentUser: { uid: 'synthetic
 vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 'synthetic' }, loading: false }) }));
 vi.mock('@/lib/firebase/profiles', () => ({ getUserProfile: async () => ({ data: harness.profile, error: null }) }));
 vi.mock('@/lib/firebase/hooks', () => ({ useTransactions: () => ({ transactions: harness.transactions, isLoading: false }), useUserStats: () => ({ stats: {}, isLoading: false }) }));
-vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: async () => Response.json({ error: 'Review filing status' }, { status: 422 }) }));
+vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: (...args: unknown[]) => harness.request(...args) }));
 vi.mock('@/lib/hooks/use-subscription', () => ({ useSubscription: () => ({ hasAccess: true, canAccess: () => true, isLoading: false }) }));
 vi.mock('@/lib/react-query/hooks', () => ({ useTransactions: () => ({ data: { transactions: harness.transactions } }), useMonthlyDeductions: () => ({ data: undefined, isLoading: false, error: null, refetch() {} }) }));
 vi.mock('@/components/ui/toast', () => ({ ToastContainer: 'ToastContainer', useToasts: () => ({ toasts: [], removeToast() {} }) }));
@@ -66,6 +68,9 @@ async function flush() { await new Promise<void>(resolve => setImmediate(resolve
 const dashboard = () => DashboardScreen({ profile: harness.profile, transactions: harness.transactions, onNavigate: harness.navigate, onTransactionClick() {} }) as Element;
 beforeEach(() => {
   harness.slots = []; harness.cursor = 0; harness.effects = []; harness.profile.filing_status = 'Qualifying Widower'; harness.navigate.mockReset();
+  harness.transactions.splice(0, harness.transactions.length, { id: 'income', amount: -100000, date: '2026-03-01', category: 'income' });
+  harness.request.mockReset();
+  harness.request.mockImplementation(async () => Response.json({ error: 'Review filing status' }, { status: 422 }));
   vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ transactions: harness.transactions })));
 });
@@ -79,6 +84,23 @@ describe('dashboard filing-status review display', () => {
     expect(kpi.props.state).toMatchObject({ status: 'review', message: 'Review filing status' });
     expect(kpi.props.state).not.toHaveProperty('snapshot');
     expect(walk(tree).some(node => node.type === ('AiAdvisoryCard' as any))).toBe(false);
+  });
+  it('shows the partial Section 179 hold card with no action button or link', async () => {
+    harness.transactions.splice(0, harness.transactions.length);
+    harness.request.mockImplementation(async () => Response.json({
+      error: 'Different wording that does not start with the status label.',
+      code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold',
+    }, { status: 422 }));
+    render(dashboard); await flush();
+    const tree = render(dashboard);
+    const row = walk(tree).find(node => node.type === 'li' && text(node).includes("We'll update your estimate once we've confirmed the rule. If an asset's cost was entered wrong, remove it and add it again with the right cost."));
+    expect(row).toBeTruthy();
+    expect(text(row)).toContain('Tax estimate on hold');
+    const assetsLink = walk(row).find(node => node.type === 'a')!;
+    expect(text(assetsLink)).toBe('View your assets');
+    expect(assetsLink.props.href).toBe('/protected/tax-forms-setup?tab=assets');
+    expect(walk(row).some(node => node.type === 'button')).toBe(false);
+    expect(text(row)).not.toMatch(/Retry|Refresh|Keep preparing|Review asset/);
   });
   it('waits for server tax results when the filing-status label changes', async () => {
     harness.profile.filing_status = 'Married Filing Jointly';

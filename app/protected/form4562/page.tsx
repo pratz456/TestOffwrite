@@ -15,7 +15,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { useToasts } from '@/components/ui/toast';
 import { ToastContainer } from '@/components/ui/toast';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
-import { type Asset, type AssetCalculation, type Form4562Calculation, type DepreciationElections } from '@/lib/reports/calc4562';
+import { SECTION_179_PARTIAL_HOLD_KIND, type Asset, type AssetCalculation, type Form4562Calculation, type DepreciationElections, type Section179PartialHoldKind } from '@/lib/reports/calc4562';
 
 interface Form4562Worksheet {
   taxYear: number;
@@ -30,7 +30,7 @@ interface Form4562Worksheet {
 type WorksheetState =
   | { status: 'loading' }
   | { status: 'ready'; data: Form4562Worksheet }
-  | { status: 'review'; code: string; message: string }
+  | { status: 'review'; code: string; message: string; kind?: Section179PartialHoldKind }
   | { status: 'error'; message: string };
 
 const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -43,6 +43,19 @@ const emptyAsset = (): Partial<Asset> => ({
   description: '', datePlacedInService: new Date(), cost: 0, businessUsePercent: 100,
   category: 'other', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false,
 });
+const EARLIER_YEAR_REMOVE_NOTE = "This asset was placed in service in an earlier year. Removing it here doesn't undo deductions you've already claimed. If you sold it, traded it in or stopped using it for business, tell your tax preparer, because that may need to be reported on your return.";
+const EARLIER_YEAR_ADD_NOTE = "This date is in an earlier year. Adding this asset can change returns you've already filed, so check with your tax preparer first.";
+const placedInServiceYear = (value: unknown): number | null => {
+  if (typeof value === 'string') {
+    const match = /^(\d{4})/.exec(value.trim());
+    if (match) return Number(match[1]);
+  }
+  if (value instanceof Date || (typeof value === 'number' && Number.isFinite(value))) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (!Number.isNaN(date.getTime())) return date.getUTCFullYear();
+  }
+  return null;
+};
 
 export default function Form4562Page() {
   const router = useRouter();
@@ -70,7 +83,8 @@ export default function Form4562Page() {
         const listed = await makeAuthenticatedRequest('/api/settings/assets').then(res => res.ok ? res.json() : { data: [] }).catch(() => ({ data: [] }));
         if (current !== requestId.current) return;
         setAssets(Array.isArray(listed.data) ? listed.data : []);
-        setState({ status: 'review', code: body.code, message: body.error || 'Review the saved asset records before calculating.' });
+        const kind = body.kind === SECTION_179_PARTIAL_HOLD_KIND ? SECTION_179_PARTIAL_HOLD_KIND : undefined;
+        setState({ status: 'review', code: body.code, message: body.error || 'Review the saved asset records before calculating.', ...(kind ? { kind } : {}) });
         return;
       }
       if (!response.ok) throw new Error(body.error || 'The depreciation worksheet could not be loaded.');
@@ -176,6 +190,11 @@ export default function Form4562Page() {
     );
   }
 
+  const earlierThanSelectedYear = (value: unknown) => {
+    const year = placedInServiceYear(value);
+    return year !== null && year < Number(selectedYear);
+  };
+
   const assetForm = (
     <div className="border rounded-lg p-4 bg-muted/30 [&_input]:min-h-11">
       <h4 className="font-medium mb-4">Add New Asset</h4>
@@ -231,6 +250,9 @@ export default function Form4562Page() {
           <Label htmlFor="bonusEligible">Bonus depreciation (review required)</Label>
         </div>
       </div>
+      {earlierThanSelectedYear(newAsset.datePlacedInService) && (
+        <p className="mb-4 text-sm text-gray-700">{EARLIER_YEAR_ADD_NOTE}</p>
+      )}
       <div className="flex gap-2">
         <Button onClick={handleAddAsset}><Plus className="w-4 h-4 mr-2" />Add Asset</Button>
         <Button variant="outline" onClick={() => setShowAddAsset(false)}>Cancel</Button>
@@ -256,6 +278,9 @@ export default function Form4562Page() {
                     ? ` • expensed ${money(assetCalc.deMinimisExpense)}`
                     : ` • §179 ${money(assetCalc.section179Deduction)} • MACRS ${money(assetCalc.regularDepreciation)}${assetCalc.carryoverToNextYear ? ` • §179 carryover ${money(assetCalc.carryoverToNextYear)}` : ''}`}
                 </div>
+              )}
+              {earlierThanSelectedYear(asset.datePlacedInService) && (
+                <p className="mt-2 text-sm text-gray-700">{EARLIER_YEAR_REMOVE_NOTE}</p>
               )}
             </div>
             <Button variant="outline" size="sm" onClick={() => handleRemoveAsset(asset.id)} aria-label={`Remove ${asset.description}`}>
@@ -300,12 +325,12 @@ export default function Form4562Page() {
               </Select>
             </div>
           </div>
-          <PremiumFeatureGate feature="exports" featureName="tax form exports" inline>
+          {!(state.status === 'review' && state.kind === SECTION_179_PARTIAL_HOLD_KIND) && <PremiumFeatureGate feature="exports" featureName="tax form exports" inline>
             <Button onClick={handleExport} disabled={isExporting || !canExport} className="w-full bg-blue-600 hover:bg-blue-700 text-white">
               <Download className="w-4 h-4 mr-2" />
               {isExporting ? 'Generating...' : `Export ${selectedYear} Form 4562 worksheet`}
             </Button>
-          </PremiumFeatureGate>
+          </PremiumFeatureGate>}
         </Card>
 
         <Card className="p-4">
@@ -323,8 +348,8 @@ export default function Form4562Page() {
           {state.status === 'review' && (
             <div className="space-y-4" role="alert">
               <div className="text-center py-6">
-                <AlertCircle className="w-12 h-12 text-amber-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Asset records need review</h3>
+                {state.kind !== SECTION_179_PARTIAL_HOLD_KIND && <AlertCircle className="w-12 h-12 text-amber-400 mx-auto mb-4" />}
+                <h3 className="text-lg font-medium text-gray-900 mb-2">{state.kind === SECTION_179_PARTIAL_HOLD_KIND ? 'Tax estimate on hold' : 'Asset records need review'}</h3>
                 <p className="text-sm text-gray-700 max-w-xl mx-auto">{state.message}</p>
               </div>
               <div className="flex justify-between items-center">
@@ -377,6 +402,8 @@ export default function Form4562Page() {
                     <div className="flex justify-between"><dt>Dollar limit ({calculation.section179.source})</dt><dd className="font-medium">{money(calculation.section179.limit)}</dd></div>
                     <div className="flex justify-between"><dt>Phaseout threshold</dt><dd className="font-medium">{money(calculation.section179.phaseoutThreshold)}</dd></div>
                     <div className="flex justify-between"><dt>Business income limit (§179(b)(3)(A))</dt><dd className="font-medium">{money(calculation.section179.businessIncomeLimit)}</dd></div>
+                    <div className="flex justify-between"><dt>De minimis netted from the income limit</dt><dd className="font-medium">{money(calculation.section179.deMinimisNettedFromIncomeLimit)}</dd></div>
+                    <div className="flex justify-between"><dt>Other depreciation netted from the income limit</dt><dd className="font-medium">{money(calculation.section179.otherDepreciationNettedFromIncomeLimit)}</dd></div>
                     <div className="flex justify-between"><dt>Elected / allowed / carryover</dt><dd className="font-medium">{money(calculation.section179.elected)} / {money(calculation.section179.allowed)} / {money(calculation.section179.carryover)}</dd></div>
                   </dl>
                 </div>

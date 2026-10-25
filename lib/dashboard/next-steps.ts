@@ -1,17 +1,21 @@
-import { reviewTargetForCode, type DashboardTaxState } from '@/lib/tax/dashboard-snapshot';
+import { isSection179PartialHold, reviewTargetForCode, type DashboardTaxState } from '@/lib/tax/dashboard-snapshot';
 import type { Transaction } from '@/lib/firebase/transactions';
 import { transactionNeedsCategoryReview, transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { prioritizeTransactionReview } from '@/lib/transactions/review-priority';
 
-export interface DashboardNextStep { id: string; title: string; detail: string; action: string;
-  screen?: string; transaction?: Transaction; retry?: boolean }
+export interface DashboardNextStep { id: string; title: string; detail: string; action?: string;
+  screen?: string; href?: string; transaction?: Transaction; retry?: boolean }
 
-/** At most three honest, actionable tasks, with blocked calculations ahead of routine review. */
+/** At most three honest tasks, with blocked calculations ahead of routine review. */
 export function dashboardNextSteps(records: Transaction[], taxState: DashboardTaxState): DashboardNextStep[] {
   const steps: DashboardNextStep[] = [];
-  if (taxState.status === 'review') {
-    const target = reviewTargetForCode(taxState.code);
+  if (taxState.status === 'review' && isSection179PartialHold(taxState.code, taxState.kind)) {
+    steps.push({ id: 'tax-inputs', title: 'Tax estimate on hold',
+      detail: "We'll update your estimate once we've confirmed the rule. If an asset's cost was entered wrong, remove it and add it again with the right cost.",
+      href: '/protected/tax-forms-setup?tab=assets' });
+  } else if (taxState.status === 'review') {
+    const target = reviewTargetForCode(taxState.code, taxState.kind);
     steps.push({ id: 'tax-inputs', title: 'Complete your tax estimate',
       detail: taxState.code === 'INCOME_RECONCILIATION_REQUIRED' ? 'Match overlapping income records before calculating tax.' : 'Resolve the flagged inputs to continue.',
       action: target.label, screen: target.screen });

@@ -31,6 +31,7 @@ import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/fireb
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
 import { incomeReconciliationReviewBody } from '@/lib/tax-rules/income-reconciliation-response';
 import { scheduleCReviewCode } from '@/lib/tax-rules/schedule-c-profit';
+import { reviewErrorJson } from '@/lib/reports/calc4562';
 
 export async function GET(request: NextRequest) {
   const { user, error } = await getAuthenticatedUser(request);
@@ -141,7 +142,7 @@ export async function GET(request: NextRequest) {
     if (error instanceof ExportReviewRequiredError || error instanceof IncomeReconciliationRequiredError || error instanceof TaxCalculationScopeReviewRequiredError || error instanceof FilingStatusReviewRequiredError || error instanceof SocialSecurityReviewRequiredError || error instanceof PersonalDeductionReviewRequiredError || error instanceof DependentCreditReviewRequiredError
       || error instanceof CapitalGainReviewRequiredError || error instanceof BusinessLossReviewRequiredError || error instanceof OBBBADeductionReviewRequiredError || error instanceof QBIReviewRequiredError) return NextResponse.json({ error: error.message, code: error.code }, { status: 422 });
     const reviewCode = scheduleCReviewCode(error);
-    if (reviewCode) return NextResponse.json({ error: error instanceof Error ? error.message : 'Schedule C records need review', code: reviewCode }, { status: 422 });
+    if (reviewCode) return NextResponse.json(reviewErrorJson(error, 'Schedule C records need review'), { status: 422 });
     return NextResponse.json({ error: 'Could not complete the tax calculation. Please retry.' }, { status: 503 });
   }
 }
