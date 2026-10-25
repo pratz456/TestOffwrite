@@ -96,6 +96,14 @@ describe('first-year Section 179 expensing', () => {
     expect(() => calc4562([asset({ section179Requested: true }), asset({ id: 'b', cost: 1000, datePlacedInService: new Date('2026-11-01T00:00:00Z') })], 50000, 2026)).toThrow(/mid-quarter/);
     expect(calc4562([asset(), asset({ id: 'b', cost: 1000, datePlacedInService: new Date('2026-11-01T00:00:00Z') })], 50000, 2026).totalDepreciation).toBe(2200);
   });
+  it('stays on the half-year convention when Section 179 expense brings the last quarter to 40 percent or less', () => {
+    // Before the expense the last quarter is 3000 / 6000. After it the December basis is 0.
+    const early = asset({ id: 'early', cost: 3000 });
+    const lastQuarter = asset({ id: 'q4', cost: 3000, section179Requested: true, datePlacedInService: new Date('2026-12-01T00:00:00Z') });
+    const result = calc4562([early, lastQuarter], 50000, 2026);
+    expect(result.assets.find(row => row.asset.id === 'q4')).toMatchObject({ section179Elected: 3000, section179Deduction: 3000, bonusDepreciation: 0, regularDepreciation: 0 });
+    expect(result.assets.find(row => row.asset.id === 'early')).toMatchObject({ section179Elected: 0, bonusDepreciation: 0, regularDepreciation: 600 });
+  });
   it.each([
     [{ section179Requested: true, businessUsePercent: 50 }, 'more than 50%'],
     [{ section179Requested: true, category: 'vehicle' }, 'vehicle limits'],

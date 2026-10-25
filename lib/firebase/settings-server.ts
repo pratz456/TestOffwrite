@@ -3,11 +3,24 @@ import {
   HOME_OFFICE_ANSWERS, HOME_OFFICE_EXCLUSIVE_USE_EXCEPTIONS, HOME_OFFICE_HOUSING_TYPES, HOME_OFFICE_METHODS, HOME_OFFICE_QUALIFYING_USES,
   type HomeOfficeSettings,
 } from '@/lib/reports/calc8829';
-import { Asset, type DepreciationElections } from '@/lib/reports/calc4562';
+import { Asset, type DepreciationElections, normalizeListedEquipmentAnswer, normalizeListedEquipmentKind, normalizeListedEquipmentLocation } from '@/lib/reports/calc4562';
 import { TaxSummarySettings } from '@/lib/reports/calcSE';
 import { SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 
 const oneOf = <T extends string>(allowed: readonly T[], value: unknown): T | null => allowed.includes(value as T) ? value as T : null;
+/** Missing or unreadable answers stay blank. Blank is not the same as no. */
+const storedListedEquipmentAnswer = (value: unknown): Asset['listedEquipmentAnswer'] => {
+  const answer = normalizeListedEquipmentAnswer(value);
+  return answer === 'yes' || answer === 'no' ? answer : undefined;
+};
+const storedListedEquipmentKind = (value: unknown): Asset['listedEquipmentKind'] => {
+  const kind = normalizeListedEquipmentKind(value);
+  return kind === 'invalid' || kind === null ? undefined : kind;
+};
+const storedListedEquipmentLocation = (value: unknown): Asset['listedEquipmentLocationFollowUp'] => {
+  const place = normalizeListedEquipmentLocation(value);
+  return place === 'invalid' || place === null ? undefined : place;
+};
 const wholeNumber = (value: unknown, max: number): number | null =>
   typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= max ? value : null;
 
@@ -101,6 +114,12 @@ export async function getAssetsSettings(userId: string): Promise<{ data: Asset[]
           method: data.method || 'MACRS_5YR',
           section179Requested: data.section179Requested || false,
           bonusEligible: data.bonusEligible || false,
+          listedEquipmentAnswer: storedListedEquipmentAnswer(data.listedEquipmentAnswer),
+          listedEquipmentReleaseAnswer: storedListedEquipmentAnswer(data.listedEquipmentReleaseAnswer),
+          listedEquipmentKind: storedListedEquipmentKind(data.listedEquipmentKind),
+          listedEquipmentMainLineOfWork: storedListedEquipmentAnswer(data.listedEquipmentMainLineOfWork),
+          listedEquipmentBusinessLocation: storedListedEquipmentAnswer(data.listedEquipmentBusinessLocation),
+          listedEquipmentLocationFollowUp: storedListedEquipmentLocation(data.listedEquipmentLocationFollowUp),
         });
       }
     });
@@ -309,6 +328,12 @@ export async function updateAsset(
         method: data.method || 'MACRS_5YR',
         section179Requested: data.section179Requested || false,
         bonusEligible: data.bonusEligible || false,
+        listedEquipmentAnswer: storedListedEquipmentAnswer(data.listedEquipmentAnswer),
+        listedEquipmentReleaseAnswer: storedListedEquipmentAnswer(data.listedEquipmentReleaseAnswer),
+        listedEquipmentKind: storedListedEquipmentKind(data.listedEquipmentKind),
+        listedEquipmentMainLineOfWork: storedListedEquipmentAnswer(data.listedEquipmentMainLineOfWork),
+        listedEquipmentBusinessLocation: storedListedEquipmentAnswer(data.listedEquipmentBusinessLocation),
+        listedEquipmentLocationFollowUp: storedListedEquipmentLocation(data.listedEquipmentLocationFollowUp),
       };
       
       console.log('✅ [Settings Server] Successfully updated asset');

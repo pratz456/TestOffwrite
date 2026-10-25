@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { PDFDocument, PDFPage } from 'pdf-lib';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
@@ -51,6 +51,10 @@ import { GET as compute1040 } from '../app/api/tax/compute-1040/route';
 import { GET as calculateScheduleC } from '../app/api/tax/schedule-c/calculate/route';
 import { GET as scheduleSE } from '../app/api/tax/schedule-se/auto/route';
 import { POST as exportForms } from '../app/api/reports/export/route';
+import { GET as quarterlyReminders } from '../app/api/tax/quarterly-reminders/route';
+import { PATCH as patchAsset, POST as postAssets } from '../app/api/settings/assets/route';
+import { acceleratedMacrsDeduction, businessUseBasis, calc4562, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER, type Asset } from '../lib/reports/calc4562';
+import { computeScheduleCProfit } from '../lib/tax-rules/schedule-c-profit';
 
 const json = (path: string, body?: unknown) => new NextRequest(`http://localhost/api/${path}`, body === undefined ? undefined : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 const completeFacts = { method: 'simplified', regularUse: 'yes', exclusiveUse: 'yes', exclusiveUseException: null, qualifyingUse: 'principal_place_of_business', housingType: 'rented', monthsUsed: 12, officeSqFt: 300, totalHomeSqFt: 1500 };
@@ -201,4 +205,376 @@ describe('worksheet and estimate routes share the 422 review contract', () => {
     expect(text).toContain('$1,800.00'); expect(text).toContain('$10,000.00'); expect(text).toContain('Rev. Proc. 2025-32'); expect(text).toContain('De minimis safe harbor');
     spy.mockRestore();
   });
+  it('withholds listed equipment figures from the worksheet, Schedule C, Schedule SE, and Form 4562 PDF', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 6, 15, 12, 0, 0)));
+    try {
+      const siblingMacrs = acceleratedMacrsDeduction(businessUseBasis(3000, 100), 'MACRS_5YR');
+      const saved = await postAssets(json('settings/assets', { assets: [{ description: 'Mixer', datePlacedInService: '2026-05-01', cost: 4000, businessUsePercent: 50, category: 'equipment', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false, listedEquipmentAnswer: 'no' }] }));
+      expect(saved.status).toBe(200);
+      const stored = [...store.docs.entries()].find(([key]) => key.startsWith('user_profiles/owner-a/assets/'));
+      expect(stored?.[1].listedEquipmentAnswer).toBe('no');
+      stored![1].datePlacedInService = { toDate: () => new Date('2026-05-01T00:00:00.000Z') };
+      const answeredNoMacrs = acceleratedMacrsDeduction(businessUseBasis(4000, 50), 'MACRS_5YR');
+      const answeredNo = await form4562Worksheet(json('tax/form-4562?year=2026'));
+      expect(answeredNo.status).toBe(200);
+      expect((await answeredNo.json()).calculation.totalRegularDepreciation).toBe(answeredNoMacrs);
+      store.docs.clear();
+      seedAsset('laptop', { description: 'Office computer', cost: 3000, businessUsePercent: 100, category: 'computer', listedEquipmentAnswer: 'yes' });
+      seedAsset('camera', { description: 'Camera body', cost: 8642, businessUsePercent: 50, category: 'equipment', listedEquipmentAnswer: 'yes', listedEquipmentKind: 'recreation_or_amusement', section179Requested: true, bonusEligible: true });
+      const worksheet = await form4562Worksheet(json('tax/form-4562?year=2026'));
+      expect(worksheet.status).toBe(200);
+      const body = await worksheet.json();
+      expect(body.calculation.totalDepreciation).toBe(siblingMacrs);
+      expect(body.calculation.totalSection179).toBe(0);
+      expect(body.calculation.totalBonusDepreciation).toBe(0);
+      expect(body.calculation.assets.find((row: { asset: { id: string } }) => row.asset.id === 'camera').regularDepreciation).toBe(0);
+      expect(body.calculation.notes.join('\n')).toContain(LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER);
+      const scheduleCResponse = await calculateScheduleC(json('tax/schedule-c/calculate?year=2026'));
+      expect(scheduleCResponse.status).toBe(422);
+      const scheduleCBody = await scheduleCResponse.json();
+      expect(scheduleCBody).toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED' });
+      expect(scheduleCBody.error).toContain('PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.');
+      expect(scheduleCBody).not.toHaveProperty('data');
+      const estimateResponse = await compute1040(json('tax/compute-1040?year=2026'));
+      expect(estimateResponse.status).toBe(422);
+      const estimateBody = await estimateResponse.json();
+      expect(estimateBody).not.toHaveProperty('form1040');
+      expect(estimateBody).not.toHaveProperty('depreciation');
+      const seResponse = await scheduleSE(json('tax/schedule-se/auto?year=2026'));
+      expect(seResponse.status).toBe(422);
+      expect(await seResponse.json()).not.toHaveProperty('calculation');
+      const exported = await exportForms(json('reports/export', { type: 'form4562', year: 2026 }));
+      expect(exported.status).toBe(422);
+      expect(exported.headers.get('content-type')).toContain('application/json');
+      expect(await exported.json()).toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED' });
+      const patched = await patchAsset(new NextRequest('http://localhost/api/settings/assets', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assetId: 'laptop', listedEquipmentAnswer: 'yes' }) }));
+      expect(patched.status).toBe(400);
+      store.docs.delete('user_profiles/owner-a/assets/camera');
+      seedAsset('recorder', { description: 'Recorder', cost: 8642, businessUsePercent: 50, category: 'equipment', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false });
+      const blank = await form4562Worksheet(json('tax/form-4562?year=2026'));
+      const blankBody = await blank.json();
+      expect(blank.status).toBe(200);
+      expect(blankBody.calculation.totalDepreciation).toBe(siblingMacrs);
+      expect(blankBody.calculation.notes.join('\n')).toContain('PLACEHOLDER: We need one answer about Recorder before we can show your estimate. What kind of equipment is it?');
+      expect(blankBody.calculation.notes.join('\n')).not.toContain(LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER);
+      expect(blankBody.calculation.heldAssets).toEqual([{ id: 'recorder', name: 'Recorder', reason: 'question' }]);
+      expect(blankBody.calculation.assets.find((row: { asset: { id: string } }) => row.asset.id === 'recorder').regularDepreciation).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
+
+describe('held equipment sends profit consumers down the depreciation review path', () => {
+  const message = 'PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.';
+  const placed = new Date('2026-05-01T00:00:00.000Z');
+  const clearAssets = () => { for (const key of [...store.docs.keys()]) if (key.includes('/assets/')) store.docs.delete(key); };
+  const seed = (id: string, fields: Record<string, unknown> = {}) => {
+    clearAssets();
+    seedAsset(id, { description: id, datePlacedInService: { toDate: () => placed }, cost: 10000, businessUsePercent: 100, category: 'equipment', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false, ...fields });
+  };
+  const asAsset = (id: string, fields: Partial<Asset> = {}): Asset => ({
+    id, description: id, datePlacedInService: placed, cost: 10000, businessUsePercent: 100,
+    category: 'equipment', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false, ...fields,
+  });
+  const profitFor = (id: string, fields: Partial<Asset> = {}) => computeScheduleCProfit({
+    taxYear: 2026, grossReceipts: 100000, confirmedExpenses: 0, w2Wages: 0, assets: [asAsset(id, fields)],
+  });
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 6, 15, 12)));
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it.each([
+    ['yes at 50', { businessUsePercent: 50, listedEquipmentAnswer: 'yes', listedEquipmentKind: 'recreation_or_amusement' }, 'PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.'],
+    ['blank at 50', { businessUsePercent: 50 }, 'PLACEHOLDER: We need one answer about camera before we can show your estimate. What kind of equipment is it?'],
+  ])('Schedule C calculate reviews %s instead of returning a profit', async (_label, fields, expected) => {
+    seed('camera', fields);
+    const response = await calculateScheduleC(json('tax/schedule-c/calculate?year=2026'));
+    expect(response.status).toBe(422);
+    const body = await response.json();
+    expect(body).toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED' });
+    expect(body.error).toContain(expected);
+    if (String(_label).startsWith('blank')) expect(body.error).not.toContain(message);
+    expect(body).not.toHaveProperty('data');
+    expect(JSON.stringify(body)).not.toContain('netProfit');
+  });
+
+  it.each([
+    ['yes at 50.01', { businessUsePercent: 50.01, listedEquipmentAnswer: 'yes' }],
+    ['yes at 51', { businessUsePercent: 51, listedEquipmentAnswer: 'yes' }],
+    ['no at 50', { businessUsePercent: 50, listedEquipmentAnswer: 'no' }],
+    ['computer at 50', { category: 'computer', businessUsePercent: 50, listedEquipmentAnswer: 'yes' }],
+  ])('Schedule C calculate keeps the helper figure for %s', async (_label, fields) => {
+    seed('camera', fields);
+    const response = await calculateScheduleC(json('tax/schedule-c/calculate?year=2026'));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const expected = profitFor('camera', fields);
+    const reference = calc4562([asAsset('plain', { category: 'computer', businessUsePercent: Number(fields.businessUsePercent) })], 100000, 2026);
+    expect(body.data.depreciationDeduction).toBe(expected.depreciationDeduction);
+    expect(body.data.depreciationDeduction).toBe(reference.totalDepreciation);
+    expect(body.data.netProfit).toBe(expected.netProfit);
+    expect(body.data.depreciationDeduction).toBeGreaterThan(0);
+  });
+
+  it('reviews each profit consumer when an asset is held and still returns dollars when none is held', async () => {
+    const heldFields = { businessUsePercent: 50, listedEquipmentAnswer: 'yes', listedEquipmentKind: 'recreation_or_amusement' };
+    const openFields = { category: 'computer', businessUsePercent: 100 };
+    const expectReview = async (response: Response) => {
+      expect(response.status).toBe(422);
+      const body = await response.json();
+      expect(body.code).toBe('DEPRECIATION_REVIEW_REQUIRED');
+      expect(body.error).toContain(message);
+      expect(body).not.toHaveProperty('data');
+      expect(body).not.toHaveProperty('form1040');
+      expect(body).not.toHaveProperty('calculation');
+      expect(body).not.toHaveProperty('netProfit');
+      expect(body).not.toHaveProperty('totalEstimatedTax');
+      expect(body).not.toHaveProperty('scheduleC');
+      expect(body).not.toHaveProperty('deduction');
+      expect(body).not.toHaveProperty('depreciation');
+      expect(body).not.toHaveProperty('totalTax');
+    };
+    seed('camera', heldFields);
+    await expectReview(await calculateScheduleC(json('tax/schedule-c/calculate?year=2026')));
+    await expectReview(await scheduleSE(json('tax/schedule-se/auto?year=2026')));
+    await expectReview(await compute1040(json('tax/compute-1040?year=2026')));
+    await expectReview(await quarterlyReminders(json('tax/quarterly-reminders?year=2026&asOf=2026-07-15')));
+    await expectReview(await homeOfficeWorksheet(json('tax/home-office?year=2026')));
+    const sePdf = await exportForms(json('reports/export', { type: 'scheduleSE', year: 2026 }));
+    expect(sePdf.status).toBe(422);
+    expect(sePdf.headers.get('content-type')).not.toContain('pdf');
+    expect(await sePdf.json()).toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED' });
+    const formPdf = await exportForms(json('reports/export', { type: 'form4562', year: 2026 }));
+    expect(formPdf.status).toBe(422);
+    expect(formPdf.headers.get('content-type')).not.toContain('pdf');
+    const worksheet = await form4562Worksheet(json('tax/form-4562?year=2026'));
+    expect(worksheet.status).toBe(200);
+    const worksheetBody = await worksheet.json();
+    expect(worksheetBody.calculation.assets.find((row: { asset: { id: string } }) => row.asset.id === 'camera').totalDepreciation).toBe(0);
+    expect(worksheetBody.calculation.heldAssets).toEqual([{ id: 'camera', name: 'camera', reason: 'review' }]);
+
+    seed('laptop', openFields);
+    const expected = profitFor('laptop', openFields);
+    const scheduleC = await (await calculateScheduleC(json('tax/schedule-c/calculate?year=2026'))).json();
+    expect(scheduleC.data.depreciationDeduction).toBe(expected.depreciationDeduction);
+    expect(scheduleC.data.netProfit).toBe(expected.netProfit);
+    expect(scheduleC.data.netProfit).toBeGreaterThan(0);
+    const se = await (await scheduleSE(json('tax/schedule-se/auto?year=2026'))).json();
+    expect(se.calculation.netProfitFromScheduleC).toBe(expected.netProfit);
+    expect(se.netProfit).toBe(expected.netProfit);
+    const estimate = await (await compute1040(json('tax/compute-1040?year=2026'))).json();
+    expect(estimate.depreciation.totalDepreciation).toBe(expected.depreciationDeduction);
+    expect(estimate.income.scheduleCLine31NetProfit).toBe(expected.netProfit);
+    expect(typeof estimate.form1040.totalTax).toBe('number');
+    const planner = await (await quarterlyReminders(json('tax/quarterly-reminders?year=2026&asOf=2026-07-15'))).json();
+    expect(planner.totalEstimatedTax).toBe(estimate.form1040.totalTax);
+    expect(planner.totalEstimatedTax).toBeGreaterThan(0);
+    const home = await (await homeOfficeWorksheet(json('tax/home-office?year=2026'))).json();
+    expect(home.scheduleC.depreciationDeduction).toBe(expected.depreciationDeduction);
+    expect(home.scheduleC.netProfit).toBe(expected.netProfit);
+    const seFile = await exportForms(json('reports/export', { type: 'scheduleSE', year: 2026 }));
+    expect(seFile.status).toBe(200);
+    expect(seFile.headers.get('content-type')).toContain('application/pdf');
+    expect((await seFile.arrayBuffer()).byteLength).toBeGreaterThan(100);
+    const formFile = await exportForms(json('reports/export', { type: 'form4562', year: 2026 }));
+    expect(formFile.status).toBe(200);
+    expect(formFile.headers.get('content-type')).toContain('application/pdf');
+  });
+});
+
+describe('equipment release answer', () => {
+  const placed = new Date('2026-05-01T00:00:00.000Z');
+  const message = 'PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.';
+  const clearAssets = () => { for (const key of [...store.docs.keys()]) if (key.includes('/assets/')) store.docs.delete(key); };
+  const seed = (fields: Record<string, unknown>) => {
+    clearAssets();
+    seedAsset('camera', { description: 'Camera', datePlacedInService: { toDate: () => placed }, cost: 10000, businessUsePercent: 50, category: 'equipment', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false, listedEquipmentAnswer: 'yes', ...fields });
+  };
+  const patch = (body: Record<string, unknown>) => patchAsset(new NextRequest('http://localhost/api/settings/assets', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 6, 15, 12)));
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('rejects a bad release answer on create and on update', async () => {
+    const created = await postAssets(json('settings/assets', { assets: [{ description: 'Camera', datePlacedInService: '2026-05-01', cost: 4000, businessUsePercent: 50, category: 'equipment', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false, listedEquipmentAnswer: 'yes', listedEquipmentReleaseAnswer: 'sometimes' }] }));
+    expect(created.status).toBe(400);
+    seed({});
+    const updated = await patch({ assetId: 'camera', listedEquipmentReleaseAnswer: 'sometimes' });
+    expect(updated.status).toBe(400);
+  });
+
+  it('keeps every profit consumer in review when the release answer is no', async () => {
+    seed({ listedEquipmentKind: 'photo_audio_video_communication', listedEquipmentMainLineOfWork: 'no', listedEquipmentBusinessLocation: 'no', listedEquipmentReleaseAnswer: 'no' });
+    const expectReview = async (response: Response) => {
+      expect(response.status).toBe(422);
+      const body = await response.json();
+      expect(body.code).toBe('DEPRECIATION_REVIEW_REQUIRED');
+      expect(body.error).toContain(message);
+      expect(body).not.toHaveProperty('data');
+      expect(body).not.toHaveProperty('form1040');
+      expect(body).not.toHaveProperty('calculation');
+      expect(body).not.toHaveProperty('netProfit');
+      expect(body).not.toHaveProperty('totalEstimatedTax');
+      expect(body).not.toHaveProperty('scheduleC');
+      expect(body).not.toHaveProperty('deduction');
+      expect(body).not.toHaveProperty('depreciation');
+      expect(body).not.toHaveProperty('totalTax');
+    };
+    await expectReview(await calculateScheduleC(json('tax/schedule-c/calculate?year=2026')));
+    await expectReview(await scheduleSE(json('tax/schedule-se/auto?year=2026')));
+    await expectReview(await compute1040(json('tax/compute-1040?year=2026')));
+    await expectReview(await quarterlyReminders(json('tax/quarterly-reminders?year=2026&asOf=2026-07-15')));
+    await expectReview(await homeOfficeWorksheet(json('tax/home-office?year=2026')));
+    const sePdf = await exportForms(json('reports/export', { type: 'scheduleSE', year: 2026 }));
+    expect(sePdf.status).toBe(422);
+    expect(sePdf.headers.get('content-type')).not.toContain('pdf');
+    const formPdf = await exportForms(json('reports/export', { type: 'form4562', year: 2026 }));
+    expect(formPdf.status).toBe(422);
+    expect(formPdf.headers.get('content-type')).not.toContain('pdf');
+  });
+
+  it('returns the helper depreciation from Schedule C calculate when photo gear is used in the main line of work', async () => {
+    seed({ listedEquipmentKind: 'photo_audio_video_communication', listedEquipmentMainLineOfWork: 'yes', listedEquipmentReleaseAnswer: 'yes' });
+    const response = await calculateScheduleC(json('tax/schedule-c/calculate?year=2026'));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const reference = calc4562([asReleaseReference()], 100000, 2026);
+    expect(body.data.depreciationDeduction).toBe(reference.totalDepreciation);
+    expect(body.data.depreciationDeduction).toBeGreaterThan(0);
+  });
+
+  it('shows the named question, not the generic review message, for a saved asset with no kind', async () => {
+    const sentence = 'PLACEHOLDER: We need one answer about Camera before we can show your estimate. What kind of equipment is it?';
+    const generic = 'PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.';
+    const expectQuestion = async (response: Response) => {
+      expect(response.status).toBe(422);
+      const body = await response.json();
+      expect(body.code).toBe('DEPRECIATION_REVIEW_REQUIRED');
+      expect(body.error).toContain(sentence);
+      expect(body.error).not.toContain(generic);
+      expect(body.error).not.toMatch(/\$\d/);
+      expect(body.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'question' }]);
+      expect(body).not.toHaveProperty('data');
+      expect(body).not.toHaveProperty('form1040');
+      expect(body).not.toHaveProperty('calculation');
+      expect(body).not.toHaveProperty('netProfit');
+      expect(body).not.toHaveProperty('totalEstimatedTax');
+      expect(body).not.toHaveProperty('deduction');
+      expect(body).not.toHaveProperty('depreciation');
+    };
+    for (const fields of [{ listedEquipmentAnswer: null }, { listedEquipmentAnswer: 'yes' }]) {
+      seed(fields);
+      await expectQuestion(await calculateScheduleC(json('tax/schedule-c/calculate?year=2026')));
+      await expectQuestion(await scheduleSE(json('tax/schedule-se/auto?year=2026')));
+      await expectQuestion(await compute1040(json('tax/compute-1040?year=2026')));
+      await expectQuestion(await quarterlyReminders(json('tax/quarterly-reminders?year=2026&asOf=2026-07-15')));
+      await expectQuestion(await homeOfficeWorksheet(json('tax/home-office?year=2026')));
+      const worksheet = await form4562Worksheet(json('tax/form-4562?year=2026'));
+      expect(worksheet.status).toBe(200);
+      const worksheetBody = await worksheet.json();
+      expect(worksheetBody.calculation.notes.join('\n')).toContain(sentence);
+      expect(worksheetBody.calculation.notes.join('\n')).not.toContain(generic);
+      expect(worksheetBody.calculation.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'question' }]);
+      expect(worksheetBody.calculation.assets.find((row: { asset: { id: string } }) => row.asset.id === 'camera').regularDepreciation).toBe(0);
+    }
+  });
+
+  it('shows the main line question for photo gear at 30 percent with no release answers', async () => {
+    const sentence = 'PLACEHOLDER: We need one more answer about Camera. Do you use it in your main line of work?';
+    const generic = 'PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.';
+    seed({ businessUsePercent: 30, listedEquipmentKind: 'photo_audio_video_communication', section179Requested: false, bonusEligible: false });
+    const response = await calculateScheduleC(json('tax/schedule-c/calculate?year=2026'));
+    expect(response.status).toBe(422);
+    const body = await response.json();
+    expect(body.code).toBe('DEPRECIATION_REVIEW_REQUIRED');
+    expect(body.error).toContain(sentence);
+    expect(body.error).not.toContain(generic);
+    expect(body.error).not.toContain('What kind of equipment is it?');
+    expect(body.error).not.toMatch(/\$\d/);
+    expect(body.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'question', ask: 'main_line' }]);
+    expect(body).not.toHaveProperty('data');
+    const worksheet = await form4562Worksheet(json('tax/form-4562?year=2026'));
+    expect(worksheet.status).toBe(200);
+    const worksheetBody = await worksheet.json();
+    expect(worksheetBody.calculation.notes.join('\n')).toContain(sentence);
+    expect(worksheetBody.calculation.notes.join('\n')).not.toContain(generic);
+    expect(worksheetBody.calculation.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'question', ask: 'main_line' }]);
+    expect(worksheetBody.calculation.assets.find((row: { asset: { id: string } }) => row.asset.id === 'camera').regularDepreciation).toBe(0);
+    expect(worksheetBody.calculation.assets.find((row: { asset: { id: string } }) => row.asset.id === 'camera').totalDepreciation).toBe(0);
+  });
+
+  it('shows the business location question when the main line answer is no and the location is blank', async () => {
+    const sentence = 'PLACEHOLDER: We need one more answer about Camera. Do you use it only at your business location?';
+    const generic = 'PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.';
+    seed({ businessUsePercent: 30, listedEquipmentKind: 'photo_audio_video_communication', listedEquipmentMainLineOfWork: 'no', section179Requested: false, bonusEligible: false });
+    const response = await calculateScheduleC(json('tax/schedule-c/calculate?year=2026'));
+    expect(response.status).toBe(422);
+    const body = await response.json();
+    expect(body.code).toBe('DEPRECIATION_REVIEW_REQUIRED');
+    expect(body.error).toContain(sentence);
+    expect(body.error).not.toContain(generic);
+    expect(body.error).not.toContain('Do you use it in your main line of work?');
+    expect(body.error).not.toMatch(/\$\d/);
+    expect(body.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'question', ask: 'location' }]);
+    expect(body).not.toHaveProperty('data');
+    const worksheet = await form4562Worksheet(json('tax/form-4562?year=2026'));
+    expect(worksheet.status).toBe(200);
+    const worksheetBody = await worksheet.json();
+    expect(worksheetBody.calculation.notes.join('\n')).toContain(sentence);
+    expect(worksheetBody.calculation.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'question', ask: 'location' }]);
+    expect(worksheetBody.calculation.assets.find((row: { asset: { id: string } }) => row.asset.id === 'camera').totalDepreciation).toBe(0);
+  });
+
+  it('shows the follow-up question when the business location is yes and the outside-home answer is blank', async () => {
+    const sentence = 'PLACEHOLDER: We need one more answer about Camera. Is that a studio or office outside your home?';
+    const generic = 'PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.';
+    seed({ businessUsePercent: 30, listedEquipmentKind: 'photo_audio_video_communication', listedEquipmentBusinessLocation: 'yes', section179Requested: false, bonusEligible: false });
+    const response = await calculateScheduleC(json('tax/schedule-c/calculate?year=2026'));
+    expect(response.status).toBe(422);
+    const body = await response.json();
+    expect(body.error).toContain(sentence);
+    expect(body.error).not.toContain(generic);
+    expect(body.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'question', ask: 'follow_up' }]);
+    expect(body).not.toHaveProperty('data');
+  });
+
+  it('rejects a bad gear kind and a bad release answer', async () => {
+    const assetBody = { description: 'Camera', datePlacedInService: '2026-05-01', cost: 4000, businessUsePercent: 50, category: 'equipment', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false, listedEquipmentAnswer: 'yes' };
+    expect((await postAssets(json('settings/assets', { assets: [{ ...assetBody, listedEquipmentKind: 'camera' }] }))).status).toBe(400);
+    expect((await postAssets(json('settings/assets', { assets: [{ ...assetBody, listedEquipmentReleaseAnswer: 'sometimes' }] }))).status).toBe(400);
+    seed({});
+    expect((await patch({ assetId: 'camera', listedEquipmentKind: 'camera' })).status).toBe(400);
+    expect((await patch({ assetId: 'camera', listedEquipmentReleaseAnswer: 'sometimes' })).status).toBe(400);
+    expect((await patch({ assetId: 'camera', listedEquipmentMainLineOfWork: 'maybe' })).status).toBe(400);
+    expect((await patch({ assetId: 'camera', listedEquipmentLocationFollowUp: 'garage' })).status).toBe(400);
+  });
+
+  it('releases an old asset after a kind is saved and the main line of work answer is yes', async () => {
+    seed({ listedEquipmentAnswer: 'yes' });
+    const kindPatch = typeof patchAsset === 'function'
+      ? await patch({ assetId: 'camera', listedEquipmentKind: 'photo_audio_video_communication' })
+      : { status: 0 };
+    expect(kindPatch.status).toBe(200);
+    const yesPatch = await patch({ assetId: 'camera', listedEquipmentMainLineOfWork: 'yes' });
+    expect(yesPatch.status).toBe(200);
+    const response = await calculateScheduleC(json('tax/schedule-c/calculate?year=2026'));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const reference = calc4562([asReleaseReference()], 100000, 2026);
+    expect(body.data.depreciationDeduction).toBe(reference.totalDepreciation);
+    expect(body.data.depreciationDeduction).toBeGreaterThan(0);
+  });
+});
+
+function asReleaseReference(): Asset {
+  return {
+    id: 'plain', description: 'plain', datePlacedInService: new Date('2026-05-01T00:00:00.000Z'), cost: 10000, businessUsePercent: 50,
+    category: 'computer', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false,
+  };
+}

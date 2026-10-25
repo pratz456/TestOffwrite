@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { TaxCalculationNotice } from '@/components/tax-calculation-notice';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import type { MissingFact, QuarterlyPlan, QuarterlyPlannerResponse } from '@/lib/tax-provider/quarterly-planner';
+import { ListedEquipmentKindPrompt } from '@/components/listed-equipment-kind-prompt';
+import type { ListedEquipmentHeldAsset } from '@/lib/reports/calc4562';
 
 interface QuarterlyTaxCalculatorProps { userProfile?: Record<string, unknown>; transactions?: unknown[] }
 interface Summary {
@@ -62,7 +64,7 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
   const year = new Date().getFullYear();
   const [retry, setRetry] = useState(0);
   const key = JSON.stringify({ year, userProfile, transactions, retry });
-  const [result, setResult] = useState<{ key: string; data?: Summary; error?: string } | null>(null);
+  const [result, setResult] = useState<{ key: string; data?: Summary; error?: string; heldAssets?: ListedEquipmentHeldAsset[] } | null>(null);
   useEffect(() => {
     let current = true;
     const controller = new AbortController();
@@ -74,19 +76,26 @@ export function QuarterlyTaxCalculator({ userProfile, transactions }: QuarterlyT
         const asOf = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
         const response = await makeAuthenticatedRequest(`/api/tax/quarterly-reminders?year=${year}&asOf=${asOf}`, { signal: controller.signal, cache: 'no-store' });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Could not load your quarterly planning records. Please retry.');
+        if (!response.ok) {
+          const review = new Error(data.error || 'Could not load your quarterly planning records. Please retry.') as Error & { heldAssets?: ListedEquipmentHeldAsset[] };
+          review.heldAssets = Array.isArray(data.heldAssets) ? data.heldAssets : undefined;
+          throw review;
+        }
         if (data.taxYear !== year || ![data.totalEstimatedTax, data.recordedEstimatedPayments, data.w2Withheld].every(value => typeof value === 'number' && Number.isFinite(value)) || (data.totalFederalWithheld !== undefined && (typeof data.totalFederalWithheld !== 'number' || !Number.isFinite(data.totalFederalWithheld))) || !Array.isArray(data.quarters) || !data.paymentReview?.message) throw new Error('The quarterly summary is incomplete. Please retry.');
         if (data.planner != null && data.planner.status !== 'ready' && data.planner.status !== 'review_required') throw new Error('The quarterly summary is incomplete. Please retry.');
         if (data.planner?.status === 'ready' && (!Array.isArray(data.planner.installments) || !data.planner.requiredAnnualPayment || !data.planner.underpaymentInterestIllustration)) throw new Error('The quarterly summary is incomplete. Please retry.');
         if (current) setResult({ key, data });
       } catch (error) {
-        if (current) setResult({ key, error: error instanceof Error ? error.message : 'Could not load your quarterly planning records.' });
+        if (current) setResult({ key, error: error instanceof Error ? error.message : 'Could not load your quarterly planning records.', heldAssets: error && typeof error === 'object' && 'heldAssets' in error && Array.isArray(error.heldAssets) ? error.heldAssets : undefined });
       }
     })();
     return () => { current = false; controller.abort(); };
   }, [key, year]);
   if (result?.key !== key) return <p role="status">Loading your {year} tax and payment records…</p>;
-  if (!result.data) return <div role="alert"><p>{result.error}</p><Button onClick={() => setRetry(value => value + 1)}>Retry summary</Button></div>;
+  if (!result.data) {
+    const asking = (result.heldAssets ?? []).filter(asset => asset.reason === 'question');
+    return <div role="alert">{asking.length > 0 ? <ListedEquipmentKindPrompt assets={asking} /> : <p>{result.error}</p>}<Button onClick={() => setRetry(value => value + 1)}>Retry summary</Button></div>;
+  }
   const data = result.data;
   const plan = data.planner?.status === 'ready' ? data.planner : null;
   const missingFacts = data.planner?.status === 'review_required' ? data.planner.missingFacts : data.paymentReview.missingFacts ?? [];

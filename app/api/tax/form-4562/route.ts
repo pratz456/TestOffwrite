@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { getFederalTaxRules, getSection179Limits, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { loadScheduleCRecords } from '@/lib/reports/load-schedule-se';
-import { calc4562, DE_MINIMIS_SAFE_HARBOR_LIMIT, SECTION_179_CALCULATION_YEARS } from '@/lib/reports/calc4562';
+import { calc4562, depreciationReviewBody, DE_MINIMIS_SAFE_HARBOR_LIMIT, SECTION_179_CALCULATION_YEARS } from '@/lib/reports/calc4562';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -20,8 +20,9 @@ export async function GET(request: NextRequest) {
   const year = yearParam === null ? new Date().getFullYear() : /^\d{4}$/.test(yearParam) ? Number(yearParam) : NaN;
   try { getFederalTaxRules(year); } catch { return NextResponse.json({ error: `Supported tax years: ${SUPPORTED_TAX_YEARS.join(', ')}` }, { status: 400 }); }
   const headers = { 'Cache-Control': 'private, no-store' };
+  let records: Awaited<ReturnType<typeof loadScheduleCRecords>> | null = null;
   try {
-    const records = await loadScheduleCRecords(user.uid, year);
+    records = await loadScheduleCRecords(user.uid, year);
     const calculation = records.assets.length ? calc4562(records.assets, records.section179BusinessIncome, year, records.depreciationElections) : null;
     return NextResponse.json({
       taxYear: year, assets: records.assets, calculation, businessIncome: records.section179BusinessIncome,
@@ -32,7 +33,8 @@ export async function GET(request: NextRequest) {
     }, { headers });
   } catch (calcError) {
     const code = calcError && typeof calcError === 'object' && 'code' in calcError ? String(calcError.code) : '';
-    if (REVIEW_CODES.includes(code)) return NextResponse.json({ error: calcError instanceof Error ? calcError.message : 'Review the asset records before calculating.', code }, { status: 422, headers });
+    const election = records ? { deMinimisElected: records.depreciationElections.deMinimisSafeHarborYears.includes(year), deMinimisLimit: DE_MINIMIS_SAFE_HARBOR_LIMIT } : {};
+    if (REVIEW_CODES.includes(code)) return NextResponse.json({ ...depreciationReviewBody(calcError, 'Review the asset records before calculating.', code), ...election }, { status: 422, headers });
     return NextResponse.json({ error: 'Could not load all records needed for this worksheet. Please retry.' }, { status: 503 });
   }
 }
