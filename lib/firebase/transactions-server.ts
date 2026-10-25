@@ -1,6 +1,7 @@
 import { FieldPath } from 'firebase-admin/firestore';
 import { saveTransactionChanges } from '@/lib/transactions/save-changes';
 import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
+import { compareTransactionDates } from '@/lib/transactions/date-order';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { AiExplanation } from '@/lib/transactions/review-proposals';
 // lib/firebase/transactions-server.ts
@@ -273,11 +274,7 @@ function normalizeGetTransactionsOptions(options?: GetTransactionsOptions | stri
 }
 
 function sortNewestFirst(rows: Transaction[]): Transaction[] {
-  return rows.sort((a, b) => {
-    const ad = a.date ? new Date(a.date).getTime() : 0;
-    const bd = b.date ? new Date(b.date).getTime() : 0;
-    return bd - ad;
-  });
+  return rows.sort((a, b) => compareTransactionDates(a.date, b.date, 'desc'));
 }
 
 function isMissingIndexError(error: any): boolean {
@@ -353,7 +350,7 @@ export async function getTransactionsServer(
     }
     if (ownerDocs.size > 0) {
       const ordered = [...ownerDocs.values()].sort((a, b) => {
-        const byDate = String(b.get('date') ?? '').localeCompare(String(a.get('date') ?? ''));
+        const byDate = compareTransactionDates(a.get('date'), b.get('date'), 'desc');
         return byDate || b.ref.path.localeCompare(a.ref.path);
       });
       const page = limit ? ordered.slice(0, limit) : ordered;

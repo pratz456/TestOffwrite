@@ -7,7 +7,7 @@ import { isServerConfirmedDeduction } from '@/lib/transactions/confirmed-deducti
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { ExportDataUnavailableError, exportReference, ownedExportRecord, readOwnedTransactions } from './export-records';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
-import { csvCell, exportDate, selectExportYear, transactionAmount, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
+import { csvCell, dateNeededMerchantCell, exportDate, partitionExportYear, summarizeDateNeeded, transactionAmount, ExportReviewRequiredError, type DateNeededSummary, type ExportRecord } from './transaction-export';
 
 /**
  * Audit support records packet: the confirmed deductions of one tax year, each paired with
@@ -89,6 +89,7 @@ export interface AuditSupportPacket {
     /** superseded: deductible records a relinked bank re-imported that duplicate an earlier reviewed record. */
     excluded: { notConfirmed: number; reviewRequired: number; pending: number; bankRemoved: number; superseded: number };
     mileage: { tripCount: number; ratedMiles: number; unratedMiles: number; unratedTrips: number; standardMileageAmount: number; ratesApplied: number[]; tripsNeedingRecords: number };
+    dateNeeded: DateNeededSummary;
   };
   retention: RetentionNote;
   standards: Array<{ category: SubstantiationCategory; label: string; standard: string }>;
@@ -277,7 +278,9 @@ function mileageEntries(uid: string, year: number, trips: ExportRecord[]) {
 
 /** Pure assembly over owner-verified records. Throws ExportReviewRequiredError when records need reconciliation first. */
 export function assembleAuditSupportPacket(uid: string, year: number, inputs: AuditSupportInputs, generatedAt = new Date()): AuditSupportPacket {
-  const inYear = selectExportYear(inputs.transactions, year);
+  const split = partitionExportYear(inputs.transactions, year);
+  const inYear = split.dated;
+  const dateNeeded = summarizeDateNeeded(split.dateNeeded);
   const excluded = { notConfirmed: 0, reviewRequired: 0, pending: 0, bankRemoved: 0, superseded: 0 };
   const confirmed: ExportRecord[] = [];
   for (const record of inYear) {
@@ -348,6 +351,7 @@ export function assembleAuditSupportPacket(uid: string, year: number, inputs: Au
       missingItems: [...missingItems].map(([item, count]) => ({ item, count })).sort((a, b) => b.count - a.count || a.item.localeCompare(b.item)),
       excluded,
       mileage: { tripCount: trips.length, ratedMiles: round2(mileage.ratedMiles), unratedMiles: round2(mileage.unratedMiles), unratedTrips: mileage.unratedTrips, standardMileageAmount: mileage.deduction, ratesApplied: mileage.ratesApplied, tripsNeedingRecords: trips.filter(trip => trip.substantiation.status === 'needs_records').length },
+      dateNeeded,
     },
     retention: retentionNote(year),
     standards: (Object.keys(SUBSTANTIATION_RULES) as SubstantiationCategory[]).map(category => ({ category, label: SUBSTANTIATION_RULES[category].label, standard: SUBSTANTIATION_RULES[category].standard })),
@@ -395,6 +399,21 @@ export function auditSupportPacketCSV(packet: AuditSupportPacket): string {
       trip.ratePerMile === null ? 'No IRS rate published for this trip date; amount not calculated.' : '', trip.businessPurpose ?? '', trip.businessPurpose ? 'mileage_log' : '', '', '', '',
       `${trip.miles} miles${trip.ratePerMile !== null ? ` @ $${trip.ratePerMile}/mile` : ''}`, '', '', '', '', 'Mileage tracker', '']);
   }
+  const summaryRow = AUDIT_SUPPORT_CSV_HEADERS.map(() => '');
+  summaryRow[0] = 'Year total';
+  summaryRow[4] = String(packet.summary.recordedAmount);
+  summaryRow[summaryRow.length - 1] = packet.summary.dateNeeded.label;
+  rows.push(summaryRow);
+  for (const row of packet.summary.dateNeeded.rows) {
+    const cells = AUDIT_SUPPORT_CSV_HEADERS.map(() => '');
+    cells[0] = 'Date needed';
+    cells[1] = row.exportReference;
+    cells[2] = '';
+    cells[3] = row.merchant;
+    cells[4] = row.amount === null ? '' : String(row.amount);
+    cells[cells.length - 1] = 'Date needed';
+    rows.push(cells);
+  }
   return [AUDIT_SUPPORT_CSV_HEADERS.map(csvCell).join(','), ...rows.map(row => row.map(csvCell).join(','))].join('\r\n');
 }
 
@@ -410,7 +429,13 @@ export async function generateAuditSupportPDF(packet: AuditSupportPacket): Promi
     ['Complete - every element required for the category is on file', String(packet.summary.byStatus.complete.count), money(packet.summary.byStatus.complete.amount)],
     ['Needs records - one or more elements are missing', String(packet.summary.byStatus.needs_records.count), money(packet.summary.byStatus.needs_records.amount)],
     ['All confirmed deductions', String(packet.summary.deductionCount), money(packet.summary.recordedAmount)],
+    ['Date needed', String(packet.summary.dateNeeded.count), packet.summary.dateNeeded.label],
   ], [318, 90, 120]);
+  if (packet.summary.dateNeeded.count) {
+    pdf.section('Date needed');
+    pdf.paragraph(`${packet.summary.dateNeeded.label}. These amounts are not included in the year total.`);
+    pdf.table(['Merchant', 'Amount'], packet.summary.dateNeeded.rows.map(row => [dateNeededMerchantCell(row), row.amount === null ? '' : money(row.amount)]), [358, 170]);
+  }
   pdf.table(['Substantiation category', 'Records', 'Complete', 'Need records', 'Recorded amount'],
     packet.summary.byCategory.length ? packet.summary.byCategory.map(row => [row.label, String(row.count), String(row.complete), String(row.needsRecords), money(row.amount)]) : [['No confirmed deductions in this year', '0', '0', '0', money(0)]],
     [228, 70, 70, 80, 80]);

@@ -2,7 +2,7 @@ import { readBankHistoryReviewSummary, type BankHistoryReviewSummary } from '@/l
 import { adminDb } from '@/lib/firebase/admin';
 import { validateReceiptPreviewPath } from '@/lib/receipts/preview-path';
 import { readOwnedTransactions, ownedExportRecord, exportReference, ExportDataUnavailableError } from './export-records';
-import { convertTransactionsToCSV, exportDate, selectExportYear, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
+import { appendTransactionDateNeeded, convertTransactionsToCSV, exportDate, partitionExportYear, summarizeDateNeeded, summarizeMileageDateNeeded, ExportReviewRequiredError, type DateNeededSummary, type ExportRecord, type MileageDateNeededSummary } from './transaction-export';
 import { redactIdentifierText } from '@/lib/security/identifier-redaction';
 export { convertTransactionsToCSV } from './transaction-export';
 
@@ -44,6 +44,8 @@ export interface UserDataExport {
   aiAnalysis: ExportRecord[];
   taxRecords: Record<string, ExportRecord[]>;
   bankHistoryReview?: BankHistoryReviewSummary;
+  dateNeeded?: DateNeededSummary;
+  mileageDateNeeded?: MileageDateNeededSummary;
 }
 
 /** Owner data archive / preparer handoff. It is not a filed return or a completeness certification. */
@@ -51,6 +53,7 @@ export async function generateUserDataExport(userId: string, year?: number): Pro
   try {
     const profileRef = adminDb.collection('user_profiles').doc(userId);
     // The archive is complete: superseded duplicates are included and point at the record that counts.
+    let undatedMileage: ExportRecord[] = [];
     const [profile, accountsSnapshot, rawTransactions, receiptSnapshot, ...datasets] = await Promise.all([
       profileRef.get(), profileRef.collection('accounts').get(), readOwnedTransactions(userId, { includeSuperseded: true }),
       Promise.all(['userId', 'user_id'].map(field => adminDb.collection('receipts').where(field, '==', userId).get()))
@@ -64,13 +67,20 @@ export async function generateUserDataExport(userId: string, year?: number): Pro
       ...PROFILE_CHILDREN.map(async name => {
         const snapshot = await profileRef.collection(name).get();
         let records = snapshot.docs.map(doc => ownedExportRecord(doc, userId, true));
-        if (name === 'mileage_trips') records = selectExportYear(records, year);
+        if (name === 'mileage_trips' && year !== undefined) {
+          const split = partitionExportYear(records, year);
+          undatedMileage = split.dateNeeded;
+          records = split.dated;
+        }
         if (name === 'quarterly_payments') records = yearRecords(records, year);
         return [name, records.map(clean)] as const;
       }),
     ]);
     const bankHistoryReview = await readBankHistoryReviewSummary(userId, year);
-    const selected = selectExportYear(rawTransactions, year);
+    const split = year === undefined ? { dated: rawTransactions, dateNeeded: [] as ExportRecord[] } : partitionExportYear(rawTransactions, year);
+    const selected = split.dated;
+    const dateNeeded = year === undefined ? undefined : summarizeDateNeeded(split.dateNeeded);
+    const mileageDateNeeded = year === undefined ? undefined : summarizeMileageDateNeeded(undatedMileage.map(clean));
     const transactions = selected.map(record => {
       const result = clean(record);
       result.id = record.exportReference; result.trans_id = record.exportReference;
@@ -83,7 +93,7 @@ export async function generateUserDataExport(userId: string, year?: number): Pro
       return result;
     });
     const receipts: ExportRecord[] = receiptSnapshot.docs.map(doc => ownedExportRecord(doc, userId)).flatMap(record => {
-      const transaction = selected.find(tx => (tx.trans_id ?? tx.id) === record.transactionId);
+      const transaction = [...selected, ...split.dateNeeded].find(tx => (tx.trans_id ?? tx.id) === record.transactionId);
       if (year !== undefined && !transaction) return [];
       return [{ ...Object.fromEntries(['id', 'filename', 'originalName', 'mimeType', 'size', 'uploadedAt'].filter(key => record[key] !== undefined).map(key => [key, sanitizeExportValue(record[key])])), transactionId: transaction?.exportReference ?? null,
         receiptUrl: privateReceiptLink(`/api/receipts/${record.id}`), linkRequiresSignIn: true }];
@@ -92,6 +102,12 @@ export async function generateUserDataExport(userId: string, year?: number): Pro
     for (const record of transactions) {
       if ((record.receipt_url || record.receipt_filename) && !receipts.some(receipt => receipt.transactionId === record.exportReference)) {
         receipts.push({ transactionId: record.exportReference, receiptFilename: record.receipt_filename, receiptUrl: privateReceiptLink(record.receipt_url), linkRequiresSignIn: true });
+      }
+    }
+    for (const record of split.dateNeeded) {
+      const receiptUrl = privateReceiptLink(record.receipt_url);
+      if ((receiptUrl || record.receipt_filename) && !receipts.some(receipt => receipt.transactionId === record.exportReference)) {
+        receipts.push({ transactionId: record.exportReference, receiptFilename: record.receipt_filename, receiptUrl, linkRequiresSignIn: true });
       }
     }
     const accounts = accountsSnapshot.docs.map(doc => {
@@ -107,7 +123,7 @@ export async function generateUserDataExport(userId: string, year?: number): Pro
     return {
       exportInfo: { exportDate: new Date().toISOString(), userId, exportId: `export_${crypto.randomUUID()}`, dataVersion: '2.0', taxYear: year ?? null, purpose: 'Owner data archive and tax-preparer handoff; not an official tax return' },
       userProfile: profile.exists ? clean(ownedExportRecord(profile as Parameters<typeof ownedExportRecord>[0], userId, true)) : null,
-      accounts, transactions, receipts, aiAnalysis, bankHistoryReview, taxRecords: Object.fromEntries(datasets),
+      accounts, transactions, receipts, aiAnalysis, bankHistoryReview, dateNeeded, mileageDateNeeded, taxRecords: Object.fromEntries(datasets),
     };
   } catch (error) {
     if (error instanceof ExportReviewRequiredError) throw error;
@@ -124,16 +140,18 @@ export function generateDataPackage(data: UserDataExport) {
     'Recorded categories and deductibility are declarations; AI analysis is advisory. Pending, unreviewed, duplicate and mixed-use records require reconciliation. No filing deduction or refund is certified.',
     'A transaction with superseded_by is a bank re-import that duplicates the earlier record referenced by that value; WriteOff totals count only the earlier record.',
     'Receipt metadata and private sign-in links are included; receipt image/PDF binaries are NOT attached. A preparer cannot open these links without authorized account access.',
-    'A selected-year archive includes only receipt metadata linked to transactions in that year. Use an all-years archive to include unlinked receipt metadata.',
+    'A selected-year archive includes receipt metadata linked to transactions in that year and receipt metadata linked to transactions that need a date. Use an all-years archive to include unlinked receipt metadata.',
+    'Mileage trips with a missing or invalid date are listed as Date needed with a trip count, miles, and each cleaned trip record. A trip with blank or invalid miles is counted as no miles and is not added to the miles total. No mileage rate is applied and no dollar amount is calculated.',
     'Tax datasets can overlap (for example bank deposits, gross receipts and 1099s). Do not sum them without reconciling duplicate income.',
     'Assets, settings and profile are current all-year snapshots; transaction, mileage, payment and tax-year records honor the selected year when supplied.',
     'Authentication credentials, Plaid/Stripe connection details, SSN/ITIN/EIN and IRS IP PIN ciphertexts, bank account/routing numbers and legacy authorization PINs are excluded, and identifier-shaped numbers are removed from dependent notes. Provide needed filing identity details separately through a secure preparer workflow.',
     'Only records saved in WriteOff are included. Missing W2/1099 forms, basis, carryovers, credits and other tax facts must be supplied separately.',
     'Audit support records (each confirmed deduction with its records on file, missing substantiation elements, mileage log and Pub 583 retention note) are a separate owner export from Reports > Audit support records; JSON and CSV are included on every plan.',
   ];
-  return { json: data, csv: convertTransactionsToCSV(data.transactions), summary: { exportInfo: data.exportInfo, counts,
+  const csv = data.dateNeeded ? appendTransactionDateNeeded(convertTransactionsToCSV(data.transactions), data.transactions, data.dateNeeded.rows.map(row => ({ merchant_name: row.merchant, amount: row.amount, exportReference: row.exportReference }))) : convertTransactionsToCSV(data.transactions);
+  return { json: data, csv, summary: { exportInfo: data.exportInfo, counts,
     dateRange: { earliest: dates[0] ?? null, latest: dates.at(-1) ?? null }, receiptBinariesIncluded: false, limitations },
-    readme: `WriteOff - preparer data handoff\n\nGenerated: ${data.exportInfo.exportDate}\nScope: ${data.exportInfo.taxYear ?? 'All saved years'}\n\nPackage: JSON contains all datasets plus the transaction CSV and this README as text. Some download screens save those text fields as separate files; the filing hub downloads one JSON package. No source records are modified by this export.\n\nRecord counts:\n${Object.entries(counts).map(([name, count]) => `- ${name}: ${count}`).join('\n')}\n\nLimits and interpretation:\n${limitations.map(text => `- ${text}`).join('\n')}\n`,
+    readme: `WriteOff - preparer data handoff\n\nGenerated: ${data.exportInfo.exportDate}\nScope: ${data.exportInfo.taxYear ?? 'All saved years'}\n\nPackage: JSON contains all datasets plus the transaction CSV and this README as text. Some download screens save those text fields as separate files; the filing hub downloads one JSON package. No source records are modified by this export.\n\nRecord counts:\n${[...Object.entries(counts).map(([name, count]) => `- ${name}: ${count}`), data.mileageDateNeeded ? `- mileage date needed: ${data.mileageDateNeeded.label}` : ''].filter(Boolean).join('\n')}\n\nLimits and interpretation:\n${limitations.map(text => `- ${text}`).join('\n')}\n`,
   };
 }
 export function validateExportData(data: UserDataExport) {

@@ -1,3 +1,4 @@
+import { transactionDateParts } from '@/lib/transactions/calendar-date';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { getEstimatedTaxDeadline } from '@/lib/tax-provider/payment-deadlines';
 
@@ -334,10 +335,7 @@ export function generateActionItems(
 
   // ── Financial Health ────────────────────────────────────────
 
-  const currentYearTx = transactions.filter((t) => {
-    const txYear = t.date ? new Date(t.date).getFullYear() : 0;
-    return txYear === year;
-  });
+  const currentYearTx = transactions.filter((t) => transactionDateParts(t.date)?.year === year);
   if (currentYearTx.length > 50) {
     const uncategorized = currentYearTx.filter(
       (t) => !t.category || t.category === 'other' || t.category === 'uncategorized'

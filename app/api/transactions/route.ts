@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getTransactionsServer, MAX_TRANSACTIONS_PAGE_SIZE } from '@/lib/firebase/transactions-server';
+import { compareTransactionDates } from '@/lib/transactions/date-order';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 
 const OWNER_DATA_CACHE_CONTROL = 'private, no-store';
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Sort by date (newest first)
-    filteredTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    filteredTransactions.sort((a, b) => compareTransactionDates(a.date, b.date, 'desc'));
 
     return NextResponse.json({ 
       success: true,

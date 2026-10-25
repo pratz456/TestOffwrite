@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
 import { readOwnedTransactions } from '@/lib/reports/export-records';
-import { exportDate, exportYear, selectExportYear, transactionAmount, ExportReviewRequiredError, type ExportRecord } from '@/lib/reports/transaction-export';
+import { dateNeededMerchantCell, exportDate, exportYear, partitionExportYear, summarizeDateNeeded, transactionAmount, ExportReviewRequiredError, type DateNeededSummary, type ExportRecord } from '@/lib/reports/transaction-export';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { createPlanningPDF, formatExportMoney } from '@/lib/reports/planning-pdf';
 
@@ -22,7 +22,7 @@ function period(yearValue: unknown, monthValue: unknown) {
   return { year, month };
 }
 function recordsInPeriod(records: ExportRecord[], year: number, month?: number) {
-  return selectExportYear(records, year).filter(record => month === undefined || Number(exportDate(record.date ?? record.datetime)!.slice(5, 7)) === month);
+  return partitionExportYear(records, year).dated.filter(record => month === undefined || Number(exportDate(record.date ?? record.datetime)!.slice(5, 7)) === month);
 }
 function summarize(records: ExportRecord[]) {
   const income = new Map<string, number>(), outflows = new Map<string, number>();
@@ -75,7 +75,8 @@ async function dataFor(uid: string, year: number, month?: number) {
     if (!(error instanceof ExportReviewRequiredError)) throw error;
     priorPeriodReviewRequired = true;
   }
-  return { ...current, year, month: month ?? null, periodLabel: month === undefined ? String(year) : `${year}-${String(month).padStart(2, '0')}`, priorPeriod, priorPeriodReviewRequired };
+  const dateNeeded: DateNeededSummary = summarizeDateNeeded(partitionExportYear(records, year).dateNeeded);
+  return { ...current, year, month: month ?? null, periodLabel: month === undefined ? String(year) : `${year}-${String(month).padStart(2, '0')}`, priorPeriod, priorPeriodReviewRequired, dateNeeded };
 }
 function failure(error: unknown) {
   if (error instanceof RangeError) return json({ error: error.message }, 400);
@@ -104,7 +105,12 @@ export async function GET(request: NextRequest) {
     pdf.paragraph(`Period: ${data.periodLabel}. Currency: USD.`, true);
     pdf.paragraph(scope);
     pdf.paragraph(`Included records: ${data.transactionCount}. Pending records excluded: ${data.excludedPendingCount}.`);
-    pdf.table(['Recorded movement', 'Amount (USD)'], [['Inflows', formatExportMoney(data.totalIncome)], ['Outflows', formatExportMoney(data.totalExpenses)], ['Net cash movement', formatExportMoney(data.netProfit)]], [358, 170]);
+    pdf.table(['Recorded movement', 'Amount (USD)'], [['Inflows', formatExportMoney(data.totalIncome)], ['Outflows', formatExportMoney(data.totalExpenses)], ['Net cash movement', formatExportMoney(data.netProfit)], ['Date needed', data.dateNeeded.label]], [358, 170]);
+    if (data.dateNeeded.count) {
+      pdf.section('Date needed');
+      pdf.paragraph(`${data.dateNeeded.label}. These amounts are not included in the year total.`);
+      pdf.table(['Merchant', 'Amount (USD)'], data.dateNeeded.rows.map(row => [dateNeededMerchantCell(row), row.amount === null ? '' : formatExportMoney(row.amount)]), [358, 170]);
+    }
     pdf.section('Inflows by recorded source');
     pdf.table(['Source', 'Amount (USD)'], data.income.map(row => [row.source, formatExportMoney(row.amount)]), [358, 170]);
     pdf.section('Outflows by recorded category');

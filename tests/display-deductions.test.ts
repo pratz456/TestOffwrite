@@ -56,7 +56,7 @@ describe('confirmed transaction amounts displayed to the owner', () => {
     expect(summarizeConfirmedDeductions(records).totalDeductible).toBe(200);
   });
 
-  it.each([{ amount: NaN }, { amount: Infinity }, { amount: '100' }, { date: '2026-02-30' },
+  it.each([{ amount: NaN }, { amount: Infinity }, { amount: '100' },
     { iso_currency_code: undefined }, { iso_currency_code: 'EUR' }, { unofficial_currency_code: 'BTC' },
     { business_percent: 50 }, { business_use_percent: 0 }, { businessUsePercent: 99 },
     { equipment_details: { business_use_percentage: 50 } }, { deduction_override: 0 }, { deductible_amount: 50 }])

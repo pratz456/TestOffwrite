@@ -1,5 +1,6 @@
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
+import { exportDate, summarizeDateNeeded, type DateNeededSummary } from '@/lib/reports/transaction-export';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { QuarterlyReviewRequiredError, QUARTERLY_REVIEW_MESSAGE } from './regular-estimated-payments';
 
@@ -107,10 +108,10 @@ export function getLocalTransactionDate(
 
     // Date-only: treat as local date.
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      if (!exportDate(s)) return null;
       const year = Number(s.slice(0, 4));
       const month = Number(s.slice(5, 7));
       const day = Number(s.slice(8, 10));
-      if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
       return { year, month, day, ymd: s };
     }
 
@@ -270,13 +271,28 @@ export function sumPotentialExpensesForQuarter(
   return { potential_deductions_needing_review: amount, potential_deductions_needing_review_cents: amountCents };
 }
 
-/** Calendar-quarter aggregation cannot establish IRS installment requirements.
- * Retained as a guarded legacy entrypoint; use the annual federal snapshot and
- * explicitly reviewed regular-method facts instead of quarter-profit ×4.
+export interface QuarterlyYearEstimate {
+  taxYear: number;
+  yearTotal: number;
+  quarters: Array<{ quarter: 1 | 2 | 3 | 4; expenses: number; income: number }>;
+  dateNeeded: DateNeededSummary;
+}
+
+/** Recorded quarter totals from dated rows. Blank and invalid dates are excluded and reported.
+ * An empty transaction list still needs the full-year review. These figures are not an IRS installment.
  */
 export function aggregateQuarterlyEstimatesForYear(
-  _transactions: QuarterlyTransactionLike[], _taxYear: number, _userTimezone: string,
+  transactions: QuarterlyTransactionLike[], taxYear: number, userTimezone: string,
   _options: { filingStatus: string; w2Income?: number; otherIncome?: number; healthInsurancePremiums?: number; retirementContributions?: number; manualGrossReceipts?: number }
-): never {
-  throw new QuarterlyReviewRequiredError(QUARTERLY_REVIEW_MESSAGE);
+): QuarterlyYearEstimate {
+  const dated = transactions.filter(tx => exportDate(tx.date ?? tx.datetime));
+  const dateNeeded = summarizeDateNeeded(transactions.filter(tx => !exportDate(tx.date ?? tx.datetime)));
+  if (dated.length === 0 && dateNeeded.count === 0) throw new QuarterlyReviewRequiredError(QUARTERLY_REVIEW_MESSAGE);
+  const quarters = ([1, 2, 3, 4] as const).map(quarter => ({
+    quarter,
+    expenses: sumExpensesForQuarter(dated, taxYear, quarter, userTimezone).confirmed_deductible_expenses,
+    income: sumIncomeForQuarter(dated, taxYear, quarter, userTimezone).grossIncome,
+  }));
+  const cents = quarters.reduce((sum, quarter) => sum + Math.round(quarter.expenses * 100), 0);
+  return { taxYear, yearTotal: cents / 100, quarters, dateNeeded };
 }

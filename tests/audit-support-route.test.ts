@@ -84,9 +84,12 @@ describe('GET /api/reports/audit-support', () => {
     expect(text).not.toMatch(/PROVIDER-ID|SECRET_TOKEN|UNCONFIRMED-MARKER|audit defense|audit protection/i);
   });
   it('returns a typed 422 when records need review and a safe 503 when a source read fails', async () => {
-    mock.rows.mockResolvedValueOnce([lodging, { ...lodging, trans_id: 'undated', id: 'doc-3', exportReference: 'transaction-ghi', date: undefined, is_deductible: false }]);
+    mock.rows.mockResolvedValueOnce([lodging, { ...lodging, trans_id: 'undated', id: 'doc-3', exportReference: 'transaction-ghi', date: undefined, is_deductible: false, merchant_name: 'Needs more information', amount: 999.99 }]);
     const review = await GET(request('?year=2026'));
-    expect(review.status).toBe(422); expect(await review.json()).toMatchObject({ code: 'EXPORT_REVIEW_REQUIRED' });
+    expect(review.status).toBe(200);
+    const body = await review.json();
+    expect(body.summary.recordedAmount).toBe(180);
+    expect(body.summary.dateNeeded).toMatchObject({ count: 1, total: 999.99, label: 'Date needed: 1 row, $999.99' });
     mock.rows.mockRejectedValueOnce(new Error('secret provider credential'));
     const failed = await GET(request('?year=2026&format=csv'));
     expect(failed.status).toBe(503); const failedBody = await failed.text();

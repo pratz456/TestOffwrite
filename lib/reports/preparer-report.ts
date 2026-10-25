@@ -1,10 +1,12 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
-import { exportDate, transactionAmount, selectExportYear, recordedDeductibility, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
+import { dateNeededMerchantCell, exportDate, partitionExportYear, recordedDeductibility, summarizeDateNeeded, transactionAmount, ExportReviewRequiredError, type ExportRecord } from './transaction-export';
 
 export function preparerMonthlySummary(records: ExportRecord[], year: number) {
   // Superseded duplicates of an earlier bank record are not part of the handoff totals.
-  const selected = selectExportYear(records.filter(record => !isSupersededRecord(record)), year);
+  const split = partitionExportYear(records.filter(record => !isSupersededRecord(record)), year);
+  const selected = split.dated;
+  const dateNeeded = summarizeDateNeeded(split.dateNeeded);
   if (selected.some(record => transactionAmount(record) === null)) throw new ExportReviewRequiredError('Some saved amounts are invalid. Correct them or download all records for review.');
   const seen = new Set<string>();
   for (const record of selected) {
@@ -27,7 +29,7 @@ export function preparerMonthlySummary(records: ExportRecord[], year: number) {
   }
   if (!groups.size) groups.set('Currency not recorded', Array.from({ length: 12 }, () => ({ outflow: 0, inflow: 0, markedOutflow: 0, count: 0 })));
   return { year, count: selected.length, pending: selected.filter(tx => tx.pending === true).length,
-    unreviewed: selected.filter(tx => recordedDeductibility(tx) === null).length, groups };
+    unreviewed: selected.filter(tx => recordedDeductibility(tx) === null).length, groups, dateNeeded };
 }
 
 export async function generatePreparerReport(records: ExportRecord[], year: number): Promise<Uint8Array> {
@@ -68,7 +70,15 @@ export async function generatePreparerReport(records: ExportRecord[], year: numb
     text('Total', 148, 11, true);
     [totals.outflow, totals.inflow, totals.markedOutflow].forEach((value, index) => text((value / 100).toFixed(2), 148, 10, true, columns[index + 1]));
     text(String(totals.count), 148, 10, true, columns[4]);
+    text(summary.dateNeeded.label, 128, 10, true);
     text('Keep original statements and receipts. Review missing currency before combining totals.', 102, 9);
+  }
+  if (summary.dateNeeded.count) {
+    const page = pdf.addPage([612, 792]);
+    const text = (value: string, y: number, size = 10, strong = false, x = 42) => page.drawText(textSafe(value), { x, y, size, font: strong ? bold : font, color: rgb(.12, .16, .20) });
+    text('Date needed', 747, 17, true);
+    text(`${summary.dateNeeded.label}. These amounts are not included in the year total.`, 720, 11, true);
+    summary.dateNeeded.rows.forEach((row, index) => text(`${dateNeededMerchantCell(row)}  ${row.amount === null ? '' : row.amount.toFixed(2)}`, 690 - index * 16, 10));
   }
   pdf.getPages().forEach((page, index, pages) => page.drawText(`Preparer handoff | Page ${index + 1} of ${pages.length}`, { x: 42, y: 37, size: 9, font }));
   return pdf.save();

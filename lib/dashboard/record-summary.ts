@@ -1,3 +1,4 @@
+import { exportDate } from '@/lib/reports/transaction-export';
 import { consolidateCategory } from '@/lib/utils';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
@@ -40,6 +41,7 @@ export function summarizeDashboardRecords(allRecords: readonly DashboardRecord[]
       categoryIssue = 'Review recorded amounts before showing category totals.';
       break;
     }
+    if (!exportDate(record.date)) continue;
     if (record.iso_currency_code !== 'USD' || record.unofficial_currency_code) {
       categoryIssue = 'Category totals need records with a confirmed USD currency. Review missing or other currencies.';
       break;

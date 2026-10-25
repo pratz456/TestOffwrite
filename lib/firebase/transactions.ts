@@ -1,4 +1,5 @@
 import { recordedTransactionType, reviewHydrationFields, type AiReviewSuggestion, type TransactionKind } from '@/lib/transactions/ai-review-contract';
+import { compareTransactionDates } from '@/lib/transactions/date-order';
 import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import type { AiExplanation } from '@/lib/transactions/review-proposals';
 import {
@@ -343,7 +344,7 @@ export async function getTransactions(userId: string): Promise<{ data: Transacti
     });
 
     // Sort transactions by date in descending order
-    transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    transactions.sort((a, b) => compareTransactionDates(a.date, b.date, 'desc'));
 
     console.log('✅ [Firebase] Successfully processed', transactions.length, 'transactions');
     return { data: transactions, error: null };

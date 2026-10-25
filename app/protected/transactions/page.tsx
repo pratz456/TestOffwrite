@@ -1,6 +1,7 @@
 "use client";
 
 import { formatTransactionDate, transactionCalendarDate } from '@/lib/transactions/calendar-date';
+import { compareTransactionDates } from '@/lib/transactions/date-order';
 import React, { useEffect, useState, useMemo } from 'react';
 import { Search, Filter, Camera, Plus, X, FileText, ChevronDown, ChevronRight, ArrowRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -194,18 +195,8 @@ export default function TransactionsPage() {
 
     // Sort transactions
     filtered.sort((a, b) => {
-      let comparison = 0;
-      switch (sortBy) {
-        case 'date':
-          comparison = (transactionCalendarDate(a.date)?.getTime() ?? 0) - (transactionCalendarDate(b.date)?.getTime() ?? 0);
-          break;
-        case 'amount':
-          comparison = Math.abs(a.amount) - Math.abs(b.amount);
-          break;
-        case 'merchant':
-          comparison = a.merchant_name.localeCompare(b.merchant_name);
-          break;
-      }
+      if (sortBy === 'date') return compareTransactionDates(a.date, b.date, sortOrder);
+      const comparison = sortBy === 'amount' ? Math.abs(a.amount) - Math.abs(b.amount) : a.merchant_name.localeCompare(b.merchant_name);
       return sortOrder === 'asc' ? comparison : -comparison;
     });
 

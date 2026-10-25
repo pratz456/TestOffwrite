@@ -9,6 +9,7 @@ import type { ReceiptMatchCandidate } from '@/lib/ocr/receipt-processor';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { browserUploadTimeZone, receiptCommitForm, type DateOrderAssumed, type ReceiptDraft } from '@/lib/receipts/receipt-review';
+import { displayTransactionDate } from '@/lib/transactions/calendar-date';
 
 interface ReceiptUploadScreenProps {
   user: {
@@ -456,7 +457,7 @@ export const ReceiptUploadScreen: React.FC<ReceiptUploadScreenProps> = ({
                                 <option key={c.trans_id} value={c.trans_id}>
                                   {c.hasReceipt ? 'Has receipt • ' : ''}
                                   {c.merchant_name} • ${Math.abs(c.amount).toFixed(2)} •{' '}
-                                  {new Date(c.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} •{' '}
+                                  {displayTransactionDate(c.date, 'en-US', { month: 'short', day: 'numeric' })} •{' '}
                                   {Math.round(c.confidence * 100)}%
                                 </option>
                               ))}

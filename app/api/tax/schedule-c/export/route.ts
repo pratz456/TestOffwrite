@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { requireFeatureAccess } from '@/lib/subscriptions/feature-access';
-import { readTaxExportTransactions } from '@/lib/reports/tax-export-transactions';
+import { readTaxExportBundle } from '@/lib/reports/tax-export-transactions';
 import { ExportReviewRequiredError } from '@/lib/reports/transaction-export';
 import { getUserProfileServer } from '@/lib/firebase/profiles-server';
 import { adminDb } from '@/lib/firebase/admin';
@@ -33,20 +33,20 @@ export async function POST(request: NextRequest) {
   if (!limit.allowed) return rateLimitResponse(limit, { error: 'Too many report downloads. Please wait a few minutes and try again.' });
   try {
     const query = (name: string) => adminDb.collection(name).where('userId', '==', user.uid).where('taxYear', '==', year);
-    const [tx, profile, orgSnap, gross, forms, decisions] = await Promise.all([
-      readTaxExportTransactions(user.uid, year), getUserProfileServer(user.uid), query('tax_organizers').limit(1).get(),
+    const [bundle, profile, orgSnap, gross, forms, decisions] = await Promise.all([
+      readTaxExportBundle(user.uid, year), getUserProfileServer(user.uid), query('tax_organizers').limit(1).get(),
       query('gross_receipts').get(), query('income_1099').get(), readIncomeReconciliationDecisions(user.uid, year),
     ]);
     if (profile.error) return NextResponse.json({ error: 'Could not load all export records. Please retry.' }, { status: 503 });
-    const transactions = tx;
+    const transactions = bundle.transactions;
     const receipts = reconcileBusinessIncome(year, transactions.map(row => ({ ...row })), gross.docs.map(doc => ({ ...doc.data(), id: doc.id })), forms.docs.map(doc => ({ ...doc.data(), id: doc.id })), decisions);
     const aggregate = aggregateScheduleC(transactions, String(year), CATEGORY_MAP, { mode: 'confirmed-only' });
-    if (body.format === 'csv') return new NextResponse(generateScheduleCCSV(aggregate.lineItemsArray, year), {
+    if (body.format === 'csv') return new NextResponse(generateScheduleCCSV(aggregate.lineItemsArray, year, bundle.dateNeeded, aggregate.totalDeductible), {
       headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="Schedule_C_${year}_WriteOff.csv"`, 'Cache-Control': 'private, no-store' },
     });
     // Identifiers are decrypted only to derive the masked (last 4) display values printed below.
     const org = orgSnap.empty ? {} : await readOrganizerDocument(orgSnap.docs[0]);
-    const bytes = await generateScheduleCPlanningPDF({ taxYear: year, grossReceipts: receipts.grossReceipts, lineItems: aggregate.lineItemsArray,
+    const bytes = await generateScheduleCPlanningPDF({ taxYear: year, grossReceipts: receipts.grossReceipts, lineItems: aggregate.lineItemsArray, dateNeeded: bundle.dateNeeded,
       name: profile.data?.name, ssn: maskOrganizerIdentifier('ssn', org.taxpayerSSN),
       profession: Array.isArray(profile.data?.profession) ? profile.data.profession.join(', ') : profile.data?.profession,
       naicsCode: profile.data?.naics_code, ein: maskOrganizerIdentifier('ein', profile.data?.ein), includeAppendix: body.includeAppendix !== false });

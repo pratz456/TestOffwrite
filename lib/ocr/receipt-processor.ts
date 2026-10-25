@@ -422,6 +422,8 @@ function datesInOneYear(candidates: TieredDate[]): TieredDate[] {
 function monthToken(raw: string): string | null {
   const dayFirst = /^\d{1,2}[ \t]+([A-Za-z]+)\.?(?:[ \t]+\d{2,4})$/.exec(raw);
   if (dayFirst) return dayFirst[1];
+  const dayMonthHyphen = /^\d{1,2}-([A-Za-z]+)-(\d{4}|\d{2})$/.exec(raw);
+  if (dayMonthHyphen) return dayMonthHyphen[1];
   const monthFirst = /^([A-Za-z]+)\.?(?:[ \t]+\d{1,2},?[ \t]+\d{2,4})$/.exec(raw);
   if (monthFirst) return monthFirst[1];
   return null;
@@ -449,6 +451,7 @@ function earliestDateText(candidates: ReceiptDateCandidate[]): string {
 /**
  * Read a written date by its parts. Slash and hyphen dates are US month/day order.
  * A leading four digit year stays ISO, including a timestamp. A two digit year is 20YY.
+ * A day, an English month name, and a year separated by hyphens are read in that order.
  * The result is kept only when it is a real calendar day.
  */
 function dateFromWrittenParts(value: string): string | null {
@@ -481,6 +484,12 @@ function dateFromWrittenParts(value: string): string | null {
     const month = monthFromName(token);
     if (!month) return null;
     return calendarDay(writtenYear(dayFirst[4]), month, Number(dayFirst[1]));
+  }
+  const dayMonthHyphen = /^(\d{1,2})-([A-Za-z]+)-(\d{4}|\d{2})$/.exec(value);
+  if (dayMonthHyphen) {
+    const month = monthFromName(dayMonthHyphen[2].toLowerCase());
+    if (!month) return null;
+    return calendarDay(writtenYear(dayMonthHyphen[3]), month, Number(dayMonthHyphen[1]));
   }
   return null;
 }
@@ -750,6 +759,7 @@ export class ReceiptProcessor {
       /(?<!\d)\d{4}(?![\d:])-\d{1,2}-\d{1,2}(?!\d)/,
       /(?<!\d)\d{1,2}\/\d{1,2}\/\d{2,4}(?![\d:])/,
       /(?<!\d)\d{1,2}-\d{1,2}-\d{2,4}(?![\d:])/,
+      /(?<!\d)\d{1,2}-[A-Za-z]{3,9}-\d{2,4}(?![\d:])/,
       /(?<!\d)\d{1,2}[ \t]+[A-Za-z]{3,9}\.?[ \t]+\d{2,4}(?![\d:])/,
       /[A-Za-z]{3,9}\.?[ \t]+(?<!\d)\d{1,2},?[ \t]+\d{2,4}(?![\d:])/,
     ];
@@ -842,7 +852,7 @@ export class ReceiptProcessor {
     transactions: any[],
     limit = 5
   ): Promise<ReceiptMatchCandidate[]> {
-    const receiptDateIso = this.normalizeDateToISO(receiptData.date);
+    const receiptDateIso = receiptData.date ? this.normalizeDateToISO(receiptData.date) : null;
     const receiptMerchantNorm = this.normalizeMerchant(receiptData.merchant);
     const receiptAmountAbs = Math.abs(Number(receiptData.amount || 0));
 
@@ -868,7 +878,7 @@ export class ReceiptProcessor {
 
       const merchantScore = this.scoreMerchants(receiptMerchantNorm, txMerchantNorm);
 
-      const dateScore = txDateIso && receiptDateIso && txDateIso === receiptDateIso ? 1 : 0;
+      const dateScore = receiptDateIso && txDateIso && txDateIso === receiptDateIso ? 1 : 0;
 
       // If category is available, use it as a soft boost only.
       const categoryScore = this.scoreStringsOptional(receiptData.category, tx.category);
@@ -882,7 +892,7 @@ export class ReceiptProcessor {
       const matchReasons: string[] = [];
       if (amountScore >= 0.9) matchReasons.push('amount');
       if (merchantScore >= 0.8) matchReasons.push('merchant');
-      if (dateScore >= 0.9) matchReasons.push('date');
+      if (receiptDateIso && dateScore >= 0.9) matchReasons.push('date');
       if (categoryScore >= 0.9) matchReasons.push('category');
 
       candidates.push({

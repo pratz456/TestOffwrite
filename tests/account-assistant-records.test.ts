@@ -36,9 +36,12 @@ describe('bounded assistant transaction reader', () => {
   ])('rejects conflicting or missing ownership', async record => {
     h.results.set('userId', [record]); await expect(readAssistantTransactions('owner')).rejects.toThrow();
   });
-  it('does not silently drop invalid dated records', async () => {
-    h.results.set('userId', [doc('one', { userId: 'owner', date: '2026-02-30' })]);
-    await expect(readAssistantTransactions('owner')).rejects.toThrow('Invalid dated');
+  it('flags a blank or invalid date so the checklist still returns the other rows', async () => {
+    h.results.set('userId', [doc('blank', { userId: 'owner', date: '' }), doc('bad', { userId: 'owner', date: '2026-02-30' }), doc('dated', { userId: 'owner', date: '2026-05-01' })]);
+    const rows = await readAssistantTransactions('owner');
+    expect(rows.map(row => row.id)).toEqual(['dated', 'bad', 'blank']);
+    expect(rows.filter(row => row.dateNeeded)).toHaveLength(2);
+    expect(rows.every(row => row.date !== '1970-01-01')).toBe(true);
   });
   it('takes the newest 500 across both owner spellings without double-counting the same document', async () => {
     h.results.set('userId', Array.from({ length: 500 }, (_, i) => doc(`old-${i}`, { userId: 'owner', date: '2026-01-01' })));

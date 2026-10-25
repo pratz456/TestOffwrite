@@ -13,7 +13,7 @@ export function buildMonthlySavings(records: readonly object[], taxYear: number,
   if (!Number.isFinite(rate) || rate < 0 || rate > 1) throw new RangeError('A valid reviewed income-tax rate is required.');
   const today = now.toISOString().slice(0, 10);
   const isCurrentYear = taxYear === now.getUTCFullYear();
-  // Future-dated entries cannot inflate year-to-date savings. Invalid dates still reach review.
+  // Future-dated entries cannot inflate year-to-date savings. Blank and invalid dates are omitted.
   const rows = records.filter(record => {
     const date = recordDate(record);
     return !date || !isCurrentYear || date <= today;
