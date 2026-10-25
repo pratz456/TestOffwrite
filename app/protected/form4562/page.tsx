@@ -208,7 +208,14 @@ export default function Form4562Page() {
           bonusEligible: newAsset.bonusEligible,
         }),
       });
-      if (!response.ok) throw new Error('Failed to update asset');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        if ((response.status === 400 || response.status === 404) && typeof errorData.error === 'string') {
+          showError(errorData.error);
+          return;
+        }
+        throw new Error('Failed to update asset');
+      }
       showSuccess('Asset Updated', 'Asset has been updated successfully');
       closeAssetForm();
       void loadWorksheet();

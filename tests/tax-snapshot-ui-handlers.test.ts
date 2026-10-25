@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactElement } from 'react';
 
 // Runs the real UI request/state handlers. This is not a browser rendering test.
-const harness = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effects: [] as (() => void)[], request: vi.fn(), navigate: vi.fn() }));
+const harness = vi.hoisted(() => ({ slots: [] as any[], cursor: 0, effects: [] as (() => void)[], request: vi.fn(), navigate: vi.fn(), showError: vi.fn() }));
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: harness.request }));
 vi.mock('react', async importOriginal => {
   const actual = await importOriginal<typeof import('react')>();
@@ -35,7 +35,7 @@ vi.mock('react', async importOriginal => {
 });
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: harness.navigate, replace: harness.navigate }) }));
 vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 'snapshot-owner' }, loading: false }) }));
-vi.mock('@/components/ui/toast', () => ({ ToastContainer: 'ToastContainer', useToasts: () => ({ toasts: [], removeToast() {}, showSuccess() {}, showError() {} }) }));
+vi.mock('@/components/ui/toast', () => ({ ToastContainer: 'ToastContainer', useToasts: () => ({ toasts: [], removeToast() {}, showSuccess() {}, showError: harness.showError }) }));
 vi.mock('@/lib/hooks/use-subscription', () => ({ useSubscription: () => ({ hasAccess: true, canAccess: () => true, isLoading: false, status: null, error: null, refetch() {} }) }));
 import { TaxFilingHubScreen } from '../components/tax-filing-hub-screen';
 import { TaxPreviewScreen } from '../components/tax-preview-screen';
@@ -95,7 +95,7 @@ function requests(url: string) {
     totalExpenses: 5000, confirmedExpenses: 5000, depreciationDeduction: 0 } }));
 }
 beforeEach(() => {
-  harness.slots = []; harness.cursor = 0; harness.effects = []; harness.request.mockReset(); harness.navigate.mockReset();
+  harness.slots = []; harness.cursor = 0; harness.effects = []; harness.request.mockReset(); harness.navigate.mockReset(); harness.showError.mockReset();
   harness.request.mockImplementation(requests);
 });
 
@@ -432,7 +432,31 @@ describe('partial Section 179 hold stays plain status text', () => {
     await walk(changed).find(node => node.props?.onClick && text(node).includes('Save asset'))!.props.onClick();
     const update = harness.request.mock.calls.find(([, init]) => init?.method === 'PUT')!;
     expect(String(update[0])).toContain('/api/settings/assets');
-    expect(JSON.parse(update[1].body)).toMatchObject({ assetId: 'computer', description: 'Updated computer', cost: 9000 });
+    expect(JSON.parse(update[1].body)).toMatchObject({
+      assetId: 'computer', description: 'Updated computer', cost: 9000, businessUsePercent: 100,
+      category: 'computer', method: 'MACRS_5YR', section179Requested: true, bonusEligible: false,
+      datePlacedInService: '2026-03-15T00:00:00.000Z',
+    });
+    const save = walk(changed).find(node => node.props?.onClick && text(node).includes('Save asset'))!;
+    harness.request.mockImplementation((url: string, init?: { method?: string }) => {
+      if (init?.method === 'PUT') return Promise.resolve(response({ error: 'Asset not found' }, 404));
+      return Promise.resolve(response(
+        String(url).includes('assets') ? { data: [savedAsset] } : { error: differentMessage, code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold' },
+        String(url).includes('assets') ? 200 : 422,
+      ));
+    });
+    await save.props.onClick();
+    expect(harness.showError).toHaveBeenCalledWith('Asset not found');
+    harness.showError.mockClear();
+    harness.request.mockImplementation((url: string, init?: { method?: string }) => {
+      if (init?.method === 'PUT') return Promise.resolve(response({ error: 'Asset cost must be greater than 0' }, 400));
+      return Promise.resolve(response(
+        String(url).includes('assets') ? { data: [savedAsset] } : { error: differentMessage, code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold' },
+        String(url).includes('assets') ? 200 : 422,
+      ));
+    });
+    await save.props.onClick();
+    expect(harness.showError).toHaveBeenCalledWith('Asset cost must be greater than 0');
     harness.slots = [];
     page(Form8829Page as unknown as () => Element); await flush();
     const form8829 = page(Form8829Page as unknown as () => Element);

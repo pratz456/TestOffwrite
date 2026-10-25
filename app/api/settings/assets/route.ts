@@ -23,6 +23,12 @@ import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 const MAX_ASSETS_PER_REQUEST = 100;
 const optionalString = (value: unknown, max: number) => value === undefined || (typeof value === 'string' && value.length <= max);
 const optionalBoolean = (value: unknown) => value === undefined || typeof value === 'boolean';
+const withoutUndefined = (updates: Record<string, unknown>) => Object.fromEntries(Object.entries(updates).filter(([, value]) => value !== undefined));
+const isMissingAsset = (error: unknown) => {
+  if (!error || typeof error !== 'object') return false;
+  const code = (error as { code?: unknown }).code;
+  return code === 'NOT_FOUND' || code === 'not-found' || code === 5 || code === '5';
+};
 
 export async function POST(request: NextRequest) {
   try {
@@ -215,7 +221,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Asset category, method and election flags have the wrong type' }, { status: 400 });
     }
 
-    const { data, error } = await updateAsset(user.uid, assetId, {
+    const { data, error } = await updateAsset(user.uid, assetId, withoutUndefined({
       description: body.description,
       datePlacedInService: new Date(body.datePlacedInService as string | number),
       cost: body.cost,
@@ -224,12 +230,18 @@ export async function PUT(request: NextRequest) {
       method: typeof body.method === 'string' ? body.method as 'MACRS_5YR' | 'MACRS_7YR' | 'SL' : undefined,
       section179Requested: typeof body.section179Requested === 'boolean' ? body.section179Requested : undefined,
       bonusEligible: typeof body.bonusEligible === 'boolean' ? body.bonusEligible : undefined,
-    });
+    }));
+    if (isMissingAsset(error)) {
+      return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
+    }
     if (error || !data) {
       return NextResponse.json({ error: 'Failed to update asset' }, { status: 500 });
     }
     return NextResponse.json({ success: true, data });
-  } catch {
+  } catch (error) {
+    if (isMissingAsset(error)) {
+      return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
+    }
     return NextResponse.json({ error: 'Failed to update asset' }, { status: 500 });
   }
 }
