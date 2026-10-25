@@ -25,7 +25,7 @@ export function KpiGrid({ state, taxYear, confirmedDeductions, onRetry, onReview
     </section>;
   }
   if (state.status !== 'ready') {
-    const target = reviewTargetForCode(state.code);
+    const target = reviewTargetForCode(state.code, state.message);
     const netRefunds = confirmedDeductions?.totalDeductible != null && confirmedDeductions.totalDeductible < 0;
     return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-card shadow-sm" aria-label={`${taxYear} federal tax overview`}>
       <div className="bg-slate-900 px-5 py-4 text-white sm:px-6">

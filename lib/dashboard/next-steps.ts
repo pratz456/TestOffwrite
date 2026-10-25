@@ -11,7 +11,7 @@ export interface DashboardNextStep { id: string; title: string; detail: string; 
 export function dashboardNextSteps(records: Transaction[], taxState: DashboardTaxState): DashboardNextStep[] {
   const steps: DashboardNextStep[] = [];
   if (taxState.status === 'review') {
-    const target = reviewTargetForCode(taxState.code);
+    const target = reviewTargetForCode(taxState.code, taxState.message);
     steps.push({ id: 'tax-inputs', title: 'Complete your tax estimate',
       detail: taxState.code === 'INCOME_RECONCILIATION_REQUIRED' ? 'Match overlapping income records before calculating tax.' : 'Resolve the flagged inputs to continue.',
       action: target.label, screen: target.screen });

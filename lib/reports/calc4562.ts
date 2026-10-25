@@ -79,7 +79,7 @@ export interface Form4562Calculation {
 /** The current asset form lacks the facts needed to calculate elections and prior-year basis. */
 export class DepreciationReviewRequiredError extends Error {
   readonly code = 'DEPRECIATION_REVIEW_REQUIRED';
-  constructor(detail: string) { super(`Asset depreciation needs review: ${detail}`); }
+  constructor(detail: string, prefix = 'Asset depreciation needs review: ') { super(`${prefix}${detail}`); }
 }
 
 /**
@@ -218,7 +218,7 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
     }, 0));
     if (partialElection && (businessIncomeLimit - partialRemainingDepreciation) < electedTotal) {
       // The user-facing copy is a placeholder pending approval.
-      throw new DepreciationReviewRequiredError("We can't show your business profit, Form 4562 or tax estimate right now. We're still confirming how a tax rule applies to one of your assets: part of its cost is more than its Section 179 amount, and depreciation on that part may lower how much you can deduct this year. Your numbers will show again once we've confirmed the rule. There's nothing you need to do.");
+      throw new DepreciationReviewRequiredError("We can't show your business profit, Form 4562 or tax estimate right now. We're still confirming how a tax rule applies to one of your assets: part of its cost isn't covered by the Section 179 deduction this year, and depreciation on that part may lower how much you can deduct this year. Your numbers will show again once we've confirmed the rule. There's nothing you need to do.", 'Tax estimate on hold: ');
     }
     const allowedTotal = Math.min(electedTotal, businessIncomeLimit);
     let allowedRemaining = roundCents(allowedTotal);

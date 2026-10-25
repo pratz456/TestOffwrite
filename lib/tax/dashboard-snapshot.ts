@@ -22,7 +22,7 @@ export interface ReviewTarget {
  * Where a 422 review code from /api/tax/compute-1040 is resolved. Every screen that
  * shows the shared snapshot links here so the fix lands on the same input screen.
  */
-export function reviewTargetForCode(code?: string): ReviewTarget {
+export function reviewTargetForCode(code?: string, message?: string): ReviewTarget {
   switch (code) {
     case 'FILING_STATUS_REVIEW_REQUIRED': return { screen: 'settings', label: 'Review profile' };
     case 'INCOME_RECONCILIATION_REQUIRED': return { screen: 'income-tracking', label: 'Review income sources' };
@@ -35,7 +35,10 @@ export function reviewTargetForCode(code?: string): ReviewTarget {
     case 'TAX_CALCULATION_SCOPE_REVIEW_REQUIRED': return { screen: 'tax-preview', label: 'Review calculation limits' };
     case 'OBBBA_DEDUCTION_REVIEW_REQUIRED': return { screen: 'tax-organizer', label: 'Review Working Families Tax Cuts deductions' };
     case 'HOME_OFFICE_REVIEW_REQUIRED': return { screen: 'settings', label: 'Review home office settings' };
-    case 'DEPRECIATION_REVIEW_REQUIRED': return { screen: 'settings', label: 'Review asset records' };
+    case 'DEPRECIATION_REVIEW_REQUIRED':
+      return message?.startsWith('Tax estimate on hold:')
+        ? { screen: 'settings', label: 'Tax estimate on hold' }
+        : { screen: 'settings', label: 'Review asset records' };
     case 'EXPORT_REVIEW_REQUIRED': return { screen: 'transactions', label: 'Review transactions' };
     default: return { screen: 'tax-preview', label: 'Review tax inputs' };
   }

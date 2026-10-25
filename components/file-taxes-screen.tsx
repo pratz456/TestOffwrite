@@ -112,7 +112,7 @@ export function FileTaxesScreen() {
     }
 
     if (taxState.status !== "ready") {
-      const target = reviewTargetForCode(taxState.code);
+      const target = reviewTargetForCode(taxState.code, taxState.message);
       return (
         <div
           role="alert"

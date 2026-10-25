@@ -10,6 +10,7 @@ import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 import type { BusinessTaxNotice, StateTaxComponents, StateTaxLine } from "@/lib/tax-rules/state";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { reviewTargetForCode } from "@/lib/tax/dashboard-snapshot";
 
 interface Props {
   user: { id: string; email?: string };
@@ -165,7 +166,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
             {onNavigate && reviewCode === 'HOME_OFFICE_REVIEW_REQUIRED' &&
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate('settings')}>Review home office settings</Button>}
             {reviewCode === 'DEPRECIATION_REVIEW_REQUIRED' &&
-              <Button asChild className="mt-3 min-h-11" variant="outline"><Link href="/protected/tax-forms-setup?tab=assets">Review asset records</Link></Button>}
+              <Button asChild className="mt-3 min-h-11" variant="outline"><Link href="/protected/tax-forms-setup?tab=assets">{reviewTargetForCode(reviewCode, error ?? undefined).label}</Link></Button>}
             {onNavigate && reviewCode === 'INCOME_RECONCILIATION_REQUIRED' &&
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate(`income-tracking?tab=reconcile&year=${year}`)}>Reconcile income sources</Button>}
             <Button className="mt-2 min-h-11" variant="ghost" onClick={load}>Retry estimate</Button>

@@ -179,7 +179,7 @@ describe('worksheet and estimate routes share the 422 review contract', () => {
     expect(partial.status).toBe(422);
     const partialBody = await partial.json();
     expect(partialBody).toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED' });
-    expect(partialBody.error).toBe("Asset depreciation needs review: We can't show your business profit, Form 4562 or tax estimate right now. We're still confirming how a tax rule applies to one of your assets: part of its cost is more than its Section 179 amount, and depreciation on that part may lower how much you can deduct this year. Your numbers will show again once we've confirmed the rule. There's nothing you need to do.");
+    expect(partialBody.error).toBe("Tax estimate on hold: We can't show your business profit, Form 4562 or tax estimate right now. We're still confirming how a tax rule applies to one of your assets: part of its cost isn't covered by the Section 179 deduction this year, and depreciation on that part may lower how much you can deduct this year. Your numbers will show again once we've confirmed the rule. There's nothing you need to do.");
     expect(partialBody).not.toHaveProperty('calculation');
     const estimate = await compute1040(json('tax/compute-1040?year=2026'));
     expect(estimate.status).toBe(422);
