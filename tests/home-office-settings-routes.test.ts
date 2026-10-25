@@ -382,3 +382,74 @@ describe('held equipment sends profit consumers down the depreciation review pat
     expect(formFile.headers.get('content-type')).toContain('application/pdf');
   });
 });
+
+describe('equipment release answer', () => {
+  const placed = new Date('2026-05-01T00:00:00.000Z');
+  const message = 'PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.';
+  const clearAssets = () => { for (const key of [...store.docs.keys()]) if (key.includes('/assets/')) store.docs.delete(key); };
+  const seed = (fields: Record<string, unknown>) => {
+    clearAssets();
+    seedAsset('camera', { description: 'Camera', datePlacedInService: { toDate: () => placed }, cost: 10000, businessUsePercent: 50, category: 'equipment', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false, listedEquipmentAnswer: 'yes', ...fields });
+  };
+  const patch = (body: Record<string, unknown>) => patchAsset(new NextRequest('http://localhost/api/settings/assets', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 6, 15, 12)));
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('rejects a bad release answer on create and on update', async () => {
+    const created = await postAssets(json('settings/assets', { assets: [{ description: 'Camera', datePlacedInService: '2026-05-01', cost: 4000, businessUsePercent: 50, category: 'equipment', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false, listedEquipmentAnswer: 'yes', listedEquipmentReleaseAnswer: 'sometimes' }] }));
+    expect(created.status).toBe(400);
+    seed({});
+    const updated = await patch({ assetId: 'camera', listedEquipmentReleaseAnswer: 'sometimes' });
+    expect(updated.status).toBe(400);
+  });
+
+  it('keeps every profit consumer in review when the release answer is no', async () => {
+    seed({ listedEquipmentReleaseAnswer: 'no' });
+    const expectReview = async (response: Response) => {
+      expect(response.status).toBe(422);
+      const body = await response.json();
+      expect(body.code).toBe('DEPRECIATION_REVIEW_REQUIRED');
+      expect(body.error).toContain(message);
+      expect(body).not.toHaveProperty('data');
+      expect(body).not.toHaveProperty('form1040');
+      expect(body).not.toHaveProperty('calculation');
+      expect(body).not.toHaveProperty('netProfit');
+      expect(body).not.toHaveProperty('totalEstimatedTax');
+      expect(body).not.toHaveProperty('scheduleC');
+      expect(body).not.toHaveProperty('deduction');
+      expect(body).not.toHaveProperty('depreciation');
+      expect(body).not.toHaveProperty('totalTax');
+    };
+    await expectReview(await calculateScheduleC(json('tax/schedule-c/calculate?year=2026')));
+    await expectReview(await scheduleSE(json('tax/schedule-se/auto?year=2026')));
+    await expectReview(await compute1040(json('tax/compute-1040?year=2026')));
+    await expectReview(await quarterlyReminders(json('tax/quarterly-reminders?year=2026&asOf=2026-07-15')));
+    await expectReview(await homeOfficeWorksheet(json('tax/home-office?year=2026')));
+    const sePdf = await exportForms(json('reports/export', { type: 'scheduleSE', year: 2026 }));
+    expect(sePdf.status).toBe(422);
+    expect(sePdf.headers.get('content-type')).not.toContain('pdf');
+    const formPdf = await exportForms(json('reports/export', { type: 'form4562', year: 2026 }));
+    expect(formPdf.status).toBe(422);
+    expect(formPdf.headers.get('content-type')).not.toContain('pdf');
+  });
+
+  it('returns the helper depreciation from Schedule C calculate when the release answer is yes', async () => {
+    seed({ listedEquipmentReleaseAnswer: 'yes' });
+    const response = await calculateScheduleC(json('tax/schedule-c/calculate?year=2026'));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const reference = calc4562([asReleaseReference()], 100000, 2026);
+    expect(body.data.depreciationDeduction).toBe(reference.totalDepreciation);
+    expect(body.data.depreciationDeduction).toBeGreaterThan(0);
+  });
+});
+
+function asReleaseReference(): Asset {
+  return {
+    id: 'plain', description: 'plain', datePlacedInService: new Date('2026-05-01T00:00:00.000Z'), cost: 10000, businessUsePercent: 50,
+    category: 'computer', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false,
+  };
+}

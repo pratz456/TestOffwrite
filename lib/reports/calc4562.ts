@@ -18,7 +18,14 @@ export const LISTED_EQUIPMENT_BUSINESS_USE_CEILING = 50;
  * PLACEHOLDER wording. Replace with reviewed copy before this text is treated as final.
  */
 export const LISTED_EQUIPMENT_QUESTION_PLACEHOLDER =
-  'PLACEHOLDER: Is this photo, video, audio, communication or recreation equipment?';
+  'PLACEHOLDER: Is this photo, video, audio, communication or recreation equipment? Cell phones and computers do not count.';
+
+/**
+ * Second equipment question. Shown when the first answer is yes or blank and business use is 50% or less.
+ * PLACEHOLDER wording. Yes releases the listed-property hold under Reg. §1.280F-6(b)(3), including when the first answer is still blank.
+ */
+export const LISTED_EQUIPMENT_RELEASE_QUESTION_PLACEHOLDER =
+  'PLACEHOLDER: Is this used in your main line of work, or only at your business location?';
 
 /**
  * Customer-facing note when that answer is yes and business use is 50% or less.
@@ -59,10 +66,17 @@ export interface Asset {
   bonusEligible: boolean;
   /**
    * Equipment only. Yes means photo, video, audio, communication, or recreation equipment.
-   * No means it is not. Blank (omit or null) means the question has not been answered.
+   * Cell phones and computers do not count. No means it is not that equipment.
+   * Blank (omit or null) means the question has not been answered.
    * Ignored for every category other than equipment.
    */
   listedEquipmentAnswer?: ListedEquipmentAnswer | null;
+  /**
+   * Equipment only, and only asked when the first answer is yes or blank and business use is 50% or less.
+   * Yes means the asset is used in the main line of work or only at the business location, which releases the hold
+   * under Reg. §1.280F-6(b)(3) even if the first answer is blank. No, or blank, keeps the hold.
+   */
+  listedEquipmentReleaseAnswer?: ListedEquipmentAnswer | null;
 }
 
 /**
@@ -183,15 +197,18 @@ export function normalizeListedEquipmentAnswer(value: unknown): ListedEquipmentA
 
 /**
  * Equipment at 50% or less business use:
- * yes → review (no Section 179, bonus, or accelerated MACRS; ADS is not calculated);
- * blank → ask the question and withhold those figures;
- * no, or business use over 50%, or any non-equipment category → no hold.
+ * a yes release answer returns no hold, even when the first answer is blank (Reg. §1.280F-6(b)(3));
+ * first answer no → no hold;
+ * first answer yes, with the release answer no or blank → review (no Section 179, bonus, or accelerated MACRS; ADS is not calculated);
+ * first answer blank, with the release answer no or blank → ask the first question and withhold those figures;
+ * business use over 50%, or any non-equipment category → no hold.
  */
-export function listedEquipmentHoldFor(asset: Pick<Asset, 'category' | 'businessUsePercent' | 'listedEquipmentAnswer'>): ListedEquipmentHold | null {
+export function listedEquipmentHoldFor(asset: Pick<Asset, 'category' | 'businessUsePercent' | 'listedEquipmentAnswer' | 'listedEquipmentReleaseAnswer'>): ListedEquipmentHold | null {
   if (!isEquipmentAssetCategory(asset.category)) return null;
   if (!listedEquipmentBusinessUseAtOrUnderCeiling(asset.businessUsePercent)) return null;
-  if (asset.listedEquipmentAnswer === 'yes') return 'review';
+  if (asset.listedEquipmentReleaseAnswer === 'yes') return null;
   if (asset.listedEquipmentAnswer === 'no') return null;
+  if (asset.listedEquipmentAnswer === 'yes') return 'review';
   return 'question_required';
 }
 
@@ -219,9 +236,12 @@ const withheldAssetCalculation = (asset: Asset, hold: ListedEquipmentHold): Asse
  * Bonus depreciation (acquisition-date and binding-contract tests, class elections),
  * vehicles (§280F caps, substantiation), prior-year basis, straight-line
  * and mid-quarter cases require facts the existing asset form does not collect.
- * Equipment answered yes as photo, video, audio, communication, or recreation equipment,
- * and equipment left blank, at 50% or less business use is withheld for review under
- * IRC 280F(b) and 280F(d)(4). This helper does not calculate ADS straight line for that property.
+ * Equipment answered yes as photo, video, audio, communication, or recreation equipment
+ * (cell phones and computers do not count), and equipment left blank, at 50% or less
+ * business use is withheld for review under IRC 280F(b) and 280F(d)(4) unless the
+ * taxpayer answers yes that it is used in the main line of work or only at a business
+ * location (Reg. §1.280F-6(b)(3)). That yes releases the hold even when the first
+ * answer is blank. This helper does not calculate ADS straight line for held property.
  * https://www.irs.gov/publications/p946 · https://www.irs.gov/instructions/i4562
  */
 export function calc4562(assets: Asset[], businessIncome: number, taxYear: number, elections?: DepreciationElections | null): Form4562Calculation {

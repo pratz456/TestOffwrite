@@ -88,12 +88,17 @@ export async function POST(request: NextRequest) {
       if ('listedEquipmentAnswer' in asset && normalizeListedEquipmentAnswer(asset.listedEquipmentAnswer) === 'invalid') {
         return NextResponse.json({ error: 'The equipment answer must be yes, no, or blank' }, { status: 400 });
       }
+      if ('listedEquipmentReleaseAnswer' in asset && normalizeListedEquipmentAnswer(asset.listedEquipmentReleaseAnswer) === 'invalid') {
+        return NextResponse.json({ error: 'The equipment release answer must be yes, no, or blank' }, { status: 400 });
+      }
     }
 
     // Save each asset
     const savedAssets = [];
     for (const asset of assets) {
       const listedEquipmentAnswer = normalizeListedEquipmentAnswer(asset.listedEquipmentAnswer);
+      const listedEquipmentReleaseAnswer = normalizeListedEquipmentAnswer(asset.listedEquipmentReleaseAnswer);
+      const equipment = isEquipmentAssetCategory(asset.category);
       const record = {
         description: asset.description,
         datePlacedInService: new Date(asset.datePlacedInService),
@@ -103,9 +108,8 @@ export async function POST(request: NextRequest) {
         method: asset.method,
         section179Requested: asset.section179Requested,
         bonusEligible: asset.bonusEligible,
-        ...(isEquipmentAssetCategory(asset.category) && (listedEquipmentAnswer === 'yes' || listedEquipmentAnswer === 'no')
-          ? { listedEquipmentAnswer }
-          : {}),
+        ...(equipment && (listedEquipmentAnswer === 'yes' || listedEquipmentAnswer === 'no') ? { listedEquipmentAnswer } : {}),
+        ...(equipment && (listedEquipmentReleaseAnswer === 'yes' || listedEquipmentReleaseAnswer === 'no') ? { listedEquipmentReleaseAnswer } : {}),
       };
       const { data, error } = await saveAsset(user.uid, record);
 
@@ -146,12 +150,17 @@ export async function PATCH(request: NextRequest) {
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const body = await readJsonObject(request);
     if (!body) return invalidJsonResponse();
-    const { assetId, listedEquipmentAnswer } = body;
+    const { assetId } = body;
     if (typeof assetId !== 'string' || !assetId || assetId.length > 256 || /[\/\\\x00-\x1f\x7f]/.test(assetId)) {
       return NextResponse.json({ error: 'Asset ID is required' }, { status: 400 });
     }
-    const answer = normalizeListedEquipmentAnswer(listedEquipmentAnswer);
+    const touchesAnswer = Object.prototype.hasOwnProperty.call(body, 'listedEquipmentAnswer');
+    const touchesRelease = Object.prototype.hasOwnProperty.call(body, 'listedEquipmentReleaseAnswer');
+    if (!touchesAnswer && !touchesRelease) return NextResponse.json({ error: 'An equipment answer is required' }, { status: 400 });
+    const answer = touchesAnswer ? normalizeListedEquipmentAnswer(body.listedEquipmentAnswer) : null;
+    const release = touchesRelease ? normalizeListedEquipmentAnswer(body.listedEquipmentReleaseAnswer) : null;
     if (answer === 'invalid') return NextResponse.json({ error: 'The equipment answer must be yes, no, or blank' }, { status: 400 });
+    if (release === 'invalid') return NextResponse.json({ error: 'The equipment release answer must be yes, no, or blank' }, { status: 400 });
     const existing = await getAssetsSettings(user.uid);
     if (existing.error || !existing.data) return NextResponse.json({ error: 'Failed to load assets' }, { status: 500 });
     const current = existing.data.find(asset => asset.id === assetId);
@@ -159,7 +168,11 @@ export async function PATCH(request: NextRequest) {
     if (!isEquipmentAssetCategory(current.category)) {
       return NextResponse.json({ error: 'The equipment question applies only to equipment' }, { status: 400 });
     }
-    const { data, error } = await updateAsset(user.uid, assetId, { listedEquipmentAnswer: answer });
+    const stored = (value: 'yes' | 'no' | null) => value === 'yes' || value === 'no' ? value : null;
+    const { data, error } = await updateAsset(user.uid, assetId, {
+      ...(touchesAnswer ? { listedEquipmentAnswer: stored(answer) } : {}),
+      ...(touchesRelease ? { listedEquipmentReleaseAnswer: stored(release) } : {}),
+    });
     if (error || !data) return NextResponse.json({ error: 'Failed to save the equipment answer' }, { status: 500 });
     return NextResponse.json({ success: true, data });
   } catch {

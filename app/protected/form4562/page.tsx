@@ -15,7 +15,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { useToasts } from '@/components/ui/toast';
 import { ToastContainer } from '@/components/ui/toast';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
-import { type Asset, type AssetCalculation, type Form4562Calculation, type DepreciationElections, type ListedEquipmentAnswer, isEquipmentAssetCategory, LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER, LISTED_EQUIPMENT_QUESTION_PLACEHOLDER, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER } from '@/lib/reports/calc4562';
+import { type Asset, type AssetCalculation, type Form4562Calculation, type DepreciationElections, type ListedEquipmentAnswer, isEquipmentAssetCategory, listedEquipmentBusinessUseAtOrUnderCeiling, LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER, LISTED_EQUIPMENT_QUESTION_PLACEHOLDER, LISTED_EQUIPMENT_RELEASE_QUESTION_PLACEHOLDER, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER } from '@/lib/reports/calc4562';
 
 interface Form4562Worksheet {
   taxYear: number;
@@ -34,6 +34,9 @@ type WorksheetState =
   | { status: 'error'; message: string };
 
 const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const releaseQuestionVisible = (asset: Partial<Asset>) => isEquipmentAssetCategory(asset.category)
+  && asset.listedEquipmentAnswer !== 'no'
+  && listedEquipmentBusinessUseAtOrUnderCeiling(Number(asset.businessUsePercent));
 const TREATMENT_LABELS: Record<AssetCalculation['treatment'], string> = {
   de_minimis_expense: 'De minimis safe harbor - expensed, not depreciated',
   section_179: 'Section 179 election + MACRS on remaining basis',
@@ -139,7 +142,10 @@ export default function Form4562Page() {
     }
     try {
       const draft = { ...newAsset, datePlacedInService: new Date(newAsset.datePlacedInService) };
-      if (!isEquipmentAssetCategory(draft.category)) delete draft.listedEquipmentAnswer;
+      if (!isEquipmentAssetCategory(draft.category)) {
+        delete draft.listedEquipmentAnswer;
+        delete draft.listedEquipmentReleaseAnswer;
+      } else if (!releaseQuestionVisible(draft)) delete draft.listedEquipmentReleaseAnswer;
       const response = await makeAuthenticatedRequest('/api/settings/assets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -166,6 +172,20 @@ export default function Form4562Page() {
       void loadWorksheet();
     } catch {
       showError('Save Failed', 'The equipment answer could not be saved. Please try again.');
+    }
+  };
+
+  const handleListedEquipmentRelease = async (assetId: string, listedEquipmentReleaseAnswer: ListedEquipmentAnswer) => {
+    try {
+      const response = await makeAuthenticatedRequest('/api/settings/assets', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assetId, listedEquipmentReleaseAnswer }),
+      });
+      if (!response.ok) throw new Error('Failed to save the equipment release answer');
+      void loadWorksheet();
+    } catch {
+      showError('Save Failed', 'The equipment release answer could not be saved. Please try again.');
     }
   };
 
@@ -250,7 +270,22 @@ export default function Form4562Page() {
               Yes
             </label>
             <label className="flex items-center gap-2 text-sm" htmlFor="listed-equipment-no">
-              <input id="listed-equipment-no" type="radio" name="listedEquipmentAnswer" checked={newAsset.listedEquipmentAnswer === 'no'} onChange={() => setNewAsset({ ...newAsset, listedEquipmentAnswer: 'no' })} />
+              <input id="listed-equipment-no" type="radio" name="listedEquipmentAnswer" checked={newAsset.listedEquipmentAnswer === 'no'} onChange={() => setNewAsset({ ...newAsset, listedEquipmentAnswer: 'no', listedEquipmentReleaseAnswer: null })} />
+              No
+            </label>
+          </div>
+        </fieldset>
+      )}
+      {releaseQuestionVisible(newAsset) && (
+        <fieldset className="mb-4">
+          <legend className="text-sm font-medium mb-2">{LISTED_EQUIPMENT_RELEASE_QUESTION_PLACEHOLDER}</legend>
+          <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-sm" htmlFor="listed-equipment-release-yes">
+              <input id="listed-equipment-release-yes" type="radio" name="listedEquipmentReleaseAnswer" checked={newAsset.listedEquipmentReleaseAnswer === 'yes'} onChange={() => setNewAsset({ ...newAsset, listedEquipmentReleaseAnswer: 'yes' })} />
+              Yes
+            </label>
+            <label className="flex items-center gap-2 text-sm" htmlFor="listed-equipment-release-no">
+              <input id="listed-equipment-release-no" type="radio" name="listedEquipmentReleaseAnswer" checked={newAsset.listedEquipmentReleaseAnswer === 'no'} onChange={() => setNewAsset({ ...newAsset, listedEquipmentReleaseAnswer: 'no' })} />
               No
             </label>
           </div>
@@ -295,6 +330,21 @@ export default function Form4562Page() {
                     </label>
                     <label className="flex items-center gap-2 text-sm" htmlFor={`listed-equipment-no-${asset.id}`}>
                       <input id={`listed-equipment-no-${asset.id}`} type="radio" name={`listedEquipmentAnswer-${asset.id}`} checked={asset.listedEquipmentAnswer === 'no'} onChange={() => void handleListedEquipmentAnswer(asset.id, 'no')} />
+                      No
+                    </label>
+                  </div>
+                </fieldset>
+              )}
+              {releaseQuestionVisible(asset) && (
+                <fieldset className="mt-2">
+                  <legend className="text-sm text-gray-700">{LISTED_EQUIPMENT_RELEASE_QUESTION_PLACEHOLDER}</legend>
+                  <div className="flex flex-wrap gap-4 mt-1">
+                    <label className="flex items-center gap-2 text-sm" htmlFor={`listed-equipment-release-yes-${asset.id}`}>
+                      <input id={`listed-equipment-release-yes-${asset.id}`} type="radio" name={`listedEquipmentReleaseAnswer-${asset.id}`} checked={asset.listedEquipmentReleaseAnswer === 'yes'} onChange={() => void handleListedEquipmentRelease(asset.id, 'yes')} />
+                      Yes
+                    </label>
+                    <label className="flex items-center gap-2 text-sm" htmlFor={`listed-equipment-release-no-${asset.id}`}>
+                      <input id={`listed-equipment-release-no-${asset.id}`} type="radio" name={`listedEquipmentReleaseAnswer-${asset.id}`} checked={asset.listedEquipmentReleaseAnswer === 'no'} onChange={() => void handleListedEquipmentRelease(asset.id, 'no')} />
                       No
                     </label>
                   </div>

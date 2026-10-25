@@ -107,6 +107,7 @@ export async function getAssetsSettings(userId: string): Promise<{ data: Asset[]
           section179Requested: data.section179Requested || false,
           bonusEligible: data.bonusEligible || false,
           listedEquipmentAnswer: storedListedEquipmentAnswer(data.listedEquipmentAnswer),
+          listedEquipmentReleaseAnswer: storedListedEquipmentAnswer(data.listedEquipmentReleaseAnswer),
         });
       }
     });
@@ -316,6 +317,7 @@ export async function updateAsset(
         section179Requested: data.section179Requested || false,
         bonusEligible: data.bonusEligible || false,
         listedEquipmentAnswer: storedListedEquipmentAnswer(data.listedEquipmentAnswer),
+        listedEquipmentReleaseAnswer: storedListedEquipmentAnswer(data.listedEquipmentReleaseAnswer),
       };
       
       console.log('✅ [Settings Server] Successfully updated asset');
