@@ -126,6 +126,11 @@ export function FileTaxesScreen() {
               : `${selectedYear} Schedule C summary ${taxState.status === "review" ? "needs review" : "unavailable"}`}
           </h4>
           <p className="mt-1">{taxState.message}</p>
+          {partialHold && (
+            <a href="/protected/tax-forms-setup?tab=assets" className="mt-2 inline-flex min-h-11 items-center underline underline-offset-4 font-medium">
+              View your assets
+            </a>
+          )}
           {!partialHold && (
             <div className="mt-2 flex flex-wrap gap-x-4">
               {taxState.status === "review" && target.screen && (

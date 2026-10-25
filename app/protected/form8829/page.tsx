@@ -179,6 +179,9 @@ export default function Form8829Page() {
             <div className="py-6 text-center" role="alert">
               <h3 className="text-lg font-medium text-gray-900 mb-2">Tax estimate on hold</h3>
               <p className="text-sm text-gray-700 max-w-xl mx-auto">{state.message}</p>
+              <p className="mt-4">
+                <a href="/protected/tax-forms-setup?tab=assets" className="inline-flex min-h-11 items-center text-sm font-medium text-blue-700 underline underline-offset-4">View your assets</a>
+              </p>
             </div>
           )}
 

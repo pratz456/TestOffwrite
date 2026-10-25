@@ -36,7 +36,10 @@ export function KpiGrid({ state, taxYear, confirmedDeductions, onRetry, onReview
         </div>
         <div role="alert">
           <h2 className="mt-3 max-w-md text-xl font-semibold leading-tight tracking-tight sm:text-2xl">{partialHold ? 'Tax estimate on hold' : `${taxYear} federal estimate ${state.status === 'review' ? 'needs review' : 'unavailable'}`}</h2>
-          {partialHold ? <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-300">{state.message}</p>
+          {partialHold ? <>
+            <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-300">{state.message}</p>
+            <a href="/protected/tax-forms-setup?tab=assets" className="mt-3 inline-flex min-h-11 items-center text-sm font-medium text-blue-200 underline underline-offset-4">View your assets</a>
+          </>
             : state.status === 'review' ? <>
             <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-300">{state.code === 'INCOME_RECONCILIATION_REQUIRED'
               ? 'Check overlapping income so the same payment is counted once.'

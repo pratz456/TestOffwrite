@@ -293,7 +293,7 @@ describe('file taxes screen routes Schedule C through the shared federal snapsho
     expect(content).toContain(providerCopy);
   });
 
-  it('shows the partial Section 179 hold as plain text with no link or retry', async () => {
+  it('shows the partial Section 179 hold with a link to the assets tab and no retry', async () => {
     harness.request.mockImplementation(() => Promise.resolve(response({
       error: 'Different wording that does not start with the status label.',
       code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold',
@@ -304,8 +304,11 @@ describe('file taxes screen routes Schedule C through the shared federal snapsho
     expect(text(alert)).toContain('Tax estimate on hold');
     expect(text(alert)).toContain('Different wording that does not start with the status label.');
     expect(text(alert)).not.toMatch(/needs review/i);
-    expect(controls(alert)).toEqual([]);
-    expect(JSON.stringify(alert)).not.toMatch(/settings|tax-forms-setup|form4562/);
+    const assetsLink = walk(alert).find(node => node.type === 'a')!;
+    expect(text(assetsLink)).toBe('View your assets');
+    expect(assetsLink.props.href).toBe('/protected/tax-forms-setup?tab=assets');
+    expect(walk(alert).some(node => node.type === 'button')).toBe(false);
+    expect(text(alert)).not.toMatch(/Retry|Refresh|Keep preparing/);
   });
 
   it('offers a retry without a deep link when the calculation is unavailable', async () => {
@@ -360,14 +363,16 @@ describe('partial Section 179 hold stays plain status text', () => {
     const alert = walk(tree).find(node => node.props?.role === 'alert')!;
     expect(text(alert)).toContain('Tax estimate on hold');
     expect(text(alert)).toContain(differentMessage);
-    expect(controls(alert)).toEqual([]);
-    expect(controls(tree).filter(node => typeof node.props?.href === 'string' || controlName(node) === 'Link' || controlName(node) === 'a')).toEqual([]);
+    const assetsLink = walk(alert).find(node => node.type === 'a')!;
+    expect(text(assetsLink)).toBe('View your assets');
+    expect(assetsLink.props.href).toBe('/protected/tax-forms-setup?tab=assets');
+    expect(walk(alert).some(node => node.type === 'button' || controlName(node) === 'Button')).toBe(false);
     expect(text(tree)).not.toContain('Retry estimate');
     expect(text(tree)).not.toContain('Keep preparing');
     expect(walk(tree).some(node => node.props?.['aria-label'] === 'Refresh tax estimate')).toBe(false);
     expect(text(tree)).not.toContain('Resolve the issue above');
     expect(text(tree)).not.toContain('Review asset records');
-    expect(JSON.stringify(tree)).not.toMatch(/tax-forms-setup|tab=assets|\/protected\/settings|form4562|form8829/);
+    expect(text(tree)).not.toContain('Export');
   });
 
   it('keeps a vehicle depreciation review linked to the assets tab', async () => {
@@ -386,7 +391,10 @@ describe('partial Section 179 hold stays plain status text', () => {
     expect(text(card)).not.toMatch(/needs review/i);
     expect(text(card)).not.toContain('Retry estimate');
     expect(text(card)).not.toContain('Review asset records');
-    expect(controls(card)).toEqual([]);
+    const assetsLink = walk(card).find(node => node.type === 'a')!;
+    expect(text(assetsLink)).toBe('View your assets');
+    expect(assetsLink.props.href).toBe('/protected/tax-forms-setup?tab=assets');
+    expect(walk(card).some(node => node.type === 'button')).toBe(false);
     const vehicle = KpiGrid({ state: { status: 'review', code: 'DEPRECIATION_REVIEW_REQUIRED', message: 'Asset depreciation needs review: vehicle limits.' }, taxYear: 2026, onRetry() {}, onReview() {} });
     expect(text(vehicle)).toContain('Review asset records');
     expect(walk(vehicle).some(node => node.type === 'button' && text(node) === 'Review asset records')).toBe(true);
@@ -415,6 +423,8 @@ describe('partial Section 179 hold stays plain status text', () => {
     expect(text(form4562Alert)).not.toContain('Asset records need review');
     expect(walk(form4562Alert).some(node => node.props?.['aria-label'] === 'Remove Computer')).toBe(true);
     expect(walk(form4562).filter(node => node.props?.onClick && text(node).includes('Export'))).toEqual([]);
+    expect(text(form4562)).not.toContain('View your assets');
+    expect(walk(form4562).some(node => node.props?.href === '/protected/tax-forms-setup?tab=assets')).toBe(false);
     expect(text(form4562)).not.toContain('Retry');
     expect(text(form4562)).not.toContain('Refresh');
     expect(text(form4562)).not.toContain('Keep preparing');
@@ -464,7 +474,10 @@ describe('partial Section 179 hold stays plain status text', () => {
     expect(text(form8829Alert)).toContain('Tax estimate on hold');
     expect(text(form8829Alert)).toContain(differentMessage);
     expect(text(form8829)).not.toContain('Open Settings');
-    expect(controls(form8829Alert)).toEqual([]);
+    const assetsLink = walk(form8829Alert).find(node => node.type === 'a')!;
+    expect(text(assetsLink)).toBe('View your assets');
+    expect(assetsLink.props.href).toBe('/protected/tax-forms-setup?tab=assets');
+    expect(walk(form8829Alert).some(node => node.type === 'button' || controlName(node) === 'Button')).toBe(false);
     expect(walk(form8829).filter(node => node.props?.onClick && text(node).includes('Export'))).toEqual([]);
     expect(text(form8829)).not.toContain('Retry');
     expect(text(form8829)).not.toContain('Refresh');

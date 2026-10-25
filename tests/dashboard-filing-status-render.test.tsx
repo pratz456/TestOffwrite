@@ -93,11 +93,14 @@ describe('dashboard filing-status review display', () => {
     }, { status: 422 }));
     render(dashboard); await flush();
     const tree = render(dashboard);
-    const row = walk(tree).find(node => node.type === 'li' && text(node).includes("We'll update your estimate once we've confirmed the rule. There's nothing you need to do."));
+    const row = walk(tree).find(node => node.type === 'li' && text(node).includes("We'll update your estimate once we've confirmed the rule. If an asset's cost was entered wrong, you can correct it in your asset records."));
     expect(row).toBeTruthy();
     expect(text(row)).toContain('Tax estimate on hold');
-    expect(walk(row).some(node => node.type === 'button' || node.type === 'a' || typeof node.props?.href === 'string')).toBe(false);
-    expect(JSON.stringify(row)).not.toMatch(/settings|tax-forms-setup|form4562|Review asset/);
+    const assetsLink = walk(row).find(node => node.type === 'a')!;
+    expect(text(assetsLink)).toBe('View your assets');
+    expect(assetsLink.props.href).toBe('/protected/tax-forms-setup?tab=assets');
+    expect(walk(row).some(node => node.type === 'button')).toBe(false);
+    expect(text(row)).not.toMatch(/Retry|Refresh|Keep preparing|Review asset/);
   });
   it('waits for server tax results when the filing-status label changes', async () => {
     harness.profile.filing_status = 'Married Filing Jointly';

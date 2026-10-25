@@ -41,11 +41,12 @@ describe('review urgency and three next steps', () => {
   it('describes the partial Section 179 hold without an action, screen, or href, and keeps a vehicle review actionable', () => {
     const hold = dashboardNextSteps([], { status: 'review', code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold', message: 'Different wording that does not name the label.' }).find(step => step.id === 'tax-inputs')!;
     expect(hold.title).toBe('Tax estimate on hold');
-    expect(hold.detail).toBe("We'll update your estimate once we've confirmed the rule. There's nothing you need to do.");
+    expect(hold.detail).toBe("We'll update your estimate once we've confirmed the rule. If an asset's cost was entered wrong, you can correct it in your asset records.");
+    expect(hold.href).toBe('/protected/tax-forms-setup?tab=assets');
     expect(hold.action).toBeUndefined();
     expect(hold.screen).toBeUndefined();
-    expect(hold).not.toHaveProperty('href');
-    expect(JSON.stringify(hold)).not.toMatch(/settings|href|Review asset/);
+    expect(hold.retry).toBeUndefined();
+    expect(JSON.stringify(hold)).not.toMatch(/Review asset|Retry|Refresh/);
     const vehicle = dashboardNextSteps([], { status: 'review', code: 'DEPRECIATION_REVIEW_REQUIRED', message: 'Asset depreciation needs review: Confirm the asset class, vehicle limits and listed-property rules.' }).find(step => step.id === 'tax-inputs')!;
     expect(vehicle.action).toBe('Review asset records');
     expect(vehicle.screen).toBe('settings');

@@ -168,7 +168,10 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
             )}
             {onNavigate && reviewCode === 'HOME_OFFICE_REVIEW_REQUIRED' &&
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate('settings')}>Review home office settings</Button>}
-            {partialHold && <p className="mt-3 text-sm text-foreground">Tax estimate on hold</p>}
+            {partialHold && <>
+              <p className="mt-3 text-sm text-foreground">Tax estimate on hold</p>
+              <a href="/protected/tax-forms-setup?tab=assets" className="mt-3 inline-flex min-h-11 items-center underline underline-offset-4">View your assets</a>
+            </>}
             {!partialHold && reviewCode === 'DEPRECIATION_REVIEW_REQUIRED' &&
               <Button asChild className="mt-3 min-h-11" variant="outline"><Link href="/protected/tax-forms-setup?tab=assets">{reviewTargetForCode(reviewCode, reviewKind ?? undefined).label}</Link></Button>}
             {onNavigate && reviewCode === 'INCOME_RECONCILIATION_REQUIRED' &&

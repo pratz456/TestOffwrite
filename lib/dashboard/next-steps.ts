@@ -5,14 +5,15 @@ import { isSupersededRecord } from '@/lib/transactions/record-scope';
 import { prioritizeTransactionReview } from '@/lib/transactions/review-priority';
 
 export interface DashboardNextStep { id: string; title: string; detail: string; action?: string;
-  screen?: string; transaction?: Transaction; retry?: boolean }
+  screen?: string; href?: string; transaction?: Transaction; retry?: boolean }
 
 /** At most three honest tasks, with blocked calculations ahead of routine review. */
 export function dashboardNextSteps(records: Transaction[], taxState: DashboardTaxState): DashboardNextStep[] {
   const steps: DashboardNextStep[] = [];
   if (taxState.status === 'review' && isSection179PartialHold(taxState.code, taxState.kind)) {
     steps.push({ id: 'tax-inputs', title: 'Tax estimate on hold',
-      detail: "We'll update your estimate once we've confirmed the rule. There's nothing you need to do." });
+      detail: "We'll update your estimate once we've confirmed the rule. If an asset's cost was entered wrong, you can correct it in your asset records.",
+      href: '/protected/tax-forms-setup?tab=assets' });
   } else if (taxState.status === 'review') {
     const target = reviewTargetForCode(taxState.code, taxState.kind);
     steps.push({ id: 'tax-inputs', title: 'Complete your tax estimate',
