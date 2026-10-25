@@ -21,11 +21,11 @@ afterEach(() => { vi.useRealTimers(); });
 
 describe('calc4562 hold for equipment that base would depreciate', () => {
   it('holds a yes answer at exactly 50 percent', () => {
-    const held = calc4562([asset({ businessUsePercent: 50, listedEquipmentAnswer: 'yes' })], BUSINESS_INCOME, TAX_YEAR);
+    const held = calc4562([asset({ businessUsePercent: 50, listedEquipmentAnswer: 'yes', listedEquipmentKind: 'recreation_or_amusement' })], BUSINESS_INCOME, TAX_YEAR);
     const plain = calc4562([asset({ id: 'plain', category: 'computer', businessUsePercent: 50 })], BUSINESS_INCOME, TAX_YEAR);
     expect(held.totalDepreciation).toBe(0);
     expect(plain.totalDepreciation).toBeGreaterThan(0);
-    expect(held.heldAssets).toEqual([{ id: 'camera', reason: 'review' }]);
+    expect(held.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'review' }]);
   });
 
   it('holds a blank answer at exactly 50 percent', () => {
@@ -34,7 +34,8 @@ describe('calc4562 hold for equipment that base would depreciate', () => {
       const plain = calc4562([asset({ id: 'plain', category: 'computer', businessUsePercent: 50 })], BUSINESS_INCOME, TAX_YEAR);
       expect(held.totalDepreciation).toBe(0);
       expect(plain.totalDepreciation).toBeGreaterThan(0);
-      expect(held.heldAssets).toEqual([{ id: 'camera', reason: 'question' }]);
+      expect(held.notes.join('\n')).toContain('PLACEHOLDER: We need one answer about Camera before we can show your estimate. What kind of equipment is it?');
+      expect(held.heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'question' }]);
     }
   });
 
@@ -61,9 +62,10 @@ describe('computeScheduleCProfit carries a hold into the review error', () => {
   };
 
   it('holds a yes answer at exactly 50 percent', () => {
-    const { profit, error } = capture({ businessUsePercent: 50, listedEquipmentAnswer: 'yes' });
+    const { profit, error } = capture({ businessUsePercent: 50, listedEquipmentAnswer: 'yes', listedEquipmentKind: 'recreation_or_amusement' });
     expect(profit).toBeNull();
-    expect(error).toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED', heldAssets: [{ id: 'camera', reason: 'review' }] });
+    expect(error).toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED' });
+    expect((error as { heldAssets?: unknown }).heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'review' }]);
     expect((error as Error).message).toContain(MESSAGE);
   });
 
@@ -71,8 +73,10 @@ describe('computeScheduleCProfit carries a hold into the review error', () => {
     for (const listedEquipmentAnswer of [undefined, null] as const) {
       const { profit, error } = capture({ businessUsePercent: 50, listedEquipmentAnswer });
       expect(profit).toBeNull();
-      expect(error).toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED', heldAssets: [{ id: 'camera', reason: 'question' }] });
-      expect((error as Error).message).toContain(MESSAGE);
+      expect(error).toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED' });
+      expect((error as { heldAssets?: unknown }).heldAssets).toEqual([{ id: 'camera', name: 'Camera', reason: 'question' }]);
+      expect((error as Error).message).toContain('PLACEHOLDER: We need one answer about Camera before we can show your estimate. What kind of equipment is it?');
+      expect((error as Error).message).not.toContain(MESSAGE);
     }
   });
 

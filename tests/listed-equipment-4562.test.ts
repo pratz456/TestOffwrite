@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import type { UserProfile } from '@/lib/firebase/profiles-server';
 import {
   ACCELERATED_MACRS_HALF_YEAR_RATE, ASSET_CATEGORIES, EQUIPMENT_ASSET_CATEGORIES, LISTED_EQUIPMENT_BUSINESS_USE_CEILING,
-  LISTED_EQUIPMENT_QUESTION_PLACEHOLDER, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER, acceleratedMacrsDeduction, businessUseBasis,
+  LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER, acceleratedMacrsDeduction, businessUseBasis,
   calc4562, listedEquipmentBusinessUseAtOrUnderCeiling, roundCents, type Asset, type ListedEquipmentAnswer,
 } from '@/lib/reports/calc4562';
 import { generateForm4562PDF } from '@/lib/reports/form4562';
@@ -59,7 +59,7 @@ describe('listed equipment business-use ceiling', () => {
 
 describe('equipment listed-property flag', () => {
   it('withholds Section 179, bonus, and accelerated MACRS when the answer is yes at exactly 50%', () => {
-    const equipment = asset({ businessUsePercent: 50, listedEquipmentAnswer: 'yes', section179Requested: true, bonusEligible: true, description: 'Camera body' });
+    const equipment = asset({ businessUsePercent: 50, listedEquipmentAnswer: 'yes', listedEquipmentKind: 'recreation_or_amusement', section179Requested: true, bonusEligible: true, description: 'Camera body' });
     const sibling = asset({ id: 'sibling', description: 'Office computer', category: 'computer', cost: 3000, businessUsePercent: 100, listedEquipmentAnswer: 'yes' });
     const result = calc4562([equipment, sibling], BUSINESS_INCOME, TAX_YEAR);
     const held = result.assets.find(row => row.asset.id === equipment.id)!;
@@ -134,7 +134,8 @@ describe('equipment listed-property flag', () => {
       expect(result.totalDepreciation).toBe(0);
       expect(result.totalSection179).toBe(0);
       expect(result.totalBonusDepreciation).toBe(0);
-      expect(result.notes.join('\n')).toContain(LISTED_EQUIPMENT_QUESTION_PLACEHOLDER);
+      expect(result.notes.join('\n')).toContain('PLACEHOLDER: We need one answer about Unanswered mixer before we can show your estimate. What kind of equipment is it?');
+      expect(result.heldAssets).toEqual([{ id: equipment.id, name: 'Unanswered mixer', reason: 'question' }]);
       expect(result.notes.join('\n')).not.toContain(LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER);
     }
   });
@@ -172,7 +173,7 @@ describe('equipment listed-property flag', () => {
 
   it('does not let a withheld equipment asset change another asset through de minimis, Section 179 phaseout, or the mid-quarter test', () => {
     const sibling = asset({ id: 'sibling', description: 'Office computer', category: 'computer', cost: 10000, businessUsePercent: 100, section179Requested: true });
-    const held = asset({ id: 'held', description: 'Lighting kit', cost: 6650000, businessUsePercent: 50, listedEquipmentAnswer: 'yes', section179Requested: true, bonusEligible: true, datePlacedInService: new Date(Date.UTC(TAX_YEAR, 10, 1)) });
+    const held = asset({ id: 'held', description: 'Lighting kit', cost: 6650000, businessUsePercent: 50, listedEquipmentAnswer: 'yes', listedEquipmentKind: 'recreation_or_amusement', section179Requested: true, bonusEligible: true, datePlacedInService: new Date(Date.UTC(TAX_YEAR, 10, 1)) });
     const combined = calc4562([sibling, held], BUSINESS_INCOME, TAX_YEAR);
     const alone = calc4562([sibling], BUSINESS_INCOME, TAX_YEAR);
     const expected = roundCents(businessUseBasis(sibling.cost, sibling.businessUsePercent));
@@ -181,7 +182,7 @@ describe('equipment listed-property flag', () => {
     expect(combined.section179?.costOfSection179Property).toBe(sibling.cost);
     expect(combined.totalDepreciation).toBe(alone.totalDepreciation);
     expect(combined.totalSection179).toBe(alone.totalSection179);
-    const cheapHeld = asset({ id: 'cheap', description: 'Microphone', cost: 2000, businessUsePercent: 50, listedEquipmentAnswer: 'yes' });
+    const cheapHeld = asset({ id: 'cheap', description: 'Microphone', cost: 2000, businessUsePercent: 50, listedEquipmentAnswer: 'yes', listedEquipmentKind: 'recreation_or_amusement' });
     const cheapSibling = asset({ id: 'mouse', description: 'Mouse', category: 'computer', cost: 1000, businessUsePercent: 100 });
     const expensed = calc4562([cheapSibling, cheapHeld], BUSINESS_INCOME, TAX_YEAR, { deMinimisSafeHarborYears: [TAX_YEAR] });
     const siblingExpense = roundCents(businessUseBasis(cheapSibling.cost, cheapSibling.businessUsePercent));
@@ -195,7 +196,7 @@ describe('equipment listed-property flag', () => {
 
 describe('callers that read calc4562 money totals', () => {
   const grossReceipts = 20000;
-  const equipment = asset({ id: 'camera', description: 'Camera body', cost: 8642, businessUsePercent: 50, listedEquipmentAnswer: 'yes', section179Requested: true, bonusEligible: true });
+  const equipment = asset({ id: 'camera', description: 'Camera body', cost: 8642, businessUsePercent: 50, listedEquipmentAnswer: 'yes', listedEquipmentKind: 'recreation_or_amusement', section179Requested: true, bonusEligible: true });
   const sibling = asset({ id: 'sibling', description: 'Office computer', category: 'computer', cost: 3000, businessUsePercent: 100 });
   const siblingMacrs = () => acceleratedMacrsDeduction(businessUseBasis(sibling.cost, sibling.businessUsePercent), sibling.method);
   const withheldSection179 = () => roundCents(businessUseBasis(equipment.cost, equipment.businessUsePercent));
@@ -206,7 +207,8 @@ describe('callers that read calc4562 money totals', () => {
     try {
       computeScheduleCProfit({ taxYear: TAX_YEAR, grossReceipts, confirmedExpenses: 0, w2Wages: 0, assets: [equipment, sibling] });
     } catch (error) {
-      expect(error).toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED', heldAssets: [{ id: equipment.id, reason: 'review' }] });
+      expect(error).toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED' });
+      expect((error as { heldAssets?: unknown }).heldAssets).toEqual([{ id: equipment.id, name: 'Camera body', reason: 'review' }]);
     }
   });
 
@@ -216,15 +218,22 @@ describe('callers that read calc4562 money totals', () => {
       assetsSettings: [equipment, sibling], transactions: [], taxYear: TAX_YEAR, businessIncome: BUSINESS_INCOME,
     };
     await expect(generateForm4562PDF(input)).rejects.toThrow(/PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown/);
-    await expect(generateForm4562PDF(input)).rejects.toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED', heldAssets: [{ id: equipment.id, reason: 'review' }] });
+    await expect(generateForm4562PDF(input)).rejects.toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED' });
   });
 
   it('blocks the Form 4562 PDF when an equipment asset at 50% is blank', async () => {
-    const blank = asset({ ...equipment, listedEquipmentAnswer: null, description: 'Unanswered recorder' });
-    await expect(generateForm4562PDF({
+    const blank = asset({ ...equipment, listedEquipmentAnswer: null, listedEquipmentKind: null, description: 'Unanswered recorder' });
+    const input = {
       userProfile: { name: 'Synthetic Taxpayer' } as UserProfile,
       assetsSettings: [blank, sibling], transactions: [], taxYear: TAX_YEAR, businessIncome: BUSINESS_INCOME,
-    })).rejects.toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED', heldAssets: [{ id: blank.id, reason: 'question' }] });
+    };
+    await expect(generateForm4562PDF(input)).rejects.toMatchObject({ code: 'DEPRECIATION_REVIEW_REQUIRED' });
+    await expect(generateForm4562PDF(input)).rejects.toThrow(/PLACEHOLDER: We need one answer about Unanswered recorder before we can show your estimate\. What kind of equipment is it\?/);
+    try {
+      await generateForm4562PDF(input);
+    } catch (error) {
+      expect((error as { heldAssets?: unknown }).heldAssets).toEqual([{ id: blank.id, name: 'Unanswered recorder', reason: 'question' }]);
+    }
   });
 
   it('does not build a Schedule SE profit while an asset is held', () => {

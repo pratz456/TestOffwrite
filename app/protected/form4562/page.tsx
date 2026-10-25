@@ -15,7 +15,8 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { useToasts } from '@/components/ui/toast';
 import { ToastContainer } from '@/components/ui/toast';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
-import { type Asset, type AssetCalculation, type Form4562Calculation, type DepreciationElections, type ListedEquipmentAnswer, isEquipmentAssetCategory, listedEquipmentBusinessUseAtOrUnderCeiling, LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER, LISTED_EQUIPMENT_QUESTION_PLACEHOLDER, LISTED_EQUIPMENT_RELEASE_QUESTION_PLACEHOLDER, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER } from '@/lib/reports/calc4562';
+import { type Asset, type AssetCalculation, type Form4562Calculation, type DepreciationElections, type ListedEquipmentAnswer, type ListedEquipmentKind, type ListedEquipmentLocation, isEquipmentAssetCategory, listedEquipmentBusinessUseAtOrUnderCeiling, listedEquipmentKindFor, listedEquipmentKindNeededCopy, LISTED_EQUIPMENT_BUSINESS_LOCATION_PLACEHOLDER, LISTED_EQUIPMENT_KIND_NEITHER, LISTED_EQUIPMENT_KIND_NEITHER_PLACEHOLDER, LISTED_EQUIPMENT_KIND_NOTE_PLACEHOLDER, LISTED_EQUIPMENT_KIND_PHOTO, LISTED_EQUIPMENT_KIND_PHOTO_PLACEHOLDER, LISTED_EQUIPMENT_KIND_RECREATION, LISTED_EQUIPMENT_KIND_RECREATION_PLACEHOLDER, LISTED_EQUIPMENT_LOCATION_FOLLOW_UP_PLACEHOLDER, LISTED_EQUIPMENT_LOCATION_HOME, LISTED_EQUIPMENT_LOCATION_HOME_PLACEHOLDER, LISTED_EQUIPMENT_LOCATION_OUTSIDE, LISTED_EQUIPMENT_LOCATION_OUTSIDE_PLACEHOLDER, LISTED_EQUIPMENT_MAIN_LINE_PLACEHOLDER, LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER } from '@/lib/reports/calc4562';
+import { ListedEquipmentKindPrompt } from '@/components/listed-equipment-kind-prompt';
 
 interface Form4562Worksheet {
   taxYear: number;
@@ -34,20 +35,98 @@ type WorksheetState =
   | { status: 'error'; message: string };
 
 const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
-const releaseQuestionVisible = (asset: Partial<Asset>) => isEquipmentAssetCategory(asset.category)
-  && asset.listedEquipmentAnswer !== 'no'
+const releaseQuestionVisible = (asset: Partial<Asset>) => listedEquipmentKindFor(asset) === LISTED_EQUIPMENT_KIND_PHOTO
+  && listedEquipmentBusinessUseAtOrUnderCeiling(Number(asset.businessUsePercent));
+const kindNeeded = (asset: Partial<Asset>) => isEquipmentAssetCategory(asset.category)
+  && listedEquipmentKindFor(asset) === null
   && listedEquipmentBusinessUseAtOrUnderCeiling(Number(asset.businessUsePercent));
 const TREATMENT_LABELS: Record<AssetCalculation['treatment'], string> = {
   de_minimis_expense: 'De minimis safe harbor - expensed, not depreciated',
   section_179: 'Section 179 election + MACRS on remaining basis',
   macrs: 'MACRS half-year',
-  // PLACEHOLDER customer-facing wording. The question case uses LISTED_EQUIPMENT_QUESTION_PLACEHOLDER instead.
+  // PLACEHOLDER customer-facing wording. A missing gear kind uses the named question instead of this note.
   listed_property_review: LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER,
 };
 const emptyAsset = (): Partial<Asset> => ({
   description: '', datePlacedInService: new Date(), cost: 0, businessUsePercent: 100,
   category: 'other', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false,
 });
+
+const KIND_CHOICES = [
+  [LISTED_EQUIPMENT_KIND_PHOTO, LISTED_EQUIPMENT_KIND_PHOTO_PLACEHOLDER],
+  [LISTED_EQUIPMENT_KIND_RECREATION, LISTED_EQUIPMENT_KIND_RECREATION_PLACEHOLDER],
+  [LISTED_EQUIPMENT_KIND_NEITHER, LISTED_EQUIPMENT_KIND_NEITHER_PLACEHOLDER],
+] as const;
+
+function GearKindField({ id, asset, onChange }: { id: string; asset: Partial<Asset>; onChange: (kind: ListedEquipmentKind) => void }) {
+  const selected = listedEquipmentKindFor(asset);
+  return (
+    <fieldset id={`listed-equipment-kind-${id}`} className="mt-2">
+      <legend className="text-sm text-gray-700">{kindNeeded(asset) ? listedEquipmentKindNeededCopy(asset.description || 'this asset') : LISTED_EQUIPMENT_KIND_NOTE_PLACEHOLDER}</legend>
+      <div className="flex flex-col gap-2 mt-1">
+        {KIND_CHOICES.map(([value, label]) => (
+          <label key={value} className="flex items-center gap-2 text-sm" htmlFor={`listed-equipment-kind-${value}-${id}`}>
+            <input id={`listed-equipment-kind-${value}-${id}`} type="radio" name={`listedEquipmentKind-${id}`} checked={selected === value} onChange={() => onChange(value)} />
+            {label}
+          </label>
+        ))}
+      </div>
+      {kindNeeded(asset) && <p className="mt-2 text-sm text-gray-600">{LISTED_EQUIPMENT_KIND_NOTE_PLACEHOLDER}</p>}
+      {kindNeeded(asset) && (
+        <button type="button" className="mt-2 text-sm underline" onClick={() => document.getElementById(`listed-equipment-kind-${id}`)?.querySelector('input')?.focus()}>Answer now</button>
+      )}
+    </fieldset>
+  );
+}
+
+function YesNoField({ id, legend, value, onChange }: { id: string; legend: string; value: ListedEquipmentAnswer | null | undefined; onChange: (answer: ListedEquipmentAnswer) => void }) {
+  return (
+    <fieldset className="mt-2">
+      <legend className="text-sm text-gray-700">{legend}</legend>
+      <div className="flex flex-wrap gap-4 mt-1">
+        <label className="flex items-center gap-2 text-sm" htmlFor={`${id}-yes`}>
+          <input id={`${id}-yes`} type="radio" name={id} checked={value === 'yes'} onChange={() => onChange('yes')} />
+          Yes
+        </label>
+        <label className="flex items-center gap-2 text-sm" htmlFor={`${id}-no`}>
+          <input id={`${id}-no`} type="radio" name={id} checked={value === 'no'} onChange={() => onChange('no')} />
+          No
+        </label>
+      </div>
+    </fieldset>
+  );
+}
+
+function ReleaseFields({ id, asset, onMainLine, onLocation, onPlace }: {
+  id: string;
+  asset: Partial<Asset>;
+  onMainLine: (answer: ListedEquipmentAnswer) => void;
+  onLocation: (answer: ListedEquipmentAnswer) => void;
+  onPlace: (place: ListedEquipmentLocation) => void;
+}) {
+  if (!releaseQuestionVisible(asset)) return null;
+  return (
+    <>
+      <YesNoField id={`listed-equipment-main-line-${id}`} legend={LISTED_EQUIPMENT_MAIN_LINE_PLACEHOLDER} value={asset.listedEquipmentMainLineOfWork} onChange={onMainLine} />
+      <YesNoField id={`listed-equipment-location-${id}`} legend={LISTED_EQUIPMENT_BUSINESS_LOCATION_PLACEHOLDER} value={asset.listedEquipmentBusinessLocation} onChange={onLocation} />
+      {asset.listedEquipmentBusinessLocation === 'yes' && (
+        <fieldset className="mt-2">
+          <legend className="text-sm text-gray-700">{LISTED_EQUIPMENT_LOCATION_FOLLOW_UP_PLACEHOLDER}</legend>
+          <div className="flex flex-col gap-2 mt-1">
+            <label className="flex items-center gap-2 text-sm" htmlFor={`listed-equipment-outside-${id}`}>
+              <input id={`listed-equipment-outside-${id}`} type="radio" name={`listedEquipmentLocation-${id}`} checked={asset.listedEquipmentLocationFollowUp === LISTED_EQUIPMENT_LOCATION_OUTSIDE} onChange={() => onPlace(LISTED_EQUIPMENT_LOCATION_OUTSIDE)} />
+              {LISTED_EQUIPMENT_LOCATION_OUTSIDE_PLACEHOLDER}
+            </label>
+            <label className="flex items-center gap-2 text-sm" htmlFor={`listed-equipment-home-${id}`}>
+              <input id={`listed-equipment-home-${id}`} type="radio" name={`listedEquipmentLocation-${id}`} checked={asset.listedEquipmentLocationFollowUp === LISTED_EQUIPMENT_LOCATION_HOME} onChange={() => onPlace(LISTED_EQUIPMENT_LOCATION_HOME)} />
+              {LISTED_EQUIPMENT_LOCATION_HOME_PLACEHOLDER}
+            </label>
+          </div>
+        </fieldset>
+      )}
+    </>
+  );
+}
 
 export default function Form4562Page() {
   const router = useRouter();
@@ -145,7 +224,15 @@ export default function Form4562Page() {
       if (!isEquipmentAssetCategory(draft.category)) {
         delete draft.listedEquipmentAnswer;
         delete draft.listedEquipmentReleaseAnswer;
-      } else if (!releaseQuestionVisible(draft)) delete draft.listedEquipmentReleaseAnswer;
+        delete draft.listedEquipmentKind;
+        delete draft.listedEquipmentMainLineOfWork;
+        delete draft.listedEquipmentBusinessLocation;
+        delete draft.listedEquipmentLocationFollowUp;
+      } else if (!releaseQuestionVisible(draft)) {
+        delete draft.listedEquipmentMainLineOfWork;
+        delete draft.listedEquipmentBusinessLocation;
+        delete draft.listedEquipmentLocationFollowUp;
+      } else if (draft.listedEquipmentBusinessLocation !== 'yes') delete draft.listedEquipmentLocationFollowUp;
       const response = await makeAuthenticatedRequest('/api/settings/assets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -161,12 +248,12 @@ export default function Form4562Page() {
     }
   };
 
-  const handleListedEquipmentAnswer = async (assetId: string, listedEquipmentAnswer: ListedEquipmentAnswer) => {
+  const patchEquipment = async (assetId: string, fields: Record<string, unknown>) => {
     try {
       const response = await makeAuthenticatedRequest('/api/settings/assets', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assetId, listedEquipmentAnswer }),
+        body: JSON.stringify({ assetId, ...fields }),
       });
       if (!response.ok) throw new Error('Failed to save the equipment answer');
       void loadWorksheet();
@@ -175,19 +262,11 @@ export default function Form4562Page() {
     }
   };
 
-  const handleListedEquipmentRelease = async (assetId: string, listedEquipmentReleaseAnswer: ListedEquipmentAnswer) => {
-    try {
-      const response = await makeAuthenticatedRequest('/api/settings/assets', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assetId, listedEquipmentReleaseAnswer }),
-      });
-      if (!response.ok) throw new Error('Failed to save the equipment release answer');
-      void loadWorksheet();
-    } catch {
-      showError('Save Failed', 'The equipment release answer could not be saved. Please try again.');
-    }
-  };
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('asset');
+    if (!id) return;
+    document.getElementById(`listed-equipment-kind-${id}`)?.scrollIntoView({ block: 'center' });
+  }, [assets, state.status]);
 
   const handleRemoveAsset = async (assetId: string) => {
     try {
@@ -237,7 +316,7 @@ export default function Form4562Page() {
         </div>
         <div>
           <Label htmlFor="category">Category</Label>
-          <Select value={newAsset.category} onValueChange={(value) => setNewAsset({ ...newAsset, category: value as Asset['category'], listedEquipmentAnswer: isEquipmentAssetCategory(value) ? newAsset.listedEquipmentAnswer : null })}>
+          <Select value={newAsset.category} onValueChange={(value) => setNewAsset({ ...newAsset, category: value as Asset['category'], listedEquipmentAnswer: isEquipmentAssetCategory(value) ? newAsset.listedEquipmentAnswer : null, listedEquipmentKind: isEquipmentAssetCategory(value) ? newAsset.listedEquipmentKind : null, listedEquipmentMainLineOfWork: isEquipmentAssetCategory(value) ? newAsset.listedEquipmentMainLineOfWork : null, listedEquipmentBusinessLocation: isEquipmentAssetCategory(value) ? newAsset.listedEquipmentBusinessLocation : null, listedEquipmentLocationFollowUp: isEquipmentAssetCategory(value) ? newAsset.listedEquipmentLocationFollowUp : null })}>
             <SelectTrigger id="category"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="computer">Computer</SelectItem>
@@ -261,35 +340,20 @@ export default function Form4562Page() {
         </div>
       </div>
       {isEquipmentAssetCategory(newAsset.category) && (
-        <fieldset className="mb-4">
-          {/* Customer-facing wording is PLACEHOLDER and is defined as LISTED_EQUIPMENT_QUESTION_PLACEHOLDER. */}
-          <legend className="text-sm font-medium mb-2">{LISTED_EQUIPMENT_QUESTION_PLACEHOLDER}</legend>
-          <div className="flex flex-wrap gap-4">
-            <label className="flex items-center gap-2 text-sm" htmlFor="listed-equipment-yes">
-              <input id="listed-equipment-yes" type="radio" name="listedEquipmentAnswer" checked={newAsset.listedEquipmentAnswer === 'yes'} onChange={() => setNewAsset({ ...newAsset, listedEquipmentAnswer: 'yes' })} />
-              Yes
-            </label>
-            <label className="flex items-center gap-2 text-sm" htmlFor="listed-equipment-no">
-              <input id="listed-equipment-no" type="radio" name="listedEquipmentAnswer" checked={newAsset.listedEquipmentAnswer === 'no'} onChange={() => setNewAsset({ ...newAsset, listedEquipmentAnswer: 'no', listedEquipmentReleaseAnswer: null })} />
-              No
-            </label>
-          </div>
-        </fieldset>
-      )}
-      {releaseQuestionVisible(newAsset) && (
-        <fieldset className="mb-4">
-          <legend className="text-sm font-medium mb-2">{LISTED_EQUIPMENT_RELEASE_QUESTION_PLACEHOLDER}</legend>
-          <div className="flex flex-wrap gap-4">
-            <label className="flex items-center gap-2 text-sm" htmlFor="listed-equipment-release-yes">
-              <input id="listed-equipment-release-yes" type="radio" name="listedEquipmentReleaseAnswer" checked={newAsset.listedEquipmentReleaseAnswer === 'yes'} onChange={() => setNewAsset({ ...newAsset, listedEquipmentReleaseAnswer: 'yes' })} />
-              Yes
-            </label>
-            <label className="flex items-center gap-2 text-sm" htmlFor="listed-equipment-release-no">
-              <input id="listed-equipment-release-no" type="radio" name="listedEquipmentReleaseAnswer" checked={newAsset.listedEquipmentReleaseAnswer === 'no'} onChange={() => setNewAsset({ ...newAsset, listedEquipmentReleaseAnswer: 'no' })} />
-              No
-            </label>
-          </div>
-        </fieldset>
+        <div className="mb-4">
+          <GearKindField id="new" asset={newAsset} onChange={(listedEquipmentKind) => setNewAsset({
+            ...newAsset,
+            listedEquipmentKind,
+            ...(listedEquipmentKind === LISTED_EQUIPMENT_KIND_PHOTO ? {} : { listedEquipmentMainLineOfWork: null, listedEquipmentBusinessLocation: null, listedEquipmentLocationFollowUp: null }),
+          })} />
+          <ReleaseFields
+            id="new"
+            asset={newAsset}
+            onMainLine={(listedEquipmentMainLineOfWork) => setNewAsset({ ...newAsset, listedEquipmentMainLineOfWork })}
+            onLocation={(listedEquipmentBusinessLocation) => setNewAsset({ ...newAsset, listedEquipmentBusinessLocation, ...(listedEquipmentBusinessLocation === 'yes' ? {} : { listedEquipmentLocationFollowUp: null }) })}
+            onPlace={(listedEquipmentLocationFollowUp) => setNewAsset({ ...newAsset, listedEquipmentLocationFollowUp })}
+          />
+        </div>
       )}
       <div className="flex flex-wrap gap-4 mb-4">
         <div className="flex items-center space-x-2">
@@ -317,44 +381,25 @@ export default function Form4562Page() {
             <div className="flex-1">
               <div className="font-medium">{asset.description}</div>
               <div className="text-sm text-gray-500">
-                {money(asset.cost)} • {asset.businessUsePercent}% business use • {asset.category}{asset.section179Requested ? ' • §179 requested' : ''}{asset.bonusEligible ? ' • bonus (review)' : ''}
+                {assetCalc?.listedEquipmentHold === 'question_required'
+                  ? `${asset.businessUsePercent}% business use • ${asset.category}`
+                  : `${money(asset.cost)} • ${asset.businessUsePercent}% business use • ${asset.category}${asset.section179Requested ? ' • §179 requested' : ''}${asset.bonusEligible ? ' • bonus (review)' : ''}`}
               </div>
               {isEquipmentAssetCategory(asset.category) && (
-                <fieldset className="mt-2">
-                  {/* Customer-facing wording is PLACEHOLDER and is defined as LISTED_EQUIPMENT_QUESTION_PLACEHOLDER. */}
-                  <legend className="text-sm text-gray-700">{LISTED_EQUIPMENT_QUESTION_PLACEHOLDER}</legend>
-                  <div className="flex flex-wrap gap-4 mt-1">
-                    <label className="flex items-center gap-2 text-sm" htmlFor={`listed-equipment-yes-${asset.id}`}>
-                      <input id={`listed-equipment-yes-${asset.id}`} type="radio" name={`listedEquipmentAnswer-${asset.id}`} checked={asset.listedEquipmentAnswer === 'yes'} onChange={() => void handleListedEquipmentAnswer(asset.id, 'yes')} />
-                      Yes
-                    </label>
-                    <label className="flex items-center gap-2 text-sm" htmlFor={`listed-equipment-no-${asset.id}`}>
-                      <input id={`listed-equipment-no-${asset.id}`} type="radio" name={`listedEquipmentAnswer-${asset.id}`} checked={asset.listedEquipmentAnswer === 'no'} onChange={() => void handleListedEquipmentAnswer(asset.id, 'no')} />
-                      No
-                    </label>
-                  </div>
-                </fieldset>
+                <GearKindField id={asset.id} asset={asset} onChange={(listedEquipmentKind) => void patchEquipment(asset.id, { listedEquipmentKind })} />
               )}
-              {releaseQuestionVisible(asset) && (
-                <fieldset className="mt-2">
-                  <legend className="text-sm text-gray-700">{LISTED_EQUIPMENT_RELEASE_QUESTION_PLACEHOLDER}</legend>
-                  <div className="flex flex-wrap gap-4 mt-1">
-                    <label className="flex items-center gap-2 text-sm" htmlFor={`listed-equipment-release-yes-${asset.id}`}>
-                      <input id={`listed-equipment-release-yes-${asset.id}`} type="radio" name={`listedEquipmentReleaseAnswer-${asset.id}`} checked={asset.listedEquipmentReleaseAnswer === 'yes'} onChange={() => void handleListedEquipmentRelease(asset.id, 'yes')} />
-                      Yes
-                    </label>
-                    <label className="flex items-center gap-2 text-sm" htmlFor={`listed-equipment-release-no-${asset.id}`}>
-                      <input id={`listed-equipment-release-no-${asset.id}`} type="radio" name={`listedEquipmentReleaseAnswer-${asset.id}`} checked={asset.listedEquipmentReleaseAnswer === 'no'} onChange={() => void handleListedEquipmentRelease(asset.id, 'no')} />
-                      No
-                    </label>
-                  </div>
-                </fieldset>
-              )}
+              <ReleaseFields
+                id={asset.id}
+                asset={asset}
+                onMainLine={(listedEquipmentMainLineOfWork) => void patchEquipment(asset.id, { listedEquipmentMainLineOfWork })}
+                onLocation={(listedEquipmentBusinessLocation) => void patchEquipment(asset.id, { listedEquipmentBusinessLocation })}
+                onPlace={(listedEquipmentLocationFollowUp) => void patchEquipment(asset.id, { listedEquipmentLocationFollowUp })}
+              />
               {assetCalc?.listedEquipmentHold === 'review' && (
                 <div className="text-sm text-amber-700">{LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER}</div>
               )}
               {assetCalc?.listedEquipmentHold === 'question_required' && (
-                <div className="text-sm text-amber-700">{LISTED_EQUIPMENT_QUESTION_PLACEHOLDER}</div>
+                <div className="text-sm text-amber-700">{listedEquipmentKindNeededCopy(asset.description)}</div>
               )}
               {assetCalc && !assetCalc.listedEquipmentHold && (
                 <div className="text-sm text-blue-600">
@@ -407,7 +452,9 @@ export default function Form4562Page() {
               </Select>
             </div>
           </div>
-          {heldAssets.length > 0 && <p className="mb-3 text-sm text-amber-700">{LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER}</p>}
+          {heldAssets.some(asset => asset.reason === 'question')
+            ? <div className="mb-3"><ListedEquipmentKindPrompt assets={heldAssets.filter(asset => asset.reason === 'question')} /></div>
+            : heldAssets.length > 0 && <p className="mb-3 text-sm text-amber-700">{LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER}</p>}
           <PremiumFeatureGate feature="exports" featureName="tax form exports" inline>
             <Button onClick={handleExport} disabled={isExporting || !canExport} className="w-full bg-blue-600 hover:bg-blue-700 text-white">
               <Download className="w-4 h-4 mr-2" />
@@ -459,7 +506,7 @@ export default function Form4562Page() {
 
           {state.status === 'ready' && calculation && (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              {!heldAssets.some(asset => asset.reason === 'question') && <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                 <div className="text-center p-4 bg-green-50 rounded-lg">
                   <div className="text-2xl font-bold text-green-600">{money(calculation.totalDeMinimisExpense)}</div>
                   <div className="text-sm text-gray-600">De minimis expensed (Schedule C)</div>
@@ -476,9 +523,9 @@ export default function Form4562Page() {
                   <div className="text-2xl font-bold text-orange-600">{money(calculation.totalDepreciation)}</div>
                   <div className="text-sm text-gray-600">Total depreciation (line 22)</div>
                 </div>
-              </div>
+              </div>}
 
-              {calculation.section179 && (
+              {calculation.section179 && !heldAssets.some(asset => asset.reason === 'question') && (
                 <div className="mb-6 rounded-lg border p-4 text-sm">
                   <h3 className="font-medium text-gray-900 mb-2">Section 179 limits applied for {calculation.section179.electionYear}</h3>
                   <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 text-gray-700">

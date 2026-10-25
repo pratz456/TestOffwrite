@@ -14,18 +14,54 @@ export const EQUIPMENT_ASSET_CATEGORIES = ['equipment'] as const satisfies reado
 export const LISTED_EQUIPMENT_BUSINESS_USE_CEILING = 50;
 
 /**
- * Customer-facing question shown for each equipment asset.
- * PLACEHOLDER wording. Replace with reviewed copy before this text is treated as final.
+ * Gear kind that replaces the first yes/no question on an equipment asset.
+ * PLACEHOLDER wording. Cell phones and computers do not count: 26 U.S.C. 280F(d)(4)(A)
+ * as amended by Pub. L. 115-97 (computers placed in service after 2017) and Pub. L. 111-240
+ * (phones and similar telecommunications equipment). This is not the regulation's
+ * "certain computers" wording.
  */
-export const LISTED_EQUIPMENT_QUESTION_PLACEHOLDER =
-  'PLACEHOLDER: Is this photo, video, audio, communication or recreation equipment? Cell phones and computers do not count.';
+export const LISTED_EQUIPMENT_KIND_PHOTO = 'photo_audio_video_communication' as const;
+export const LISTED_EQUIPMENT_KIND_RECREATION = 'recreation_or_amusement' as const;
+export const LISTED_EQUIPMENT_KIND_NEITHER = 'neither' as const;
+export const LISTED_EQUIPMENT_KINDS = [LISTED_EQUIPMENT_KIND_PHOTO, LISTED_EQUIPMENT_KIND_RECREATION, LISTED_EQUIPMENT_KIND_NEITHER] as const;
+export type ListedEquipmentKind = (typeof LISTED_EQUIPMENT_KINDS)[number];
+
+export const LISTED_EQUIPMENT_KIND_PHOTO_PLACEHOLDER = 'PLACEHOLDER: photo, audio, video or communication gear';
+export const LISTED_EQUIPMENT_KIND_RECREATION_PLACEHOLDER = 'PLACEHOLDER: recreation or amusement gear';
+export const LISTED_EQUIPMENT_KIND_NEITHER_PLACEHOLDER = 'PLACEHOLDER: neither';
+export const LISTED_EQUIPMENT_KIND_NOTE_PLACEHOLDER = 'PLACEHOLDER: Cell phones and computers do not count.';
+/** Kept so earlier screens and notes still have a question constant. The kind choice replaces the yes/no question. */
+export const LISTED_EQUIPMENT_QUESTION_PLACEHOLDER = LISTED_EQUIPMENT_KIND_NOTE_PLACEHOLDER;
 
 /**
- * Second equipment question. Shown when the first answer is yes or blank and business use is 50% or less.
- * PLACEHOLDER wording. Yes releases the listed-property hold under Reg. §1.280F-6(b)(3), including when the first answer is still blank.
+ * Shown when an equipment asset at 50% or less business use has no gear kind yet,
+ * including a saved yes answer from before the kind was stored. PLACEHOLDER wording.
+ * `{asset name}` is replaced with the saved description. This does not say a deduction was removed.
  */
-export const LISTED_EQUIPMENT_RELEASE_QUESTION_PLACEHOLDER =
-  'PLACEHOLDER: Is this used in your main line of work, or only at your business location?';
+export const LISTED_EQUIPMENT_KIND_NEEDED_PLACEHOLDER =
+  'PLACEHOLDER: We need one answer about {asset name} before we can show your estimate. What kind of equipment is it?';
+
+export function listedEquipmentKindNeededCopy(assetName: string): string {
+  const name = assetName.trim() || 'this asset';
+  return LISTED_EQUIPMENT_KIND_NEEDED_PLACEHOLDER.replace('{asset name}', name);
+}
+
+/**
+ * Release questions, shown only for photo, audio, video, or communication gear.
+ * PLACEHOLDER wording. Reg. §1.280F-6(b)(3) does not exclude recreation equipment.
+ */
+export const LISTED_EQUIPMENT_MAIN_LINE_PLACEHOLDER = 'PLACEHOLDER: Used in my main line of work';
+export const LISTED_EQUIPMENT_BUSINESS_LOCATION_PLACEHOLDER = 'PLACEHOLDER: Used only at my business location';
+export const LISTED_EQUIPMENT_LOCATION_FOLLOW_UP_PLACEHOLDER =
+  'PLACEHOLDER: Is that a studio or office outside your home, or a home office you use regularly and only for business?';
+export const LISTED_EQUIPMENT_LOCATION_OUTSIDE = 'outside_home' as const;
+export const LISTED_EQUIPMENT_LOCATION_HOME = 'home_office' as const;
+export const LISTED_EQUIPMENT_LOCATIONS = [LISTED_EQUIPMENT_LOCATION_OUTSIDE, LISTED_EQUIPMENT_LOCATION_HOME] as const;
+export type ListedEquipmentLocation = (typeof LISTED_EQUIPMENT_LOCATIONS)[number];
+export const LISTED_EQUIPMENT_LOCATION_OUTSIDE_PLACEHOLDER = 'PLACEHOLDER: Outside the home';
+export const LISTED_EQUIPMENT_LOCATION_HOME_PLACEHOLDER = 'PLACEHOLDER: A home office';
+/** Earlier single release question. A stored yes or no on this field does not release a hold. */
+export const LISTED_EQUIPMENT_RELEASE_QUESTION_PLACEHOLDER = LISTED_EQUIPMENT_MAIN_LINE_PLACEHOLDER;
 
 /**
  * Customer-facing note when that answer is yes and business use is 50% or less.
@@ -42,9 +78,10 @@ export const LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER =
 export const LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER =
   'PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.';
 
-/** An asset the worksheet held instead of calculating. `question` means the equipment question is still blank. */
+/** An asset the worksheet held instead of calculating. `question` means the gear kind is still blank. */
 export interface ListedEquipmentHeldAsset {
   id: string;
+  name: string;
   reason: 'review' | 'question';
 }
 
@@ -65,18 +102,30 @@ export interface Asset {
   section179Requested: boolean;
   bonusEligible: boolean;
   /**
-   * Equipment only. Yes means photo, video, audio, communication, or recreation equipment.
-   * Cell phones and computers do not count. No means it is not that equipment.
-   * Blank (omit or null) means the question has not been answered.
-   * Ignored for every category other than equipment.
+   * Earlier yes/no equipment question. A saved yes with no gear kind reads as a blank kind.
+   * A saved no with no gear kind reads as neither. Ignored once a gear kind is stored.
    */
   listedEquipmentAnswer?: ListedEquipmentAnswer | null;
   /**
-   * Equipment only, and only asked when the first answer is yes or blank and business use is 50% or less.
-   * Yes means the asset is used in the main line of work or only at the business location, which releases the hold
-   * under Reg. §1.280F-6(b)(3) even if the first answer is blank. No, or blank, keeps the hold.
+   * Earlier single release answer. It does not release a hold. The two answers below do.
    */
   listedEquipmentReleaseAnswer?: ListedEquipmentAnswer | null;
+  /**
+   * Equipment only. Photo, audio, video, or communication gear can be released.
+   * Recreation or amusement gear at 50% or less stays held. Neither is not held.
+   * Blank, including a legacy yes with no kind, asks again.
+   */
+  listedEquipmentKind?: ListedEquipmentKind | null;
+  /** Yes releases photo, audio, video, or communication gear wherever it is kept. No or blank does not. */
+  listedEquipmentMainLineOfWork?: ListedEquipmentAnswer | null;
+  /** Yes can release that gear only when the location follow-up says the office is outside the home. */
+  listedEquipmentBusinessLocation?: ListedEquipmentAnswer | null;
+  /**
+   * Follow-up for a yes business-location answer.
+   * Home office settings do not store a confirmed qualifying home office for a tax year,
+   * so `home_office` does not release.
+   */
+  listedEquipmentLocationFollowUp?: ListedEquipmentLocation | null;
 }
 
 /**
@@ -195,20 +244,70 @@ export function normalizeListedEquipmentAnswer(value: unknown): ListedEquipmentA
   return 'invalid';
 }
 
+export function normalizeListedEquipmentKind(value: unknown): ListedEquipmentKind | null | 'invalid' {
+  if (value === undefined || value === null || value === '') return null;
+  if ((LISTED_EQUIPMENT_KINDS as readonly string[]).includes(String(value))) return value as ListedEquipmentKind;
+  return 'invalid';
+}
+
+export function normalizeListedEquipmentLocation(value: unknown): ListedEquipmentLocation | null | 'invalid' {
+  if (value === undefined || value === null || value === '') return null;
+  if ((LISTED_EQUIPMENT_LOCATIONS as readonly string[]).includes(String(value))) return value as ListedEquipmentLocation;
+  return 'invalid';
+}
+
+/**
+ * Stored gear kind, or the legacy yes/no question when no kind was saved.
+ * A saved yes with no kind stays blank so the question is asked again and the asset is never released.
+ * A saved no with no kind reads as neither.
+ */
+export function listedEquipmentKindFor(asset: Pick<Asset, 'listedEquipmentKind' | 'listedEquipmentAnswer'>): ListedEquipmentKind | null {
+  const kind = normalizeListedEquipmentKind(asset.listedEquipmentKind);
+  if (kind && kind !== 'invalid') return kind;
+  if (asset.listedEquipmentAnswer === 'no') return LISTED_EQUIPMENT_KIND_NEITHER;
+  return null;
+}
+
+/**
+ * The sentence shown instead of a profit figure when a gear kind is still missing.
+ * Recreation and other review holds keep the generic review sentence.
+ */
+export function listedEquipmentReviewDetail(heldAssets: readonly ListedEquipmentHeldAsset[]): string {
+  const asking = heldAssets.find(asset => asset.reason === 'question');
+  return asking ? listedEquipmentKindNeededCopy(asking.name) : LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER;
+}
+
+/** Attach the held asset id and name when a depreciation review error carries them. */
+export function depreciationReviewBody(error: unknown, fallback: string, code: string): { error: string; code: string; heldAssets?: ListedEquipmentHeldAsset[] } {
+  const message = error instanceof Error && error.message.trim() ? error.message : fallback;
+  const heldAssets = error && typeof error === 'object' && 'heldAssets' in error && Array.isArray((error as { heldAssets?: unknown }).heldAssets)
+    ? (error as { heldAssets: ListedEquipmentHeldAsset[] }).heldAssets : undefined;
+  return heldAssets ? { error: message, code, heldAssets } : { error: message, code };
+}
+
 /**
  * Equipment at 50% or less business use:
- * a yes release answer returns no hold, even when the first answer is blank (Reg. §1.280F-6(b)(3));
- * first answer no → no hold;
- * first answer yes, with the release answer no or blank → review (no Section 179, bonus, or accelerated MACRS; ADS is not calculated);
- * first answer blank, with the release answer no or blank → ask the first question and withhold those figures;
+ * neither, including a legacy no with no kind → no hold;
+ * photo, audio, video, or communication gear releases when it is used in the main line of work,
+ * or only at a business location that the follow-up places outside the home (Reg. §1.280F-6(b)(3));
+ * a home-office follow-up does not release, because home office settings do not store a confirmed
+ * qualifying home office for a tax year;
+ * recreation or amusement gear stays held and cannot be released;
+ * a blank kind, including a legacy yes with no kind, asks again;
  * business use over 50%, or any non-equipment category → no hold.
+ * A stored answer on the earlier single release question does not release anything.
  */
-export function listedEquipmentHoldFor(asset: Pick<Asset, 'category' | 'businessUsePercent' | 'listedEquipmentAnswer' | 'listedEquipmentReleaseAnswer'>): ListedEquipmentHold | null {
+export function listedEquipmentHoldFor(asset: Pick<Asset, 'category' | 'businessUsePercent' | 'listedEquipmentAnswer' | 'listedEquipmentKind' | 'listedEquipmentMainLineOfWork' | 'listedEquipmentBusinessLocation' | 'listedEquipmentLocationFollowUp'>): ListedEquipmentHold | null {
   if (!isEquipmentAssetCategory(asset.category)) return null;
   if (!listedEquipmentBusinessUseAtOrUnderCeiling(asset.businessUsePercent)) return null;
-  if (asset.listedEquipmentReleaseAnswer === 'yes') return null;
-  if (asset.listedEquipmentAnswer === 'no') return null;
-  if (asset.listedEquipmentAnswer === 'yes') return 'review';
+  const kind = listedEquipmentKindFor(asset);
+  if (kind === LISTED_EQUIPMENT_KIND_NEITHER) return null;
+  if (kind === LISTED_EQUIPMENT_KIND_PHOTO) {
+    if (asset.listedEquipmentMainLineOfWork === 'yes') return null;
+    if (asset.listedEquipmentBusinessLocation === 'yes' && asset.listedEquipmentLocationFollowUp === LISTED_EQUIPMENT_LOCATION_OUTSIDE) return null;
+    return 'review';
+  }
+  if (kind === LISTED_EQUIPMENT_KIND_RECREATION) return 'review';
   return 'question_required';
 }
 
@@ -236,12 +335,13 @@ const withheldAssetCalculation = (asset: Asset, hold: ListedEquipmentHold): Asse
  * Bonus depreciation (acquisition-date and binding-contract tests, class elections),
  * vehicles (§280F caps, substantiation), prior-year basis, straight-line
  * and mid-quarter cases require facts the existing asset form does not collect.
- * Equipment answered yes as photo, video, audio, communication, or recreation equipment
- * (cell phones and computers do not count), and equipment left blank, at 50% or less
- * business use is withheld for review under IRC 280F(b) and 280F(d)(4) unless the
- * taxpayer answers yes that it is used in the main line of work or only at a business
- * location (Reg. §1.280F-6(b)(3)). That yes releases the hold even when the first
- * answer is blank. This helper does not calculate ADS straight line for held property.
+ * Equipment at 50% or less business use is withheld under IRC 280F(b) and 280F(d)(4)
+ * until its gear kind is known. Photo, audio, video, or communication gear is released
+ * when it is used in the main line of work, or only at a business location outside the
+ * home (Reg. §1.280F-6(b)(3)). Recreation or amusement gear is not released.
+ * Cell phones and computers are not listed property under 26 U.S.C. 280F(d)(4)(A) as
+ * amended by Pub. L. 115-97 and Pub. L. 111-240. A blank kind asks again and does not
+ * remove a deduction figure. This helper does not calculate ADS straight line for held property.
  * https://www.irs.gov/publications/p946 · https://www.irs.gov/instructions/i4562
  */
 export function calc4562(assets: Asset[], businessIncome: number, taxYear: number, elections?: DepreciationElections | null): Form4562Calculation {
@@ -327,7 +427,7 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
   for (const asset of current) {
     const hold = listedEquipmentHoldFor(asset);
     if (hold === 'review') notes.push(`${asset.description}: ${LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER}`);
-    if (hold === 'question_required') notes.push(`${asset.description}: ${LISTED_EQUIPMENT_QUESTION_PLACEHOLDER}`);
+    if (hold === 'question_required') notes.push(listedEquipmentKindNeededCopy(asset.description));
   }
 
   const calculations: AssetCalculation[] = current.map(asset => {
@@ -351,8 +451,8 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
   const totalRegularDepreciation = sum(row => row.regularDepreciation);
   const heldAssets: ListedEquipmentHeldAsset[] = [];
   for (const row of calculations) {
-    if (row.listedEquipmentHold === 'review') heldAssets.push({ id: row.asset.id, reason: 'review' });
-    else if (row.listedEquipmentHold === 'question_required') heldAssets.push({ id: row.asset.id, reason: 'question' });
+    if (row.listedEquipmentHold === 'review') heldAssets.push({ id: row.asset.id, name: row.asset.description, reason: 'review' });
+    else if (row.listedEquipmentHold === 'question_required') heldAssets.push({ id: row.asset.id, name: row.asset.description, reason: 'question' });
   }
   return {
     taxYear, assets: calculations, totalDeMinimisExpense: sum(row => row.deMinimisExpense), section179, totalSection179,

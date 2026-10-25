@@ -8,7 +8,8 @@ const { calc4562 } = depreciation;
 const TAX_YEAR = 2026;
 const BUSINESS_INCOME = 50000;
 const GROSS_RECEIPTS = 20000;
-const QUESTION = 'PLACEHOLDER: Is this photo, video, audio, communication or recreation equipment?';
+const QUESTION = 'PLACEHOLDER: We need one answer about Camera before we can show your estimate. What kind of equipment is it?';
+const RECREATION = 'recreation_or_amusement';
 const REVIEW_NOTE = 'PLACEHOLDER: This asset needs review.';
 const PROFIT_REVIEW = 'PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.';
 
@@ -53,7 +54,7 @@ afterEach(() => { vi.useRealTimers(); });
 
 describe('calc4562 at 30 percent business use', () => {
   it('holds a yes answer with no Section 179, bonus, or MACRS figure', () => {
-    const sample = asset({ businessUsePercent: 30, listedEquipmentAnswer: 'yes', section179Requested: false, bonusEligible: false });
+    const sample = asset({ businessUsePercent: 30, listedEquipmentAnswer: 'yes', listedEquipmentKind: RECREATION, section179Requested: false, bonusEligible: false });
     const result = calc4562([sample], BUSINESS_INCOME, TAX_YEAR);
     const baseMacrs = macrsFromHelpers(sample.cost, sample.businessUsePercent, sample.method);
     expect(baseMacrs).toBeGreaterThan(0);
@@ -93,7 +94,7 @@ describe('computeScheduleCProfit at 30 percent business use', () => {
   };
 
   it('sends profit to review for a yes answer', () => {
-    const sample = asset({ businessUsePercent: 30, listedEquipmentAnswer: 'yes', section179Requested: false, bonusEligible: false });
+    const sample = asset({ businessUsePercent: 30, listedEquipmentAnswer: 'yes', listedEquipmentKind: RECREATION, section179Requested: false, bonusEligible: false });
     const baseMacrs = macrsFromHelpers(sample.cost, sample.businessUsePercent, sample.method);
     const { profit, error } = capture(sample);
     expect(baseMacrs).toBeGreaterThan(0);
@@ -111,7 +112,8 @@ describe('computeScheduleCProfit at 30 percent business use', () => {
       expect(baseMacrs).toBeGreaterThan(0);
       expect(profit === null ? 0 : profit.depreciationDeduction).toBe(0);
       expect(profit === null ? null : profit.netProfit).toBeNull();
-      expect(error?.message ?? '').toContain(PROFIT_REVIEW);
+      expect(error?.message ?? '').toContain(QUESTION);
+      expect(error?.message ?? '').not.toContain(PROFIT_REVIEW);
       expect((error as { code?: string } | null)?.code).toBe('DEPRECIATION_REVIEW_REQUIRED');
     }
   });
@@ -134,7 +136,7 @@ describe('calc4562 when Section 179 is not requested', () => {
     ['yes at 50 percent', 50],
     ['yes at 30 percent', 30],
   ])('holds %s with no figure', (_label, businessUsePercent) => {
-    const sample = asset({ businessUsePercent, listedEquipmentAnswer: 'yes', section179Requested: false, bonusEligible: false });
+    const sample = asset({ businessUsePercent, listedEquipmentAnswer: 'yes', listedEquipmentKind: RECREATION, section179Requested: false, bonusEligible: false });
     const result = calc4562([sample], BUSINESS_INCOME, TAX_YEAR);
     const baseMacrs = macrsFromHelpers(sample.cost, sample.businessUsePercent, sample.method);
     expect(baseMacrs).toBeGreaterThan(0);
@@ -145,7 +147,7 @@ describe('calc4562 when Section 179 is not requested', () => {
 
 describe('computeScheduleCProfit when Section 179 is not requested', () => {
   const capture = (businessUsePercent: number) => {
-    const sample = asset({ businessUsePercent, listedEquipmentAnswer: 'yes', section179Requested: false, bonusEligible: false });
+    const sample = asset({ businessUsePercent, listedEquipmentAnswer: 'yes', listedEquipmentKind: RECREATION, section179Requested: false, bonusEligible: false });
     try {
       const profit = computeScheduleCProfit({
         taxYear: TAX_YEAR, grossReceipts: GROSS_RECEIPTS, confirmedExpenses: 0, w2Wages: 0, assets: [sample],

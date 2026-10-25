@@ -10,6 +10,8 @@ import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 import type { BusinessTaxNotice, StateTaxComponents, StateTaxLine } from "@/lib/tax-rules/state";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { ListedEquipmentKindPrompt } from "@/components/listed-equipment-kind-prompt";
+import type { ListedEquipmentHeldAsset } from "@/lib/reports/calc4562";
 
 interface Props {
   user: { id: string; email?: string };
@@ -72,13 +74,14 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [reviewCode, setReviewCode] = useState<string | null>(null);
   const [reviewConflicts, setReviewConflicts] = useState<Array<{ message: string; sources: Array<{ label: string; amount: number }> }>>([]);
+  const [heldAssets, setHeldAssets] = useState<ListedEquipmentHeldAsset[]>([]);
   const [data, setData] = useState<any>(null);
   const [showDetails, setShowDetails] = useState(false);
   const requestId = useRef(0);
 
   const load = useCallback(async () => {
     const currentRequest = ++requestId.current;
-    setLoading(true); setError(null); setReviewCode(null); setReviewConflicts([]); setData(null);
+    setLoading(true); setError(null); setReviewCode(null); setReviewConflicts([]); setHeldAssets([]); setData(null);
     try {
       const res = await makeAuthenticatedRequest(`/api/tax/compute-1040?year=${year}`);
       const result = await res.json();
@@ -87,6 +90,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
           setReviewCode(result.code);
           // The income gate names conflicting records by reference so the owner knows what to reconcile.
           setReviewConflicts(Array.isArray(result.conflicts) ? result.conflicts.filter((c: unknown) => c && typeof c === 'object' && typeof (c as { message?: unknown }).message === 'string') : []);
+          setHeldAssets(Array.isArray(result.heldAssets) ? result.heldAssets.filter((asset: ListedEquipmentHeldAsset) => asset && typeof asset.id === 'string' && typeof asset.name === 'string') : []);
         }
         throw new Error(result.error || "Failed to compute estimate");
       }
@@ -164,7 +168,9 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
             )}
             {onNavigate && reviewCode === 'HOME_OFFICE_REVIEW_REQUIRED' &&
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate('settings')}>Review home office settings</Button>}
-            {reviewCode === 'DEPRECIATION_REVIEW_REQUIRED' &&
+            {reviewCode === 'DEPRECIATION_REVIEW_REQUIRED' && heldAssets.some(asset => asset.reason === 'question') &&
+              <div className="mt-3"><ListedEquipmentKindPrompt assets={heldAssets.filter(asset => asset.reason === 'question')} /></div>}
+            {reviewCode === 'DEPRECIATION_REVIEW_REQUIRED' && !heldAssets.some(asset => asset.reason === 'question') &&
               <Button asChild className="mt-3 min-h-11" variant="outline"><Link href="/protected/tax-forms-setup?tab=assets">Review asset records</Link></Button>}
             {onNavigate && reviewCode === 'INCOME_RECONCILIATION_REQUIRED' &&
               <Button className="mt-3 min-h-11" variant="outline" onClick={() => onNavigate(`income-tracking?tab=reconcile&year=${year}`)}>Reconcile income sources</Button>}

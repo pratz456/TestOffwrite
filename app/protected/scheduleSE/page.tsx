@@ -12,7 +12,8 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { useToasts } from '@/components/ui/toast';
 import { ToastContainer } from '@/components/ui/toast';
 import { calcScheduleSE, validateTaxSummarySettings, TaxSummarySettings } from '@/lib/reports/calcSE';
-import { LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER } from '@/lib/reports/calc4562';
+import { LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER, type ListedEquipmentHeldAsset } from '@/lib/reports/calc4562';
+import { ListedEquipmentKindPrompt } from '@/components/listed-equipment-kind-prompt';
 
 export default function ScheduleSEPage() {
   const router = useRouter();
@@ -27,6 +28,7 @@ export default function ScheduleSEPage() {
   const [calculation, setCalculation] = useState<any>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [figureReview, setFigureReview] = useState<string | null>(null);
+  const [heldAssets, setHeldAssets] = useState<ListedEquipmentHeldAsset[]>([]);
 
   useEffect(() => {
     if (user) {
@@ -38,6 +40,7 @@ export default function ScheduleSEPage() {
     try {
       setIsLoading(true);
       setFigureReview(null);
+      setHeldAssets([]);
       // Try auto-calculate first (reads directly from transactions + income)
       const { auth } = await import('@/lib/firebase/client');
       const currentUser = auth.currentUser;
@@ -52,11 +55,13 @@ export default function ScheduleSEPage() {
           setCalculation(null);
           setTaxSummary(null);
           setValidationErrors([]);
+          setHeldAssets(Array.isArray(autoData.heldAssets) ? autoData.heldAssets.filter((asset: ListedEquipmentHeldAsset) => asset && typeof asset.id === 'string' && typeof asset.name === 'string') : []);
           setFigureReview(typeof autoData.error === 'string' && autoData.error.trim() ? autoData.error : LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER);
           return;
         }
         if (autoRes.ok && autoData.calculation) {
           setFigureReview(null);
+          setHeldAssets([]);
           setCalculation(autoData.calculation);
           setTaxSummary({ scheduleCNetProfit: autoData.netProfit, taxYear: parseInt(selectedYear) });
           setValidationErrors([]);
@@ -233,8 +238,9 @@ export default function ScheduleSEPage() {
           {figureReview ? (
             <div role="alert" className="text-center py-6">
               <AlertCircle className="w-8 h-8 text-amber-600 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">This figure needs review</h3>
-              <p className="text-gray-700">{figureReview}</p>
+              {heldAssets.some(asset => asset.reason === 'question')
+                ? <ListedEquipmentKindPrompt assets={heldAssets.filter(asset => asset.reason === 'question')} />
+                : <><h3 className="text-lg font-medium text-gray-900 mb-2">This figure needs review</h3><p className="text-gray-700">{figureReview}</p></>}
             </div>
           ) : !taxSummary ? (
             <div className="text-center py-6">

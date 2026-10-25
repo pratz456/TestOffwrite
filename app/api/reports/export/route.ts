@@ -7,6 +7,7 @@ import { generateForm8829PDF } from '@/lib/reports/form8829';
 import { generateForm4562PDF } from '@/lib/reports/form4562';
 import { generateScheduleSEPDF } from '@/lib/reports/scheduleSE';
 import { loadScheduleCRecords, loadScheduleSEData, scheduleCProfitFromRecords } from '@/lib/reports/load-schedule-se';
+import { depreciationReviewBody } from '@/lib/reports/calc4562';
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { exportYear } from '@/lib/reports/transaction-export';
 import { HomeOfficeReviewRequiredError, homeOfficeReviewReasons } from '@/lib/reports/calc8829';
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
     if (REVIEW_CODES.includes(code)) {
-      return NextResponse.json({ error: error instanceof Error ? error.message : 'Additional tax details required', code }, { status: 422 });
+      return NextResponse.json(depreciationReviewBody(error, 'Additional tax details required', code), { status: 422 });
     }
     return NextResponse.json({ error: 'Could not load a complete report. Please retry.' }, { status: 503 });
   }

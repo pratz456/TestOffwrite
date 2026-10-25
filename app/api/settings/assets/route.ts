@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
 import { saveAsset, deleteAsset, updateAsset } from '@/lib/firebase/settings-server';
-import { isEquipmentAssetCategory, normalizeListedEquipmentAnswer } from '@/lib/reports/calc4562';
+import { isEquipmentAssetCategory, normalizeListedEquipmentAnswer, normalizeListedEquipmentKind, normalizeListedEquipmentLocation } from '@/lib/reports/calc4562';
 import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 
 const MAX_ASSETS_PER_REQUEST = 100;
@@ -91,6 +91,18 @@ export async function POST(request: NextRequest) {
       if ('listedEquipmentReleaseAnswer' in asset && normalizeListedEquipmentAnswer(asset.listedEquipmentReleaseAnswer) === 'invalid') {
         return NextResponse.json({ error: 'The equipment release answer must be yes, no, or blank' }, { status: 400 });
       }
+      if ('listedEquipmentKind' in asset && normalizeListedEquipmentKind(asset.listedEquipmentKind) === 'invalid') {
+        return NextResponse.json({ error: 'The equipment kind must be photo, audio, video or communication gear, recreation or amusement gear, neither, or blank' }, { status: 400 });
+      }
+      if ('listedEquipmentMainLineOfWork' in asset && normalizeListedEquipmentAnswer(asset.listedEquipmentMainLineOfWork) === 'invalid') {
+        return NextResponse.json({ error: 'The equipment main line of work answer must be yes, no, or blank' }, { status: 400 });
+      }
+      if ('listedEquipmentBusinessLocation' in asset && normalizeListedEquipmentAnswer(asset.listedEquipmentBusinessLocation) === 'invalid') {
+        return NextResponse.json({ error: 'The equipment business location answer must be yes, no, or blank' }, { status: 400 });
+      }
+      if ('listedEquipmentLocationFollowUp' in asset && normalizeListedEquipmentLocation(asset.listedEquipmentLocationFollowUp) === 'invalid') {
+        return NextResponse.json({ error: 'The equipment location must be outside the home, a home office, or blank' }, { status: 400 });
+      }
     }
 
     // Save each asset
@@ -98,7 +110,12 @@ export async function POST(request: NextRequest) {
     for (const asset of assets) {
       const listedEquipmentAnswer = normalizeListedEquipmentAnswer(asset.listedEquipmentAnswer);
       const listedEquipmentReleaseAnswer = normalizeListedEquipmentAnswer(asset.listedEquipmentReleaseAnswer);
+      const listedEquipmentKind = normalizeListedEquipmentKind(asset.listedEquipmentKind);
+      const listedEquipmentMainLineOfWork = normalizeListedEquipmentAnswer(asset.listedEquipmentMainLineOfWork);
+      const listedEquipmentBusinessLocation = normalizeListedEquipmentAnswer(asset.listedEquipmentBusinessLocation);
+      const listedEquipmentLocationFollowUp = normalizeListedEquipmentLocation(asset.listedEquipmentLocationFollowUp);
       const equipment = isEquipmentAssetCategory(asset.category);
+      const yesNo = (value: 'yes' | 'no' | null | 'invalid') => value === 'yes' || value === 'no' ? value : null;
       const record = {
         description: asset.description,
         datePlacedInService: new Date(asset.datePlacedInService),
@@ -110,6 +127,10 @@ export async function POST(request: NextRequest) {
         bonusEligible: asset.bonusEligible,
         ...(equipment && (listedEquipmentAnswer === 'yes' || listedEquipmentAnswer === 'no') ? { listedEquipmentAnswer } : {}),
         ...(equipment && (listedEquipmentReleaseAnswer === 'yes' || listedEquipmentReleaseAnswer === 'no') ? { listedEquipmentReleaseAnswer } : {}),
+        ...(equipment && listedEquipmentKind && listedEquipmentKind !== 'invalid' ? { listedEquipmentKind } : {}),
+        ...(equipment && yesNo(listedEquipmentMainLineOfWork) ? { listedEquipmentMainLineOfWork: yesNo(listedEquipmentMainLineOfWork) } : {}),
+        ...(equipment && yesNo(listedEquipmentBusinessLocation) ? { listedEquipmentBusinessLocation: yesNo(listedEquipmentBusinessLocation) } : {}),
+        ...(equipment && listedEquipmentLocationFollowUp && listedEquipmentLocationFollowUp !== 'invalid' ? { listedEquipmentLocationFollowUp } : {}),
       };
       const { data, error } = await saveAsset(user.uid, record);
 
@@ -156,11 +177,25 @@ export async function PATCH(request: NextRequest) {
     }
     const touchesAnswer = Object.prototype.hasOwnProperty.call(body, 'listedEquipmentAnswer');
     const touchesRelease = Object.prototype.hasOwnProperty.call(body, 'listedEquipmentReleaseAnswer');
-    if (!touchesAnswer && !touchesRelease) return NextResponse.json({ error: 'An equipment answer is required' }, { status: 400 });
+    const touchesKind = Object.prototype.hasOwnProperty.call(body, 'listedEquipmentKind');
+    const touchesMainLine = Object.prototype.hasOwnProperty.call(body, 'listedEquipmentMainLineOfWork');
+    const touchesLocation = Object.prototype.hasOwnProperty.call(body, 'listedEquipmentBusinessLocation');
+    const touchesPlace = Object.prototype.hasOwnProperty.call(body, 'listedEquipmentLocationFollowUp');
+    if (!touchesAnswer && !touchesRelease && !touchesKind && !touchesMainLine && !touchesLocation && !touchesPlace) {
+      return NextResponse.json({ error: 'An equipment answer is required' }, { status: 400 });
+    }
     const answer = touchesAnswer ? normalizeListedEquipmentAnswer(body.listedEquipmentAnswer) : null;
     const release = touchesRelease ? normalizeListedEquipmentAnswer(body.listedEquipmentReleaseAnswer) : null;
+    const kind = touchesKind ? normalizeListedEquipmentKind(body.listedEquipmentKind) : null;
+    const mainLine = touchesMainLine ? normalizeListedEquipmentAnswer(body.listedEquipmentMainLineOfWork) : null;
+    const location = touchesLocation ? normalizeListedEquipmentAnswer(body.listedEquipmentBusinessLocation) : null;
+    const place = touchesPlace ? normalizeListedEquipmentLocation(body.listedEquipmentLocationFollowUp) : null;
     if (answer === 'invalid') return NextResponse.json({ error: 'The equipment answer must be yes, no, or blank' }, { status: 400 });
     if (release === 'invalid') return NextResponse.json({ error: 'The equipment release answer must be yes, no, or blank' }, { status: 400 });
+    if (kind === 'invalid') return NextResponse.json({ error: 'The equipment kind must be photo, audio, video or communication gear, recreation or amusement gear, neither, or blank' }, { status: 400 });
+    if (mainLine === 'invalid') return NextResponse.json({ error: 'The equipment main line of work answer must be yes, no, or blank' }, { status: 400 });
+    if (location === 'invalid') return NextResponse.json({ error: 'The equipment business location answer must be yes, no, or blank' }, { status: 400 });
+    if (place === 'invalid') return NextResponse.json({ error: 'The equipment location must be outside the home, a home office, or blank' }, { status: 400 });
     const existing = await getAssetsSettings(user.uid);
     if (existing.error || !existing.data) return NextResponse.json({ error: 'Failed to load assets' }, { status: 500 });
     const current = existing.data.find(asset => asset.id === assetId);
@@ -172,6 +207,10 @@ export async function PATCH(request: NextRequest) {
     const { data, error } = await updateAsset(user.uid, assetId, {
       ...(touchesAnswer ? { listedEquipmentAnswer: stored(answer) } : {}),
       ...(touchesRelease ? { listedEquipmentReleaseAnswer: stored(release) } : {}),
+      ...(touchesKind ? { listedEquipmentKind: kind } : {}),
+      ...(touchesMainLine ? { listedEquipmentMainLineOfWork: stored(mainLine) } : {}),
+      ...(touchesLocation ? { listedEquipmentBusinessLocation: stored(location) } : {}),
+      ...(touchesPlace ? { listedEquipmentLocationFollowUp: place } : {}),
     });
     if (error || !data) return NextResponse.json({ error: 'Failed to save the equipment answer' }, { status: 500 });
     return NextResponse.json({ success: true, data });

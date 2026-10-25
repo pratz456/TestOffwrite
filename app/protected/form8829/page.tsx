@@ -13,6 +13,8 @@ import { useToasts } from '@/components/ui/toast';
 import { ToastContainer } from '@/components/ui/toast';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
 import { SIMPLIFIED_MAX_SQFT, type HomeOfficeSettings, type SimplifiedHomeOfficeCalculation } from '@/lib/reports/calc8829';
+import { type ListedEquipmentHeldAsset } from '@/lib/reports/calc4562';
+import { ListedEquipmentKindPrompt } from '@/components/listed-equipment-kind-prompt';
 
 interface HomeOfficeWorksheetResponse {
   taxYear: number;
@@ -26,7 +28,7 @@ interface HomeOfficeWorksheetResponse {
 type WorksheetState =
   | { status: 'loading' }
   | { status: 'ready'; data: HomeOfficeWorksheetResponse }
-  | { status: 'review'; code: string; message: string; reasons: string[]; settings: HomeOfficeSettings | null }
+  | { status: 'review'; code: string; message: string; reasons: string[]; settings: HomeOfficeSettings | null; heldAssets: ListedEquipmentHeldAsset[] }
   | { status: 'error'; message: string };
 
 const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -50,7 +52,7 @@ export default function Form8829Page() {
       const body = await response.json().catch(() => ({}));
       if (current !== requestId.current) return;
       if (response.status === 422 && typeof body.code === 'string') {
-        setState({ status: 'review', code: body.code, message: body.error || 'Review the saved records before calculating.', reasons: Array.isArray(body.reviewReasons) ? body.reviewReasons : [], settings: body.settings ?? null });
+        setState({ status: 'review', code: body.code, message: body.error || 'Review the saved records before calculating.', reasons: Array.isArray(body.reviewReasons) ? body.reviewReasons : [], settings: body.settings ?? null, heldAssets: Array.isArray(body.heldAssets) ? body.heldAssets : [] });
         return;
       }
       if (!response.ok) throw new Error(body.error || 'The home office worksheet could not be loaded.');
@@ -176,19 +178,23 @@ export default function Form8829Page() {
           {state.status === 'review' && (
             <div className="py-6" role="alert">
               <AlertCircle className="w-12 h-12 text-amber-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2 text-center">{state.code === 'HOME_OFFICE_REVIEW_REQUIRED' ? 'Home office facts need review' : 'Records need review before this worksheet'}</h3>
-              <p className="text-sm text-gray-700 text-center mb-4">{state.message}</p>
+              {state.code === 'DEPRECIATION_REVIEW_REQUIRED' && state.heldAssets.some(asset => asset.reason === 'question')
+                ? <ListedEquipmentKindPrompt assets={state.heldAssets.filter(asset => asset.reason === 'question')} />
+                : <><h3 className="text-lg font-medium text-gray-900 mb-2 text-center">{state.code === 'HOME_OFFICE_REVIEW_REQUIRED' ? 'Home office facts need review' : 'Records need review before this worksheet'}</h3>
+              <p className="text-sm text-gray-700 text-center mb-4">{state.message}</p></>}
               {state.reasons.length > 0 && (
                 <ul className="text-sm text-gray-700 space-y-1 max-w-xl mx-auto list-disc pl-5 mb-4">
                   {state.reasons.map(reason => <li key={reason}>{reason}</li>)}
                 </ul>
               )}
+              {!(state.code === 'DEPRECIATION_REVIEW_REQUIRED' && state.heldAssets.some(asset => asset.reason === 'question')) && (
               <div className="text-center">
                 <Button onClick={handleSetupSettings} className="bg-blue-600 hover:bg-blue-700 text-white">
                   <Home className="w-4 h-4 mr-2" />
                   {state.code === 'HOME_OFFICE_REVIEW_REQUIRED' ? 'Answer the home office questions' : 'Open Settings'}
                 </Button>
               </div>
+              )}
             </div>
           )}
 

@@ -28,7 +28,14 @@ vi.mock('lucide-react', () => ({ ArrowLeft: () => null, Download: () => null, Us
 
 import ScheduleSEPage from '../app/protected/scheduleSE/page';
 
-const text = (node: any): string => Array.isArray(node) ? node.map(text).join('') : node && typeof node === 'object' ? text(node.props?.children) : typeof node === 'string' || typeof node === 'number' ? String(node) : '';
+const text = (node: any): string => {
+  if (Array.isArray(node)) return node.map(text).join('');
+  if (node && typeof node === 'object') {
+    if (typeof node.type === 'function') return text(node.type(node.props));
+    return `${typeof node.props?.href === 'string' ? node.props.href : ''}${text(node.props?.children)}`;
+  }
+  return typeof node === 'string' || typeof node === 'number' ? String(node) : '';
+};
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 const MESSAGE = 'PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.';
 const render = () => { h.cursor = 0; const tree = ScheduleSEPage(); h.effects.splice(0).forEach(effect => effect()); return tree; };
@@ -56,6 +63,32 @@ describe('Schedule SE page', () => {
     expect(content).toContain(MESSAGE);
     expect(content).not.toContain('99999');
     expect(content).not.toContain('Schedule C Net Profit');
+  });
+
+  it('shows the named gear question instead of the generic review message when the kind is missing', async () => {
+    const question = 'PLACEHOLDER: We need one answer about Camera before we can show your estimate. What kind of equipment is it?';
+    h.fetch.mockImplementation(async (url: string) => {
+      if (String(url).includes('/api/tax/schedule-se/auto')) {
+        return new Response(JSON.stringify({
+          error: `Asset depreciation needs review: ${MESSAGE}`,
+          code: 'DEPRECIATION_REVIEW_REQUIRED',
+          heldAssets: [{ id: 'camera', name: 'Camera', reason: 'question' }],
+        }), { status: 422, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: { scheduleCNetProfit: 99999, taxYear: 2026 } }), { status: 200 });
+    });
+    render(); await flush();
+    const content = text(render());
+    expect(content).toContain(question);
+    expect(content).toContain('PLACEHOLDER: photo, audio, video or communication gear');
+    expect(content).toContain('PLACEHOLDER: recreation or amusement gear');
+    expect(content).toContain('PLACEHOLDER: neither');
+    expect(content).toContain('PLACEHOLDER: Cell phones and computers do not count.');
+    expect(content).toContain('Answer now');
+    expect(content).toContain('/protected/form4562?asset=camera');
+    expect(content).not.toContain(MESSAGE);
+    expect(content).not.toContain('This figure needs review');
+    expect(content).not.toContain('99999');
   });
 
   it('shows the auto calculation when nothing is held', async () => {

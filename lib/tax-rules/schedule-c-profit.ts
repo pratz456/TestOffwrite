@@ -1,4 +1,4 @@
-import { calc4562, DepreciationReviewRequiredError, LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER, type Asset, type DepreciationElections, type Form4562Calculation, type ListedEquipmentHeldAsset } from '@/lib/reports/calc4562';
+import { calc4562, DepreciationReviewRequiredError, listedEquipmentReviewDetail, type Asset, type DepreciationElections, type Form4562Calculation, type ListedEquipmentHeldAsset } from '@/lib/reports/calc4562';
 import { resolveHomeOfficeDeduction, type HomeOfficeResolution, type HomeOfficeSettings } from '@/lib/reports/calc8829';
 
 /** Review codes the shared Schedule C ordering can raise; routes answer them with HTTP 422. */
@@ -69,7 +69,7 @@ export function computeScheduleCProfit(input: ScheduleCProfitInput): ScheduleCPr
     : null;
   const heldAssets = assetCalculation?.heldAssets ?? [];
   // Same whole-worksheet review the bonus gate used: callers already map this code to HTTP 422 and show no dollars.
-  if (heldAssets.length) throw new DepreciationReviewRequiredError(LISTED_EQUIPMENT_PROFIT_REVIEW_PLACEHOLDER, heldAssets);
+  if (heldAssets.length) throw new DepreciationReviewRequiredError(listedEquipmentReviewDetail(heldAssets), heldAssets);
   const deMinimisExpense = assetCalculation?.totalDeMinimisExpense ?? 0;
   const depreciationDeduction = assetCalculation?.totalDepreciation ?? 0;
   const tentativeProfit = cents(profitBeforeAssets - deMinimisExpense - depreciationDeduction);
