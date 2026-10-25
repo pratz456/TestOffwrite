@@ -175,13 +175,11 @@ describe('equipment listed-property flag', () => {
     const sibling = asset({ id: 'sibling', description: 'Office computer', category: 'computer', cost: 10000, businessUsePercent: 100, section179Requested: true });
     const held = asset({ id: 'held', description: 'Lighting kit', cost: 6650000, businessUsePercent: 50, listedEquipmentAnswer: 'yes', listedEquipmentKind: 'recreation_or_amusement', section179Requested: true, bonusEligible: true });
     const combined = calc4562([sibling, held], BUSINESS_INCOME, TAX_YEAR);
-    const alone = calc4562([sibling], BUSINESS_INCOME, TAX_YEAR);
-    const expected = roundCents(businessUseBasis(sibling.cost, sibling.businessUsePercent));
     expect(combined.assets.find(row => row.asset.id === 'held')!.totalDepreciation).toBe(0);
-    expect(combined.totalSection179).toBe(expected);
-    expect(combined.section179?.costOfSection179Property).toBe(sibling.cost);
-    expect(combined.totalDepreciation).toBe(alone.totalDepreciation);
-    expect(combined.totalSection179).toBe(alone.totalSection179);
+    expect(combined.section179?.costOfSection179Property).toBe(sibling.cost + held.cost);
+    expect(combined.section179?.dollarLimitAfterPhaseout).toBe(0);
+    expect(combined.totalSection179).toBe(0);
+    expect(combined.assets.find(row => row.asset.id === 'sibling')!.regularDepreciation).toBe(acceleratedMacrsDeduction(sibling.cost, sibling.method));
     const heldLastQuarter = { ...held, datePlacedInService: new Date(Date.UTC(TAX_YEAR, 10, 1)) };
     expect(() => calc4562([sibling, heldLastQuarter], BUSINESS_INCOME, TAX_YEAR)).toThrow(/mid-quarter/);
     const cheapHeld = asset({ id: 'cheap', description: 'Microphone', cost: 2000, businessUsePercent: 50, listedEquipmentAnswer: 'yes', listedEquipmentKind: 'recreation_or_amusement' });
@@ -193,6 +191,18 @@ describe('equipment listed-property flag', () => {
     expect(expensed.totalDeMinimisExpense).toBe(siblingExpense);
     expect(expensed.totalDeMinimisExpense).not.toBe(roundCents(siblingExpense + withheldExpense));
     expect(expensed.assets.find(row => row.asset.id === 'cheap')!.deMinimisExpense).toBe(0);
+  });
+
+  it('reduces the Section 179 dollar limit when a held asset pushes cost over the phaseout threshold', () => {
+    const electing = asset({ id: 'computer', description: 'Office computer', category: 'computer', cost: 100000, businessUsePercent: 100, section179Requested: true });
+    const held = asset({ id: 'held', description: 'Lighting kit', cost: 4000000, businessUsePercent: 50, listedEquipmentAnswer: 'yes', listedEquipmentKind: 'recreation_or_amusement' });
+    const result = calc4562([electing, held], BUSINESS_INCOME, TAX_YEAR);
+    const alone = calc4562([electing], BUSINESS_INCOME, TAX_YEAR);
+    expect(result.section179?.costOfSection179Property).toBe(electing.cost + held.cost);
+    expect(result.section179?.dollarLimitAfterPhaseout).toBe(2550000);
+    expect(alone.section179?.dollarLimitAfterPhaseout).toBe(2560000);
+    expect(result.section179!.dollarLimitAfterPhaseout).toBeLessThan(alone.section179!.dollarLimitAfterPhaseout);
+    expect(result.assets.find(row => row.asset.id === 'held')).toMatchObject({ section179Deduction: 0, bonusDepreciation: 0, regularDepreciation: 0, totalDepreciation: 0 });
   });
 
   const heldPhoto = (overrides: Partial<Asset>): Asset => asset({
