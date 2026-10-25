@@ -70,9 +70,40 @@ export function partitionExportYear(records: ExportRecord[], year: number): { da
   }
   return { dated, dateNeeded };
 }
+export interface MileageDateNeededTrip { miles: number }
+export interface MileageDateNeededSummary {
+  count: number;
+  miles: number;
+  label: string;
+  trips: MileageDateNeededTrip[];
+}
+function recordedTripMiles(record: ExportRecord): number {
+  const value = record.miles;
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : Number.NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.round(parsed * 100) / 100;
+}
+function formatTripMiles(miles: number): string {
+  const hundredths = Math.round(miles * 100);
+  const whole = Math.floor(hundredths / 100);
+  const fraction = hundredths % 100;
+  const digits = fraction === 0 ? String(whole) : `${whole}.${String(fraction).padStart(2, '0').replace(/0$/, '')}`;
+  return `${digits} ${hundredths === 100 ? 'mile' : 'miles'}`;
+}
+/** Count and miles only. An undated trip has no rate, so this summary never carries dollars. */
+export function summarizeMileageDateNeeded(records: ExportRecord[]): MileageDateNeededSummary {
+  const trips = records.map(record => ({ miles: recordedTripMiles(record) }));
+  const hundredths = trips.reduce((sum, trip) => sum + Math.round(trip.miles * 100), 0);
+  const miles = hundredths / 100;
+  const count = records.length;
+  return { count, miles, label: `Date needed: ${count} ${count === 1 ? 'trip' : 'trips'}, ${formatTripMiles(miles)}`, trips };
+}
+/** Dated rows for one year. A blank or invalid date throws, because this caller has no Date needed summary. */
 export function selectExportYear(records: ExportRecord[], year?: number): ExportRecord[] {
   if (year === undefined) return [...records];
-  return partitionExportYear(records, year).dated;
+  const split = partitionExportYear(records, year);
+  if (split.dateNeeded.length) throw new ExportReviewRequiredError('Some saved records have missing or invalid dates. Correct them before exporting a selected year, or download all records for review.');
+  return split.dated;
 }
 function blankCsvCells(): string[] {
   return TRANSACTION_CSV_HEADERS.map(() => '');

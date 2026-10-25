@@ -4,7 +4,7 @@ import { aggregateScheduleC, CATEGORY_MAP } from '@/lib/schedule-c/aggregate';
 import { summarizeRecordedCashFlow } from '@/lib/dashboard/cash-flow-summary';
 import { summarizeConfirmedDeductions } from '@/lib/tax/display-deductions';
 import { generateActionItems } from '@/lib/guidance/action-engine';
-import { appendTransactionDateNeeded, convertTransactionsToCSV, partitionExportYear, selectExportYear, summarizeDateNeeded } from '@/lib/reports/transaction-export';
+import { appendTransactionDateNeeded, convertTransactionsToCSV, partitionExportYear, summarizeDateNeeded, summarizeMileageDateNeeded } from '@/lib/reports/transaction-export';
 import { preparerMonthlySummary, generatePreparerReport } from '@/lib/reports/preparer-report';
 import { generateScheduleCCSV } from '@/lib/reports/schedule-c-csv';
 import { generateScheduleCPlanningPDF } from '@/lib/reports/schedule-c-pdf';
@@ -81,8 +81,8 @@ describe('selected-year exports keep dated rows and a Date needed section', () =
     expect(quarterly.yearTotal).toBe(165.5);
     expect(quarterly.dateNeeded).toMatchObject({ count, total, label });
     const { dated, dateNeeded } = partitionExportYear(rows, 2026);
-    expect(selectExportYear(rows, 2026)).toHaveLength(3);
-    expect(summarizeDateNeeded(dateNeeded)).toMatchObject({ count, total, label });
+    expect(dateNeeded).toHaveLength(count);
+    expect(summarizeDateNeeded(dateNeeded).label).toBe(label);
     const csv = appendTransactionDateNeeded(convertTransactionsToCSV(dated), dated, dateNeeded);
     expect(csv).toContain(label);
     expect(csv).toContain('Year total');
@@ -133,6 +133,20 @@ describe('selected-year exports keep dated rows and a Date needed section', () =
     const undefinedDate = [...seed, undated('second', 50.25, undefined)];
     expect(preparerMonthlySummary(undefinedDate, 2026).dateNeeded).toMatchObject({ count: 2, total: 1050.24, label: 'Date needed: 2 rows, $1,050.24' });
     expect(summarizeDateNeeded(partitionExportYear(undefinedDate, 2026).dateNeeded).total).toBe(1050.24);
+  });
+});
+
+describe('undated mileage stays in the selected year as miles only', () => {
+  it('counts one undated trip beside an unchanged dated trip and never assigns a rate or dollars', () => {
+    const trips = [
+      { date: '2026-03-10', miles: 100, deduction: 72.5, ratePerMile: 0.725 },
+      { date: '', miles: 12, deduction: 9.99, ratePerMile: 0.725 },
+    ];
+    const split = partitionExportYear(trips, 2026);
+    expect(split.dated).toEqual([trips[0]]);
+    const summary = summarizeMileageDateNeeded(split.dateNeeded);
+    expect(summary).toEqual({ count: 1, miles: 12, label: 'Date needed: 1 trip, 12 miles', trips: [{ miles: 12 }] });
+    expect(JSON.stringify(summary)).not.toMatch(/\$|rate|deduction|72\.5|0\.725|9\.99/);
   });
 });
 

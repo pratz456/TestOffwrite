@@ -28,7 +28,8 @@ describe('preparer CSV semantics', () => {
   it('keeps calendar dates across timezone offsets and rejects impossible/missing selected-year dates', () => {
     expect(exportDate('2026-12-31T23:59:00-08:00')).toBe('2026-12-31'); expect(exportDate('2026-02-29')).toBeNull(); expect(exportDate(new Date(NaN))).toBeNull();
     expect(selectExportYear([{ date: '2026-12-31T23:59:00-08:00' }, { date: '2027-01-01' }], 2026)).toHaveLength(1);
-    expect(selectExportYear([{ amount: 10 }], 2026)).toEqual([]);
+    expect(() => selectExportYear([{ amount: 10 }], 2026)).toThrow(ExportReviewRequiredError);
+    expect(selectExportYear([{ amount: 10 }])).toEqual([{ amount: 10 }]);
   });
   it.each(['2026junk', '26', '2026.5', 2026.5, 1999, 2101, ''])('rejects invalid export year %s', value => expect(() => exportYear(value)).toThrow(RangeError));
   it('exports a truthful header for no records', () => expect(convertTransactionsToCSV([])).toContain('Cash Direction (not tax classification)'));

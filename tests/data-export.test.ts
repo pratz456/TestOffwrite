@@ -120,6 +120,33 @@ describe('owner export source completeness and privacy', () => {
     expect(allCsv).toContain('Missing/invalid date');
     expect(allCsv).not.toContain('Date needed:');
   });
+  it('keeps an undated mileage trip in the Date needed miles and leaves the dated trip unchanged', async () => {
+    seed('user_profiles/owner/mileage_trips/undated', { date: '', miles: 12, deduction: 9.99, ratePerMile: 0.725, businessPurpose: 'Client visit' });
+    const selected = await generateUserDataExport('owner', 2026);
+    expect(selected.taxRecords.mileage_trips).toHaveLength(1);
+    expect(selected.taxRecords.mileage_trips[0].miles).toBe(30);
+    expect(selected.mileageDateNeeded).toEqual({ count: 1, miles: 12, label: 'Date needed: 1 trip, 12 miles', trips: [{ miles: 12 }] });
+    const listed = JSON.stringify(selected.taxRecords.mileage_trips);
+    const needed = JSON.stringify(selected.mileageDateNeeded);
+    expect(listed).not.toContain('9.99');
+    expect(needed).not.toMatch(/\$|rate|deduction|0\.725|9\.99/);
+    const pack = generateDataPackage(selected);
+    expect(pack.readme).toContain('mileage date needed: Date needed: 1 trip, 12 miles');
+    expect(pack.readme).toContain('trip count and miles only');
+    expect(pack.json.mileageDateNeeded).toEqual(selected.mileageDateNeeded);
+    const allYears = await generateUserDataExport('owner');
+    expect(allYears.taxRecords.mileage_trips).toHaveLength(3);
+    expect(allYears.mileageDateNeeded).toBeUndefined();
+  });
+  it('keeps a receipt linked to an undated transaction in the selected year', async () => {
+    seed('transactions/undated', { userId: 'owner', trans_id: 'undated-tx', date: '', amount: 10, merchant_name: 'Needs more information' });
+    seed('receipts/undated-receipt', { userId: 'owner', transactionId: 'undated-tx', filename: 'undated.png', size: 4 });
+    const selected = await generateUserDataExport('owner', 2026);
+    expect(selected.transactions.some(row => row.amount === 10)).toBe(false);
+    expect(selected.dateNeeded).toMatchObject({ count: 1, total: 10 });
+    expect(selected.receipts).toEqual(expect.arrayContaining([expect.objectContaining({ filename: 'undated.png' })]));
+    expect(generateDataPackage(selected).readme).toContain('transactions that need a date');
+  });
 });
 
  it('reports private unresolved bank history metadata without adding staged amounts to exported transactions', async () => {
