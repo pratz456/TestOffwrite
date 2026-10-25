@@ -189,6 +189,28 @@ describe('Section 179 income limit after de minimis and other depreciation', () 
     expect(reviewCode(() => calc4562([asset({ section179Requested: true, cost: 3000000 })], 150000, 2026))).toBe('DEPRECIATION_REVIEW_REQUIRED');
   });
 
+  it('holds a partial election for review when uncovered first-year depreciation of 100 drops 9550 below the amount elected', () => {
+    const assets = [asset({ cost: 10000, businessUsePercent: 100, method: 'MACRS_5YR', section179Requested: true, section179Amount: 9500, datePlacedInService: placed })];
+    let caught: unknown;
+    try { profit(9550, assets, []); } catch (error) { caught = error; }
+    expect(scheduleCReviewCode(caught)).toBe('DEPRECIATION_REVIEW_REQUIRED');
+    expect((caught as Error).message).toMatch(/partial Section 179 election/);
+  });
+
+  it('holds a partial election for review when uncovered first-year depreciation of 800 drops 5500 below the amount elected', () => {
+    const assets = [asset({ cost: 9000, method: 'MACRS_5YR', section179Requested: true, section179Amount: 5000, datePlacedInService: placed })];
+    expect(reviewCode(() => calc4562(assets, 5500, 2026))).toBe('DEPRECIATION_REVIEW_REQUIRED');
+    expect(() => calc4562(assets, 5500, 2026)).toThrow(/How should regular depreciation on the remaining basis affect that limit/);
+  });
+
+  it('returns a partial election when uncovered first-year depreciation does not drop 50000 below the amount elected', () => {
+    const result = calc4562([asset({ cost: 9000, method: 'MACRS_5YR', section179Requested: true, section179Amount: 5000, datePlacedInService: placed })], 50000, 2026);
+    expect(result.section179).toMatchObject({
+      elected: 5000, allowed: 5000, carryover: 0, businessIncomeLimit: 50000, otherDepreciationNettedFromIncomeLimit: 0,
+    });
+    expect(result.assets[0]).toMatchObject({ section179Deduction: 5000, regularDepreciation: 800, remainingBasis: 3200, carryoverToNextYear: 0 });
+  });
+
   it('nets only the business share of a de minimis item', () => {
     const result = profit(10000, [
       asset({ id: 'tool', description: 'Tool', cost: 2000, businessUsePercent: 60, category: 'equipment', datePlacedInService: placed }),

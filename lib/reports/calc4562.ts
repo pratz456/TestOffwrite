@@ -123,9 +123,10 @@ const firstYearDepreciation = (asset: Asset, depreciableBasis: number) => {
  *   after de minimis expenses and regular depreciation on assets with no §179 amount.
  *   The disallowed amount carries forward (§179(b)(3)(B)) and still reduces basis
  *   (Reg. §1.179-1(f)(1), §1.179-3).
- * - A partial §179 election (elected amount below business basis) whose income limit
- *   binds is not given a deduction. Depreciation on that uncovered basis and the
- *   income limit depend on each other.
+ * - A partial §179 election (elected amount below business basis) is not given a
+ *   deduction when the income limit minus first year depreciation on the uncovered
+ *   basis is below the amount elected. That depreciation is not subtracted from
+ *   the reported income limit.
  * - Remaining basis: half-year MACRS from Publication 946 Tables A-1/A-2.
  * Bonus depreciation (acquisition-date and binding-contract tests, class elections),
  * vehicles/listed property (§280F caps, substantiation), prior-year basis, straight-line
@@ -205,9 +206,17 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
       elected.set(asset, assetElected);
     });
     const partialElection = electing.some(asset => roundCents(businessBasis(asset) - (elected.get(asset) ?? 0)) > 0);
-    // Depreciation on the basis a partial election does not cover depends on the §179
-    // amount, and that amount depends on the income limit. That order is not confirmed.
-    if (partialElection && businessIncomeLimit < electedTotal) {
+    // First year depreciation on the basis a partial election leaves uncovered can
+    // make the limit bind even when businessIncomeLimit is still at least electedTotal.
+    // That depreciation is not part of the reported income limit.
+    const partialRemainingDepreciation = roundCents(electing.reduce((sum, asset) => {
+      const basis = businessBasis(asset);
+      const electedAmount = elected.get(asset) ?? 0;
+      if (!(roundCents(basis - electedAmount) > 0)) return sum;
+      const allowance = firstYearDepreciation(asset, basis - electedAmount);
+      return sum + allowance.regularDepreciation + allowance.bonusDepreciation;
+    }, 0));
+    if (partialElection && (businessIncomeLimit - partialRemainingDepreciation) < electedTotal) {
       throw new DepreciationReviewRequiredError('A partial Section 179 election is below the business basis and the income limit is below the amount elected. How should regular depreciation on the remaining basis affect that limit?');
     }
     const allowedTotal = Math.min(electedTotal, businessIncomeLimit);
