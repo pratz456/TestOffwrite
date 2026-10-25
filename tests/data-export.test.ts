@@ -153,6 +153,25 @@ describe('owner export source completeness and privacy', () => {
     expect(selected.mileageDateNeeded?.trips[0].miles).not.toBe(0);
     expect(JSON.stringify(selected.mileageDateNeeded)).not.toMatch(/\$|rate|deduction|0\.76|9\.99/);
   });
+  it('shows the trip count without a miles total when every undated trip has blank or invalid miles', async () => {
+    seed('user_profiles/owner/mileage_trips/blankmiles', { date: '', miles: '', deduction: 9.99, ratePerMile: 0.76, businessPurpose: 'Site walk' });
+    seed('user_profiles/owner/mileage_trips/badmiles', { date: '2026-02-30', miles: 'not-a-number', deduction: 8, ratePerMile: 0.725, businessPurpose: 'Errand' });
+    const selected = await generateUserDataExport('owner', 2026);
+    expect(selected.taxRecords.mileage_trips).toHaveLength(1);
+    expect(selected.taxRecords.mileage_trips[0].miles).toBe(30);
+    const needed = selected.mileageDateNeeded;
+    expect(needed?.count).toBe(2);
+    expect(needed?.noMilesCount).toBe(needed?.count);
+    expect(needed?.label).toBe('Date needed: 2 trips, 2 trips have no miles');
+    expect(needed?.label).not.toMatch(/\d+(?:\.\d+)? miles?/);
+    expect(needed?.trips.map(trip => trip.id).sort()).toEqual(['badmiles', 'blankmiles']);
+    expect(needed?.trips.map(trip => trip.businessPurpose).sort()).toEqual(['Errand', 'Site walk']);
+    const packed = JSON.stringify(needed);
+    expect(packed).not.toMatch(/\$|rate|deduction|0\.76|0\.725|9\.99/);
+    const readme = generateDataPackage(selected).readme;
+    expect(readme).toContain('mileage date needed: Date needed: 2 trips, 2 trips have no miles');
+    expect(readme).not.toContain('0 miles');
+  });
   it('keeps a receipt linked to an undated transaction in the selected year', async () => {
     seed('transactions/undated', { userId: 'owner', trans_id: 'undated-tx', date: '', amount: 10, merchant_name: 'Needs more information' });
     seed('receipts/undated-receipt', { userId: 'owner', transactionId: 'undated-tx', filename: 'undated.png', size: 4 });

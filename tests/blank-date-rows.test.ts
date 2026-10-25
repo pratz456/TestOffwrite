@@ -158,6 +158,19 @@ describe('undated mileage stays in the selected year as miles only', () => {
     expect(summary.trips[0]).toEqual({ date: '', miles: '', businessPurpose: 'Site walk' });
     expect(JSON.stringify(summary)).not.toMatch(/\$|rate|deduction|0\.76|4\.5/);
   });
+
+  it('shows only the trip count when every undated trip has blank or invalid miles', () => {
+    const summary = summarizeMileageDateNeeded([
+      { date: '', miles: '', businessPurpose: 'Site walk', deduction: 4.5, ratePerMile: 0.76 },
+      { date: '2026-02-30', miles: 'not-a-number', businessPurpose: 'Errand', deduction: 8, ratePerMile: 0.725 },
+    ]);
+    expect(summary.count).toBe(2);
+    expect(summary.noMilesCount).toBe(summary.count);
+    expect(summary.label).toBe('Date needed: 2 trips, 2 trips have no miles');
+    expect(summary.label).not.toMatch(/\d+(?:\.\d+)? miles?/);
+    expect(summary.trips.map(trip => trip.businessPurpose)).toEqual(['Site walk', 'Errand']);
+    expect(JSON.stringify(summary)).not.toMatch(/\$|rate|deduction|0\.76|0\.725|4\.5/);
+  });
 });
 
 describe('blank dates sort last and are not year 0 or a date match', () => {
