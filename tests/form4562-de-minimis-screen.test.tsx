@@ -45,10 +45,19 @@ const text = (node: any): string => {
 };
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 const render = () => { h.cursor = 0; const tree = Form4562Page(); h.effects.splice(0).forEach(effect => effect()); return tree; };
-const camera = (): Asset => ({
+const camera = (overrides: Partial<Asset> = {}): Asset => ({
   id: 'camera', description: 'Camera', datePlacedInService: new Date(Date.UTC(TAX_YEAR, 9, 1)), cost: 1200, businessUsePercent: 40,
-  category: 'equipment', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false,
+  category: 'equipment', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false, ...overrides,
 });
+const expectNoListedQuestions = (content: string) => {
+  expect(content).not.toContain('What kind of equipment is it?');
+  expect(content).not.toContain('Answer now');
+  expect(content).not.toContain('Do you use it in your main line of work?');
+  expect(content).not.toContain('Do you use it only at your business location?');
+  expect(content).not.toContain('Is that a studio or office outside your home?');
+  expect(content).not.toContain('PLACEHOLDER: Used in my main line of work');
+  expect(content).not.toContain('PLACEHOLDER: Used only at my business location');
+};
 
 beforeEach(() => {
   h.slots = []; h.cursor = 0; h.effects = []; h.request.mockReset();
@@ -79,14 +88,55 @@ describe('Form 4562 worksheet screen', () => {
     const content = text(render());
     expect(content).toContain('Camera');
     expect(content).toContain('expensed $480');
-    expect(content).not.toContain('What kind of equipment is it?');
-    expect(content).not.toContain('Answer now');
-    expect(content).not.toContain('Do you use it in your main line of work?');
-    expect(content).not.toContain('Do you use it only at your business location?');
-    expect(content).not.toContain('Is that a studio or office outside your home?');
+    expectNoListedQuestions(content);
     expect(content).not.toContain('PLACEHOLDER: This asset needs review.');
     expect(content).not.toContain('PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.');
     expect(row.listedEquipmentHold).toBeNull();
     expect(calculation.heldAssets).toEqual([]);
+  });
+
+  it('shows no release questions for a $1,200 photo camera at 40 percent with blank answers in an elected year', async () => {
+    const asset = camera({ listedEquipmentKind: 'photo_audio_video_communication' });
+    const calculation = calc4562([asset], 50000, TAX_YEAR, { deMinimisSafeHarborYears: [TAX_YEAR] });
+    const row = calculation.assets.find(item => item.asset.id === 'camera')!;
+    expect(row.deMinimisExpense).toBe(480);
+    h.request.mockImplementation(async (url: string) => {
+      if (String(url).includes('/api/tax/form-4562')) {
+        return new Response(JSON.stringify({
+          taxYear: TAX_YEAR, assets: [asset], calculation, businessIncome: 50000,
+          elections: { deMinimisSafeHarborYears: [TAX_YEAR] }, deMinimisElected: true, deMinimisLimit: DE_MINIMIS_SAFE_HARBOR_LIMIT,
+          section179Limits: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    });
+    render(); await flush();
+    const content = text(render());
+    expect(content).toContain('expensed $480');
+    expectNoListedQuestions(content);
+  });
+
+  it('shows no question for the $1,200 camera when the worksheet is in review and the year is elected', async () => {
+    const asset = camera();
+    const van = camera({ id: 'van', description: 'Van', cost: 20000, businessUsePercent: 100, category: 'vehicle' });
+    h.request.mockImplementation(async (url: string) => {
+      const path = String(url);
+      if (path.includes('/api/tax/form-4562')) {
+        return new Response(JSON.stringify({
+          error: 'Asset depreciation needs review: Confirm the asset class, vehicle limits and listed-property rules.',
+          code: 'DEPRECIATION_REVIEW_REQUIRED',
+          deMinimisElected: true,
+          deMinimisLimit: DE_MINIMIS_SAFE_HARBOR_LIMIT,
+        }), { status: 422, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (path.includes('/api/settings/assets')) return new Response(JSON.stringify({ data: [asset, van] }), { status: 200 });
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    });
+    render(); await flush();
+    const content = text(render());
+    expect(content).toContain('Camera');
+    expect(content).toContain('Van');
+    expect(content).toContain('Confirm the asset class, vehicle limits and listed-property rules.');
+    expectNoListedQuestions(content);
   });
 });
