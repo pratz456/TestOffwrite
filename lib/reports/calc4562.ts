@@ -464,9 +464,10 @@ export function calc4562(assets: Asset[], businessIncome: number, taxYear: numbe
   const allowed = new Map<Asset, number>();
   if (electing.length) {
     const limits = getSection179Limits(taxYear);
-    // 2025 Form 4562 line 2 includes listed property from Part V. §179(b)(2) and (d)(1)
-    // phase out on the full cost of section 179 property. A held asset is in this total
-    // and still receives no section 179 amount. De minimis items are not section 179 property.
+    // 2025 Form 4562 line 2 includes listed property from Part V. Full cost is an interim choice
+    // for the section 179(b)(2) phaseout total, pending confirmation of whether Reg. §1.179-1(d)(1)
+    // requires the business-use share instead. A held asset is in this total and still receives no
+    // section 179 amount. De minimis items are not section 179 property.
     const costOfSection179Property = current.filter(asset => !deMinimis.includes(asset)).reduce((sum, asset) => sum + asset.cost, 0);
     const dollarLimitAfterPhaseout = Math.max(0, limits.limit - Math.max(0, costOfSection179Property - limits.phaseoutThreshold));
     const requested = electing.reduce((sum, asset) => sum + businessBasis(asset), 0);
