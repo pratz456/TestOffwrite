@@ -15,7 +15,7 @@ import { useAuth } from '@/lib/firebase/auth-context';
 import { useToasts } from '@/components/ui/toast';
 import { ToastContainer } from '@/components/ui/toast';
 import { makeAuthenticatedRequest } from '@/lib/firebase/api-client';
-import { type Asset, type AssetCalculation, type Form4562Calculation, type DepreciationElections } from '@/lib/reports/calc4562';
+import { type Asset, type AssetCalculation, type Form4562Calculation, type DepreciationElections, type ListedEquipmentAnswer, isEquipmentAssetCategory, LISTED_EQUIPMENT_QUESTION_PLACEHOLDER, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER } from '@/lib/reports/calc4562';
 
 interface Form4562Worksheet {
   taxYear: number;
@@ -38,6 +38,8 @@ const TREATMENT_LABELS: Record<AssetCalculation['treatment'], string> = {
   de_minimis_expense: 'De minimis safe harbor - expensed, not depreciated',
   section_179: 'Section 179 election + MACRS on remaining basis',
   macrs: 'MACRS half-year',
+  // PLACEHOLDER customer-facing wording. The question case uses LISTED_EQUIPMENT_QUESTION_PLACEHOLDER instead.
+  listed_property_review: LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER,
 };
 const emptyAsset = (): Partial<Asset> => ({
   description: '', datePlacedInService: new Date(), cost: 0, businessUsePercent: 100,
@@ -135,10 +137,12 @@ export default function Form4562Page() {
       return;
     }
     try {
+      const draft = { ...newAsset, datePlacedInService: new Date(newAsset.datePlacedInService) };
+      if (!isEquipmentAssetCategory(draft.category)) delete draft.listedEquipmentAnswer;
       const response = await makeAuthenticatedRequest('/api/settings/assets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assets: [{ ...newAsset, datePlacedInService: new Date(newAsset.datePlacedInService) }] }),
+        body: JSON.stringify({ assets: [draft] }),
       });
       if (!response.ok) throw new Error('Failed to add asset');
       showSuccess('Asset Added', 'Asset has been added successfully');
@@ -147,6 +151,20 @@ export default function Form4562Page() {
       void loadWorksheet();
     } catch {
       showError('Add Failed', 'Failed to add asset. Please try again.');
+    }
+  };
+
+  const handleListedEquipmentAnswer = async (assetId: string, listedEquipmentAnswer: ListedEquipmentAnswer) => {
+    try {
+      const response = await makeAuthenticatedRequest('/api/settings/assets', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assetId, listedEquipmentAnswer }),
+      });
+      if (!response.ok) throw new Error('Failed to save the equipment answer');
+      void loadWorksheet();
+    } catch {
+      showError('Save Failed', 'The equipment answer could not be saved. Please try again.');
     }
   };
 
@@ -198,7 +216,7 @@ export default function Form4562Page() {
         </div>
         <div>
           <Label htmlFor="category">Category</Label>
-          <Select value={newAsset.category} onValueChange={(value) => setNewAsset({ ...newAsset, category: value as Asset['category'] })}>
+          <Select value={newAsset.category} onValueChange={(value) => setNewAsset({ ...newAsset, category: value as Asset['category'], listedEquipmentAnswer: isEquipmentAssetCategory(value) ? newAsset.listedEquipmentAnswer : null })}>
             <SelectTrigger id="category"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="computer">Computer</SelectItem>
@@ -221,6 +239,22 @@ export default function Form4562Page() {
           </Select>
         </div>
       </div>
+      {isEquipmentAssetCategory(newAsset.category) && (
+        <fieldset className="mb-4">
+          {/* Customer-facing wording is PLACEHOLDER and is defined as LISTED_EQUIPMENT_QUESTION_PLACEHOLDER. */}
+          <legend className="text-sm font-medium mb-2">{LISTED_EQUIPMENT_QUESTION_PLACEHOLDER}</legend>
+          <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-sm" htmlFor="listed-equipment-yes">
+              <input id="listed-equipment-yes" type="radio" name="listedEquipmentAnswer" checked={newAsset.listedEquipmentAnswer === 'yes'} onChange={() => setNewAsset({ ...newAsset, listedEquipmentAnswer: 'yes' })} />
+              Yes
+            </label>
+            <label className="flex items-center gap-2 text-sm" htmlFor="listed-equipment-no">
+              <input id="listed-equipment-no" type="radio" name="listedEquipmentAnswer" checked={newAsset.listedEquipmentAnswer === 'no'} onChange={() => setNewAsset({ ...newAsset, listedEquipmentAnswer: 'no' })} />
+              No
+            </label>
+          </div>
+        </fieldset>
+      )}
       <div className="flex flex-wrap gap-4 mb-4">
         <div className="flex items-center space-x-2">
           <Checkbox id="section179" checked={newAsset.section179Requested} onCheckedChange={(checked) => setNewAsset({ ...newAsset, section179Requested: !!checked })} />
@@ -249,7 +283,29 @@ export default function Form4562Page() {
               <div className="text-sm text-gray-500">
                 {money(asset.cost)} • {asset.businessUsePercent}% business use • {asset.category}{asset.section179Requested ? ' • §179 requested' : ''}{asset.bonusEligible ? ' • bonus (review)' : ''}
               </div>
-              {assetCalc && (
+              {isEquipmentAssetCategory(asset.category) && (
+                <fieldset className="mt-2">
+                  {/* Customer-facing wording is PLACEHOLDER and is defined as LISTED_EQUIPMENT_QUESTION_PLACEHOLDER. */}
+                  <legend className="text-sm text-gray-700">{LISTED_EQUIPMENT_QUESTION_PLACEHOLDER}</legend>
+                  <div className="flex flex-wrap gap-4 mt-1">
+                    <label className="flex items-center gap-2 text-sm" htmlFor={`listed-equipment-yes-${asset.id}`}>
+                      <input id={`listed-equipment-yes-${asset.id}`} type="radio" name={`listedEquipmentAnswer-${asset.id}`} checked={asset.listedEquipmentAnswer === 'yes'} onChange={() => void handleListedEquipmentAnswer(asset.id, 'yes')} />
+                      Yes
+                    </label>
+                    <label className="flex items-center gap-2 text-sm" htmlFor={`listed-equipment-no-${asset.id}`}>
+                      <input id={`listed-equipment-no-${asset.id}`} type="radio" name={`listedEquipmentAnswer-${asset.id}`} checked={asset.listedEquipmentAnswer === 'no'} onChange={() => void handleListedEquipmentAnswer(asset.id, 'no')} />
+                      No
+                    </label>
+                  </div>
+                </fieldset>
+              )}
+              {assetCalc?.listedEquipmentHold === 'review' && (
+                <div className="text-sm text-amber-700">{LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER}</div>
+              )}
+              {assetCalc?.listedEquipmentHold === 'question_required' && (
+                <div className="text-sm text-amber-700">{LISTED_EQUIPMENT_QUESTION_PLACEHOLDER}</div>
+              )}
+              {assetCalc && !assetCalc.listedEquipmentHold && (
                 <div className="text-sm text-blue-600">
                   {TREATMENT_LABELS[assetCalc.treatment]}
                   {assetCalc.treatment === 'de_minimis_expense'

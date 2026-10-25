@@ -17,7 +17,8 @@ export async function GET(request: NextRequest) {
 }
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
-import { saveAsset, deleteAsset } from '@/lib/firebase/settings-server';
+import { saveAsset, deleteAsset, updateAsset } from '@/lib/firebase/settings-server';
+import { isEquipmentAssetCategory, normalizeListedEquipmentAnswer } from '@/lib/reports/calc4562';
 import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 
 const MAX_ASSETS_PER_REQUEST = 100;
@@ -84,12 +85,16 @@ export async function POST(request: NextRequest) {
         || !optionalBoolean(asset.section179Requested) || !optionalBoolean(asset.bonusEligible)) {
         return NextResponse.json({ error: 'Asset category, method and election flags have the wrong type' }, { status: 400 });
       }
+      if ('listedEquipmentAnswer' in asset && normalizeListedEquipmentAnswer(asset.listedEquipmentAnswer) === 'invalid') {
+        return NextResponse.json({ error: 'The equipment answer must be yes, no, or blank' }, { status: 400 });
+      }
     }
 
     // Save each asset
     const savedAssets = [];
     for (const asset of assets) {
-      const { data, error } = await saveAsset(user.uid, {
+      const listedEquipmentAnswer = normalizeListedEquipmentAnswer(asset.listedEquipmentAnswer);
+      const record = {
         description: asset.description,
         datePlacedInService: new Date(asset.datePlacedInService),
         cost: asset.cost,
@@ -98,7 +103,11 @@ export async function POST(request: NextRequest) {
         method: asset.method,
         section179Requested: asset.section179Requested,
         bonusEligible: asset.bonusEligible,
-      });
+        ...(isEquipmentAssetCategory(asset.category) && (listedEquipmentAnswer === 'yes' || listedEquipmentAnswer === 'no')
+          ? { listedEquipmentAnswer }
+          : {}),
+      };
+      const { data, error } = await saveAsset(user.uid, record);
 
       if (error) {
         console.error('❌ [Assets Settings API] Failed to save asset:', error);
@@ -128,6 +137,33 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 }
     );
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
+    const { assetId, listedEquipmentAnswer } = body;
+    if (typeof assetId !== 'string' || !assetId || assetId.length > 256 || /[\/\\\x00-\x1f\x7f]/.test(assetId)) {
+      return NextResponse.json({ error: 'Asset ID is required' }, { status: 400 });
+    }
+    const answer = normalizeListedEquipmentAnswer(listedEquipmentAnswer);
+    if (answer === 'invalid') return NextResponse.json({ error: 'The equipment answer must be yes, no, or blank' }, { status: 400 });
+    const existing = await getAssetsSettings(user.uid);
+    if (existing.error || !existing.data) return NextResponse.json({ error: 'Failed to load assets' }, { status: 500 });
+    const current = existing.data.find(asset => asset.id === assetId);
+    if (!current) return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
+    if (!isEquipmentAssetCategory(current.category)) {
+      return NextResponse.json({ error: 'The equipment question applies only to equipment' }, { status: 400 });
+    }
+    const { data, error } = await updateAsset(user.uid, assetId, { listedEquipmentAnswer: answer });
+    if (error || !data) return NextResponse.json({ error: 'Failed to save the equipment answer' }, { status: 500 });
+    return NextResponse.json({ success: true, data });
+  } catch {
+    return NextResponse.json({ error: 'Failed to save the equipment answer' }, { status: 500 });
   }
 }
 

@@ -1,5 +1,5 @@
 import type { UserProfile } from '@/lib/firebase/profiles-server';
-import { type Asset, type DepreciationElections, calc4562, DE_MINIMIS_SAFE_HARBOR_LIMIT } from './calc4562';
+import { type Asset, type DepreciationElections, businessUseBasis, calc4562, DE_MINIMIS_SAFE_HARBOR_LIMIT, LISTED_EQUIPMENT_QUESTION_PLACEHOLDER, LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER } from './calc4562';
 import { createPlanningPDF, formatExportMoney as money } from './planning-pdf';
 export interface Form4562Data {
   userProfile: UserProfile; assetsSettings: Asset[]; transactions: unknown[]; taxYear: number;
@@ -7,7 +7,7 @@ export interface Form4562Data {
   businessIncome?: number;
   elections?: DepreciationElections | null;
 }
-const TREATMENT_LABELS = { de_minimis_expense: 'De minimis safe harbor expense (not depreciated)', section_179: 'Section 179 election plus MACRS on the remaining basis', macrs: 'MACRS half-year' } as const;
+const TREATMENT_LABELS = { de_minimis_expense: 'De minimis safe harbor expense (not depreciated)', section_179: 'Section 179 election plus MACRS on the remaining basis', macrs: 'MACRS half-year', listed_property_review: LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER } as const;
 export async function generateForm4562PDF(data: Form4562Data): Promise<Uint8Array> {
   const businessIncome = data.businessIncome ?? 0;
   const c = calc4562(data.assetsSettings, businessIncome, data.taxYear, data.elections ?? null);
@@ -41,19 +41,29 @@ export async function generateForm4562PDF(data: Form4562Data): Promise<Uint8Arra
     const rawDate = a.datePlacedInService as unknown;
     const date = rawDate && typeof rawDate === 'object' && 'toDate' in rawDate && typeof rawDate.toDate === 'function' ? rawDate.toDate() as Date : new Date(rawDate as string | Date);
     pdf.section(a.description);
+    const held = item.listedEquipmentHold;
     pdf.table(['Recorded fact / calculation', 'Value'], [
       ['Asset identifier', a.id], ['Placed in service', date.toISOString().slice(0, 10)], ['Cost', money(a.cost)],
-      ['Business-use percentage', `${a.businessUsePercent}%`], ['Business basis', money(a.cost * a.businessUsePercent / 100)],
-      ['Treatment', TREATMENT_LABELS[item.treatment]],
-      ...(item.treatment === 'de_minimis_expense'
-        ? [['Current-year expense (Reg. §1.263(a)-1(f); item cost at or under $' + DE_MINIMIS_SAFE_HARBOR_LIMIT.toLocaleString('en-US') + ')', money(item.deMinimisExpense)]]
+      ['Business-use percentage', `${a.businessUsePercent}%`],
+      ...(held
+        ? [
+          ['Listed equipment question', LISTED_EQUIPMENT_QUESTION_PLACEHOLDER],
+          ['Listed equipment answer', a.listedEquipmentAnswer === 'yes' ? 'Yes' : a.listedEquipmentAnswer === 'no' ? 'No' : 'Blank'],
+          ['Worksheet status', held === 'question_required' ? LISTED_EQUIPMENT_QUESTION_PLACEHOLDER : LISTED_EQUIPMENT_REVIEW_NOTE_PLACEHOLDER],
+        ]
         : [
-          ['Method / convention', `${a.method}; half-year`],
-          ['Section 179 elected / allowed this year', `${money(item.section179Elected)} / ${money(item.section179Deduction)}`],
-          ['Current-year regular depreciation', money(item.regularDepreciation)],
-          ['Total current-year depreciation', money(item.totalDepreciation)],
-          ['Section 179 carryover', money(item.carryoverToNextYear)],
-          ['Remaining business basis', money(item.remainingBasis)],
+          ['Business basis', money(businessUseBasis(a.cost, a.businessUsePercent))],
+          ['Treatment', TREATMENT_LABELS[item.treatment]],
+          ...(item.treatment === 'de_minimis_expense'
+            ? [['Current-year expense (Reg. §1.263(a)-1(f); item cost at or under $' + DE_MINIMIS_SAFE_HARBOR_LIMIT.toLocaleString('en-US') + ')', money(item.deMinimisExpense)]]
+            : [
+              ['Method / convention', `${a.method}; half-year`],
+              ['Section 179 elected / allowed this year', `${money(item.section179Elected)} / ${money(item.section179Deduction)}`],
+              ['Current-year regular depreciation', money(item.regularDepreciation)],
+              ['Total current-year depreciation', money(item.totalDepreciation)],
+              ['Section 179 carryover', money(item.carryoverToNextYear)],
+              ['Remaining business basis', money(item.remainingBasis)],
+            ]),
         ]),
     ], [295, 233]);
   }
