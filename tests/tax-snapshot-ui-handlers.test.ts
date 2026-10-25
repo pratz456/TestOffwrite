@@ -363,6 +363,8 @@ describe('partial Section 179 hold stays plain status text', () => {
     expect(controls(alert)).toEqual([]);
     expect(controls(tree).filter(node => typeof node.props?.href === 'string' || controlName(node) === 'Link' || controlName(node) === 'a')).toEqual([]);
     expect(text(tree)).not.toContain('Retry estimate');
+    expect(text(tree)).not.toContain('Keep preparing');
+    expect(walk(tree).some(node => node.props?.['aria-label'] === 'Refresh tax estimate')).toBe(false);
     expect(text(tree)).not.toContain('Resolve the issue above');
     expect(text(tree)).not.toContain('Review asset records');
     expect(JSON.stringify(tree)).not.toMatch(/tax-forms-setup|tab=assets|\/protected\/settings|form4562|form8829/);
@@ -390,15 +392,16 @@ describe('partial Section 179 hold stays plain status text', () => {
     expect(walk(vehicle).some(node => node.type === 'button' && text(node) === 'Review asset records')).toBe(true);
   });
 
-  it('renders Form 4562 and Form 8829 hold status with no settings, assets, or worksheet action', async () => {
+  it('keeps the asset list editable on Form 4562 and leaves export and Open Settings off during the hold', async () => {
     const page = (component: () => Element) => {
       harness.cursor = 0;
       const tree = component();
       harness.effects.splice(0).forEach(effect => effect());
       return tree;
     };
+    const savedAsset = { id: 'computer', description: 'Computer', cost: 9000, businessUsePercent: 100, category: 'computer', method: 'MACRS_5YR', section179Requested: true, bonusEligible: false, datePlacedInService: '2026-03-15T00:00:00.000Z' };
     harness.request.mockImplementation((url: string) => Promise.resolve(response(
-      String(url).includes('assets') ? { data: [] } : { error: differentMessage, code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold' },
+      String(url).includes('assets') ? { data: [savedAsset] } : { error: differentMessage, code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold' },
       String(url).includes('assets') ? 200 : 422,
     )));
     page(Form4562Page as unknown as () => Element); await flush();
@@ -406,20 +409,42 @@ describe('partial Section 179 hold stays plain status text', () => {
     const form4562Alert = walk(form4562).find(node => node.props?.role === 'alert')!;
     expect(text(form4562Alert)).toContain('Tax estimate on hold');
     expect(text(form4562Alert)).toContain(differentMessage);
-    expect(controls(form4562Alert)).toEqual([]);
-    expect(text(form4562)).not.toContain('Add Asset');
-    expect(text(form4562)).not.toContain('Asset records need review');
-    expect(text(form4562)).not.toContain('Form 4562 worksheet');
-    expect(JSON.stringify(form4562)).not.toMatch(/tax-forms-setup|tab=assets|\/protected\/settings/);
+    expect(text(form4562Alert)).toContain('Saved assets (1)');
+    expect(text(form4562Alert)).toContain('Computer');
+    expect(text(form4562Alert)).toContain('Add Asset');
+    expect(text(form4562Alert)).not.toContain('Asset records need review');
+    expect(walk(form4562Alert).some(node => node.props?.['aria-label'] === 'Remove Computer')).toBe(true);
+    expect(walk(form4562).filter(node => node.props?.onClick && text(node).includes('Export'))).toEqual([]);
+    expect(text(form4562)).not.toContain('Retry');
+    expect(text(form4562)).not.toContain('Refresh');
+    expect(text(form4562)).not.toContain('Keep preparing');
+    const edit = walk(form4562Alert).find(node => node.props?.['aria-label'] === 'Edit Computer')!;
+    edit.props.onClick();
+    await flush();
+    const editing = page(Form4562Page as unknown as () => Element);
+    expect(text(editing)).toContain('Edit asset');
+    const description = walk(editing).find(node => node.props?.id === 'description')!;
+    expect(description.props.value).toBe('Computer');
+    description.props.onChange({ target: { value: 'Updated computer' } });
+    await flush();
+    const changed = page(Form4562Page as unknown as () => Element);
+    expect(walk(changed).find(node => node.props?.id === 'description')!.props.value).toBe('Updated computer');
+    await walk(changed).find(node => node.props?.onClick && text(node).includes('Save asset'))!.props.onClick();
+    const update = harness.request.mock.calls.find(([, init]) => init?.method === 'PUT')!;
+    expect(String(update[0])).toContain('/api/settings/assets');
+    expect(JSON.parse(update[1].body)).toMatchObject({ assetId: 'computer', description: 'Updated computer', cost: 9000 });
     harness.slots = [];
     page(Form8829Page as unknown as () => Element); await flush();
     const form8829 = page(Form8829Page as unknown as () => Element);
     const form8829Alert = walk(form8829).find(node => node.props?.role === 'alert')!;
     expect(text(form8829Alert)).toContain('Tax estimate on hold');
-    expect(controls(form8829Alert)).toEqual([]);
+    expect(text(form8829Alert)).toContain(differentMessage);
     expect(text(form8829)).not.toContain('Open Settings');
-    expect(text(form8829)).not.toContain('Records need review');
-    expect(JSON.stringify(form8829)).not.toMatch(/\/protected\/settings|tab=assets|form4562/);
+    expect(controls(form8829Alert)).toEqual([]);
+    expect(walk(form8829).filter(node => node.props?.onClick && text(node).includes('Export'))).toEqual([]);
+    expect(text(form8829)).not.toContain('Retry');
+    expect(text(form8829)).not.toContain('Refresh');
+    expect(text(form8829)).not.toContain('Keep preparing');
   });
 });
 

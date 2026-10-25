@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
 }
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/firebase/api-auth';
-import { saveAsset, deleteAsset } from '@/lib/firebase/settings-server';
+import { saveAsset, deleteAsset, updateAsset } from '@/lib/firebase/settings-server';
 import { invalidJsonResponse, readJsonObject } from '@/app/api/_lib/body';
 
 const MAX_ASSETS_PER_REQUEST = 100;
@@ -179,5 +179,57 @@ export async function DELETE(request: NextRequest) {
       },
       { status: 500 }
     );
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const { user, error: authError } = await getAuthenticatedUser(request);
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await readJsonObject(request);
+    if (!body) return invalidJsonResponse();
+    const { assetId } = body;
+    if (typeof assetId !== 'string' || !assetId || assetId.length > 256 || /[\/\\\x00-\x1f\x7f]/.test(assetId)) {
+      return NextResponse.json({ error: 'Asset ID is required' }, { status: 400 });
+    }
+    if (!body.description || typeof body.description !== 'string' || body.description.length > 200
+      || !body.cost || !body.datePlacedInService) {
+      return NextResponse.json({ error: 'Each asset must have description, cost, and date placed in service' }, { status: 400 });
+    }
+    if (typeof body.cost !== 'number' || !Number.isFinite(body.cost) || body.cost <= 0 || body.cost > 100_000_000) {
+      return NextResponse.json({ error: 'Asset cost must be greater than 0' }, { status: 400 });
+    }
+    if ((typeof body.datePlacedInService !== 'string' && typeof body.datePlacedInService !== 'number')
+      || Number.isNaN(new Date(body.datePlacedInService).getTime())) {
+      return NextResponse.json({ error: 'Date placed in service must be a valid date' }, { status: 400 });
+    }
+    if (body.businessUsePercent !== undefined && (typeof body.businessUsePercent !== 'number'
+      || !Number.isFinite(body.businessUsePercent) || body.businessUsePercent < 0 || body.businessUsePercent > 100)) {
+      return NextResponse.json({ error: 'Business use percentage must be between 0 and 100' }, { status: 400 });
+    }
+    if (!optionalString(body.category, 100) || !optionalString(body.method, 50)
+      || !optionalBoolean(body.section179Requested) || !optionalBoolean(body.bonusEligible)) {
+      return NextResponse.json({ error: 'Asset category, method and election flags have the wrong type' }, { status: 400 });
+    }
+
+    const { data, error } = await updateAsset(user.uid, assetId, {
+      description: body.description,
+      datePlacedInService: new Date(body.datePlacedInService as string | number),
+      cost: body.cost,
+      businessUsePercent: typeof body.businessUsePercent === 'number' ? body.businessUsePercent : undefined,
+      category: typeof body.category === 'string' ? body.category as 'computer' | 'furniture' | 'vehicle' | 'equipment' | 'other' : undefined,
+      method: typeof body.method === 'string' ? body.method as 'MACRS_5YR' | 'MACRS_7YR' | 'SL' : undefined,
+      section179Requested: typeof body.section179Requested === 'boolean' ? body.section179Requested : undefined,
+      bonusEligible: typeof body.bonusEligible === 'boolean' ? body.bonusEligible : undefined,
+    });
+    if (error || !data) {
+      return NextResponse.json({ error: 'Failed to update asset' }, { status: 500 });
+    }
+    return NextResponse.json({ success: true, data });
+  } catch {
+    return NextResponse.json({ error: 'Failed to update asset' }, { status: 500 });
   }
 }

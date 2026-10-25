@@ -55,6 +55,7 @@ export default function Form4562Page() {
   const [state, setState] = useState<WorksheetState>({ status: 'loading' });
   const [assets, setAssets] = useState<Asset[]>([]);
   const [showAddAsset, setShowAddAsset] = useState(false);
+  const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [newAsset, setNewAsset] = useState<Partial<Asset>>(emptyAsset);
   const requestId = useRef(0);
 
@@ -143,8 +144,7 @@ export default function Form4562Page() {
       });
       if (!response.ok) throw new Error('Failed to add asset');
       showSuccess('Asset Added', 'Asset has been added successfully');
-      setNewAsset(emptyAsset());
-      setShowAddAsset(false);
+      closeAssetForm();
       void loadWorksheet();
     } catch {
       showError('Add Failed', 'Failed to add asset. Please try again.');
@@ -166,6 +166,57 @@ export default function Form4562Page() {
     }
   };
 
+  const closeAssetForm = () => {
+    setShowAddAsset(false);
+    setEditingAssetId(null);
+    setNewAsset(emptyAsset());
+  };
+
+  const openAssetEditor = (asset: Asset) => {
+    setEditingAssetId(asset.id);
+    setNewAsset({
+      description: asset.description,
+      datePlacedInService: new Date(asset.datePlacedInService),
+      cost: asset.cost,
+      businessUsePercent: asset.businessUsePercent,
+      category: asset.category,
+      method: asset.method,
+      section179Requested: asset.section179Requested,
+      bonusEligible: asset.bonusEligible,
+    });
+    setShowAddAsset(true);
+  };
+
+  const handleUpdateAsset = async () => {
+    if (!editingAssetId || !newAsset.description || !newAsset.cost || !newAsset.datePlacedInService) {
+      showError('Missing Information', 'Please fill in all required asset fields');
+      return;
+    }
+    try {
+      const response = await makeAuthenticatedRequest('/api/settings/assets', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assetId: editingAssetId,
+          description: newAsset.description,
+          datePlacedInService: new Date(newAsset.datePlacedInService),
+          cost: newAsset.cost,
+          businessUsePercent: newAsset.businessUsePercent,
+          category: newAsset.category,
+          method: newAsset.method,
+          section179Requested: newAsset.section179Requested,
+          bonusEligible: newAsset.bonusEligible,
+        }),
+      });
+      if (!response.ok) throw new Error('Failed to update asset');
+      showSuccess('Asset Updated', 'Asset has been updated successfully');
+      closeAssetForm();
+      void loadWorksheet();
+    } catch {
+      showError('Update Failed', 'Failed to update asset. Please try again.');
+    }
+  };
+
   if (state.status === 'loading') {
     return (
       <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 bg-background min-h-full [&_button[role=combobox]]:min-h-11">
@@ -179,7 +230,7 @@ export default function Form4562Page() {
 
   const assetForm = (
     <div className="border rounded-lg p-4 bg-muted/30 [&_input]:min-h-11">
-      <h4 className="font-medium mb-4">Add New Asset</h4>
+      <h4 className="font-medium mb-4">{editingAssetId ? 'Edit asset' : 'Add New Asset'}</h4>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-4">
         <div>
           <Label htmlFor="description">Description</Label>
@@ -233,8 +284,8 @@ export default function Form4562Page() {
         </div>
       </div>
       <div className="flex gap-2">
-        <Button onClick={handleAddAsset}><Plus className="w-4 h-4 mr-2" />Add Asset</Button>
-        <Button variant="outline" onClick={() => setShowAddAsset(false)}>Cancel</Button>
+        <Button onClick={editingAssetId ? handleUpdateAsset : handleAddAsset}><Plus className="w-4 h-4 mr-2" />{editingAssetId ? 'Save asset' : 'Add Asset'}</Button>
+        <Button variant="outline" onClick={closeAssetForm}>Cancel</Button>
       </div>
     </div>
   );
@@ -259,9 +310,16 @@ export default function Form4562Page() {
                 </div>
               )}
             </div>
-            <Button variant="outline" size="sm" onClick={() => handleRemoveAsset(asset.id)} aria-label={`Remove ${asset.description}`}>
-              <Trash2 className="w-4 h-4" />
-            </Button>
+            <div className="flex gap-2">
+              {state.status === 'review' && (
+                <Button variant="outline" size="sm" onClick={() => openAssetEditor(asset)} aria-label={`Edit ${asset.description}`}>
+                  Edit
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={() => handleRemoveAsset(asset.id)} aria-label={`Remove ${asset.description}`}>
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
         );
       })}
@@ -321,23 +379,16 @@ export default function Form4562Page() {
             </div>
           )}
 
-          {state.status === 'review' && state.kind === SECTION_179_PARTIAL_HOLD_KIND && (
-            <div className="py-6 text-center" role="alert">
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Tax estimate on hold</h3>
-              <p className="text-sm text-gray-700 max-w-xl mx-auto">{state.message}</p>
-            </div>
-          )}
-
-          {state.status === 'review' && state.kind !== SECTION_179_PARTIAL_HOLD_KIND && (
+          {state.status === 'review' && (
             <div className="space-y-4" role="alert">
               <div className="text-center py-6">
-                <AlertCircle className="w-12 h-12 text-amber-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Asset records need review</h3>
+                {state.kind !== SECTION_179_PARTIAL_HOLD_KIND && <AlertCircle className="w-12 h-12 text-amber-400 mx-auto mb-4" />}
+                <h3 className="text-lg font-medium text-gray-900 mb-2">{state.kind === SECTION_179_PARTIAL_HOLD_KIND ? 'Tax estimate on hold' : 'Asset records need review'}</h3>
                 <p className="text-sm text-gray-700 max-w-xl mx-auto">{state.message}</p>
               </div>
               <div className="flex justify-between items-center">
                 <h3 className="text-lg font-medium text-gray-900">Saved assets ({assets.length})</h3>
-                <Button onClick={() => setShowAddAsset(!showAddAsset)} variant="outline" size="sm"><Plus className="w-4 h-4 mr-2" />Add Asset</Button>
+                <Button onClick={() => { if (showAddAsset) closeAssetForm(); else { setEditingAssetId(null); setNewAsset(emptyAsset()); setShowAddAsset(true); } }} variant="outline" size="sm"><Plus className="w-4 h-4 mr-2" />Add Asset</Button>
               </div>
               {showAddAsset && assetForm}
               {assetList}
