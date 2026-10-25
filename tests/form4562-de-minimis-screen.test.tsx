@@ -65,8 +65,6 @@ describe('Form 4562 worksheet screen', () => {
     const row = calculation.assets.find(item => item.asset.id === 'camera')!;
     expect(row.treatment).toBe('de_minimis_expense');
     expect(row.deMinimisExpense).toBe(480);
-    expect(row.listedEquipmentHold).toBeNull();
-    expect(calculation.heldAssets).toEqual([]);
     h.request.mockImplementation(async (url: string) => {
       if (String(url).includes('/api/tax/form-4562')) {
         return new Response(JSON.stringify({
@@ -88,5 +86,7 @@ describe('Form 4562 worksheet screen', () => {
     expect(content).not.toContain('Is that a studio or office outside your home?');
     expect(content).not.toContain('PLACEHOLDER: This asset needs review.');
     expect(content).not.toContain('PLACEHOLDER: An equipment asset needs an answer or review before this figure can be shown.');
+    expect(row.listedEquipmentHold).toBeNull();
+    expect(calculation.heldAssets).toEqual([]);
   });
 });
