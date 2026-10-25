@@ -76,7 +76,7 @@ describe('organizer personal facts and safe tax-year changes', () => {
     expect(saved).toMatchObject({ personalDeductionFacts: fact, dateOfBirth: '1955-06-01' });
     expect(Object.keys(saved).length - 1).toBeLessThanOrEqual(80);
     // 66 legacy fields plus the quarterly-planner answers, the short/long-term capital gain amounts and the structured eligibility facts field.
-    expect(Object.keys(EMPTY_ORGANIZER_ANSWERS)).toHaveLength(75);
+    expect(Object.keys(EMPTY_ORGANIZER_ANSWERS)).toHaveLength(76);
   });
   it('keeps edited facts and the old year when automatic saving fails, without loading another year', async () => {
     personal(await load()).props.onChange('dateOfBirth', '1955-06-01');

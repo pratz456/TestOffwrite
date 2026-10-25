@@ -19,6 +19,8 @@ export interface RegularEstimatedPaymentInput {
   priorYear: { available: false; noPriorTaxExceptionRuledOut: boolean } | {
     available: true; adjustedGrossIncome: number; taxAfterAdjustments: number;
     fullTwelveMonths: boolean; sameTaxpayersAndFilingStatus: boolean; fullYearUSResident: boolean;
+    /** Used only for the joint versus separate check. The 110% AGI threshold uses the current-year filing status. */
+    priorYearFilingStatus?: string;
   };
 }
 const fail = (message: string): never => { throw new QuarterlyReviewRequiredError(message); };
@@ -43,7 +45,9 @@ export function calculateRegularEstimatedPayments(input: RegularEstimatedPayment
   }
   if (input.priorYear.available) {
     const prior = input.priorYear;
-    const sameTaxpayers = priorYearSameTaxpayersAndFilingStatus(prior.sameTaxpayersAndFilingStatus);
+    const sameTaxpayers = typeof prior.priorYearFilingStatus === 'string' && prior.priorYearFilingStatus.trim() !== ''
+      ? priorYearSameTaxpayersAndFilingStatus({ priorYearFilingStatus: prior.priorYearFilingStatus, currentYearFilingStatus: input.filingStatus })
+      : priorYearSameTaxpayersAndFilingStatus(prior.sameTaxpayersAndFilingStatus);
     if (!prior.fullTwelveMonths || !sameTaxpayers.allowed || !prior.fullYearUSResident) {
       fail(sameTaxpayers.review
         ? sameTaxpayers.message

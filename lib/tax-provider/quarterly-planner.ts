@@ -202,11 +202,11 @@ export interface RequiredAnnualPaymentInput {
   withholding: number;
   priorYear: PriorYearFacts;
   /**
-   * True only after the user confirms `currentYearTax` is a full-year forecast.
-   * Year-to-date tax is not that forecast. Until this is true the required
-   * payment is the prior-year target, and the $1,000 rule is not applied.
+   * True only after the user confirms a full-year forecast.
+   * confirmedFullYearTax is that amount. The $1,000 test uses it minus withholding.
+   * Year-to-date currentYearTax is not that forecast until this flag is true.
    */
-  fullYearForecastConfirmed?: boolean;
+  fullYearForecastConfirmed?: boolean; confirmedFullYearTax?: number;
 }
 
 export interface RequiredAnnualPayment {
@@ -256,11 +256,15 @@ export function calculateRequiredAnnualPayment(input: RequiredAnnualPaymentInput
     throw new QuarterlyReviewRequiredError('PLACEHOLDER Can\'t tell yet whether estimated payments are required without a saved prior-year return or a confirmed full-year forecast.');
   }
   // Until a full-year forecast is confirmed, do not compare the prior-year target with 90% of year-to-date tax.
+  // A qualifying $0 prior-year target still wins when the forecast is confirmed (§6654(e)(2)).
   const usePrior = prior !== null && (!forecastConfirmed || toCents(prior.target) < ninety);
   const required = prior !== null && usePrior ? toCents(prior.target) : ninety;
   const basis: SafeHarborBasis = prior !== null && usePrior ? (prior.multiplier === 1.1 ? 'prior_year_110' : 'prior_year_100') : 'current_year_90';
-  const taxLessWithholding = currentTax - withholding;
-  // §6654(e)(1) uses the full-year tax. Year-to-date tax under $1,000 is not that test.
+  // §6654(e)(1) uses the confirmed full-year tax less withholding, not year-to-date tax.
+  const exceptionTax = forecastConfirmed && typeof input.confirmedFullYearTax === 'number'
+    ? requireAmount(input.confirmedFullYearTax, 'confirmed full-year federal tax')
+    : currentTax;
+  const taxLessWithholding = exceptionTax - withholding;
   const deMinimisApplies = forecastConfirmed && taxLessWithholding < DE_MINIMIS_THRESHOLD_CENTS;
   return {
     taxYear: input.taxYear, filingStatus,
@@ -644,7 +648,8 @@ export function buildQuarterlyPlan(input: QuarterlyPlanInput): QuarterlyPlan {
 // ── Fact resolution from saved records ──────────────────────────────────────
 
 export type MissingFactKey = 'prior_year_total_tax' | 'prior_year_agi' | 'prior_return_twelve_months' | 'current_year_estimate' | 'filing_status'
-  | 'add_prior_year_return' | 'confirm_full_year_forecast' | 'prior_year_tax_was_zero' | 'prior_year_us_citizen_or_resident';
+  | 'add_prior_year_return' | 'confirm_full_year_forecast' | 'prior_year_tax_was_zero' | 'prior_year_us_citizen_or_resident'
+  | 'prior_year_joint_or_separate';
 
 export interface MissingFact {
   key: MissingFactKey;
@@ -692,11 +697,19 @@ export type QuarterlyPlannerResponse = QuarterlyPlan | PlannerReviewRequired;
 function readNumber(value: unknown): number | null {
   if (value === undefined || value === null || value === '') return null;
   if (typeof value === 'boolean') return null;
-  const parsed = typeof value === 'string' ? Number(value.replace(/[$,\s]/g, '')) : value;
-  return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null;
+  if (typeof value === 'string') {
+    const cleaned = value.replace(/[$,\s]/g, '');
+    if (cleaned === '' || cleaned === '-' || cleaned === '.' || cleaned === '-.') return null;
+    const parsed = Number(cleaned);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function readYesNo(value: unknown): '' | 'yes' | 'no' {
+/** Saved answers may be the strings yes/no or the booleans true/false. */
+export function readYesNo(value: unknown): '' | 'yes' | 'no' {
+  if (value === true) return 'yes';
+  if (value === false) return 'no';
   if (typeof value !== 'string') return '';
   const normalized = value.trim().toLowerCase();
   return normalized === 'yes' || normalized === 'no' ? normalized : '';
@@ -748,13 +761,23 @@ export function resolveQuarterlyPlannerFacts(sources: PlannerFactSources): Plann
   const forecastConfirmed = readYesNo(org.fullYearForecastConfirmed) === 'yes';
   const sameTaxpayersAnswer = readYesNo(org.priorYearSameTaxpayersAndFilingStatus);
   const residentAnswer = readYesNo(org.priorYearFullYearUsCitizenOrResident);
-  if (sameTaxpayersAnswer === 'no' || sameTaxpayersAnswer === 'yes') {
-    const sameTaxpayers = priorYearSameTaxpayersAndFilingStatus(sameTaxpayersAnswer === 'yes');
-    if (!sameTaxpayers.allowed) {
-      notes.push(sameTaxpayers.message);
+  const priorFiling = typeof org.priorYearFilingStatus === 'string' ? org.priorYearFilingStatus.trim() : '';
+  const jointAnswered = priorFiling !== '' || sameTaxpayersAnswer === 'yes';
+  if (priorFiling) {
+    const jointOrSeparate = priorYearSameTaxpayersAndFilingStatus({
+      priorYearFilingStatus: priorFiling,
+      currentYearFilingStatus: String(sources.annual.filingStatus ?? ''),
+    });
+    if (!jointOrSeparate.allowed) {
+      notes.push(jointOrSeparate.message);
       notes.push(PLANNER_FACTS_HIDDEN_NOTE);
       return { status: 'review_required', missingFacts: missing, notes };
     }
+  } else if (sameTaxpayersAnswer === 'no') {
+    const sameTaxpayers = priorYearSameTaxpayersAndFilingStatus(false);
+    notes.push(sameTaxpayers.message);
+    notes.push(PLANNER_FACTS_HIDDEN_NOTE);
+    return { status: 'review_required', missingFacts: missing, notes };
   }
 
   const twelveMonths = readYesNo(org.priorReturnCoveredTwelveMonths);
@@ -786,13 +809,27 @@ export function resolveQuarterlyPlannerFacts(sources: PlannerFactSources): Plann
   }
 
   let priorYear: PriorYearFacts | null = null;
-  // §6654(e)(2): no prior-year tax after yes answers to the 12-month and citizenship/residency questions. AGI is not required.
+  const jointFact: MissingFact = {
+    key: 'prior_year_joint_or_separate',
+    label: 'PLACEHOLDER Last year joint or separate return',
+    detail: 'PLACEHOLDER Single, head of household, and married filing separately count as separate returns. Choose last year\'s filing status. Only a change between a joint return and a separate return needs the prior-year tax adjusted.',
+    enterAt: [PLANNER_FACT_SCREENS.taxOrganizer],
+  };
+  const residencyFact: MissingFact = {
+    key: 'prior_year_us_citizen_or_resident',
+    label: `PLACEHOLDER ${year - 1} U.S. citizen or resident`,
+    detail: 'PLACEHOLDER Answer whether you were a U.S. citizen or resident for all of last year. A yes answer, with a 12-month year, is required before last year\'s $0 tax can mean no annual payment.',
+    enterAt: [PLANNER_FACT_SCREENS.taxOrganizer],
+  };
+  // §6654(e)(2): $0 prior-year tax counts only after yes answers to the 12-month and citizenship/residency questions.
   const zeroException = zeroTax && twelveMonths === 'yes' && residentAnswer === 'yes';
+  const zeroBlocked = zeroTax && residentAnswer !== 'yes';
   if (forecastConfirmed && priorBlank && !legacyBlockers) {
     priorYear = { available: false, reason: 'short_year_or_no_return' };
     assumptions.push('PLACEHOLDER No prior-year return is saved. The confirmed full-year forecast uses the 90% current-year target.');
   } else if (zeroException) {
-    priorYear = { available: true, totalTax: 0, agi: priorAgi ?? 0, coveredTwelveMonths: true };
+    if (!jointAnswered) missing.push(jointFact);
+    else priorYear = { available: true, totalTax: 0, agi: priorAgi ?? 0, coveredTwelveMonths: true };
   } else if (twelveMonths === 'no') {
     if (forecastConfirmed) {
       priorYear = { available: false, reason: 'short_year_or_no_return' };
@@ -809,13 +846,13 @@ export function resolveQuarterlyPlannerFacts(sources: PlannerFactSources): Plann
     }
     if (priorAgi === null) {
       missing.push({ key: 'prior_year_agi', label: `${year - 1} adjusted gross income`, detail: `Enter the adjusted gross income from your ${year - 1} Form 1040 (line 11). It decides whether the prior-year safe harbor is 100% or 110% of prior-year tax.`, enterAt: [PLANNER_FACT_SCREENS.taxOrganizer, PLANNER_FACT_SCREENS.deductions] });
-      if (zeroTax && twelveMonths === 'yes' && residentAnswer === '') {
-        missing.push({ key: 'prior_year_us_citizen_or_resident', label: `PLACEHOLDER ${year - 1} U.S. citizen or resident`, detail: 'PLACEHOLDER Answer whether you were a U.S. citizen or resident for all of last year. A yes answer, with a 12-month year, is required before last year\'s $0 tax can mean no annual payment.', enterAt: [PLANNER_FACT_SCREENS.taxOrganizer] });
-      }
     } else if (organizerAgi !== null && deductionsAgi !== null && toCents(organizerAgi) !== toCents(deductionsAgi)) {
       assumptions.push(`Tax Organizer (${money(organizerAgi)}) and Deductions (${money(deductionsAgi)}) list different ${year - 1} AGI amounts; the Tax Organizer value was used.`);
     }
-    if (twelveMonths === 'yes' && priorTax !== null && priorAgi !== null) priorYear = { available: true, totalTax: priorTax, agi: priorAgi, coveredTwelveMonths: true };
+    if (zeroTax && twelveMonths === 'yes' && residentAnswer === '') missing.push(residencyFact);
+    const amountsReady = twelveMonths === 'yes' && priorTax !== null && priorAgi !== null && !zeroBlocked;
+    if (amountsReady && !jointAnswered) missing.push(jointFact);
+    if (amountsReady && jointAnswered) priorYear = { available: true, totalTax: priorTax as number, agi: priorAgi as number, coveredTwelveMonths: true };
   }
 
   if (!legacyBlockers && !forecastConfirmed && priorYear === null && (priorBlank || twelveMonths === 'no')) {
@@ -828,7 +865,7 @@ export function resolveQuarterlyPlannerFacts(sources: PlannerFactSources): Plann
   const currentYearTax = Math.max(0, Math.round((sources.annual.totalTax - Math.max(0, sources.annual.refundableCredits)) * 100) / 100);
   const recordedTax = `Current-year tax of ${money(currentYearTax)} is the federal estimate from your saved ${year} records (total tax ${money(sources.annual.totalTax)} less refundable credits ${money(Math.max(0, sources.annual.refundableCredits))})`;
   assumptions.unshift(forecastConfirmed
-    ? `${recordedTax}, treated as the full-year forecast. If your records cover only part of the year, the 90% target is understated; the prior-year target does not depend on it.`
+    ? `PLACEHOLDER ${recordedTax}. You confirmed this figure as the full-year forecast, so the required payment compares 90% of it with the prior-year target.`
     : `PLACEHOLDER ${recordedTax}. These records are not a confirmed full-year forecast, so the prior-year target is used until you confirm one.`);
   return {
     status: 'ready',

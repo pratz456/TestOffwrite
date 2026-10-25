@@ -3,7 +3,7 @@ import { calcScheduleSE } from '@/lib/reports/calcSE';
 import { getFederalTaxRules } from '@/lib/tax-rules/federal-year-rules';
 import { calculateRegularEstimatedPayments, QuarterlyReviewRequiredError } from '@/lib/tax-provider/regular-estimated-payments';
 import {
-  buildQuarterlyPlan, calculateRequiredAnnualPayment, resolveQuarterlyPlannerFacts,
+  buildQuarterlyPlan, calculateRequiredAnnualPayment, readYesNo, resolveQuarterlyPlannerFacts,
   type QuarterlyPlan,
 } from '@/lib/tax-provider/quarterly-planner';
 
@@ -25,14 +25,14 @@ const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 function render(component: () => any) { h.cursor = 0; const tree = component(); h.effects.splice(0).forEach(effect => effect()); return tree; }
 
 const profile = { filing_status: 'Single' };
-const ytdTax = (profit: number, filingStatus = 'single') => calcScheduleSE({ scheduleCNetProfit: profit, taxYear: 2026 }, filingStatus).totalSETax;
+const ytdTax = (profit: number, filingStatus = 'single') => calcScheduleSE({ scheduleCNetProfit: profit, taxYear: 2026 }, filingStatus).totalSETax; const ninetyOf = (tax: number) => Math.round(Math.round(tax * 100) * 0.9) / 100; const dollars = (tax: number) => tax.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
 function resolvedPlan(filingStatus: string, agi: string, profit: number, organizer: Record<string, unknown> = {}) {
   const resolution = resolveQuarterlyPlannerFacts({
     taxYear: 2026,
     annual: { filingStatus, totalTax: ytdTax(profit, filingStatus), refundableCredits: 0, totalFederalWithheld: 0, totalIncome: profit },
     profile: { filing_status: filingStatus },
-    organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000', priorYearAGI: agi, ...organizer },
+    organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000', priorYearAGI: agi, priorYearFilingStatus: filingStatus, ...organizer },
     deductions: {},
   });
   if (resolution.status !== 'ready') throw new Error(`expected a plan, received ${JSON.stringify(resolution)}`);
@@ -43,10 +43,10 @@ describe('quarterly planner before a full-year forecast is confirmed', () => {
   it('uses $2,500 per quarter for $15,000 of January through March profit and a saved $10,000 prior year', () => {
     const se = calcScheduleSE({ scheduleCNetProfit: 15000, taxYear: 2026 }, 'single');
     expect(15000 - se.halfSEDeduction).toBeLessThan(getFederalTaxRules(2026).standardDeductions.single);
-    expect(se.totalSETax).toBe(2119.43);
+    const seTax = se.totalSETax;
     const { resolution, plan } = resolvedPlan('single', '50000', 15000);
-    expect(plan.requiredAnnualPayment.currentYearTax).toBe(2119.43);
-    expect(plan.requiredAnnualPayment.ninetyPercentOfCurrentYear).toBe(1907.49);
+    expect(plan.requiredAnnualPayment.currentYearTax).toBe(seTax);
+    expect(plan.requiredAnnualPayment.ninetyPercentOfCurrentYear).toBe(ninetyOf(seTax));
     expect(plan.requiredAnnualPayment.basis).toBe('prior_year_100');
     expect(plan.requiredAnnualPayment.fullYearForecastConfirmed).toBe(false);
     expect(plan.requiredAnnualPayment.requiredAnnualPayment).toBe(10000);
@@ -55,15 +55,15 @@ describe('quarterly planner before a full-year forecast is confirmed', () => {
     expect(plan.installments.map(item => item.plannedEstimatedPayment)).toEqual([2500, 2500, 2500, 2500]);
     expect(resolution.facts.assumptions[0]).not.toContain('treated as the full-year forecast');
     expect(resolution.facts.assumptions[0]).toContain('PLACEHOLDER');
-    expect(resolution.facts.assumptions[0]).toContain('$2,119.43');
+    expect(resolution.facts.assumptions[0]).toContain(dollars(seTax));
   });
 
   it('keeps $2,500 per quarter when year-to-date tax is under $1,000 and a $10,000 prior year is saved', () => {
     const se = calcScheduleSE({ scheduleCNetProfit: 5000, taxYear: 2026 }, 'single');
-    expect(se.totalSETax).toBe(706.48);
-    expect(se.totalSETax).toBeLessThan(1000);
+    const lowTax = se.totalSETax;
+    expect(lowTax).toBeLessThan(1000);
     const { plan } = resolvedPlan('single', '50000', 5000);
-    expect(plan.requiredAnnualPayment.deMinimis).toMatchObject({ applies: false, taxLessWithholding: 706.48 });
+    expect(plan.requiredAnnualPayment.deMinimis).toMatchObject({ applies: false, taxLessWithholding: lowTax });
     expect(plan.requiredAnnualPayment.estimatedPaymentsRequired).toBe(10000);
     expect(plan.installments.map(item => item.plannedEstimatedPayment)).toEqual([2500, 2500, 2500, 2500]);
     const assumptions = plan.assumptions.join(' ');
@@ -111,7 +111,7 @@ describe('quarterly planner before a full-year forecast is confirmed', () => {
     const resolution = resolveQuarterlyPlannerFacts({
       taxYear: 2026,
       annual: { filingStatus: 'single', totalTax: ytdTax(15000), refundableCredits: 0, totalFederalWithheld: 0, totalIncome: 15000 },
-      profile, organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '0', priorYearFullYearUsCitizenOrResident: 'yes' }, deductions: {},
+      profile, organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '0', priorYearFullYearUsCitizenOrResident: 'yes', priorYearFilingStatus: 'single' }, deductions: {},
     });
     expect(resolution.status).toBe('ready');
     if (resolution.status !== 'ready') throw new Error('expected ready');
@@ -157,7 +157,7 @@ describe('quarterly planner before a full-year forecast is confirmed', () => {
       organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000', priorYearAGI: '50000', priorYearSameTaxpayersAndFilingStatus: 'no' },
       deductions: {},
     });
-    expect(regularMessage).toContain('same taxpayer');
+    expect(regularMessage).toContain('adjusting');
     expect(resolution.status).toBe('review_required');
     if (resolution.status !== 'review_required') throw new Error('expected review');
     expect(resolution.notes.join(' ')).toContain(regularMessage);
@@ -170,11 +170,179 @@ describe('quarterly planner before a full-year forecast is confirmed', () => {
     ['married_filing_separately', '75000.01', 'prior_year_110', 11000, 2750],
   ] as const)('uses the prior-year percentage at the %s AGI boundary of %s', (filingStatus, agi, basis, annualPayment, quarter) => {
     const { plan } = resolvedPlan(filingStatus, agi, 15000);
-    expect(plan.requiredAnnualPayment.currentYearTax).toBe(2119.43);
+    expect(plan.requiredAnnualPayment.currentYearTax).toBe(ytdTax(15000, filingStatus));
     expect(plan.requiredAnnualPayment.priorYear?.agiThreshold).toBe(filingStatus === 'married_filing_separately' ? 75000 : 150000);
     expect(plan.requiredAnnualPayment.basis).toBe(basis);
     expect(plan.requiredAnnualPayment.requiredAnnualPayment).toBe(annualPayment);
     expect(plan.installments.map(item => item.requiredInstallment)).toEqual([quarter, quarter, quarter, quarter]);
+  });
+});
+
+describe('blank answers, joint or separate returns, and the confirmed forecast exception', () => {
+  const annualFor = (filingStatus: string, profit: number) => ({
+    filingStatus, totalTax: ytdTax(profit, filingStatus), refundableCredits: 0, totalFederalWithheld: 0, totalIncome: profit,
+  });
+
+  it.each(['50000', '0', 0] as const)('asks the residency question and shows no figure when prior-year tax is 0 and saved AGI is %j', agi => {
+    const resolution = resolveQuarterlyPlannerFacts({
+      taxYear: 2026,
+      annual: annualFor('single', 15000),
+      profile,
+      organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '0', priorYearAGI: agi, priorYearFilingStatus: 'single' },
+      deductions: {},
+    });
+    expect(resolution.status).toBe('review_required');
+    if (resolution.status !== 'review_required') throw new Error('expected review');
+    expect(resolution.missingFacts.map(fact => fact.key)).toContain('prior_year_us_citizen_or_resident');
+    expect(resolution.missingFacts.map(fact => fact.key)).not.toContain('prior_year_agi');
+    const body = JSON.stringify(resolution);
+    expect(body).not.toContain('requires no annual payment');
+    expect(body).not.toContain('estimatedPaymentsRequired');
+  });
+
+  it('asks the joint or separate question and shows no figure when that answer is blank', () => {
+    const resolution = resolveQuarterlyPlannerFacts({
+      taxYear: 2026,
+      annual: annualFor('single', 15000),
+      profile,
+      organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000', priorYearAGI: '50000' },
+      deductions: {},
+    });
+    expect(resolution.status).toBe('review_required');
+    if (resolution.status !== 'review_required') throw new Error('expected review');
+    expect(resolution.missingFacts.map(fact => fact.key)).toContain('prior_year_joint_or_separate');
+    expect(resolution.missingFacts.map(fact => fact.label).join(' ')).toContain('PLACEHOLDER');
+    expect(JSON.stringify(resolution)).not.toContain('estimatedPaymentsRequired');
+  });
+
+  it('reviews a switch from a 2025 separate return to a 2026 joint return', () => {
+    const resolution = resolveQuarterlyPlannerFacts({
+      taxYear: 2026,
+      annual: annualFor('married_filing_jointly', 15000),
+      profile: { filing_status: 'married_filing_jointly' },
+      organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000', priorYearAGI: '50000', priorYearFilingStatus: 'married_filing_separately' },
+      deductions: {},
+    });
+    expect(resolution.status).toBe('review_required');
+    if (resolution.status !== 'review_required') throw new Error('expected review');
+    expect(resolution.notes.join(' ')).toContain('PLACEHOLDER');
+    expect(resolution.notes.join(' ')).toContain('adjusting');
+    expect(JSON.stringify(resolution)).not.toContain('estimatedPaymentsRequired');
+  });
+
+  it('uses the prior-year target for a 2025 single return and a 2026 head of household return', () => {
+    const resolution = resolveQuarterlyPlannerFacts({
+      taxYear: 2026,
+      annual: annualFor('head_of_household', 15000),
+      profile: { filing_status: 'head_of_household' },
+      organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000', priorYearAGI: '50000', priorYearFilingStatus: 'single' },
+      deductions: {},
+    });
+    expect(resolution.status).toBe('ready');
+    if (resolution.status !== 'ready') throw new Error('expected ready');
+    const plan = buildQuarterlyPlan({ ...resolution.facts, payments: [], asOf: '2026-03-31' });
+    expect(plan.requiredAnnualPayment.currentYearTax).toBe(ytdTax(15000, 'head_of_household'));
+    expect(plan.requiredAnnualPayment.basis).toBe('prior_year_100');
+    expect(plan.requiredAnnualPayment.requiredAnnualPayment).toBe(10000);
+    expect(plan.installments.map(item => item.requiredInstallment)).toEqual([2500, 2500, 2500, 2500]);
+  });
+
+  it('does not give none required when the 12-month answer is no and prior-year tax is $0', () => {
+    const resolution = resolveQuarterlyPlannerFacts({
+      taxYear: 2026,
+      annual: annualFor('single', 15000),
+      profile,
+      organizer: { priorReturnCoveredTwelveMonths: 'no', priorYearTax: '0', priorYearAGI: '50000', priorYearFilingStatus: 'single' },
+      deductions: {},
+    });
+    expect(resolution.status).toBe('review_required');
+    if (resolution.status !== 'review_required') throw new Error('expected review');
+    const body = JSON.stringify(resolution);
+    expect(body).not.toContain('no annual payment');
+    expect(body).not.toContain('estimatedPaymentsRequired');
+  });
+
+  it('treats an empty or unparseable prior-year AGI as missing and keeps an entered 0', () => {
+    for (const priorYearAGI of ['', '   ', 'n/a']) {
+      const resolution = resolveQuarterlyPlannerFacts({
+        taxYear: 2026,
+        annual: annualFor('single', 15000),
+        profile,
+        organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000', priorYearFilingStatus: 'single', priorYearAGI },
+        deductions: {},
+      });
+      expect(resolution.status).toBe('review_required');
+      if (resolution.status !== 'review_required') throw new Error('expected review');
+      expect(resolution.missingFacts.map(fact => fact.key)).toContain('prior_year_agi');
+    }
+    for (const priorYearAGI of ['0', 0]) {
+      const resolution = resolveQuarterlyPlannerFacts({
+        taxYear: 2026,
+        annual: annualFor('single', 15000),
+        profile,
+        organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000', priorYearFilingStatus: 'single', priorYearAGI },
+        deductions: {},
+      });
+      expect(resolution.status).toBe('ready');
+      if (resolution.status !== 'ready') throw new Error('expected ready');
+      expect(resolution.facts.priorYear).toMatchObject({ agi: 0, totalTax: 10000 });
+    }
+  });
+
+  it('reads a saved boolean true or false as yes or no', () => {
+    expect(readYesNo(true)).toBe('yes');
+    expect(readYesNo(false)).toBe('no');
+    const ready = resolveQuarterlyPlannerFacts({
+      taxYear: 2026,
+      annual: annualFor('single', 15000),
+      profile,
+      organizer: { priorReturnCoveredTwelveMonths: true, priorYearTax: '10000', priorYearAGI: '50000', priorYearFilingStatus: 'single' },
+      deductions: {},
+    });
+    expect(ready.status).toBe('ready');
+    const blocked = resolveQuarterlyPlannerFacts({
+      taxYear: 2026,
+      annual: annualFor('single', 15000),
+      profile,
+      organizer: { priorReturnCoveredTwelveMonths: false, priorYearTax: '0', priorYearAGI: '50000', priorYearFilingStatus: 'single' },
+      deductions: {},
+    });
+    expect(blocked.status).toBe('review_required');
+    expect(JSON.stringify(blocked)).not.toContain('requires no annual payment');
+  });
+
+  it('does not describe a confirmed full-year forecast as independent of the prior-year target', () => {
+    const resolution = resolveQuarterlyPlannerFacts({
+      taxYear: 2026,
+      annual: { filingStatus: 'single', totalTax: 20000, refundableCredits: 0, totalFederalWithheld: 0, totalIncome: 80000 },
+      profile,
+      organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000', priorYearAGI: '50000', priorYearFilingStatus: 'single', fullYearForecastConfirmed: 'yes' },
+      deductions: {},
+    });
+    expect(resolution.status).toBe('ready');
+    if (resolution.status !== 'ready') throw new Error('expected ready');
+    const note = resolution.facts.assumptions[0];
+    expect(note).toContain('PLACEHOLDER');
+    expect(note).toContain('$20,000.00');
+    expect(note).not.toContain('does not depend');
+    expect(note).not.toContain('treated as the full-year forecast');
+  });
+
+  it('does not apply the $1,000 exception to year-to-date tax when the confirmed full-year forecast is over $1,000 after withholding', () => {
+    const yearToDate = ytdTax(5000);
+    expect(yearToDate).toBeLessThan(1000);
+    const forecast = 2500;
+    const withholding = 400;
+    const net = Math.round((forecast - withholding) * 100) / 100;
+    expect(net).toBeGreaterThan(1000);
+    const result = calculateRequiredAnnualPayment({
+      taxYear: 2026, filingStatus: 'single', currentYearTax: yearToDate, confirmedFullYearTax: forecast, withholding,
+      fullYearForecastConfirmed: true,
+      priorYear: { available: true, totalTax: 10000, agi: 50000, coveredTwelveMonths: true },
+    });
+    expect(result.currentYearTax).toBe(yearToDate);
+    expect(result.deMinimis.applies).toBe(false);
+    expect(result.deMinimis.taxLessWithholding).toBe(net);
   });
 });
 

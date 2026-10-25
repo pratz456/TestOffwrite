@@ -23,7 +23,7 @@ import { GET as quarterly } from '../app/api/tax/quarterly-reminders/route';
 import { POST as legacy } from '../app/api/tax/quarterly-estimates/route';
 import { POST as voucher } from '../app/api/tax/generate-1040es/route';
 
-const PRIOR_YEAR_FACTS = { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000', priorYearAGI: '100000' };
+const PRIOR_YEAR_FACTS = { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000', priorYearAGI: '100000', priorYearFilingStatus: 'single' };
 const req = (query = 'year=2026&asOf=2026-09-01') => new NextRequest(`http://localhost/api/tax/quarterly-reminders?${query}`);
 const post = (body: unknown) => new NextRequest('http://localhost/api/tax/quarterly-estimates', { method: 'POST', body: JSON.stringify(body) });
 const organizer = (facts: Record<string, unknown> = {}) => reviewedPersonalDeductionOrganizer(2026, {}, facts);
@@ -100,7 +100,7 @@ describe('quarterly summary returns planner figures from reviewed facts', () => 
     expect(result.safeHarborBasis).toBe('current_year_90'); expect(result.usingPriorYearSafeHarbor).toBe(false); expect(result.safeHarborTotal).toBe(result.planner.requiredAnnualPayment.ninetyPercentOfCurrentYear);
   });
   it('applies the 110% multiplier from saved prior-year AGI and reads Deductions when the organizer lacks amounts', async () => {
-    state.records.tax_organizers = [organizer({ priorReturnCoveredTwelveMonths: 'yes' })]; state.records.tax_deductions = [{ priorYearTotalTax: 10000, priorYearAGI: 150000.01 }];
+    state.records.tax_organizers = [organizer({ priorReturnCoveredTwelveMonths: 'yes', priorYearFilingStatus: 'single' })]; state.records.tax_deductions = [{ priorYearTotalTax: 10000, priorYearAGI: 150000.01 }];
     const result = await (await quarterly(req())).json();
     expect(result.planner.status).toBe('ready'); expect(result.planner.requiredAnnualPayment).toMatchObject({ basis: 'prior_year_110', requiredAnnualPayment: 11000 }); expect(result.safeHarborPerQuarter).toBe(2750);
   });

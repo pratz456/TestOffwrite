@@ -94,6 +94,8 @@ interface OrgAnswers extends SocialSecurityAnswers {
   priorReturnCoveredTwelveMonths: string;
   /** "yes" | "no": same taxpayer(s) and filing status as the prior-year return. */
   priorYearSameTaxpayersAndFilingStatus: string;
+  /** Prior-year filing status. Single, head of household, and married filing separately are separate returns. */
+  priorYearFilingStatus: string;
   /** "yes" | "no": U.S. citizen or resident for all of the prior year (§6654(e)(2)). */
   priorYearFullYearUsCitizenOrResident: string;
   /** "yes" | "no": the user confirmed saved records are a full-year tax forecast. */
@@ -110,7 +112,7 @@ export const EMPTY_ORGANIZER_ANSWERS: OrgAnswers = {
   paidHealthInsurance:"",healthInsurancePremium:"",madeRetirementContrib:"",retirementAmount:"",retirementType:"sep_ira",
   paidStudentLoanInterest:"",studentLoanInterest:"",paidHSA:"",hsaAmount:"",hasHomeMortgage:"",
   marriedThisYear:"",hadChild:"",boughtHome:"",soldHome:"",startedBusiness:"",
-  priorYearTax:"",priorReturnCoveredTwelveMonths:"",priorYearSameTaxpayersAndFilingStatus:"",priorYearFullYearUsCitizenOrResident:"",fullYearForecastConfirmed:"",madeQuarterlyPayments:"",quarterlyTotal:"",
+  priorYearTax:"",priorReturnCoveredTwelveMonths:"",priorYearSameTaxpayersAndFilingStatus:"",priorYearFilingStatus:"",priorYearFullYearUsCitizenOrResident:"",fullYearForecastConfirmed:"",madeQuarterlyPayments:"",quarterlyTotal:"",
 };
 
 const EMPTY = EMPTY_ORGANIZER_ANSWERS;
@@ -688,7 +690,14 @@ export function TaxOrganizerScreen({ user }: Props) {
               </div>
               {yesno("priorReturnCoveredTwelveMonths", `Did your ${year - 1} federal return cover a full 12 months?`)}
               <p className="text-xs text-muted-foreground">PLACEHOLDER Answer no if you did not file a {year - 1} return or it covered a short year. The prior-year target is then unavailable until you confirm a full-year forecast.</p>
-              {yesno("priorYearSameTaxpayersAndFilingStatus", "PLACEHOLDER Are the taxpayer(s) and filing status the same as on last year's federal return?")}
+              <div className="space-y-1.5">
+                <Label htmlFor="organizer-prior-filing-status" className="text-sm font-medium">PLACEHOLDER Last year&apos;s filing status</Label>
+                <select id="organizer-prior-filing-status" value={answers.priorYearFilingStatus} onChange={event => set("priorYearFilingStatus", event.target.value)} className="min-h-[44px] w-full rounded-lg border border-input bg-background px-3 py-2 text-base">
+                  <option value="">PLACEHOLDER Choose last year&apos;s filing status</option>
+                  {FILING_STATUSES.map(status => <option key={status.value} value={status.value}>{status.label}</option>)}
+                </select>
+                <p className="text-xs text-muted-foreground">PLACEHOLDER Single, head of household, and married filing separately are separate returns. Only a change between a joint return and a separate return needs the prior-year tax adjusted.</p>
+              </div>
               {yesno("priorYearFullYearUsCitizenOrResident", "PLACEHOLDER Were you a U.S. citizen or resident for all of last year?")}
               {yesno("fullYearForecastConfirmed", "PLACEHOLDER Confirm a full-year forecast for this year's saved records?")}
               {yesno("madeQuarterlyPayments", `Did you make estimated tax payments in ${year}?`)}

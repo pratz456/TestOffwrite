@@ -358,7 +358,7 @@ describe('whole plan', () => {
 
 describe('fact resolution from saved records', () => {
   const annual = { filingStatus: 'single', totalTax: 20000, refundableCredits: 0, totalFederalWithheld: 1500, totalIncome: 100000 };
-  const organizer = { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000', priorYearAGI: '100000' };
+  const organizer = { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '10000', priorYearAGI: '100000', priorYearFilingStatus: 'single' };
   it('lists every missing fact with where to enter it instead of guessing', () => {
     const result = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual: { ...annual, totalIncome: 0 }, profile: {}, organizer: {}, deductions: null });
     expect(result.status).toBe('review_required');
@@ -375,7 +375,7 @@ describe('fact resolution from saved records', () => {
     expect(result.facts.assumptions[0]).toContain('$19,500.00');
   });
   it('accepts prior-year facts from the Deductions screen and formatted strings', () => {
-    const result = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual, profile: { filing_status: 'Single' }, organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearAGI: '$90,000' }, deductions: { priorYearTotalTax: 8000 } });
+    const result = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual, profile: { filing_status: 'Single' }, organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearAGI: '$90,000', priorYearFilingStatus: 'single' }, deductions: { priorYearTotalTax: 8000 } });
     expect(result.status).toBe('ready'); if (result.status !== 'ready') throw new Error('expected ready');
     expect(result.facts.priorYear).toEqual({ available: true, totalTax: 8000, agi: 90000, coveredTwelveMonths: true });
   });
@@ -383,9 +383,14 @@ describe('fact resolution from saved records', () => {
     const blank = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual, profile: { filing_status: 'Single' }, organizer: { priorReturnCoveredTwelveMonths: 'yes' }, deductions: { priorYearTotalTax: 0, priorYearAGI: 0 } });
     expect(blank.status).toBe('review_required'); if (blank.status !== 'review_required') throw new Error('expected review');
     expect(blank.missingFacts.map(fact => fact.key)).toEqual(['prior_year_total_tax', 'prior_year_agi']);
-    const explicit = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual, profile: { filing_status: 'Single' }, organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '0', priorYearAGI: '0' }, deductions: { priorYearTotalTax: 0, priorYearAGI: 0 } });
-    expect(explicit.status).toBe('ready'); if (explicit.status !== 'ready') throw new Error('expected ready');
-    expect(explicit.facts.priorYear).toEqual({ available: true, totalTax: 0, agi: 0, coveredTwelveMonths: true });
+    const explicit = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual, profile: { filing_status: 'Single' }, organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '0', priorYearAGI: '0', priorYearFilingStatus: 'single' }, deductions: { priorYearTotalTax: 0, priorYearAGI: 0 } });
+    expect(explicit.status).toBe('review_required'); if (explicit.status !== 'review_required') throw new Error('expected review');
+    expect(explicit.missingFacts.map(fact => fact.key)).toContain('prior_year_us_citizen_or_resident');
+    expect(explicit.missingFacts.map(fact => fact.key)).not.toContain('prior_year_agi');
+    expect(JSON.stringify(explicit)).not.toContain('requires no annual payment');
+    const qualified = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual, profile: { filing_status: 'Single' }, organizer: { priorReturnCoveredTwelveMonths: 'yes', priorYearTax: '0', priorYearAGI: '0', priorYearFilingStatus: 'single', priorYearFullYearUsCitizenOrResident: 'yes' }, deductions: { priorYearTotalTax: 0, priorYearAGI: 0 } });
+    expect(qualified.status).toBe('ready'); if (qualified.status !== 'ready') throw new Error('expected ready');
+    expect(qualified.facts.priorYear).toEqual({ available: true, totalTax: 0, agi: 0, coveredTwelveMonths: true });
   });
   it('prefers the Tax Organizer value and records a conflict with Deductions as an assumption', () => {
     const result = resolveQuarterlyPlannerFacts({ taxYear: 2026, annual, profile: { filing_status: 'Single' }, organizer, deductions: { priorYearTotalTax: 12000, priorYearAGI: 100000 } });
