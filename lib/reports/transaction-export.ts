@@ -114,7 +114,8 @@ export function summarizeMileageDateNeeded(records: ExportRecord[]): MileageDate
   const trips = records.map(mileageDateNeededTrip);
   const measured = records.map(recordedTripMiles);
   const noMilesCount = measured.filter(miles => miles === null).length;
-  const hundredths = measured.reduce((sum, miles) => miles === null ? sum : sum + Math.round(miles * 100), 0);
+  let hundredths = 0;
+  for (const value of measured) if (value !== null) hundredths += Math.round(value * 100);
   const miles = hundredths / 100;
   const count = records.length;
   return { count, miles, noMilesCount, label: formatMileageDateNeededLabel(count, miles, noMilesCount), trips };
