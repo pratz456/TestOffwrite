@@ -12,7 +12,7 @@ export function dashboardNextSteps(records: Transaction[], taxState: DashboardTa
   const steps: DashboardNextStep[] = [];
   if (taxState.status === 'review' && isSection179PartialHold(taxState.code, taxState.kind)) {
     steps.push({ id: 'tax-inputs', title: 'Tax estimate on hold',
-      detail: "We'll update your estimate once we've confirmed the rule. If an asset's cost was entered wrong, you can correct it in your asset records.",
+      detail: "We'll update your estimate once we've confirmed the rule. If an asset's cost was entered wrong, remove it and add it again with the right cost.",
       href: '/protected/tax-forms-setup?tab=assets' });
   } else if (taxState.status === 'review') {
     const target = reviewTargetForCode(taxState.code, taxState.kind);

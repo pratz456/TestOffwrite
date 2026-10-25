@@ -44,6 +44,7 @@ import { KpiGrid } from '../components/dashboard/KpiGrid';
 import Form4562Page from '../app/protected/form4562/page';
 import Form8829Page from '../app/protected/form8829/page';
 import { reviewTargetForCode, loadDashboardTaxSnapshot } from '../lib/tax/dashboard-snapshot';
+import { SUPPORTED_TAX_YEARS } from '../lib/tax-rules/federal-year-rules';
 
 type Element = ReactElement<Record<string, any>>;
 function render(component = TaxFilingHubScreen): Element {
@@ -400,73 +401,77 @@ describe('partial Section 179 hold stays plain status text', () => {
     expect(walk(vehicle).some(node => node.type === 'button' && text(node) === 'Review asset records')).toBe(true);
   });
 
-  it('keeps the asset list editable on Form 4562 and leaves export and Open Settings off during the hold', async () => {
+  it('keeps Remove and Add Asset working on a held Form 4562 page, with earlier-year notes that do not block them', async () => {
     const page = (component: () => Element) => {
       harness.cursor = 0;
       const tree = component();
       harness.effects.splice(0).forEach(effect => effect());
       return tree;
     };
-    const savedAsset = { id: 'computer', description: 'Computer', cost: 9000, businessUsePercent: 100, category: 'computer', method: 'MACRS_5YR', section179Requested: true, bonusEligible: false, datePlacedInService: '2026-03-15T00:00:00.000Z' };
+    const taxYear = SUPPORTED_TAX_YEARS[SUPPORTED_TAX_YEARS.length - 1];
+    const removeNote = "This asset was placed in service in an earlier year. Removing it here doesn't undo deductions you've already claimed. If you sold it, traded it in or stopped using it for business, tell your tax preparer, because that may need to be reported on your return.";
+    const addNote = "This date is in an earlier year. Adding this asset can change returns you've already filed, so check with your tax preparer first.";
+    const savedAssets = [
+      { id: 'computer', description: 'Computer', cost: 9000, businessUsePercent: 100, category: 'computer', method: 'MACRS_5YR', section179Requested: true, bonusEligible: false, datePlacedInService: `${taxYear}-03-15T00:00:00.000Z` },
+      { id: 'printer', description: 'Printer', cost: 800, businessUsePercent: 100, category: 'equipment', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false, datePlacedInService: `${taxYear - 2}-06-01T00:00:00.000Z` },
+    ];
     harness.request.mockImplementation((url: string) => Promise.resolve(response(
-      String(url).includes('assets') ? { data: [savedAsset] } : { error: differentMessage, code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold' },
+      String(url).includes('assets') ? { data: savedAssets } : { error: differentMessage, code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold' },
       String(url).includes('assets') ? 200 : 422,
     )));
     page(Form4562Page as unknown as () => Element); await flush();
     const form4562 = page(Form4562Page as unknown as () => Element);
     const form4562Alert = walk(form4562).find(node => node.props?.role === 'alert')!;
+    const assetRow = (name: string) => walk(form4562Alert).find(node => typeof node.props?.className === 'string' && node.props.className.includes('justify-between') && text(node).includes(name))!;
     expect(text(form4562Alert)).toContain('Tax estimate on hold');
     expect(text(form4562Alert)).toContain(differentMessage);
-    expect(text(form4562Alert)).toContain('Saved assets (1)');
-    expect(text(form4562Alert)).toContain('Computer');
+    expect(text(form4562Alert)).toContain('Saved assets (2)');
     expect(text(form4562Alert)).toContain('Add Asset');
     expect(text(form4562Alert)).not.toContain('Asset records need review');
+    expect(text(assetRow('Computer'))).not.toContain(removeNote);
+    expect(text(assetRow('Printer'))).toContain(removeNote);
+    expect(walk(assetRow('Printer')).some(node => text(node) === removeNote)).toBe(true);
     expect(walk(form4562Alert).some(node => node.props?.['aria-label'] === 'Remove Computer')).toBe(true);
+    expect(walk(form4562Alert).some(node => node.props?.['aria-label'] === 'Remove Printer')).toBe(true);
+    expect(walk(form4562).some(node => String(node.props?.['aria-label'] || '').startsWith('Edit'))).toBe(false);
     expect(walk(form4562).filter(node => node.props?.onClick && text(node).includes('Export'))).toEqual([]);
     expect(text(form4562)).not.toContain('View your assets');
     expect(walk(form4562).some(node => node.props?.href === '/protected/tax-forms-setup?tab=assets')).toBe(false);
     expect(text(form4562)).not.toContain('Retry');
     expect(text(form4562)).not.toContain('Refresh');
     expect(text(form4562)).not.toContain('Keep preparing');
-    const edit = walk(form4562Alert).find(node => node.props?.['aria-label'] === 'Edit Computer')!;
-    edit.props.onClick();
+    await walk(assetRow('Printer')).find(node => node.props?.['aria-label'] === 'Remove Printer')!.props.onClick();
+    await walk(assetRow('Computer')).find(node => node.props?.['aria-label'] === 'Remove Computer')!.props.onClick();
+    const deletions = harness.request.mock.calls.filter(([, init]) => init?.method === 'DELETE');
+    expect(deletions.map(([url, init]) => [String(url), JSON.parse(init.body)])).toEqual([
+      ['/api/settings/assets', { assetId: 'printer' }],
+      ['/api/settings/assets', { assetId: 'computer' }],
+    ]);
+    const addButtons = (root: Element) => walk(root).filter(node => node.props?.onClick && text(node).includes('Add Asset'));
+    addButtons(form4562)[0].props.onClick();
     await flush();
-    const editing = page(Form4562Page as unknown as () => Element);
-    expect(text(editing)).toContain('Edit asset');
-    const description = walk(editing).find(node => node.props?.id === 'description')!;
-    expect(description.props.value).toBe('Computer');
-    description.props.onChange({ target: { value: 'Updated computer' } });
+    const setField = async (id: string, value: string) => {
+      const current = page(Form4562Page as unknown as () => Element);
+      walk(current).find(node => node.props?.id === id)!.props.onChange({ target: { value } });
+      await flush();
+    };
+    await setField('description', 'Earlier desk');
+    await setField('cost', '250');
+    await setField('datePlacedInService', `${taxYear}-06-01`);
+    const currentYearForm = page(Form4562Page as unknown as () => Element);
+    expect(walk(currentYearForm).some(node => node.props?.id === 'datePlacedInService')).toBe(true);
+    expect(text(currentYearForm)).not.toContain(addNote);
     await flush();
-    const changed = page(Form4562Page as unknown as () => Element);
-    expect(walk(changed).find(node => node.props?.id === 'description')!.props.value).toBe('Updated computer');
-    await walk(changed).find(node => node.props?.onClick && text(node).includes('Save asset'))!.props.onClick();
-    const update = harness.request.mock.calls.find(([, init]) => init?.method === 'PUT')!;
-    expect(String(update[0])).toContain('/api/settings/assets');
-    expect(JSON.parse(update[1].body)).toMatchObject({
-      assetId: 'computer', description: 'Updated computer', cost: 9000, businessUsePercent: 100,
-      category: 'computer', method: 'MACRS_5YR', section179Requested: true, bonusEligible: false,
-      datePlacedInService: '2026-03-15T00:00:00.000Z',
-    });
-    const save = walk(changed).find(node => node.props?.onClick && text(node).includes('Save asset'))!;
-    harness.request.mockImplementation((url: string, init?: { method?: string }) => {
-      if (init?.method === 'PUT') return Promise.resolve(response({ error: 'Asset not found' }, 404));
-      return Promise.resolve(response(
-        String(url).includes('assets') ? { data: [savedAsset] } : { error: differentMessage, code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold' },
-        String(url).includes('assets') ? 200 : 422,
-      ));
-    });
-    await save.props.onClick();
-    expect(harness.showError).toHaveBeenCalledWith('Asset not found');
-    harness.showError.mockClear();
-    harness.request.mockImplementation((url: string, init?: { method?: string }) => {
-      if (init?.method === 'PUT') return Promise.resolve(response({ error: 'Asset cost must be greater than 0' }, 400));
-      return Promise.resolve(response(
-        String(url).includes('assets') ? { data: [savedAsset] } : { error: differentMessage, code: 'DEPRECIATION_REVIEW_REQUIRED', kind: 'section179_partial_hold' },
-        String(url).includes('assets') ? 200 : 422,
-      ));
-    });
-    await save.props.onClick();
-    expect(harness.showError).toHaveBeenCalledWith('Asset cost must be greater than 0');
+    await setField('datePlacedInService', `${taxYear - 2}-06-01`);
+    const earlierForm = page(Form4562Page as unknown as () => Element);
+    expect(text(earlierForm)).toContain(addNote);
+    expect(walk(earlierForm).some(node => text(node) === addNote)).toBe(true);
+    await addButtons(earlierForm).at(-1)!.props.onClick();
+    const created = harness.request.mock.calls.find(([, init]) => init?.method === 'POST')!;
+    expect(String(created[0])).toBe('/api/settings/assets');
+    const added = JSON.parse(created[1].body).assets[0];
+    expect(added).toMatchObject({ description: 'Earlier desk', cost: 250 });
+    expect(new Date(added.datePlacedInService).getUTCFullYear()).toBe(taxYear - 2);
     harness.slots = [];
     page(Form8829Page as unknown as () => Element); await flush();
     const form8829 = page(Form8829Page as unknown as () => Element);

@@ -93,7 +93,7 @@ describe('dashboard filing-status review display', () => {
     }, { status: 422 }));
     render(dashboard); await flush();
     const tree = render(dashboard);
-    const row = walk(tree).find(node => node.type === 'li' && text(node).includes("We'll update your estimate once we've confirmed the rule. If an asset's cost was entered wrong, you can correct it in your asset records."));
+    const row = walk(tree).find(node => node.type === 'li' && text(node).includes("We'll update your estimate once we've confirmed the rule. If an asset's cost was entered wrong, remove it and add it again with the right cost."));
     expect(row).toBeTruthy();
     expect(text(row)).toContain('Tax estimate on hold');
     const assetsLink = walk(row).find(node => node.type === 'a')!;

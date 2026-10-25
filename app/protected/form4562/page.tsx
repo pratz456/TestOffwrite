@@ -43,6 +43,19 @@ const emptyAsset = (): Partial<Asset> => ({
   description: '', datePlacedInService: new Date(), cost: 0, businessUsePercent: 100,
   category: 'other', method: 'MACRS_5YR', section179Requested: false, bonusEligible: false,
 });
+const EARLIER_YEAR_REMOVE_NOTE = "This asset was placed in service in an earlier year. Removing it here doesn't undo deductions you've already claimed. If you sold it, traded it in or stopped using it for business, tell your tax preparer, because that may need to be reported on your return.";
+const EARLIER_YEAR_ADD_NOTE = "This date is in an earlier year. Adding this asset can change returns you've already filed, so check with your tax preparer first.";
+const placedInServiceYear = (value: unknown): number | null => {
+  if (typeof value === 'string') {
+    const match = /^(\d{4})/.exec(value.trim());
+    if (match) return Number(match[1]);
+  }
+  if (value instanceof Date || (typeof value === 'number' && Number.isFinite(value))) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (!Number.isNaN(date.getTime())) return date.getUTCFullYear();
+  }
+  return null;
+};
 
 export default function Form4562Page() {
   const router = useRouter();
@@ -55,7 +68,6 @@ export default function Form4562Page() {
   const [state, setState] = useState<WorksheetState>({ status: 'loading' });
   const [assets, setAssets] = useState<Asset[]>([]);
   const [showAddAsset, setShowAddAsset] = useState(false);
-  const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [newAsset, setNewAsset] = useState<Partial<Asset>>(emptyAsset);
   const requestId = useRef(0);
 
@@ -144,7 +156,8 @@ export default function Form4562Page() {
       });
       if (!response.ok) throw new Error('Failed to add asset');
       showSuccess('Asset Added', 'Asset has been added successfully');
-      closeAssetForm();
+      setNewAsset(emptyAsset());
+      setShowAddAsset(false);
       void loadWorksheet();
     } catch {
       showError('Add Failed', 'Failed to add asset. Please try again.');
@@ -166,64 +179,6 @@ export default function Form4562Page() {
     }
   };
 
-  const closeAssetForm = () => {
-    setShowAddAsset(false);
-    setEditingAssetId(null);
-    setNewAsset(emptyAsset());
-  };
-
-  const openAssetEditor = (asset: Asset) => {
-    setEditingAssetId(asset.id);
-    setNewAsset({
-      description: asset.description,
-      datePlacedInService: new Date(asset.datePlacedInService),
-      cost: asset.cost,
-      businessUsePercent: asset.businessUsePercent,
-      category: asset.category,
-      method: asset.method,
-      section179Requested: asset.section179Requested,
-      bonusEligible: asset.bonusEligible,
-    });
-    setShowAddAsset(true);
-  };
-
-  const handleUpdateAsset = async () => {
-    if (!editingAssetId || !newAsset.description || !newAsset.cost || !newAsset.datePlacedInService) {
-      showError('Missing Information', 'Please fill in all required asset fields');
-      return;
-    }
-    try {
-      const response = await makeAuthenticatedRequest('/api/settings/assets', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          assetId: editingAssetId,
-          description: newAsset.description,
-          datePlacedInService: new Date(newAsset.datePlacedInService),
-          cost: newAsset.cost,
-          businessUsePercent: newAsset.businessUsePercent,
-          category: newAsset.category,
-          method: newAsset.method,
-          section179Requested: newAsset.section179Requested,
-          bonusEligible: newAsset.bonusEligible,
-        }),
-      });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        if ((response.status === 400 || response.status === 404) && typeof errorData.error === 'string') {
-          showError(errorData.error);
-          return;
-        }
-        throw new Error('Failed to update asset');
-      }
-      showSuccess('Asset Updated', 'Asset has been updated successfully');
-      closeAssetForm();
-      void loadWorksheet();
-    } catch {
-      showError('Update Failed', 'Failed to update asset. Please try again.');
-    }
-  };
-
   if (state.status === 'loading') {
     return (
       <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 bg-background min-h-full [&_button[role=combobox]]:min-h-11">
@@ -235,9 +190,14 @@ export default function Form4562Page() {
     );
   }
 
+  const earlierThanSelectedYear = (value: unknown) => {
+    const year = placedInServiceYear(value);
+    return year !== null && year < Number(selectedYear);
+  };
+
   const assetForm = (
     <div className="border rounded-lg p-4 bg-muted/30 [&_input]:min-h-11">
-      <h4 className="font-medium mb-4">{editingAssetId ? 'Edit asset' : 'Add New Asset'}</h4>
+      <h4 className="font-medium mb-4">Add New Asset</h4>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-4">
         <div>
           <Label htmlFor="description">Description</Label>
@@ -290,9 +250,12 @@ export default function Form4562Page() {
           <Label htmlFor="bonusEligible">Bonus depreciation (review required)</Label>
         </div>
       </div>
+      {earlierThanSelectedYear(newAsset.datePlacedInService) && (
+        <p className="mb-4 text-sm text-gray-700">{EARLIER_YEAR_ADD_NOTE}</p>
+      )}
       <div className="flex gap-2">
-        <Button onClick={editingAssetId ? handleUpdateAsset : handleAddAsset}><Plus className="w-4 h-4 mr-2" />{editingAssetId ? 'Save asset' : 'Add Asset'}</Button>
-        <Button variant="outline" onClick={closeAssetForm}>Cancel</Button>
+        <Button onClick={handleAddAsset}><Plus className="w-4 h-4 mr-2" />Add Asset</Button>
+        <Button variant="outline" onClick={() => setShowAddAsset(false)}>Cancel</Button>
       </div>
     </div>
   );
@@ -316,17 +279,13 @@ export default function Form4562Page() {
                     : ` • §179 ${money(assetCalc.section179Deduction)} • MACRS ${money(assetCalc.regularDepreciation)}${assetCalc.carryoverToNextYear ? ` • §179 carryover ${money(assetCalc.carryoverToNextYear)}` : ''}`}
                 </div>
               )}
-            </div>
-            <div className="flex gap-2">
-              {state.status === 'review' && (
-                <Button variant="outline" size="sm" onClick={() => openAssetEditor(asset)} aria-label={`Edit ${asset.description}`}>
-                  Edit
-                </Button>
+              {earlierThanSelectedYear(asset.datePlacedInService) && (
+                <p className="mt-2 text-sm text-gray-700">{EARLIER_YEAR_REMOVE_NOTE}</p>
               )}
-              <Button variant="outline" size="sm" onClick={() => handleRemoveAsset(asset.id)} aria-label={`Remove ${asset.description}`}>
-                <Trash2 className="w-4 h-4" />
-              </Button>
             </div>
+            <Button variant="outline" size="sm" onClick={() => handleRemoveAsset(asset.id)} aria-label={`Remove ${asset.description}`}>
+              <Trash2 className="w-4 h-4" />
+            </Button>
           </div>
         );
       })}
@@ -395,7 +354,7 @@ export default function Form4562Page() {
               </div>
               <div className="flex justify-between items-center">
                 <h3 className="text-lg font-medium text-gray-900">Saved assets ({assets.length})</h3>
-                <Button onClick={() => { if (showAddAsset) closeAssetForm(); else { setEditingAssetId(null); setNewAsset(emptyAsset()); setShowAddAsset(true); } }} variant="outline" size="sm"><Plus className="w-4 h-4 mr-2" />Add Asset</Button>
+                <Button onClick={() => setShowAddAsset(!showAddAsset)} variant="outline" size="sm"><Plus className="w-4 h-4 mr-2" />Add Asset</Button>
               </div>
               {showAddAsset && assetForm}
               {assetList}
