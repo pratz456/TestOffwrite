@@ -31,7 +31,7 @@ interface Form4562Worksheet {
 type WorksheetState =
   | { status: 'loading' }
   | { status: 'ready'; data: Form4562Worksheet }
-  | { status: 'review'; code: string; message: string }
+  | { status: 'review'; code: string; message: string; deMinimisElected: boolean; deMinimisLimit: number }
   | { status: 'error'; message: string };
 
 const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -58,11 +58,12 @@ const KIND_CHOICES = [
   [LISTED_EQUIPMENT_KIND_NEITHER, LISTED_EQUIPMENT_KIND_NEITHER_PLACEHOLDER],
 ] as const;
 
-function GearKindField({ id, asset, onChange }: { id: string; asset: Partial<Asset>; onChange: (kind: ListedEquipmentKind) => void }) {
+function GearKindField({ id, asset, onChange, expensed = false }: { id: string; asset: Partial<Asset>; onChange: (kind: ListedEquipmentKind) => void; expensed?: boolean }) {
   const selected = listedEquipmentKindFor(asset);
+  const asking = !expensed && kindNeeded(asset);
   return (
     <fieldset id={`listed-equipment-kind-${id}`} className="mt-2">
-      <legend className="text-sm text-gray-700">{kindNeeded(asset) ? listedEquipmentKindNeededCopy(asset.description || 'this asset') : LISTED_EQUIPMENT_KIND_NOTE_PLACEHOLDER}</legend>
+      <legend className="text-sm text-gray-700">{asking ? listedEquipmentKindNeededCopy(asset.description || 'this asset') : LISTED_EQUIPMENT_KIND_NOTE_PLACEHOLDER}</legend>
       <div className="flex flex-col gap-2 mt-1">
         {KIND_CHOICES.map(([value, label]) => (
           <label key={value} className="flex items-center gap-2 text-sm" htmlFor={`listed-equipment-kind-${value}-${id}`}>
@@ -71,8 +72,8 @@ function GearKindField({ id, asset, onChange }: { id: string; asset: Partial<Ass
           </label>
         ))}
       </div>
-      {kindNeeded(asset) && <p className="mt-2 text-sm text-gray-600">{LISTED_EQUIPMENT_KIND_NOTE_PLACEHOLDER}</p>}
-      {kindNeeded(asset) && (
+      {asking && <p className="mt-2 text-sm text-gray-600">{LISTED_EQUIPMENT_KIND_NOTE_PLACEHOLDER}</p>}
+      {asking && (
         <button type="button" className="mt-2 text-sm underline" onClick={() => document.getElementById(`listed-equipment-kind-${id}`)?.querySelector('input')?.focus()}>Answer now</button>
       )}
     </fieldset>
@@ -97,14 +98,15 @@ function YesNoField({ id, legend, value, onChange }: { id: string; legend: strin
   );
 }
 
-function ReleaseFields({ id, asset, onMainLine, onLocation, onPlace }: {
+function ReleaseFields({ id, asset, onMainLine, onLocation, onPlace, expensed = false }: {
   id: string;
   asset: Partial<Asset>;
   onMainLine: (answer: ListedEquipmentAnswer) => void;
   onLocation: (answer: ListedEquipmentAnswer) => void;
   onPlace: (place: ListedEquipmentLocation) => void;
+  expensed?: boolean;
 }) {
-  if (!releaseQuestionVisible(asset)) return null;
+  if (expensed || !releaseQuestionVisible(asset)) return null;
   return (
     <>
       <YesNoField id={`listed-equipment-main-line-${id}`} legend={LISTED_EQUIPMENT_MAIN_LINE_PLACEHOLDER} value={asset.listedEquipmentMainLineOfWork} onChange={onMainLine} />
@@ -154,7 +156,7 @@ export default function Form4562Page() {
         const listed = await makeAuthenticatedRequest('/api/settings/assets').then(res => res.ok ? res.json() : { data: [] }).catch(() => ({ data: [] }));
         if (current !== requestId.current) return;
         setAssets(Array.isArray(listed.data) ? listed.data : []);
-        setState({ status: 'review', code: body.code, message: body.error || 'Review the saved asset records before calculating.' });
+        setState({ status: 'review', code: body.code, message: body.error || 'Review the saved asset records before calculating.', deMinimisElected: body.deMinimisElected === true, deMinimisLimit: typeof body.deMinimisLimit === 'number' ? body.deMinimisLimit : 0 });
         return;
       }
       if (!response.ok) throw new Error(body.error || 'The depreciation worksheet could not be loaded.');
@@ -294,6 +296,21 @@ export default function Form4562Page() {
     );
   }
 
+  const deMinimisElection = state.status === 'ready'
+    ? { elected: state.data.deMinimisElected, limit: state.data.deMinimisLimit, year: state.data.taxYear }
+    : state.status === 'review'
+      ? { elected: state.deMinimisElected, limit: state.deMinimisLimit, year: Number(selectedYear) }
+      : { elected: false, limit: 0, year: Number(selectedYear) };
+  // Same order as calc4562: an elected year and a full cost at or under the limit is an expense, so the listed-equipment question stays off.
+  const expensedAsDeMinimis = (asset: Partial<Asset>, assetCalc?: AssetCalculation | null) => {
+    if (assetCalc) return assetCalc.treatment === 'de_minimis_expense';
+    if (!deMinimisElection.elected || !(Number(asset.cost) > 0) || Number(asset.cost) > deMinimisElection.limit) return false;
+    const raw = asset.datePlacedInService;
+    if (!raw) return false;
+    const date = raw instanceof Date ? raw : new Date(raw as unknown as string);
+    return !Number.isNaN(date.getTime()) && date.getUTCFullYear() === deMinimisElection.year;
+  };
+
   const assetForm = (
     <div className="border rounded-lg p-4 bg-muted/30 [&_input]:min-h-11">
       <h4 className="font-medium mb-4">Add New Asset</h4>
@@ -341,7 +358,7 @@ export default function Form4562Page() {
       </div>
       {isEquipmentAssetCategory(newAsset.category) && (
         <div className="mb-4">
-          <GearKindField id="new" asset={newAsset} onChange={(listedEquipmentKind) => setNewAsset({
+          <GearKindField id="new" asset={newAsset} expensed={expensedAsDeMinimis(newAsset)} onChange={(listedEquipmentKind) => setNewAsset({
             ...newAsset,
             listedEquipmentKind,
             ...(listedEquipmentKind === LISTED_EQUIPMENT_KIND_PHOTO ? {} : { listedEquipmentMainLineOfWork: null, listedEquipmentBusinessLocation: null, listedEquipmentLocationFollowUp: null }),
@@ -349,6 +366,7 @@ export default function Form4562Page() {
           <ReleaseFields
             id="new"
             asset={newAsset}
+            expensed={expensedAsDeMinimis(newAsset)}
             onMainLine={(listedEquipmentMainLineOfWork) => setNewAsset({ ...newAsset, listedEquipmentMainLineOfWork })}
             onLocation={(listedEquipmentBusinessLocation) => setNewAsset({ ...newAsset, listedEquipmentBusinessLocation, ...(listedEquipmentBusinessLocation === 'yes' ? {} : { listedEquipmentLocationFollowUp: null }) })}
             onPlace={(listedEquipmentLocationFollowUp) => setNewAsset({ ...newAsset, listedEquipmentLocationFollowUp })}
@@ -376,6 +394,7 @@ export default function Form4562Page() {
     <div className="space-y-2">
       {assets.map((asset) => {
         const assetCalc = calculation?.assets.find(row => row.asset.id === asset.id);
+        const expensed = expensedAsDeMinimis(asset, assetCalc);
         return (
           <div key={asset.id} className="flex items-center justify-between p-3 border rounded-lg">
             <div className="flex-1">
@@ -386,11 +405,12 @@ export default function Form4562Page() {
                   : `${money(asset.cost)} • ${asset.businessUsePercent}% business use • ${asset.category}${asset.section179Requested ? ' • §179 requested' : ''}${asset.bonusEligible ? ' • bonus (review)' : ''}`}
               </div>
               {isEquipmentAssetCategory(asset.category) && (
-                <GearKindField id={asset.id} asset={asset} onChange={(listedEquipmentKind) => void patchEquipment(asset.id, { listedEquipmentKind })} />
+                <GearKindField id={asset.id} asset={asset} expensed={expensed} onChange={(listedEquipmentKind) => void patchEquipment(asset.id, { listedEquipmentKind })} />
               )}
               <ReleaseFields
                 id={asset.id}
                 asset={asset}
+                expensed={expensed}
                 onMainLine={(listedEquipmentMainLineOfWork) => void patchEquipment(asset.id, { listedEquipmentMainLineOfWork })}
                 onLocation={(listedEquipmentBusinessLocation) => void patchEquipment(asset.id, { listedEquipmentBusinessLocation })}
                 onPlace={(listedEquipmentLocationFollowUp) => void patchEquipment(asset.id, { listedEquipmentLocationFollowUp })}
