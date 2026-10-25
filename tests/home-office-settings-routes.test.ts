@@ -498,7 +498,9 @@ describe('equipment release answer', () => {
 
   it('releases an old asset after a kind is saved and the main line of work answer is yes', async () => {
     seed({ listedEquipmentAnswer: 'yes' });
-    const kindPatch = await patch({ assetId: 'camera', listedEquipmentKind: 'photo_audio_video_communication' });
+    const kindPatch = typeof patchAsset === 'function'
+      ? await patch({ assetId: 'camera', listedEquipmentKind: 'photo_audio_video_communication' })
+      : { status: 0 };
     expect(kindPatch.status).toBe(200);
     const yesPatch = await patch({ assetId: 'camera', listedEquipmentMainLineOfWork: 'yes' });
     expect(yesPatch.status).toBe(200);

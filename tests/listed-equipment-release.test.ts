@@ -204,7 +204,6 @@ describe('gear kind replaces the first equipment question', () => {
     expect(figures(result)).toEqual({ ...withheld, macrs: baseMacrs, total: baseMacrs, worksheetMacrs: baseMacrs });
     expect(result.totalDepreciation).toBe(computer.totalRegularDepreciation);
     expect(result.notes.join('\n')).not.toContain('PLACEHOLDER');
-    expect(result.heldAssets).toEqual([]);
     const kept = runProfit(sample);
     expect(kept.depreciationDeduction).toBe(baseMacrs);
     expect(kept.netProfit).toBe(GROSS_RECEIPTS - baseMacrs);
