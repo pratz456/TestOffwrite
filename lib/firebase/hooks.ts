@@ -22,7 +22,7 @@ const visibleTransactions = (transactions: Transaction[]) => transactions.filter
 // Query keys for consistent caching
 export const queryKeys = {
   transactions: (uid: string) => ['transactions', uid],
-  transaction: (id: string) => ['transaction', id],
+  transaction: (uid: string, id: string) => ['transaction', uid, id],
   stats: (uid: string) => ['stats', uid],
 };
 

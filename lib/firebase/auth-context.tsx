@@ -1,11 +1,13 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, createElement, useContext, useEffect, useState } from 'react';
 import { onIdTokenChanged, type User } from 'firebase/auth';
+import { useQueryClient } from '@tanstack/react-query';
 import { auth } from './client';
 import { signOutUser, type AuthUser } from './auth';
 import { ensureBrowserSession, clearPendingBrowserSession, isRetryableBrowserSessionError, subscribeToBrowserSessionClears } from './browser-session';
 import { createAuthError } from './auth-errors';
+import { clearQueryCache, QueryCacheAuthSync } from '../react-query/auth-cache';
 
 type AuthState = { user: AuthUser | null; loading: boolean; error: string | null };
 interface AuthContextType extends AuthState { signOut: () => Promise<void> }
@@ -110,10 +112,18 @@ export function subscribeToBrowserAuth(publish: (state: AuthState) => void) {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>(initialState);
+  const queryClient = useQueryClient();
   useEffect(() => subscribeToBrowserAuth(setState), []);
   const signOut = async () => {
+    // Empty the cache in this call so navigation cannot keep data while the auth listener is still pending.
+    await clearQueryCache(queryClient);
     const { error } = await signOutUser();
     if (error) throw new Error(error.message);
   };
-  return <AuthContext.Provider value={{ ...state, signOut }}>{children}</AuthContext.Provider>;
+  return createElement(
+    AuthContext.Provider,
+    { value: { ...state, signOut } },
+    children,
+    createElement(QueryCacheAuthSync, { uid: state.user?.id ?? null }),
+  );
 }

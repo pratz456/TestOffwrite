@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { getUserProfile } from '@/lib/firebase/profiles';
+import { useAuth } from '@/lib/firebase/auth-context';
 import { getUserTaxRateDisplay } from '@/lib/tax-rules/federal-brackets';
 import { transactionNeedsTaxReview } from '@/lib/utils/transaction-tax-review';
 import { 
@@ -95,6 +96,7 @@ const DashboardSkeleton = () => (
 );
 
 export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate = () => {} }) => {
+  const { signOut } = useAuth();
   const [profile, setProfile] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -193,8 +195,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate = () => {
   }, [user.id, profile]);
 
   const handleSignOut = async () => {
-    const { auth } = await import('@/lib/firebase/client');
-    await auth.signOut();
+    await signOut();
     window.location.href = '/';
   };
 
