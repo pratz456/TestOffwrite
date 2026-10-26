@@ -8,7 +8,7 @@ vi.mock('@/lib/firebase/admin', () => ({ adminDb: {
 } }));
 vi.mock('@/lib/firebase/client', () => ({ db: {}, auth: { get currentUser() { return h.owner ? { uid: h.owner } : null; } } }));
 vi.mock('@/lib/firebase/api-client', () => ({ makeAuthenticatedRequest: h.request }));
-vi.mock('@/lib/firebase/hooks', () => ({ queryKeys: { transactions: (uid: string) => ['transactions', uid], transaction: (id: string) => ['transaction', id], stats: (uid: string) => ['stats', uid] } }));
+vi.mock('@/lib/firebase/hooks', () => ({ queryKeys: { transactions: (uid: string) => ['transactions', uid], transaction: (uid: string, id: string) => ['transaction', uid, id], stats: (uid: string) => ['stats', uid] } }));
 vi.mock('@tanstack/react-query', () => ({ useMutation: (options: unknown) => options, useQueryClient: () => ({ setQueryData: h.cache }) }));
 import { updateTransactionServerWithUserId } from '../lib/firebase/transactions-server';
 import { taxDecisionUpdate } from '../lib/transactions/tax-decision';
@@ -98,7 +98,7 @@ describe('detail mutation uses authoritative server tax review state', () => {
     const flow = MutationHarness(); const result = await flow.mutationFn(args);
     expect(h.request).toHaveBeenCalledExactlyOnceWith('/api/transactions/tx', expect.objectContaining({ method: 'PUT', body: JSON.stringify(args.updates) }));
     expect(result).toEqual(saved); flow.onSuccess(result, args);
-    expect(h.cache).toHaveBeenCalledWith(['transaction', 'tx'], saved);
+    expect(h.cache).toHaveBeenCalledWith(['transaction', 'owner', 'tx'], saved);
   });
   it('does not send an edit after the signed-in account changes', async () => {
     h.owner = 'other-owner'; await expect(MutationHarness().mutationFn(args)).rejects.toThrow('Sign in again'); expect(h.request).not.toHaveBeenCalled();

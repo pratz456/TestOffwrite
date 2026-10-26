@@ -87,12 +87,12 @@ export function useUpdateTransaction() {
     onMutate: async ({ transactionId, userId, updates }) => {
       // Cancel any outgoing refetches
       await queryClient.cancelQueries({ queryKey: queryKeys.transactions(userId) });
-      await queryClient.cancelQueries({ queryKey: queryKeys.transaction(transactionId) });
+      await queryClient.cancelQueries({ queryKey: queryKeys.transaction(userId, transactionId) });
       await queryClient.cancelQueries({ queryKey: queryKeys.stats(userId) });
 
       // Snapshot the previous values
       const previousTransactions = queryClient.getQueryData(queryKeys.transactions(userId));
-      const previousTransaction = queryClient.getQueryData(queryKeys.transaction(transactionId));
+      const previousTransaction = queryClient.getQueryData(queryKeys.transaction(userId, transactionId));
       const previousStats = queryClient.getQueryData(queryKeys.stats(userId));
 
       // Optimistically update the transaction in the list
@@ -113,7 +113,7 @@ export function useUpdateTransaction() {
       // Optimistically update the single transaction
       if (previousTransaction) {
         queryClient.setQueryData(
-          queryKeys.transaction(transactionId),
+          queryKeys.transaction(userId, transactionId),
           (old: Transaction | undefined) => {
             if (!old) return old;
             return { ...old, ...updates };
@@ -154,7 +154,7 @@ export function useUpdateTransaction() {
         
         // Rollback single transaction
         if (previousTransaction) {
-          queryClient.setQueryData(queryKeys.transaction(transactionId), previousTransaction);
+          queryClient.setQueryData(queryKeys.transaction(userId, transactionId), previousTransaction);
         }
         
         // Rollback stats
@@ -177,7 +177,7 @@ export function useUpdateTransaction() {
 
     onSuccess: (saved, { transactionId, userId }) => {
       // Server-owned review state must replace the optimistic tax decision.
-      queryClient.setQueryData(queryKeys.transaction(transactionId), saved);
+      queryClient.setQueryData(queryKeys.transaction(userId, transactionId), saved);
       queryClient.setQueryData(queryKeys.transactions(userId), (old: Transaction[] | undefined) => old?.map(transaction =>
         transaction.trans_id === transactionId || transaction.id === transactionId ? { ...transaction, ...saved } : transaction));
     },
@@ -187,7 +187,7 @@ export function useUpdateTransaction() {
       
       // Always refetch after error or success to ensure consistency
       queryClient.invalidateQueries({ queryKey: queryKeys.transactions(userId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.transaction(transactionId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.transaction(userId, transactionId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.stats(userId) });
     },
   });
