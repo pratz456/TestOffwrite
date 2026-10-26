@@ -13,6 +13,7 @@ import {
   publicError,
   readVerificationConfig,
   renewalAdvanceTime,
+  resolveFirstInvoiceId,
   selectRenewalInvoice,
   wasScriptInvoked,
 } from '../scripts/stripe-test-clock-filing-check.mjs';
@@ -176,6 +177,42 @@ describe('stripe test clock filing check', () => {
       amount_paid: 11111,
       lines: [{ priceId: PREMIUM, amount: 11111 }],
     });
+  });
+
+  it('uses session.invoice when that is the only invoice id', () => {
+    expect(resolveFirstInvoiceId({ invoice: 'in_session_fixture' }, { latest_invoice: null }))
+      .toEqual({ id: 'in_session_fixture', source: 'session.invoice' });
+    expect(resolveFirstInvoiceId({ invoice: { id: 'in_session_fixture' } }, {}))
+      .toEqual({ id: 'in_session_fixture', source: 'session.invoice' });
+  });
+
+  it('uses subscription.latest_invoice when the session invoice field is empty', () => {
+    expect(resolveFirstInvoiceId({ invoice: null }, { latest_invoice: 'in_latest_fixture' }))
+      .toEqual({ id: 'in_latest_fixture', source: 'subscription.latest_invoice' });
+    expect(resolveFirstInvoiceId({ invoice: '' }, { latest_invoice: { id: 'in_latest_fixture' } }))
+      .toEqual({ id: 'in_latest_fixture', source: 'subscription.latest_invoice' });
+    expect(resolveFirstInvoiceId(null, { latest_invoice: 'in_latest_fixture' }))
+      .toEqual({ id: 'in_latest_fixture', source: 'subscription.latest_invoice' });
+  });
+
+  it('uses session.invoice when both invoice ids match', () => {
+    expect(resolveFirstInvoiceId(
+      { invoice: 'in_same_fixture' },
+      { latest_invoice: { id: 'in_same_fixture' } },
+    )).toEqual({ id: 'in_same_fixture', source: 'session.invoice' });
+  });
+
+  it('throws when the session invoice and subscription latest invoice differ', () => {
+    expect(() => resolveFirstInvoiceId(
+      { invoice: 'in_session_fixture' },
+      { latest_invoice: { id: 'in_latest_fixture' } },
+    )).toThrow('Checkout Session invoice in_session_fixture does not match subscription latest_invoice in_latest_fixture.');
+  });
+
+  it('throws when neither the session invoice nor the subscription latest invoice is set', () => {
+    expect(() => resolveFirstInvoiceId({ invoice: null }, { latest_invoice: null }))
+      .toThrow('No first invoice was found on session.invoice or subscription.latest_invoice.');
+    expect(() => resolveFirstInvoiceId(null, {})).toThrow(/latest_invoice/);
   });
 
   it('fails when a filing line is on the renewal invoice', () => {

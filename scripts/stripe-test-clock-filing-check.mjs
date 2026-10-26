@@ -14,6 +14,11 @@
  * 2. Renewal. After the test clock moves to the period end plus one day, the
  *    renewal invoice has exactly one line and that line is the Premium price.
  *
+ * The first invoice id is taken from the paid Checkout Session when that
+ * field is set. If it is empty, the subscription latest invoice is used.
+ * If both are set and they differ, the script stops and names both ids.
+ * The chosen source is printed.
+ *
  * There is no current scripts README. Run it with Node, from the repo root.
  *
  * Environment names only (set the values in the shell):
@@ -191,6 +196,18 @@ function idOf(value) {
   return null;
 }
 
+/** Prefer the Checkout Session invoice, and fall back to the subscription invoice only when the session field is empty. */
+export function resolveFirstInvoiceId(session, subscription) {
+  const sessionInvoiceId = idOf(session?.invoice);
+  const latestInvoiceId = idOf(subscription?.latest_invoice);
+  if (sessionInvoiceId && latestInvoiceId && sessionInvoiceId !== latestInvoiceId) {
+    throw new Error(`Checkout Session invoice ${sessionInvoiceId} does not match subscription latest_invoice ${latestInvoiceId}.`);
+  }
+  if (sessionInvoiceId) return { id: sessionInvoiceId, source: 'session.invoice' };
+  if (latestInvoiceId) return { id: latestInvoiceId, source: 'subscription.latest_invoice' };
+  throw new Error('No first invoice was found on session.invoice or subscription.latest_invoice.');
+}
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -295,7 +312,7 @@ async function runVerification(stripe, config, state) {
   });
   console.log(`Customer ${customer.id} is attached to test clock ${clock.id} with verification metadata.`);
 
-  let subscriptionId;
+  let subscription;
   let firstInvoiceId;
   if (config.apiOnly) {
     const created = await stripe.subscriptions.create({
@@ -306,8 +323,10 @@ async function runVerification(stripe, config, state) {
       payment_behavior: 'error_if_incomplete',
       metadata: { verification_run: VERIFICATION_RUN },
     });
-    subscriptionId = created.id;
-    firstInvoiceId = idOf(created.latest_invoice);
+    subscription = await stripe.subscriptions.retrieve(created.id);
+    const resolved = resolveFirstInvoiceId(null, subscription);
+    firstInvoiceId = resolved.id;
+    console.log(`First invoice source: ${resolved.source}.`);
   } else {
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
@@ -326,12 +345,14 @@ async function runVerification(stripe, config, state) {
     console.log('Pay that Checkout page with Stripe\'s test card. This script polls until the session is paid.');
     await waitForPaidCheckout(stripe, session.id);
     const paid = await stripe.checkout.sessions.retrieve(session.id);
-    subscriptionId = idOf(paid.subscription);
-    firstInvoiceId = idOf(paid.invoice);
+    const subscriptionId = idOf(paid.subscription);
+    if (!subscriptionId) throw new Error('The paid Checkout Session has no subscription.');
+    subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    const resolved = resolveFirstInvoiceId(paid, subscription);
+    firstInvoiceId = resolved.id;
+    console.log(`First invoice source: ${resolved.source}.`);
   }
 
-  if (!subscriptionId || !firstInvoiceId) throw new Error('The subscription or the first invoice was not created.');
-  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
   const firstInvoice = await invoiceWithLines(stripe, firstInvoiceId);
   const itemPriceIds = assertInitialSubscription(subscription, config.premiumPriceId, config.filingPriceId);
   console.log(`PASS: subscription items are ${itemPriceIds.join(', ')} (Premium present, filing price absent).`);
