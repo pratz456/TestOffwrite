@@ -108,7 +108,7 @@ interface UserProfile {
 type Transaction = FirebaseTransaction;
 
 export default function ProtectedPage() {
-  const { user, loading } = useAuth();
+  const { user, loading, signOut } = useAuth();
   const [userProfile, setUserProfile] = useState<any>(null);
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -404,8 +404,7 @@ export default function ProtectedPage() {
   // Handle sign out
   const handleSignOut = async () => {
     try {
-      const { signOutUser } = await import("@/lib/firebase/auth");
-      await signOutUser();
+      await signOut();
       router.push("/");
     } catch (error) {
       console.error('Error signing out:', error);

@@ -49,7 +49,7 @@ vi.mock('firebase/auth', () => ({ onIdTokenChanged: () => () => {}, getAuth: () 
 
 import { QueryClient } from '@tanstack/react-query';
 import { AuthProvider } from '@/lib/firebase/auth-context';
-import { QueryCacheAuthSync } from '@/lib/react-query/auth-cache';
+import { clearQueryCache, QueryCacheAuthSync } from '@/lib/react-query/auth-cache';
 import { queryKeys as accountQueryKeys } from '@/lib/firebase/hooks';
 import { queryKeys as profileQueryKeys } from '@/lib/react-query/hooks';
 import { useUpdateTransaction } from '@/lib/firebase/mutations';
@@ -193,6 +193,30 @@ describe('query cache follows the signed-in account', () => {
     expect(refreshedOrder).toEqual([]);
     expectAccountEntries(restored, userA);
     expectAccountEntries(refreshed, userA);
+  });
+});
+
+describe('a refetch can resolve after the cache clear', () => {
+  it('drops a refetch that resolves after the clear and before the uid changes', async () => {
+    const client = holder.client!;
+    seed(client, userA);
+    resetHarness();
+    await renderUid(userA);
+    expectAccountEntries(client, userA);
+
+    await clearQueryCache(client);
+    expect(client.getQueryCache().getAll()).toEqual([]);
+
+    const refetched = [{ ...transaction, notes: 'refetched after clear' }];
+    await client.fetchQuery({
+      queryKey: accountQueryKeys.transactions(userA),
+      queryFn: async () => refetched,
+    });
+    expect(client.getQueryData(accountQueryKeys.transactions(userA))).toEqual(refetched);
+    expect(client.getQueryData(profileQueryKeys.userProfile(userA))).toBeUndefined();
+
+    await renderUid(null);
+    expectNoAccountEntries(client, userA);
   });
 });
 
