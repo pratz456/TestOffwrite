@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Bell, AlertTriangle, Clock } from 'lucide-react';
 import { SUPPORTED_TAX_YEARS, LATEST_PUBLISHED_TAX_YEAR } from '@/lib/tax-rules/federal-year-rules';
 import { getEstimatedTaxDeadline, getIndividualReturnDueDate } from '@/lib/tax-provider/payment-deadlines';
+import { formatTransactionDate } from '@/lib/transactions/calendar-date';
 
 interface TaxCalendarScreenProps {
   user: {
@@ -154,7 +155,7 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ onBack }) 
                             <p className="text-sm text-muted-foreground mt-1">{event.description}</p>
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
                               <span className="text-sm font-medium text-muted-foreground">
-                                {new Date(event.date).toLocaleDateString('en-US', {
+                                {formatTransactionDate(event.date, 'en-US', {
                                   weekday: 'long',
                                   year: 'numeric',
                                   month: 'long',
@@ -216,7 +217,7 @@ export const TaxCalendarScreen: React.FC<TaxCalendarScreenProps> = ({ onBack }) 
                         {getEventIcon(event.type, event.priority)}
                         <div>
                           <p className="font-medium text-foreground">{event.title}</p>
-                          <p className="text-sm text-muted-foreground">{new Date(event.date).toLocaleDateString()}</p>
+                          <p className="text-sm text-muted-foreground">{formatTransactionDate(event.date)}</p>
                         </div>
                       </div>
                       <span className={`text-xs px-2 py-1 rounded-full ${

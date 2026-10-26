@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Calendar, Clock } from "lucide-react";
 import type { BlogPostMeta } from "@/lib/blog";
+import { formatTransactionDate } from "@/lib/transactions/calendar-date";
 
 interface RelatedPostsProps {
   currentSlug: string;
@@ -68,7 +69,7 @@ export function RelatedPosts({
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Calendar className="h-3 w-3" />
-                {new Date(post.date).toLocaleDateString("en-US", {
+                {formatTransactionDate(post.date, "en-US", {
                   month: "short",
                   day: "numeric",
                   year: "numeric",
