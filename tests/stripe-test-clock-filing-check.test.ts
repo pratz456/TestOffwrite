@@ -9,6 +9,7 @@ import {
   assertInitialSubscription,
   assertPremiumYearlyPrice,
   assertRenewalInvoice,
+  assertRenewalPremiumCharge,
   assertTestModeKey,
   publicError,
   readVerificationConfig,
@@ -46,6 +47,7 @@ function line(priceId: string, amount: number) {
     id: `il_${priceId}`,
     amount,
     currency: 'usd',
+    quantity: 1,
     description: null,
     pricing: {
       type: 'price_details',
@@ -213,6 +215,32 @@ describe('stripe test clock filing check', () => {
     expect(() => resolveFirstInvoiceId({ invoice: null }, { latest_invoice: null }))
       .toThrow('No first invoice was found on session.invoice or subscription.latest_invoice.');
     expect(() => resolveFirstInvoiceId(null, {})).toThrow(/latest_invoice/);
+  });
+
+  it('passes when the renewal Premium line amount and currency match the Premium price and the invoice is paid', () => {
+    const price = { id: PREMIUM, unit_amount: 11111, currency: 'usd' };
+    expect(assertRenewalPremiumCharge(invoice([{ id: PREMIUM, amount: 11111 }], 'paid'), price))
+      .toEqual({ amount: 11111, currency: 'usd', status: 'paid' });
+  });
+
+  it('throws when the renewal Premium line amount does not match the Premium price unit amount', () => {
+    expect(() => assertRenewalPremiumCharge(
+      invoice([{ id: PREMIUM, amount: 11111 }], 'paid'),
+      { id: PREMIUM, unit_amount: 99999, currency: 'usd' },
+    )).toThrow(/unit_amount 99999/);
+  });
+
+  it('throws when the renewal Premium line currency does not match the Premium price currency', () => {
+    expect(() => assertRenewalPremiumCharge(
+      invoice([{ id: PREMIUM, amount: 11111 }], 'paid'),
+      { id: PREMIUM, unit_amount: 11111, currency: 'eur' },
+    )).toThrow(/expected Premium price currency eur/);
+  });
+
+  it('throws when the renewal invoice status is open or draft', () => {
+    const price = { id: PREMIUM, unit_amount: 11111, currency: 'usd' };
+    expect(() => assertRenewalPremiumCharge(invoice([{ id: PREMIUM, amount: 11111 }], 'open'), price)).toThrow(/expected paid/);
+    expect(() => assertRenewalPremiumCharge(invoice([{ id: PREMIUM, amount: 11111 }], 'draft'), price)).toThrow(/expected paid/);
   });
 
   it('fails when a filing line is on the renewal invoice', () => {

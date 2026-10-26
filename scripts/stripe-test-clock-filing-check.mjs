@@ -13,6 +13,10 @@
  *    in lib/stripe/subscription-sync.ts keep selecting Premium.
  * 2. Renewal. After the test clock moves to the period end plus one day, the
  *    renewal invoice has exactly one line and that line is the Premium price.
+ *    The line quantity must be 1 and its amount must equal the Premium price
+ *    unit_amount. A prorated line or a discounted line fails instead of
+ *    guessing an adjusted amount. The line currency must equal the Premium
+ *    price currency, and the renewal invoice status must be paid.
  *
  * The first invoice id is taken from the paid Checkout Session when that
  * field is set. If it is empty, the subscription latest invoice is used.
@@ -174,6 +178,43 @@ export function assertRenewalInvoice(invoice, premiumPriceId, filingPriceId) {
   return invoiceAmountReport(invoice);
 }
 
+/**
+ * Quantity must be 1, so the line amount is compared with unit_amount directly.
+ * Proration and discounts are refused. Their adjusted amounts are not estimated.
+ */
+export function assertRenewalPremiumCharge(invoice, premiumPrice) {
+  const line = (invoice?.lines?.data ?? []).find(entry => linePriceId(entry) === premiumPrice?.id);
+  if (!line) throw new Error('Renewal invoice has no Premium line to compare with the Premium price.');
+  if (line.quantity !== 1) {
+    throw new Error(`Renewal Premium line quantity is ${line.quantity ?? 'missing'}, expected 1. This check does not scale unit_amount by another quantity.`);
+  }
+  const prorated = line.parent?.subscription_item_details?.proration === true
+    || line.parent?.invoice_item_details?.proration === true;
+  if (prorated) {
+    throw new Error('Renewal Premium line is a proration. This check does not guess a prorated amount against the Premium unit_amount.');
+  }
+  const discountAmounts = Array.isArray(line.discount_amounts) ? line.discount_amounts : [];
+  const appliedDiscounts = Array.isArray(line.discounts) ? line.discounts : [];
+  const pretaxDiscounts = (Array.isArray(line.pretax_credit_amounts) ? line.pretax_credit_amounts : [])
+    .filter(credit => credit?.type === 'discount');
+  if (discountAmounts.length || appliedDiscounts.length || pretaxDiscounts.length) {
+    throw new Error('Renewal Premium line has a discount. This check does not guess a discounted amount against the Premium unit_amount.');
+  }
+  if (typeof premiumPrice?.unit_amount !== 'number') {
+    throw new Error('Premium price has no unit_amount. This check does not guess the renewal amount.');
+  }
+  if (line.amount !== premiumPrice.unit_amount) {
+    throw new Error(`Renewal Premium line amount is ${line.amount ?? 'missing'}, expected the Premium price unit_amount ${premiumPrice.unit_amount} at quantity 1.`);
+  }
+  if (!premiumPrice.currency || line.currency !== premiumPrice.currency) {
+    throw new Error(`Renewal Premium line currency is ${line.currency ?? 'missing'}, expected Premium price currency ${premiumPrice.currency ?? 'missing'}.`);
+  }
+  if (invoice?.status !== 'paid') {
+    throw new Error(`Renewal invoice status is ${invoice?.status ?? 'missing'}, expected paid.`);
+  }
+  return { amount: line.amount, currency: line.currency, status: invoice.status };
+}
+
 export function renewalAdvanceTime(subscription, premiumPriceId) {
   const item = (subscription?.items?.data ?? []).find(entry => itemPriceId(entry) === premiumPriceId);
   if (!item || typeof item.current_period_end !== 'number') throw new Error('Premium subscription item has no current_period_end.');
@@ -289,7 +330,7 @@ async function runVerification(stripe, config, state) {
     console.log('Path A is a real Checkout Session in subscription mode with the Premium yearly price and the filing one time price.');
   }
 
-  assertPremiumYearlyPrice(await stripe.prices.retrieve(config.premiumPriceId), config.premiumPriceId);
+  const premiumPrice = assertPremiumYearlyPrice(await stripe.prices.retrieve(config.premiumPriceId), config.premiumPriceId);
   assertFilingPrice(await stripe.prices.retrieve(config.filingPriceId), config.filingPriceId);
   console.log('Confirmed the Premium price is test mode, recurring, and yearly.');
   console.log('Confirmed the filing price is test mode and one_time.');
@@ -369,7 +410,9 @@ async function runVerification(stripe, config, state) {
   const renewal = selectRenewalInvoice(await listInvoices(stripe, customer.id, subscription.id), firstInvoice.id);
   const renewalInvoice = await invoiceWithLines(stripe, renewal.id);
   const renewalReport = assertRenewalInvoice(renewalInvoice, config.premiumPriceId, config.filingPriceId);
+  const renewalCharge = assertRenewalPremiumCharge(renewalInvoice, premiumPrice);
   console.log('PASS: renewal invoice has exactly one Premium line and no filing line.');
+  console.log(`PASS: renewal Premium line amount ${renewalCharge.amount} ${renewalCharge.currency} matches the Premium price unit_amount at quantity 1, and the renewal invoice is ${renewalCharge.status}.`);
   console.log('Renewal invoice amounts returned by Stripe:');
   console.log(JSON.stringify(renewalReport, null, 2));
 }
