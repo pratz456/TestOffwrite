@@ -83,6 +83,29 @@ function zoneClock(date: Date, timeZone: string): string {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
 }
 
+function savedZoneView(
+  period: { ratePerMile?: unknown; zoneSource?: unknown } | null,
+  carrier?: { zoneSource?: unknown },
+): { ratePerMile: number | null; zoneSource: 'saved trip zone' | undefined } {
+  return {
+    ratePerMile: typeof period?.ratePerMile === 'number' ? period.ratePerMile : null,
+    zoneSource: period?.zoneSource === 'saved trip zone' || carrier?.zoneSource === 'saved trip zone' ? 'saved trip zone' : undefined,
+  };
+}
+
+async function pricesSavedZone(date: Date, timeZone: string, id: string) {
+  const saved = { date, timeZone };
+  firestore.docs = [trip(id, date, { timeZone })];
+  const read = await getMileageTrips('owner', 2026);
+  const returned = read.data[0] as { date?: unknown; zoneSource?: unknown } | undefined;
+  const fromPeriod = returned ? businessMileageRateForDate(returned.date as never) : null;
+  const directPeriod = businessMileageRateForDate(saved as never);
+  return {
+    fromRead: savedZoneView(fromPeriod, returned),
+    direct: savedZoneView(directPeriod),
+  };
+}
+
 async function prices(date: unknown, extra: Record<string, unknown> = {}): Promise<{ fromRead: unknown; direct: unknown }> {
   firestore.docs = [trip('boundary', date, extra)];
   const read = await getMileageTrips('owner', 2026);
@@ -159,27 +182,18 @@ describe('mileage rate dates in America/Los_Angeles', () => {
     expect(await prices(ambiguousInstant)).toEqual(needsInformation);
   });
 
-  // today the code returns 0.76
-  it.fails('item 212 prices a June 30 2026 8 PM Los Angeles trip saved with time zone America/Los_Angeles at 0.725', async () => {
-    expect(await prices(losAngelesEvening, { timeZone: 'America/Los_Angeles' })).toEqual({ fromRead: 0.725, direct: 0.725 });
+  // today the read path returns 0.76 and does not record a zone source. Passing the trip object straight into the lookup returns null. The zone source check is there because item 212 requires the result to say where its zone came from, so a rate-only fix must not turn these green.
+  it.fails('item 212 prices a June 30 2026 8 PM Los Angeles trip saved with time zone America/Los_Angeles at 0.725 and records the saved trip zone', async () => {
+    expect(await pricesSavedZone(losAngelesEvening, 'America/Los_Angeles', 'los-angeles')).toEqual({
+      fromRead: { ratePerMile: 0.725, zoneSource: 'saved trip zone' },
+      direct: { ratePerMile: 0.725, zoneSource: 'saved trip zone' },
+    });
   });
 
   // today the code returns 0.725 (the UTC day is June 30). Only the Los Angeles cases return 0.76 today.
+  // The zone source check is there because item 212 requires the result to say where its zone came from, so a rate-only fix must not turn these green.
   it.fails('item 212 prices 2026-06-30T22:00Z saved with time zone Pacific/Guam at 0.76 and records the saved trip zone', async () => {
-    const saved = { date: ambiguousInstant, timeZone: 'Pacific/Guam' };
-    firestore.docs = [trip('guam', ambiguousInstant, { timeZone: 'Pacific/Guam' })];
-    const read = await getMileageTrips('owner', 2026);
-    const returned = read.data[0] as { date?: unknown; zoneSource?: unknown } | undefined;
-    const fromPeriod = returned ? businessMileageRateForDate(returned.date as never) : null;
-    const directPeriod = businessMileageRateForDate(saved as never);
-    const view = (period: { ratePerMile?: unknown; zoneSource?: unknown } | null, carrier?: { zoneSource?: unknown }) => ({
-      ratePerMile: typeof period?.ratePerMile === 'number' ? period.ratePerMile : null,
-      zoneSource: period?.zoneSource === 'saved trip zone' || carrier?.zoneSource === 'saved trip zone' ? 'saved trip zone' : undefined,
-    });
-    expect({
-      fromRead: view(fromPeriod, returned),
-      direct: view(directPeriod),
-    }).toEqual({
+    expect(await pricesSavedZone(ambiguousInstant, 'Pacific/Guam', 'guam')).toEqual({
       fromRead: { ratePerMile: 0.76, zoneSource: 'saved trip zone' },
       direct: { ratePerMile: 0.76, zoneSource: 'saved trip zone' },
     });
