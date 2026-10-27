@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import Link from "next/link";
 import { Calendar, Clock, Sparkles } from "lucide-react";
+import { formatTransactionDate } from "@/lib/transactions/calendar-date";
 import { BlogSearch } from "./blog-search";
 import { ScrollRevealWrapper } from "./scroll-reveal-wrapper";
 
@@ -133,7 +134,7 @@ export function BlogGridClient({ posts, tagStyles, tagIcons }: BlogGridClientPro
                 <div className="mt-4 flex items-center gap-3 text-xs text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <Calendar className="h-3.5 w-3.5" />
-                    {new Date(post.date).toLocaleDateString("en-US", {
+                    {formatTransactionDate(post.date, "en-US", {
                       month: "short",
                       day: "numeric",
                       year: "numeric",

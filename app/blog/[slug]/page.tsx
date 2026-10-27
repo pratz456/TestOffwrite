@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Calendar, Clock, ArrowLeft, ChevronLeft, ChevronRight, User, ShieldCheck } from "lucide-react";
 import { getAllPosts, getPostBySlug, getAdjacentPosts, formatReviewMonth } from "@/lib/blog";
+import { formatTransactionDate } from "@/lib/transactions/calendar-date";
 import { BlogCTA } from "@/components/blog/blog-cta";
 import { RelatedPosts } from "@/components/blog/related-posts";
 
@@ -135,7 +136,7 @@ export default async function BlogPostPage({
             </span>
             <span className="flex items-center gap-1.5">
               <Calendar className="h-4 w-4" />
-              {new Date(post.date).toLocaleDateString("en-US", {
+              {formatTransactionDate(post.date, "en-US", {
                 month: "long",
                 day: "numeric",
                 year: "numeric",

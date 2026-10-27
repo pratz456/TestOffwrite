@@ -24,6 +24,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { formatTransactionDate } from "@/lib/transactions/calendar-date";
 
 interface QuarterlyPaymentTrackingScreenProps {
   user: { id: string; email?: string };
@@ -363,7 +364,7 @@ export function QuarterlyPaymentTrackingScreen({
                       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <Calendar className="w-4 h-4" />
-                          Paid {formatDate(payment.paidDate)}
+                          Paid {formatTransactionDate(payment.paidDate, "en-US", { month: "short", day: "numeric", year: "numeric" })}
                         </span>
                         {payment.confirmationNumber && (
                           <span>Confirmation: {payment.confirmationNumber}</span>

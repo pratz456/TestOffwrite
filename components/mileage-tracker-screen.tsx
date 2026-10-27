@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
 import { businessMileageRateForDate, summarizeBusinessMileage } from "@/lib/tax-rules/mileage-rates";
+import { formatTransactionDate } from "@/lib/transactions/calendar-date";
 
 interface MileageTrip {
   id: string;
@@ -276,7 +277,7 @@ export function MileageTrackerScreen({ user, onBack }: MileageTrackerScreenProps
                             <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
                               <span className="flex items-center gap-1">
                                 <Calendar className="w-3 h-3" />
-                                {new Date(trip.date).toLocaleDateString()}
+                                {formatTransactionDate(trip.date)}
                               </span>
                               <span>{effectiveMiles} mi</span>
                               {trip.businessPurpose && (

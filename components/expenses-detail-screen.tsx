@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, CreditCard, DollarSign, FileText, TrendingUp, PieChart, Receipt } from 'lucide-react';
 import { formatCategory } from '@/lib/utils';
+import { formatTransactionDate } from '@/lib/transactions/calendar-date';
 
 interface Transaction {
   id: string;
@@ -116,7 +117,7 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
 
   // Monthly trend (simplified)
   const monthlyData = displayTransactions.reduce((acc, transaction) => {
-    const month = new Date(transaction.date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    const month = formatTransactionDate(transaction.date, 'en-US', { month: 'short', year: 'numeric' });
     if (!acc[month]) acc[month] = 0;
     acc[month] += transaction.amount;
     return acc;
@@ -246,7 +247,7 @@ export const ExpensesDetailScreen: React.FC<ExpensesDetailScreenProps> = ({
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                               <span>{formatCategory(transaction.category)}</span>
                               <span>•</span>
-                              <span>{new Date(transaction.date).toLocaleDateString()}</span>
+                              <span>{formatTransactionDate(transaction.date)}</span>
                               <span>•</span>
                               <span className={transaction.is_deductible ? 'text-emerald-600' : 'text-gray-600'}>
                                 {transaction.is_deductible ? 'Business' : 'Personal'}
