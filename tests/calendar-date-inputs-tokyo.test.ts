@@ -8,14 +8,9 @@ afterAll(() => {
   else process.env.TZ = previousTz;
 });
 
-const cases: Array<[CalendarInputKind, number, number, number, string, string | null]> = [
-  ['Date', 2026, 12, 31, '12/30/2026', '2026-12-30'],
-  ['Timestamp', 2026, 12, 31, '-', null],
-  ['{seconds, nanoseconds}', 2026, 12, 31, '-', null],
-  ['Date', 2027, 1, 1, '12/31/2026', '2026-12-31'],
-  ['Timestamp', 2027, 1, 1, '-', null],
-  ['{seconds, nanoseconds}', 2027, 1, 1, '-', null],
-];
+function reading(kind: CalendarInputKind, year: number, month: number, day: number) {
+  return readCalendarInput(kind, new Date(year, month - 1, day, 0, 0, 0));
+}
 
 describe('formatTransactionDate inputs in Asia/Tokyo', () => {
   it('confirms the process time zone is Asia/Tokyo', () => {
@@ -24,11 +19,29 @@ describe('formatTransactionDate inputs in Asia/Tokyo', () => {
     expect(new Date('2026-04-15T00:00:00Z').getHours()).toBe(9);
   });
 
-  // Known gap: a Date at Tokyo local midnight on Jan 1 2027 formats as Dec 31
-  // because safeYMD uses UTC getters. Timestamp and {seconds, nanoseconds}
-  // format as '-' because new Date(obj) is NaN. safeYMD is unchanged.
-  it.each(cases)('%s at local midnight %s-%s-%s formats as %s', (kind, year, month, day, formatted, ymd) => {
-    const actual = readCalendarInput(kind, new Date(year, month - 1, day, 0, 0, 0));
-    expect(actual).toEqual({ formatted, ymd });
+  // item 212. A Date at Tokyo local midnight is that calendar day. Today safeYMD reads UTC getters, so December 31 renders 12/30/2026 and January 1 renders 12/31/2026.
+  it.fails('item 212 formats a Date at Asia/Tokyo local midnight on 2026-12-31 as 12/31/2026', () => {
+    expect(reading('Date', 2026, 12, 31)).toEqual({ formatted: '12/31/2026', ymd: '2026-12-31' });
+  });
+
+  it.fails('item 212 formats a Date at Asia/Tokyo local midnight on 2027-01-01 as 1/1/2027', () => {
+    expect(reading('Date', 2027, 1, 1)).toEqual({ formatted: '1/1/2027', ymd: '2027-01-01' });
+  });
+
+  // item 217. A Timestamp or {seconds, nanoseconds} value at local midnight is that calendar day. Today both render '-' and safeYMD returns null.
+  it.fails('item 217 formats a Timestamp at Asia/Tokyo local midnight on 2026-12-31 as 12/31/2026', () => {
+    expect(reading('Timestamp', 2026, 12, 31)).toEqual({ formatted: '12/31/2026', ymd: '2026-12-31' });
+  });
+
+  it.fails('item 217 formats a Timestamp at Asia/Tokyo local midnight on 2027-01-01 as 1/1/2027', () => {
+    expect(reading('Timestamp', 2027, 1, 1)).toEqual({ formatted: '1/1/2027', ymd: '2027-01-01' });
+  });
+
+  it.fails('item 217 formats a seconds object at Asia/Tokyo local midnight on 2026-12-31 as 12/31/2026', () => {
+    expect(reading('{seconds, nanoseconds}', 2026, 12, 31)).toEqual({ formatted: '12/31/2026', ymd: '2026-12-31' });
+  });
+
+  it.fails('item 217 formats a seconds object at Asia/Tokyo local midnight on 2027-01-01 as 1/1/2027', () => {
+    expect(reading('{seconds, nanoseconds}', 2027, 1, 1)).toEqual({ formatted: '1/1/2027', ymd: '2027-01-01' });
   });
 });

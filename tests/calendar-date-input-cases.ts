@@ -4,14 +4,7 @@ import { formatTransactionDate } from '../lib/transactions/calendar-date';
 
 export type CalendarInputKind = 'Date' | 'Timestamp' | '{seconds, nanoseconds}';
 
-/**
- * Known gap. safeYMD sends values that are not strings through new Date(value),
- * then reads UTC getters. formatTransactionDate renders that UTC day, or '-'
- * when the Date is invalid. A Date built at Tokyo local midnight on Jan 1 2027
- * therefore formats as Dec 31. A Firestore Timestamp and a plain
- * {seconds, nanoseconds} object both come back as '-' because new Date(obj) is NaN.
- * This records the current behavior. safeYMD is unchanged.
- */
+/** A Date, a Firestore Timestamp, or a plain {seconds, nanoseconds} object for one local midnight. */
 export function calendarInputValue(kind: CalendarInputKind, localMidnight: Date): unknown {
   if (kind === 'Date') return localMidnight;
   const stamp = Timestamp.fromDate(localMidnight);
