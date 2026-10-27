@@ -8,6 +8,7 @@ import { waitForAuth } from "./auth";
 import { makeAuthenticatedRequest } from "./api-client";
 import type { ConsentRecord } from "@/lib/onboarding/consents";
 import { EDITABLE_PROFILE_FIELDS } from "./profile-fields";
+import { normalizeItemizationStatus } from "@/lib/profile/itemization-status";
 
 // Admin migration runs before SDK reads: Firestore cannot redact a secret field.
 async function prepareProfileRead() {
@@ -148,7 +149,7 @@ export async function getUserProfileSafe(): Promise<{ data: UserProfile | null; 
             consents: data.consents,
 
             // Phase 1: High Impact Fields
-            itemization_status: data.itemization_status,
+            itemization_status: normalizeItemizationStatus(data.itemization_status),
             business_start_date: data.business_start_date,
             home_office_sqft: data.home_office_sqft,
             total_home_sqft: data.total_home_sqft,
@@ -240,7 +241,7 @@ export async function getUserProfile(userId: string): Promise<{ data: UserProfil
           consents: data.consents,
 
           // Phase 1: High Impact Fields
-          itemization_status: data.itemization_status,
+          itemization_status: normalizeItemizationStatus(data.itemization_status),
           business_start_date: data.business_start_date,
           home_office_sqft: data.home_office_sqft,
           total_home_sqft: data.total_home_sqft,

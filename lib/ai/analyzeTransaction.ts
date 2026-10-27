@@ -8,6 +8,7 @@ import { getAIProviderStatus } from './provider-status';
 import { redactIdentifierStrings } from '@/lib/security/identifier-redaction';
 import { EXPENSE_CATEGORIES, groundTransactionAnalysis, redactTaxIdentifiers, transactionTaxPolicyPrompt, TRANSACTION_EVIDENCE_IDS, TRANSACTION_KINDS, type TransactionTaxMetadata } from './transaction-tax-policy';
 import { taxpayerContextForModel } from './taxpayer-context';
+import { normalizeItemizationStatus } from '@/lib/profile/itemization-status';
 import { ANALYSIS_DECISION_RULES } from './analysis-decision-rules';
 
 const OutputSchema = z.object({
@@ -383,7 +384,7 @@ export function convertToEnhancedContext(userProfile: any, transactionDate: stri
     annual_income_scale: userProfile.annual_income_scale,
     
     // Phase 1: High Impact Fields
-    itemization_status: userProfile.itemization_status,
+    itemization_status: normalizeItemizationStatus(userProfile.itemization_status),
     business_start_date: userProfile.business_start_date,
     years_in_business: yearsInBusiness,
     home_office_sqft: finiteNonnegative(userProfile.home_office_sqft),

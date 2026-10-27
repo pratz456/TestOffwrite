@@ -1,4 +1,5 @@
 import { adminDb } from "./admin";
+import { normalizeItemizationStatus } from "@/lib/profile/itemization-status";
 
 export interface UserProfile {
   id: string;
@@ -146,7 +147,7 @@ export async function getUserProfileServer(userId: string): Promise<{ data: User
           created_at: data.created_at,
           updated_at: data.updated_at,
 
-          itemization_status: data.itemization_status,
+          itemization_status: normalizeItemizationStatus(data.itemization_status),
           business_start_date: data.business_start_date,
           home_office_sqft: data.home_office_sqft,
           total_home_sqft: data.total_home_sqft,
@@ -281,7 +282,7 @@ export async function upsertUserProfileServer(
           updated_at: data.updated_at,
 
           // Phase 1: High Impact Fields
-          itemization_status: data.itemization_status,
+          itemization_status: normalizeItemizationStatus(data.itemization_status),
           business_start_date: data.business_start_date,
           home_office_sqft: data.home_office_sqft,
           total_home_sqft: data.total_home_sqft,

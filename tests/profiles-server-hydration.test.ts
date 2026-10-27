@@ -7,12 +7,14 @@ vi.mock('@/lib/firebase/admin', () => ({
       doc: (id: string) => ({
         id,
         get: async () => ({ id, exists: true, data: () => ({ ...state.profile }) }),
+        update: async (fields: Record<string, unknown>) => { Object.assign(state.profile, fields); },
+        set: async (fields: Record<string, unknown>) => { state.profile = { ...fields }; },
       }),
     }),
   },
 }));
 
-import { getUserProfileServer } from '@/lib/firebase/profiles-server';
+import { getUserProfileServer, upsertUserProfileServer } from '@/lib/firebase/profiles-server';
 
 beforeEach(() => {
   state.profile = {
@@ -56,5 +58,21 @@ describe('server profile hydration', () => {
       ein: '**-***6789',
     });
     expect(JSON.stringify(result.data)).not.toContain('private-ciphertext');
+  });
+
+  it('returns the current spelling when a stored choice uses the legacy spelling', async () => {
+    state.profile.itemization_status = 'itemized';
+    const result = await getUserProfileServer('owner');
+    expect(result.error).toBeNull();
+    expect(result.data?.itemization_status).toBe('itemize');
+    expect(state.profile.itemization_status).toBe('itemized');
+  });
+
+  it('returns the current spelling from an upsert that stored the legacy spelling', async () => {
+    state.profile.itemization_status = 'standard';
+    const result = await upsertUserProfileServer('owner', { name: 'Owner', itemization_status: 'itemized' });
+    expect(result.error).toBeNull();
+    expect(result.data?.itemization_status).toBe('itemize');
+    expect(state.profile.itemization_status).toBe('itemized');
   });
 });

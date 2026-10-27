@@ -35,6 +35,7 @@ vi.mock('react', async importOriginal => {
 });
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: harness.navigate, replace: harness.navigate }) }));
 vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: { id: 'snapshot-owner' }, loading: false }) }));
+import { ITEMIZATION_ESTIMATE_NOTE, ITEMIZATION_ESTIMATE_WARNING } from '../lib/profile/itemization-status';
 import { TaxFilingHubScreen } from '../components/tax-filing-hub-screen';
 import { TaxPreviewScreen } from '../components/tax-preview-screen';
 import { FileTaxesScreen } from '../components/file-taxes-screen';
@@ -462,5 +463,39 @@ describe('tax preview personal deduction and benefit contract', () => {
       expect.stringContaining('Social Security / RRB withholding($1,200)'),
       expect.stringContaining('Enhanced senior deduction($6,000)'),
     ]));
+  });
+});
+
+describe('tax preview itemization estimate note', () => {
+  const occurrences = (value: string, needle: string) => value.split(needle).length - 1;
+  function preview(form1040: Record<string, unknown>) {
+    harness.request.mockImplementation((url: string) => {
+      if (!url.includes('compute-1040')) return requests(url);
+      const data = snapshot();
+      Object.assign(data.form1040, form1040);
+      return Promise.resolve(response(data));
+    });
+  }
+  it('shows the short note under the tile before details and again on line 12 after Show', async () => {
+    preview({ deductionUsed: 16100, usingStandardDeduction: true, scheduleAIncomplete: true, calculationWarnings: [ITEMIZATION_ESTIMATE_WARNING] });
+    render(TaxPreviewScreen); await flush();
+    const closed = render(TaxPreviewScreen);
+    expect(occurrences(text(closed), ITEMIZATION_ESTIMATE_NOTE)).toBe(1);
+    const notice = walk(closed).find(node => Array.isArray(node.props?.warnings));
+    expect(notice?.props.warnings).toContain(ITEMIZATION_ESTIMATE_WARNING);
+    const details = walk(closed).find(node => node.type === 'details' && text(node.props?.children?.[0]).includes('What could change this estimate'));
+    expect(details?.props.open).not.toBe(true);
+    walk(closed).find(node => node.props?.onClick && text(node) === 'Show')!.props.onClick();
+    const open = render(TaxPreviewScreen);
+    expect(occurrences(text(open), ITEMIZATION_ESTIMATE_NOTE)).toBe(2);
+    expect(walk(open).find(node => Array.isArray(node.props?.warnings))?.props.warnings).toContain(ITEMIZATION_ESTIMATE_WARNING);
+  });
+  it('omits the short note when the estimate flag is false', async () => {
+    preview({ deductionUsed: 16100, usingStandardDeduction: true, scheduleAIncomplete: false, calculationWarnings: [] });
+    render(TaxPreviewScreen); await flush();
+    const closed = render(TaxPreviewScreen);
+    expect(occurrences(text(closed), ITEMIZATION_ESTIMATE_NOTE)).toBe(0);
+    walk(closed).find(node => node.props?.onClick && text(node) === 'Show')!.props.onClick();
+    expect(occurrences(text(render(TaxPreviewScreen)), ITEMIZATION_ESTIMATE_NOTE)).toBe(0);
   });
 });

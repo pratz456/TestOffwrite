@@ -104,6 +104,8 @@ export interface Form1040Result {
   itemizedDeductions: number;
   deductionUsed: number;           // Larger of standard vs itemized
   usingStandardDeduction: boolean;
+  /** True when the saved choice is itemize, or the standard deduction is not allowed, and Schedule A inputs are still incomplete. */
+  scheduleAIncomplete?: boolean;
   enhancedSeniorDeduction: number;
   qualifiedTipsDeduction: number;          // Schedule 1-A Part II
   qualifiedOvertimeDeduction: number;      // Schedule 1-A Part III

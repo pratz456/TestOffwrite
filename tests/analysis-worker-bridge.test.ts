@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { callAnalysisWorker, shouldProcessTask, shouldQueueBankWrite } from '../functions-analysis/src/bridge';
 
-import { hasAnalysisProfileChange } from '../functions-analysis/src/profile-fields';
+import { analysisProfileFieldsKey, hasAnalysisProfileChange } from '../functions-analysis/src/profile-fields';
 
 const posted = { amount: 40, pending: false, analysisStatus: 'pending' };
 describe('Firebase analysis event bridge', () => {
@@ -95,5 +95,22 @@ describe('profile refresh event selection', () => {
   });
   it('ignores object key order and absent versus null fields', () => {
     expect(hasAnalysisProfileChange(before, { ...before, state: null, business_vehicle: { business_use_percentage: 50, model: 'Example' } })).toBe(false);
+  });
+  const deductionChoice = { profession: 'Designer', income: '90000', itemized: true };
+  it('gives the legacy spelling and the current spelling the same key and queues no refresh', () => {
+    const legacy = { ...deductionChoice, itemization_status: 'itemized' };
+    const current = { ...deductionChoice, itemization_status: 'itemize' };
+    expect(analysisProfileFieldsKey(legacy)).toBe(analysisProfileFieldsKey(current));
+    expect(hasAnalysisProfileChange(legacy, current)).toBe(false);
+    const legacyField = { ...deductionChoice, itemization_status: 'itemize', itemized: 'itemized' };
+    const currentField = { ...deductionChoice, itemization_status: 'itemize', itemized: 'itemize' };
+    expect(analysisProfileFieldsKey(legacyField)).toBe(analysisProfileFieldsKey(currentField));
+    expect(hasAnalysisProfileChange(legacyField, currentField)).toBe(false);
+  });
+  it('gives itemize and standard different keys and queues a refresh', () => {
+    const itemize = { ...deductionChoice, itemization_status: 'itemize' };
+    const standard = { ...deductionChoice, itemization_status: 'standard' };
+    expect(analysisProfileFieldsKey(itemize)).not.toBe(analysisProfileFieldsKey(standard));
+    expect(hasAnalysisProfileChange(itemize, standard)).toBe(true);
   });
 });

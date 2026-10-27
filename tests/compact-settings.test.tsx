@@ -268,4 +268,29 @@ describe('compact settings preserve profile editing and account access', () => {
     state.tab = 'payment'; await mount();
     expect(walk(render()).find(node => node.props.title === 'Subscription')?.props.defaultOpen).toBe(true);
   });
+  it('saves the itemized deductions choice with the current spelling', async () => {
+    state.tab = 'tax'; await mount();
+    const select = field('Itemization Status');
+    const choice = (select.props.options as { value: string; label: string }[]).find(option => option.label === 'Itemized Deductions');
+    expect(choice).toBeDefined();
+    select.props.onValueChange!(choice!.value);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(state.save.mock.calls[0][1].itemization_status).toBe('itemize');
+  });
+  it('summarizes a loaded itemize choice as itemized deductions', async () => {
+    state.tab = 'tax';
+    state.load.mockResolvedValueOnce({ data: { ...saved, itemization_status: 'itemize' }, error: null });
+    const tree = await mount();
+    expect(walk(tree).find(node => node.props.title === 'Tax Preferences')?.props.summary).toBe('Itemized deductions');
+  });
+  it('loads a legacy stored choice as the current spelling and saves that spelling with the rest of the form', async () => {
+    state.load.mockResolvedValueOnce({ data: { ...saved, itemization_status: 'itemized' }, error: null });
+    await mount();
+    await click('TaxTax');
+    expect(field('Itemization Status').props.value).toBe('itemize');
+    await click('ProfileProfile');
+    change('Full Name', 'Renamed Person');
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(state.save.mock.calls[0][1]).toMatchObject({ name: 'Renamed Person', itemization_status: 'itemize' });
+  });
 });

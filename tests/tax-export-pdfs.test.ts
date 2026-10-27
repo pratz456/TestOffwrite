@@ -5,8 +5,9 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import type { UserProfile } from '../lib/firebase/profiles-server';
 import type { Asset } from '../lib/reports/calc4562';
 import { reviewedPersonalDeductionOrganizer } from './fixtures/personal-deductions';
+import { ITEMIZATION_ESTIMATE_NOTE } from '../lib/profile/itemization-status';
 import { resetRateLimitStore } from './fixtures/rate-limit-store';
-const state = vi.hoisted(() => ({ records: {} as Record<string, Record<string, unknown>[]>, transactions: [] as Record<string, unknown>[], assets: [] as Asset[], fail: '', queries: [] as string[], extraWarnings: [] as string[] }));
+const state = vi.hoisted(() => ({ records: {} as Record<string, Record<string, unknown>[]>, transactions: [] as Record<string, unknown>[], assets: [] as Asset[], fail: '', queries: [] as string[], extraWarnings: [] as string[], itemization: '' }));
 vi.mock('@/lib/firebase/api-auth', () => ({ getAuthenticatedUser: async () => ({ user: { uid: 'export-owner' } }) }));
 vi.mock('@/lib/security/rate-limit-store', () => import('./fixtures/rate-limit-store'));
 vi.mock('@/app/api/_lib/auth', () => ({ getUserFromReqOrThrow: async () => ({ uid: 'export-owner' }) }));
@@ -22,7 +23,7 @@ vi.mock('@/lib/tax-rules/compute-1040', async importOriginal => {
 vi.mock('@/lib/subscriptions/feature-access', () => ({ requireFeatureAccess: async () => null }));
 vi.mock('@/lib/reports/export-records', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/reports/export-records')>(), readOwnedTransactions: async () => { if (state.fail === 'transactions') throw new Error('private failure'); return state.transactions; } }));
 vi.mock('@/lib/firebase/transactions-server', () => ({ getTransactionsServer: async () => ({ data: state.transactions, error: state.fail === 'transactions' ? new Error('private failure') : null }) }));
-vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { name: 'Synthetic Taxpayer', profession: 'Consultant', filing_status: 'single', primary_work_location: 'Home Office' }, error: state.fail === 'profile' ? new Error('private failure') : null }) }));
+vi.mock('@/lib/firebase/profiles-server', () => ({ getUserProfileServer: async () => ({ data: { name: 'Synthetic Taxpayer', profession: 'Consultant', filing_status: 'single', primary_work_location: 'Home Office', ...(state.itemization ? { itemization_status: state.itemization } : {}) }, error: state.fail === 'profile' ? new Error('private failure') : null }) }));
 vi.mock('@/lib/firebase/settings-server', () => ({
   getAssetsSettings: async () => ({ data: state.assets, error: state.fail === 'assets' ? new Error('private failure') : null }),
   getScheduleCSettings: async () => state.fail === 'assets'
@@ -60,7 +61,7 @@ function inspectText() {
     }
   } };
 }
-beforeEach(() => { vi.restoreAllMocks(); resetRateLimitStore(); state.records = { gross_receipts: [record({ amount: 100000 })] }; state.transactions = []; state.assets = []; state.fail = ''; state.queries = []; state.extraWarnings = []; });
+beforeEach(() => { vi.restoreAllMocks(); resetRateLimitStore(); state.records = { gross_receipts: [record({ amount: 100000 })] }; state.transactions = []; state.assets = []; state.fail = ''; state.queries = []; state.extraWarnings = []; state.itemization = ''; });
 
 describe('Schedule C real PDF and request integrity', () => {
   it.each([2027, 2026.5, '2026junk', '', null])('rejects unsupported/malformed year %s before fetching records', async year => {
@@ -216,6 +217,24 @@ describe('Form 1040 planning PDF prints its review notes', () => {
     expect(text).not.toMatch(/900000001|900-00-0001|900000002|900-00-0002|000123456789|071000013|123456|900-00-0003/);
     expect(text).not.toContain('SSN not filled in');
     checkFormBounds(view.spy); saveArtifact('form-1040-2026-masked-identifiers', new Uint8Array(await response.arrayBuffer()));
+  });
+
+  it('prints the short itemization note beside line 12 when the saved choice is itemize', async () => {
+    state.itemization = 'itemize';
+    const view = inspectText();
+    const response = await form1040(request1040());
+    expect(response.status).toBe(200);
+    const drawn = view.text();
+    expect(view.spy.mock.calls.filter(call => call[0] === ITEMIZATION_ESTIMATE_NOTE)).toHaveLength(1);
+    expect(drawn).toContain('You chose to itemize.');
+    checkFormBounds(view.spy);
+  });
+
+  it('omits the short itemization note when no deduction choice is saved', async () => {
+    const view = inspectText();
+    expect((await form1040(request1040())).status).toBe(200);
+    expect(view.text()).not.toContain(ITEMIZATION_ESTIMATE_NOTE);
+    expect(view.spy.mock.calls.filter(call => call[0] === ITEMIZATION_ESTIMATE_NOTE)).toHaveLength(0);
   });
 
   it('never prints a refund/balance page without its review notes block', async () => {

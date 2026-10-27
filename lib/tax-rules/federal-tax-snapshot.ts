@@ -13,6 +13,7 @@ import { assertGenericDependentCreditScope } from './credit-scope';
 import { readSocialSecurityFacts, calculateSocialSecurityWorksheet, assertSocialSecurityAdjustmentRecords, SocialSecurityReviewRequiredError } from './social-security';
 import { calculateCapitalGainCharacter, hasCapitalGainAmounts, readCapitalGainFacts } from './capital-gains';
 import { businessTaxNotices, readProfileLocation } from './state';
+import { ITEMIZATION_ESTIMATE_WARNING, normalizeItemizationStatus } from '@/lib/profile/itemization-status';
 
 interface FederalTaxSnapshotInput {
   taxYear: number;
@@ -153,6 +154,10 @@ export function buildFederalTaxSnapshot(input: FederalTaxSnapshotInput) {
     stateCode: location.state, taxableSocialSecurityBenefits: socialSecurity,
   }, priorYearTotalTax > 0 ? priorYearTotalTax : undefined);
   result.calculationWarnings.push(...reconciliation.warnings, ...capitalGains.warnings, ...scheduleC.warnings);
+  const scheduleAIncomplete = normalizeItemizationStatus(profile.itemization_status) === 'itemize'
+    || result.personalDeductions?.standard.standardDeductionAllowed === false;
+  result.scheduleAIncomplete = scheduleAIncomplete;
+  if (scheduleAIncomplete) result.calculationWarnings.push(ITEMIZATION_ESTIMATE_WARNING);
   if (dividends || iraDist || rental) {
     result.calculationWarnings.push('Organizer income amounts require tax review: qualified-dividend character, retirement basis and rental treatment are not fully modeled.');
   }
