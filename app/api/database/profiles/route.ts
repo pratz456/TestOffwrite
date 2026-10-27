@@ -6,8 +6,19 @@ import { EDITABLE_PROFILE_FIELDS, publicProfile } from '@/lib/firebase/profile-f
 import { parseConsentRecord, storedDocumentImportSignature } from '@/lib/onboarding/consents';
 import { encryptSensitive } from '@/lib/security/utils';
 import { isLocalAccountPreview } from '@/lib/firebase/local-account-preview';
+import { normalizeItemizationStatus } from '@/lib/profile/itemization-status';
 
 class ProfileInputError extends Error {}
+
+/** Accept the current spelling and the legacy spelling. Store only the current spelling. Leave an empty choice unchanged. Drop any other value so the rest of the save still lands. */
+function applyItemizationStatusWrite(body: Record<string, unknown>) {
+  if (!Object.hasOwn(body, 'itemization_status')) return;
+  const value = body.itemization_status;
+  if (value === '') return;
+  const normalized = normalizeItemizationStatus(value);
+  if (normalized === undefined) delete body.itemization_status;
+  else body.itemization_status = normalized;
+}
 
 function encryptedEinUpdate(value: unknown, existingLast4?: unknown): { error?: string; fields?: Record<string, unknown>; omit?: boolean } {
   if (typeof value !== 'string') return { error: 'EIN must be a string' };
@@ -99,6 +110,7 @@ export async function POST(request: NextRequest) {
       const snapshot = await transaction.get(ref);
       const ein = 'ein' in body ? encryptedEinUpdate(body.ein, snapshot.data()?.ein_last4) : null;
       if (ein?.error) throw new ProfileInputError(ein.error);
+      applyItemizationStatusWrite(body);
       const profileFields = { ...body };
       delete profileFields.ein;
       const stored = snapshot.exists ? snapshot.data()?.consents : undefined;

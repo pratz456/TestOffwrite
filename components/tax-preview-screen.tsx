@@ -10,6 +10,7 @@ import { TaxCalculationNotice } from "@/components/tax-calculation-notice";
 import { SUPPORTED_TAX_YEARS } from "@/lib/tax-rules/federal-year-rules";
 import type { BusinessTaxNotice, StateTaxComponents, StateTaxLine } from "@/lib/tax-rules/state";
 import { makeAuthenticatedRequest } from "@/lib/firebase/api-client";
+import { ITEMIZATION_ESTIMATE_NOTE } from "@/lib/profile/itemization-status";
 
 interface Props {
   user: { id: string; email?: string };
@@ -24,6 +25,7 @@ interface TaxLine {
   bold?: boolean;
   negative?: boolean;
   highlight?: 'green' | 'orange';
+  note?: string;
 }
 
 const fmt = (n: number, opts?: { abs?: boolean }) => {
@@ -232,6 +234,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                   <dt className="text-xs text-muted-foreground">Personal deduction</dt>
                   <dd className="mt-1 break-words text-base font-semibold tracking-tight tabular-nums sm:text-lg">{amountOrDash(f1040.deductionUsed)}</dd>
                   <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{f1040.usingStandardDeduction ? "Standard deduction" : "Itemized deduction"}</p>
+                  {f1040.scheduleAIncomplete ? <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{ITEMIZATION_ESTIMATE_NOTE}</p> : null}
                 </div>
                 <div className="min-w-0 p-3 sm:px-5">
                   <dt className="text-xs text-muted-foreground">Payments + credits</dt>
@@ -403,7 +406,7 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                     ]},
                     { section: "AGI & DEDUCTIONS", lines: [
                       { num: "11", label: "Adjusted Gross Income", value: f1040.agi, bold: true },
-                      { num: "12", label: `${f1040.usingStandardDeduction ? "Standard" : "Itemized"} deduction`, value: f1040.deductionUsed, negative: true },
+                      { num: "12", label: `${f1040.usingStandardDeduction ? "Standard" : "Itemized"} deduction`, value: f1040.deductionUsed, negative: true, note: f1040.scheduleAIncomplete ? ITEMIZATION_ESTIMATE_NOTE : undefined },
                       { num: Number(year) >= 2025 ? "13a" : "13", label: "QBI deduction (§199A)", value: f1040.qbiDeduction, negative: true },
                       { num: "1-A", label: "Enhanced senior deduction", value: Number(year) >= 2025 ? f1040.enhancedSeniorDeduction : undefined, negative: true },
                       { num: "1-A", label: "Qualified tips deduction", value: f1040.qualifiedTipsDeduction || undefined, negative: true },
@@ -441,7 +444,10 @@ export function TaxPreviewScreen({ user, onNavigate }: Props) {
                         <div key={i} className={`flex items-center justify-between px-4 py-2 border-b border-border/50 last:border-0 ${line.highlight ? 'bg-muted/40' : ''}`}>
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="text-xs text-muted-foreground font-mono w-6 shrink-0">{line.num}</span>
-                            <span className={`text-sm leading-snug ${line.bold ? "font-semibold text-foreground" : "text-muted-foreground"}`}>{line.label}</span>
+                            <span className="min-w-0">
+                              <span className={`text-sm leading-snug ${line.bold ? "font-semibold text-foreground" : "text-muted-foreground"}`}>{line.label}</span>
+                              {line.note ? <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">{line.note}</span> : null}
+                            </span>
                           </div>
                           <span className={`text-sm font-mono tabular-nums ml-4 shrink-0 ${line.bold ? "font-bold" : ""} ${line.highlight === 'green' ? "text-foreground" : line.highlight === 'orange' ? "text-foreground" : line.negative ? "text-muted-foreground" : ""}`}>
                             {(line.value || 0) > 0 ? (line.negative ? `(${fmt(line.value!, { abs: true })})` : fmt(line.value!)) : (line.value || 0) < 0 ? fmt(line.value!) : "$0"}

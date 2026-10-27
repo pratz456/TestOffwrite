@@ -133,6 +133,12 @@ describe.each(readers)('profile settings persistence through $label', ({ read })
     expect(firestore.record).toMatchObject({ ...cleared, legacy_tax_note: 'Keep this separate field' });
   });
 
+  it('returns the current spelling when the stored choice uses the legacy spelling', async () => {
+    firestore.record.itemization_status = 'itemized';
+    expect((await read()).data?.itemization_status).toBe('itemize');
+    expect(firestore.record.itemization_status).toBe('itemized');
+  });
+
   it('keeps absent fields undefined instead of inventing amounts or clearing persisted values on partial updates', async () => {
     firestore.record = { name: 'Minimal profile', email: 'synthetic@example.test' };
     const loaded = await read();
@@ -146,5 +152,24 @@ describe.each(readers)('profile settings persistence through $label', ({ read })
     const post = firestore.prepare.mock.calls.find(([, options]) => options?.method === 'POST');
     expect(JSON.parse(String(post?.[1]?.body))).not.toHaveProperty('w2_federal_withheld');
     expect((await read()).data?.w2_federal_withheld).toBe(900);
+  });
+});
+
+describe('deduction choice read normalization', () => {
+  it.each([
+    ['itemize', 'itemize'],
+    ['standard', 'standard'],
+    ['', undefined],
+    ['Itemized', undefined],
+  ] as const)('maps stored %j to %j', async (stored, expected) => {
+    firestore.record.itemization_status = stored;
+    expect((await getUserProfile('profile-owner')).data?.itemization_status).toBe(expected);
+    expect((await getUserProfileSafe()).data?.itemization_status).toBe(expected);
+  });
+
+  it('leaves a missing choice undefined', async () => {
+    delete firestore.record.itemization_status;
+    expect((await getUserProfile('profile-owner')).data?.itemization_status).toBeUndefined();
+    expect((await getUserProfileSafe()).data?.itemization_status).toBeUndefined();
   });
 });

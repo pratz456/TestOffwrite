@@ -5,6 +5,7 @@
  * keeps that decision behind the user's confirmation.
  */
 import type { UserContext } from './analyzeTransaction';
+import { normalizeItemizationStatus } from '@/lib/profile/itemization-status';
 
 export type PriorDecision = 'business' | 'personal' | 'unresolved';
 
@@ -201,7 +202,7 @@ export function buildTaxpayerContext(input: {
       naicsCode: typeof profile.naics_code === 'string' ? profile.naics_code.trim().slice(0, 12) || null : null,
       businessPurpose: typeof profile.business_purpose === 'string' ? profile.business_purpose.trim().slice(0, 500) || null : null,
       filingStatus: typeof profile.filing_status === 'string' ? profile.filing_status : null,
-      itemizationStatus: profile.itemization_status ?? null,
+      itemizationStatus: normalizeItemizationStatus(profile.itemization_status) ?? null,
       professionalLicenseCount: Array.isArray(profile.professional_licenses) ? profile.professional_licenses.length : 0,
       taxYearRecords: input.taxYearRecords ?? null,
     },

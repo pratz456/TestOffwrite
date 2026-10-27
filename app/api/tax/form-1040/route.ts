@@ -38,6 +38,7 @@ import { getRecordedQuarterlyPayments, totalRecordedPayments } from '@/lib/fireb
 import { getFederalTaxRules, SUPPORTED_TAX_YEARS } from '@/lib/tax-rules/federal-year-rules';
 import { getScheduleCSettings } from '@/lib/firebase/settings-server';
 import { readIncomeReconciliationDecisions } from '@/lib/firebase/income-reconciliations-server';
+import { ITEMIZATION_ESTIMATE_NOTE } from '@/lib/profile/itemization-status';
 import { incomeReconciliationReviewBody } from '@/lib/tax-rules/income-reconciliation-response';
 import { scheduleCReviewCode } from '@/lib/tax-rules/schedule-c-profit';
 
@@ -267,6 +268,10 @@ async function page2(doc: PDFDocument, f: PDFFont, bf: PDFFont, d: Record<string
   y = banner(p, 'Standard Deduction or Itemized Deductions', y, f, bf);
   const hasSchedule1A = Number(yr) >= 2025;
   y = row(p, hasSchedule1A ? '12e' : '12', `${d.usingStandardDeduction ? 'Standard deduction (reviewed age, blindness and dependency)' : 'Itemized deductions (Schedule A)'}`, y, d.deductionUsed, f, bf, false);
+  if (d.scheduleAIncomplete) {
+    p.drawText(ITEMIZATION_ESTIMATE_NOTE, { x: ML + 24, y: y - 9, size: 7, font: f, color: GRAY });
+    y -= 12;
+  }
   const nonItemizerCharity = d.nonItemizerCharitableDeduction || 0;
   // §170(p) applies from 2026; the final 2026 form line is not published, so the row is labeled by section.
   if (nonItemizerCharity > 0) y = row(p, '12*', 'Charitable cash gifts for non-itemizers (section 170(p); line per final 2026 form)', y, nonItemizerCharity, f, bf, false);

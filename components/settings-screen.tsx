@@ -16,6 +16,7 @@ import {
   MapPin
 } from '@/lib/icons';
 import { getUserProfile, upsertUserProfile } from '@/lib/firebase/profiles';
+import { normalizeItemizationStatus } from '@/lib/profile/itemization-status';
 import { hasAnalysisProfileChange } from '@/functions-analysis/src/profile-fields';
 import { useSubscription } from '@/lib/hooks/use-subscription';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -922,7 +923,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           .join(', ');
       }
 
-      const profileData = {
+      const itemization_status: 'itemize' | 'standard' | '' = profile.itemization_status === 'itemize' || profile.itemization_status === 'standard' || profile.itemization_status === ''
+        ? profile.itemization_status
+        : profile.itemization_status as 'itemize' | 'standard' | '';
+      const profileData: {
+        itemization_status: 'itemize' | 'standard' | '';
+        [key: string]: unknown;
+      } = {
         user_id: user.id,
         email: profile.email,
         name: profile.name,
@@ -943,7 +950,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         home_office_method: profile.home_office_method,
         vehicle_business_use_percentage: profile.vehicle_business_use_percentage,
         vehicle_deduction_method: profile.vehicle_deduction_method,
-        itemization_status: profile.itemization_status,
+        itemization_status,
         health_insurance_premiums: profile.health_insurance_premiums,
         sep_ira_contribution: profile.sep_ira_contribution,
         solo_401k_contribution: profile.solo_401k_contribution,
@@ -1157,7 +1164,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             home_office_method: existingProfile.home_office_method || '',
             vehicle_business_use_percentage: existingProfile.vehicle_business_use_percentage ?? undefined,
             vehicle_deduction_method: existingProfile.vehicle_deduction_method || '',
-            itemization_status: existingProfile.itemization_status || '',
+            itemization_status: normalizeItemizationStatus(existingProfile.itemization_status) ?? '',
             health_insurance_premiums: existingProfile.health_insurance_premiums ?? undefined,
             sep_ira_contribution: existingProfile.sep_ira_contribution ?? undefined,
             solo_401k_contribution: existingProfile.solo_401k_contribution ?? undefined,
@@ -1524,7 +1531,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </SettingsSection>
 
             {/* Tax Preferences */}
-            <SettingsSection title="Tax Preferences" icon={FileText} summary={profile.itemization_status === 'standard' ? 'Standard deduction' : profile.itemization_status === 'itemized' ? 'Itemized deductions' : 'Deduction choice & prior-year tax'}>
+            <SettingsSection title="Tax Preferences" icon={FileText} summary={profile.itemization_status === 'standard' ? 'Standard deduction' : profile.itemization_status === 'itemize' ? 'Itemized deductions' : 'Deduction choice & prior-year tax'}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <SettingsField label="Itemization Status">
                   <SimpleSelectWrapper
@@ -1533,8 +1540,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     placeholder="Select status"
                     options={[
                       { value: 'standard', label: 'Standard Deduction' },
-                      { value: 'itemized', label: 'Itemized Deductions' }
-                    ]}
+                      { value: 'itemize', label: 'Itemized Deductions' }
+                    ] satisfies { value: 'itemize' | 'standard'; label: string }[]}
                   />
                 </SettingsField>
                 <SettingsField label="Prior Year Total Tax" hint="From last year's return">
