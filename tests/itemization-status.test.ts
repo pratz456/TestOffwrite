@@ -196,7 +196,7 @@ describe('legacy spelling stays out of product comparisons', () => {
       .filter(Boolean);
     const pattern = /itemization_status\s*(:|===?|!==?)\s*['"]itemized['"]|value:\s*['"]itemized['"]/g;
     const allowed = new Set([
-      'lib/profile/itemization-status.ts',
+      'functions-analysis/src/itemization-status.ts',
       'scripts/production-itemization-status-migration.mjs',
     ]);
     const hits = files.filter(file => {

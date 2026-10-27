@@ -1,3 +1,5 @@
+import { normalizeItemizationStatus } from './itemization-status';
+
 /** Shared by the event bridge and Settings. Display, billing and sync metadata are excluded. */
 export const ANALYSIS_PROFILE_FIELDS = [
   'profession', 'year_of_birth', 'income', 'state', 'filing_status', 'business_entity_type', 'business_entity',
@@ -17,8 +19,13 @@ function canonical(value: unknown): unknown {
   return value ?? null;
 }
 
+function valueForAnalysisKey(field: string, value: unknown): unknown {
+  if (field !== 'itemization_status' && field !== 'itemized') return value;
+  return normalizeItemizationStatus(value) ?? value;
+}
+
 export function analysisProfileFieldsKey(profile: Record<string, unknown>): string {
-  return JSON.stringify(ANALYSIS_PROFILE_FIELDS.map(field => canonical(profile[field])));
+  return JSON.stringify(ANALYSIS_PROFILE_FIELDS.map(field => canonical(valueForAnalysisKey(field, profile[field]))));
 }
 
 export function hasAnalysisProfileChange(before: Record<string, unknown> | undefined, after: Record<string, unknown> | undefined): boolean {
