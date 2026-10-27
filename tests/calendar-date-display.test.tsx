@@ -22,8 +22,9 @@ afterAll(() => {
 vi.mock('next/navigation', () => ({ notFound: () => { throw new Error('missing post'); } }));
 vi.mock('@/lib/firebase/auth-context', () => ({ useAuth: () => ({ user: null, loading: false }) }));
 
-const DATE_LOCALE_PATTERN = /new Date\([^)]*\.(date|dueDate|publishedAt|deadline)[^)]*\)\.toLocale/;
-const INTL_DATE_PATTERN = /new Intl\.DateTimeFormat\((?![^)]*timeZone)[^)]*\)\.format\(\s*new Date\([^)]*\.(date|dueDate|publishedAt|deadline)/;
+const DATE_FIELD = 'date|dueDate|publishedAt|deadline|paidDate|authorized_date|statutoryDueDate|reviewedAt';
+const DATE_LOCALE_PATTERN = new RegExp(`new Date\\([^)]*\\.(${DATE_FIELD})[^)]*\\)\\.toLocale`);
+const INTL_DATE_PATTERN = new RegExp(`new Intl\\.DateTimeFormat\\((?![^)]*timeZone)[^)]*\\)\\.format\\(\\s*new Date\\([^)]*\\.(${DATE_FIELD})`);
 
 /** Full timestamps. The simple date field regex also matches `.datetime`. */
 const TIMESTAMP_ALLOWLIST: { file: string; lineIncludes: string }[] = [
