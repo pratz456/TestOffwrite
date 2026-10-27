@@ -243,6 +243,13 @@ describe('stripe test clock filing check', () => {
     expect(() => assertRenewalPremiumCharge(invoice([{ id: PREMIUM, amount: 11111 }], 'draft'), price)).toThrow(/expected paid/);
   });
 
+  it('throws when the renewal invoice has a Premium line plus an unrelated second line', () => {
+    expect(() => assertRenewalInvoice(invoice([
+      { id: PREMIUM, amount: 11111 },
+      { id: 'price_unrelated_test', amount: 33333 },
+    ], 'paid'), PREMIUM, FILING)).toThrow('Renewal invoice check failed: renewal invoice lines are [price_premium_fixture, price_unrelated_test], expected exactly one Premium line.');
+  });
+
   it('fails when a filing line is on the renewal invoice', () => {
     expect(() => assertRenewalInvoice(invoice([
       { id: PREMIUM, amount: 11111 },
