@@ -164,8 +164,24 @@ describe('mileage rate dates in America/Los_Angeles', () => {
     expect(await prices(losAngelesEvening, { timeZone: 'America/Los_Angeles' })).toEqual({ fromRead: 0.725, direct: 0.725 });
   });
 
-  // today the code returns 0.725
-  it.fails('item 212 prices 2026-06-30T22:00Z saved with time zone Pacific/Guam at 0.76', async () => {
-    expect(await prices(ambiguousInstant, { timeZone: 'Pacific/Guam' })).toEqual({ fromRead: 0.76, direct: 0.76 });
+  // today the code returns 0.725 (the UTC day is June 30). Only the Los Angeles cases return 0.76 today.
+  it.fails('item 212 prices 2026-06-30T22:00Z saved with time zone Pacific/Guam at 0.76 and records the saved trip zone', async () => {
+    const saved = { date: ambiguousInstant, timeZone: 'Pacific/Guam' };
+    firestore.docs = [trip('guam', ambiguousInstant, { timeZone: 'Pacific/Guam' })];
+    const read = await getMileageTrips('owner', 2026);
+    const returned = read.data[0] as { date?: unknown; zoneSource?: unknown } | undefined;
+    const fromPeriod = returned ? businessMileageRateForDate(returned.date as never) : null;
+    const directPeriod = businessMileageRateForDate(saved as never);
+    const view = (period: { ratePerMile?: unknown; zoneSource?: unknown } | null, carrier?: { zoneSource?: unknown }) => ({
+      ratePerMile: typeof period?.ratePerMile === 'number' ? period.ratePerMile : null,
+      zoneSource: period?.zoneSource === 'saved trip zone' || carrier?.zoneSource === 'saved trip zone' ? 'saved trip zone' : undefined,
+    });
+    expect({
+      fromRead: view(fromPeriod, returned),
+      direct: view(directPeriod),
+    }).toEqual({
+      fromRead: { ratePerMile: 0.76, zoneSource: 'saved trip zone' },
+      direct: { ratePerMile: 0.76, zoneSource: 'saved trip zone' },
+    });
   });
 });
