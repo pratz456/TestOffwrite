@@ -128,10 +128,14 @@ const nextConfig: NextConfig = {
     ];
   },
 
-  // /login is a common entry URL; the working page is /auth/login
+  // /login is a common entry URL; the working page is /auth/login.
+  // /signup, /sign-up, and /register are the same kind of entry URL for /auth/sign-up.
   async redirects() {
     return [
       { source: "/login", destination: "/auth/login", permanent: false },
+      { source: "/signup", destination: "/auth/sign-up", permanent: false },
+      { source: "/sign-up", destination: "/auth/sign-up", permanent: false },
+      { source: "/register", destination: "/auth/sign-up", permanent: false },
     ];
   },
 
